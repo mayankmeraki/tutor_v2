@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Teaching Session</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+  <div id="app">
+
+    <!-- ═══ Setup Panel ═══ -->
+    <div id="setup-panel">
+      <div class="setup-inner">
+        <h1 class="setup-title">Teaching Session</h1>
+        <p class="setup-subtitle">Enter your name and start learning with your AI tutor.</p>
+
+        <div class="setup-form">
+          <div class="setup-row">
+            <label for="student-name">Your Name</label>
+            <input type="text" id="student-name" placeholder="e.g. Alex" autocomplete="off">
+          </div>
+          <div class="setup-row">
+            <label for="course-id">Course</label>
+            <select id="course-id">
+              <option value="">Select a course...</option>
+              <option value="2" selected>MIT 8.04 Quantum Physics I, 2013</option>
+              <option value="4">Quantum Mechanics (4 lessons)</option>
+            </select>
+          </div>
+          <div class="setup-row" style="display:none">
+            <label for="api-url">API URL</label>
+            <input type="text" id="api-url" value="http://localhost:3001" placeholder="http://localhost:3001">
+          </div>
+
+          <div class="setup-status" id="setup-status"></div>
+        </div>
+
+        <!-- Session list (shown when sessions exist) -->
+        <div id="session-list-panel" class="hidden">
+          <div id="session-list-active"></div>
+          <div id="session-list-completed"></div>
+          <div class="session-new-divider">
+            <div class="setup-row">
+              <label for="student-intent">What do you want to learn? <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+              <textarea id="student-intent" rows="2" placeholder="e.g. I want to understand the photoelectric effect, or leave blank to follow the course"></textarea>
+            </div>
+            <button class="btn btn-primary setup-start" id="btn-new-session">New Session</button>
+          </div>
+        </div>
+
+        <!-- First-time student (shown when no sessions) -->
+        <div id="session-first-time" class="hidden">
+          <div class="setup-row">
+            <label for="student-intent-first">What do you want to learn? <span style="color:var(--text-dim);font-weight:400">(optional)</span></label>
+            <textarea id="student-intent-first" rows="2" placeholder="e.g. I want to understand the photoelectric effect, or leave blank to follow the course"></textarea>
+          </div>
+          <button class="btn btn-primary setup-start" id="btn-start-session">Start Session</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Teaching Layout ═══ -->
+    <div id="teaching-layout" class="hidden">
+
+      <!-- Top Bar -->
+      <header id="top-bar">
+        <div class="top-left">
+          <button id="btn-back" class="icon-btn">← Setup</button>
+          <span class="course-title" id="course-title">Teaching Session</span>
+        </div>
+        <div class="top-right">
+          <span id="session-timer">0:00</span>
+          <button class="icon-btn" id="btn-toggle-sidebar">Sidebar</button>
+        </div>
+      </header>
+
+      <!-- Main Layout -->
+      <main id="main-layout">
+        <div id="canvas-column">
+          <!-- Spotlight Panel — persistent asset viewer above chat -->
+          <div id="spotlight-panel">
+            <div class="spotlight-header">
+              <span id="spotlight-title">Resource</span>
+              <button class="icon-btn" id="spotlight-close" onclick="hideSpotlight()">✕</button>
+            </div>
+            <div id="spotlight-content"></div>
+          </div>
+          <!-- Canvas Stream — single infinite scroll for all content -->
+          <section id="canvas-stream">
+            <!-- All blocks flow here linearly -->
+          </section>
+        </div>
+
+        <!-- Sidebar -->
+        <aside id="knowledge-sidebar">
+          <div class="sidebar-header">
+            <h3 id="sidebar-section-label">SESSION</h3>
+            <span id="sidebar-status">Loading...</span>
+          </div>
+          <div class="sidebar-divider"></div>
+
+          <!-- Director's Teaching Plan -->
+          <div id="plan-progress" class="hidden">
+            <div id="plan-objective"></div>
+            <h4 class="plan-header">TEACHING PLAN</h4>
+            <div id="plan-steps"></div>
+            <div class="sidebar-divider"></div>
+          </div>
+
+          <!-- Course Outline (collapsible) -->
+          <div id="course-outline-section">
+            <button class="sidebar-toggle" id="btn-toggle-course-outline">
+              <span class="toggle-icon">&#9656;</span> COURSE OUTLINE
+            </button>
+            <div class="course-progress-list collapsed" id="course-progress-list">
+              <!-- Populated dynamically -->
+            </div>
+          </div>
+
+          <div class="sidebar-divider"></div>
+          <div class="sidebar-stats">
+            <div id="stat-time">0:00</div>
+            <div id="stat-responses">0 responses</div>
+            <div id="stat-session">Session 1</div>
+          </div>
+        </aside>
+      </main>
+    </div>
+  </div>
+
+  <!-- Simulation Fullscreen Overlay -->
+  <div id="sim-fullscreen-overlay" class="hidden">
+    <div class="sim-fullscreen-header">
+      <span class="sim-fullscreen-title" id="sim-fullscreen-title">Simulation</span>
+      <button class="icon-btn" id="sim-fullscreen-close">&#10005; Close</button>
+    </div>
+    <iframe id="sim-fullscreen-iframe" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>
+  </div>
+
+  <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

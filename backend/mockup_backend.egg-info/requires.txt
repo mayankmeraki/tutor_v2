@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+anthropic
+asyncpg
+sqlalchemy[asyncio]
+motor
+certifi
+pydantic-settings
+httpx
+python-dotenv
