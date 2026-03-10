@@ -13,8 +13,9 @@ class Settings(BaseSettings):
     )
 
     ANTHROPIC_API_KEY: str = Field(default="")
-    DIRECTOR_MODEL: str = Field(default="claude-opus-4-20250514")
     TUTOR_MODEL: str = Field(default="claude-sonnet-4-5-20250929")
+    PLANNING_MODEL: str = Field(default="claude-sonnet-4-5-20250929")
+    RESEARCH_MODEL: str = Field(default="claude-haiku-4-5-20251001")
     SUMMARIZATION_MODEL: str = Field(default="claude-haiku-4-5-20251001")
 
     # PostgreSQL

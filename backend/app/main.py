@@ -1,4 +1,4 @@
-"""FastAPI app — Two-Agent Teaching Architecture (Python port of server.js)."""
+"""FastAPI app — Sub-Agent Teaching Architecture."""
 
 import logging
 import os
@@ -27,8 +27,9 @@ async def lifespan(app: FastAPI):
     print(f"\n  Mockup Teaching Agent — Python Backend")
     print(f"  ─────────────────────────────────────────────────")
     print(f"  Server:         http://localhost:{settings.PORT}")
-    print(f"  Director Model: {settings.DIRECTOR_MODEL}")
     print(f"  Tutor Model:    {settings.TUTOR_MODEL}")
+    print(f"  Planning Model: {settings.PLANNING_MODEL}")
+    print(f"  Research Model: {settings.RESEARCH_MODEL}")
     print(f"  API Key:        {'set' if settings.ANTHROPIC_API_KEY else 'MISSING'}")
     print(f"\n  Logs below\n")
     yield

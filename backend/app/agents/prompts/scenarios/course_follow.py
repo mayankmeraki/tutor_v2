@@ -30,7 +30,6 @@ FOUNDATIONAL CONCEPTS: 5 (Teach-back)
 
 PREFERRED ASSESSMENT TOOLS:
   Primary: teaching-teachback, teaching-freetext
-  Secondary: teaching-derivation for mathematical concepts
   Use teaching-mcq only for quick recall checks, not core assessment
 
 SKIP AUTHORITY:

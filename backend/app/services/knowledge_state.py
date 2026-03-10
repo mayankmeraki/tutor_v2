@@ -184,15 +184,15 @@ async def log_interaction(
     return {**concept_state, "mastery": mastery}
 
 
-async def batch_update_from_director(
+async def batch_update_concepts(
     course_id: int,
     student_name: str,
     concept_status: dict,
     tutor_notes: str = "",
 ) -> None:
-    """Bulk-update concepts from Director's concept_status output.
+    """Bulk-update concepts from Tutor's concept_status observations.
 
-    Maps Director statuses to mastery signals:
+    Maps statuses to mastery signals:
       verified → tested=True, test_passed=True, able_to_explain=True, evidence_level=5
       checked  → tested=True, test_passed=True, evidence_level=4
       gapped   → tested=True, test_passed=False, evidence_level=2
@@ -245,20 +245,20 @@ async def batch_update_from_director(
 
         await log_interaction(
             course_id, student_name, concept_name,
-            note=tutor_notes if tutor_notes else f"Director status: {status}",
+            note=tutor_notes if tutor_notes else f"Status: {status}",
             **signals,
         )
 
     log.info(
-        "Batch update from director: %s/%d — %d concepts",
+        "Batch update concepts: %s/%d — %d concepts",
         student_name, course_id, len(concept_status),
     )
 
 
-# ─── Formatting for Director Context ─────────────────────────────
+# ─── Formatting for Tutor Context ─────────────────────────────────
 
-def format_for_director(knowledge_state: dict) -> str:
-    """Format concept state for the Director prompt context.
+def format_knowledge_state(knowledge_state: dict) -> str:
+    """Format concept state for the Tutor prompt context.
 
     Groups by status, highlights stale concepts (>7 days).
     """

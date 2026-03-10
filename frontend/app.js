@@ -84,7 +84,7 @@ const SessionManager = (() => {
       metrics: {
         totalTurns: 0, studentResponses: 0,
         sectionsCompleted: 0, sectionsTotal: 0,
-        directorCalls: 0,
+        planningCalls: 0,
         assessmentScore: { correct: 0, total: 0, pct: 0 },
       },
       summaries: {
@@ -112,7 +112,7 @@ const SessionManager = (() => {
     session.metrics.studentResponses = session.transcript.filter(m => m.role === 'user').length;
     session.metrics.sectionsCompleted = session.sections.filter(s => s.status === 'done').length;
     session.metrics.sectionsTotal = session.sections.length;
-    session.metrics.directorCalls = state.directorCallCount;
+    session.metrics.planningCalls = state.planCallCount;
 
     try {
       await apiPatch(`/${session.sessionId}`, {
@@ -441,7 +441,7 @@ const state = {
   // Tool call tracking
   activeToolCalls: {},
 
-  // Director-Tutor architecture
+  // Session state
   sessionId: null,
   currentScript: null,
 
@@ -450,8 +450,8 @@ const state = {
   simulationLiveState: null,   // Latest params/state from sim bridge
   simBridgeListener: null,     // postMessage listener reference
 
-  // Director call tracking
-  directorCallCount: 0,
+  // Plan call tracking
+  planCallCount: 0,
   pendingFallbackTimer: null,
   sessionStatus: 'active',
   completionReason: null,
@@ -460,15 +460,6 @@ const state = {
   spotlightActive: false,
   spotlightInfo: null,   // { type, title, id? } — what's currently pinned
 
-  // Derivation workspace
-  derivation: null,
-  // When active: {
-  //   id, topic, goal,
-  //   steps: [{ n, prompt, hint, symbols: [], context }],
-  //   currentStep: 1,
-  //   submitted: { 1: { type: 'latex'|'canvas', value, timestamp } },
-  //   feedback: { 1: 'note text' },
-  // }
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -916,49 +907,26 @@ function handleSSEEvent(event) {
       renderAIError(event.message || 'Unknown error');
       break;
 
-    case 'DIRECTOR_THINKING':
-      if (state.directorCallCount === 0) {
-        showOnboardingSequence();
-      } else {
-        showStreamingIndicator(); // normal "Thinking..." — student doesn't see Director
-      }
+    case 'PLAN_UPDATE':
+      console.log('[SSE] PLAN_UPDATE received —', event.plan?.session_objective || event.sessionObjective || '?');
+      handlePlanUpdate(event.plan);
       break;
 
-    case 'DIRECTOR_SCRIPT':
-      if (state.directorCallCount === 0) {
-        transitionOnboardingToTeaching();
-      } else {
-        removeStreamingIndicator();
-      }
-      handleDirectorScript(event.script);
-      if (event.sessionStatus === 'complete') {
-        state.sessionStatus = 'complete';
-        state.completionReason = event.completionReason;
-      }
+    case 'TEACHING_DELEGATION_START':
+      console.log('[SSE] TEACHING_DELEGATION_START — topic:', event.topic, 'type:', event.agentType);
       break;
 
-    case 'DIRECTOR_PLAN':
-      console.log('[SSE] DIRECTOR_PLAN received —', event.plan?.session_objective || '?', `(${(event.plan?.sections || []).length} sections)`);
-      handleDirectorPlan(event.plan);
-      if (state.directorCallCount === 0) {
-        // First plan — transition onboarding step 2 → step 3
-        const step2 = $('#onboard-step-2');
-        const step3 = $('#onboard-step-3');
-        if (step2) {
-          step2.classList.remove('active');
-          step2.classList.add('done');
-          step2.querySelector('.onboarding-icon').innerHTML = '✓';
-        }
-        if (step3) {
-          step3.classList.remove('pending');
-          step3.classList.add('active');
-          step3.querySelector('.onboarding-icon').innerHTML = '<span class="loading-spinner"></span>';
-        }
-      }
+    case 'TEACHING_DELEGATION_END':
+      console.log('[SSE] TEACHING_DELEGATION_END — reason:', event.reason);
+      break;
+
+    case 'PLAN_UPDATE':
+      console.log('[SSE] PLAN_UPDATE received —', event.plan?.session_objective || event.sessionObjective || '?');
+      handlePlanUpdate(event.plan);
       break;
 
     case 'TOPIC_COMPLETE':
-      console.log('[SSE] TOPIC_COMPLETE — section:', event.section_index, 'topic:', event.topic_index);
+      console.log('[SSE] TOPIC_COMPLETE —', event.topic_index, event.title || '');
       handleTopicComplete(event.section_index, event.topic_index);
       break;
 
@@ -1071,40 +1039,16 @@ function buildContext() {
 
   // Context: Spotlight state (if an asset is pinned in the spotlight panel)
   if (state.spotlightActive && state.spotlightInfo) {
-    if (state.spotlightInfo.type === 'derivation' && state.derivation) {
-      const d = state.derivation;
-      items.push({
-        description: 'Active Derivation Workspace — student is working on a step-by-step derivation in the spotlight panel',
-        value: JSON.stringify({
-          spotlightOpen: true,
-          type: 'derivation',
-          topic: d.topic,
-          goal: d.goal,
-          totalSteps: d.steps.length,
-          currentStep: d.currentStep,
-          completedSteps: Object.entries(d.submitted).map(([n, s]) => ({
-            step: parseInt(n),
-            answer: s.type === 'latex' ? s.value : '[handwritten drawing]',
-            feedback: d.feedback[n] || null,
-          })),
-          currentStepPrompt: d.steps.find(s => s.n === d.currentStep)?.prompt,
-          hint: 'Student can see the derivation workspace AND type in chat. ' +
-                'After feedback on their submission, emit <teaching-derivation-advance step="N" note="brief feedback" /> to advance to the next step. ' +
-                'When all steps done, emit <teaching-spotlight-dismiss /> to close the workspace.',
-        }),
-      });
-    } else {
-      items.push({
-        description: 'Spotlight Panel — an asset is currently pinned above the chat and visible to the student',
-        value: JSON.stringify({
-          spotlightOpen: true,
-          type: state.spotlightInfo.type,
-          title: state.spotlightInfo.title,
-          id: state.spotlightInfo.id || null,
-          hint: 'The student can see this asset right now. Reference it naturally. Emit <teaching-spotlight-dismiss /> when you are done discussing it.',
-        }),
-      });
-    }
+    items.push({
+      description: 'Spotlight Panel — an asset is currently pinned above the chat and visible to the student',
+      value: JSON.stringify({
+        spotlightOpen: true,
+        type: state.spotlightInfo.type,
+        title: state.spotlightInfo.title,
+        id: state.spotlightInfo.id || null,
+        hint: 'The student can see this asset right now. Reference it naturally. Emit <teaching-spotlight-dismiss /> when you are done discussing it.',
+      }),
+    });
   }
 
   // Teaching Plan Directive — tells the Tutor which step is active and how to advance
@@ -1299,85 +1243,86 @@ function transitionOnboardingToTeaching() {
   }, 800);
 }
 
-function handleDirectorScript(script) {
-  if (!script) return;
-  state.currentScript = script;
-
-  // Map Director's script steps to plan UI format
-  state.plan = (script.steps || []).map(step => ({
-    n: step.n,
-    type: step.type || '',
-    concept: step.concept || '',
-    objective: step.objective || '',
-    studentLabel: step.student_label || '',
-    modality: step.resource ? step.resource.type : 'text',
-    description: step.objective || step.do || '',
-    status: 'pending',
-    performance: null,
-  }));
-
-  if (state.plan.length > 0) {
-    state.plan[0].status = 'active';
-    state.planActiveStep = 1;
-  }
-
-  // Show session objective in sidebar
-  const objEl = $('#plan-objective');
-  const sessionObj = script.session_objective || script.objective;
-  if (objEl && sessionObj) {
-    objEl.innerHTML = `<div class="plan-objective-text">${escapeHtml(sessionObj)}</div>`;
-  }
-
-  SessionManager.setPlan(script);
-  renderPlanProgress();
-  state.directorCallCount++;
-}
-
-function handleDirectorPlan(plan) {
+function handlePlanUpdate(plan) {
   if (!plan) return;
-  console.log('[Director Plan]', {
-    objective: plan.session_objective,
-    scenario: plan.scenario,
+  console.log('[Plan Update]', {
+    objective: plan.session_objective || plan.section_title,
     sections: (plan.sections || []).map(s => {
       const topics = (s.topics || []).map(t => t.title).join(', ');
-      return `${s.n}. ${s.title} (${s.modality}) [${topics}]`;
+      return `${s.n}. ${s.title} (${s.modality || ''}) [${topics}]`;
     }),
+    topics: (plan._topics || plan.topics || []).map(t => t.title),
   });
   state.currentPlan = plan;
 
-  // Map plan sections to sidebar UI — now with nested topics
-  state.plan = (plan.sections || []).map(sec => ({
-    n: sec.n,
-    title: sec.title || '',
-    modality: sec.modality || '',
-    covers: sec.covers || '',
-    learningOutcome: sec.learning_outcome || '',
-    activity: sec.activity || '',
-    studentLabel: sec.title || '',
-    description: sec.activity || sec.covers || '',
-    status: 'pending',
-    performance: null,
-    topics: (sec.topics || []).map((t, i) => ({
-      t: t.t || i + 1,
-      title: t.title || '',
-      concept: t.concept || '',
+  // Build sections from plan — planning agent may output sections or flat topics
+  let newSections = [];
+  if (plan.sections && plan.sections.length > 0) {
+    newSections = plan.sections.map(sec => ({
+      n: sec.n || 1,
+      title: sec.title || '',
+      modality: sec.modality || '',
+      covers: sec.covers || '',
+      learningOutcome: sec.learning_outcome || '',
+      activity: sec.activity || '',
+      studentLabel: sec.title || '',
+      description: sec.activity || sec.covers || '',
       status: 'pending',
-    })),
-  }));
-
-  if (state.plan.length > 0) {
-    state.plan[0].status = 'active';
-    state.planActiveStep = 1;
-    // Activate first topic in first section
-    if (state.plan[0].topics && state.plan[0].topics.length > 0) {
-      state.plan[0].topics[0].status = 'active';
+      performance: null,
+      topics: (sec.topics || []).map((t, i) => ({
+        t: t.t || i + 1,
+        title: t.title || '',
+        concept: t.concept || '',
+        status: 'pending',
+      })),
+    }));
+  } else {
+    // Flat topics from planning agent (_topics array)
+    const topics = plan._topics || plan.topics || [];
+    if (topics.length > 0) {
+      newSections = [{
+        n: 1,
+        title: plan.section_title || plan.session_objective || 'Section',
+        modality: '',
+        covers: '',
+        learningOutcome: plan.learning_outcome || '',
+        studentLabel: plan.section_title || 'Section',
+        description: plan.learning_outcome || '',
+        status: 'pending',
+        performance: null,
+        topics: topics.map((t, i) => ({
+          t: i + 1,
+          title: t.title || '',
+          concept: t.concept || '',
+          status: 'pending',
+        })),
+      }];
     }
-    // Defer heading insertion during first plan (onboarding still showing)
-    // Headings will appear after onboarding transitions out
-    if (state.directorCallCount > 0) {
-      insertTopicHeading(state.plan[0].title, null, 'section');
-      if (state.plan[0].topics && state.plan[0].topics[0]) {
-        insertTopicHeading(state.plan[0].topics[0].title, state.plan[0].topics[0].concept, 'topic');
+  }
+
+  // Append or replace sections
+  const hasExistingSections = state.plan.length > 0 && state.plan.some(s => s.status === 'done' || s.status === 'active');
+  if (hasExistingSections && newSections.length > 0) {
+    const maxN = Math.max(...state.plan.map(s => s.n));
+    newSections.forEach((sec, i) => { sec.n = maxN + 1 + i; });
+    state.plan.push(...newSections);
+    console.log(`[Plan Update] Appended ${newSections.length} section(s) — total now ${state.plan.length}`);
+  } else if (newSections.length > 0) {
+    state.plan = newSections;
+  }
+
+  // Activate the first pending section + its first topic
+  const firstPending = state.plan.find(s => s.status === 'pending');
+  if (firstPending) {
+    firstPending.status = 'active';
+    state.planActiveStep = firstPending.n;
+    if (firstPending.topics && firstPending.topics.length > 0) {
+      firstPending.topics[0].status = 'active';
+    }
+    if (state.planCallCount > 0) {
+      insertTopicHeading(firstPending.title, null, 'section');
+      if (firstPending.topics && firstPending.topics[0]) {
+        insertTopicHeading(firstPending.topics[0].title, firstPending.topics[0].concept, 'topic');
       }
     } else {
       state._pendingFirstHeadings = true;
@@ -1386,23 +1331,28 @@ function handleDirectorPlan(plan) {
 
   // Show session objective
   const objEl = $('#plan-objective');
-  if (objEl && plan.session_objective) {
-    objEl.innerHTML = `<div class="plan-objective-text">${escapeHtml(plan.session_objective)}</div>`;
+  const sessionObj = plan.session_objective || plan.section_title;
+  if (objEl && sessionObj) {
+    objEl.innerHTML = `<div class="plan-objective-text">${escapeHtml(sessionObj)}</div>`;
   }
 
   SessionManager.setPlan(plan);
   renderPlanProgress();
-  // NOTE: do NOT increment directorCallCount here — that happens in handleDirectorScript
-  // so the onboarding transition checks (directorCallCount === 0) still pass.
+  state.planCallCount++;
 }
 
 function handleTopicComplete(sectionIndex, topicIndex) {
-  // Update sidebar state — find the section (0-based), mark topic done
-  const step = state.plan.find(s => s.n === sectionIndex + 1);
+  // Find the section — try exact match first, then fall back to active section.
+  // (One-section-at-a-time: backend TopicManager resets indices to 0 for each new section,
+  // but the frontend accumulates sections with incrementing n values.)
+  let step = state.plan.find(s => s.n === sectionIndex + 1);
+  if (!step || !step.topics) {
+    step = state.plan.find(s => s.status === 'active');
+  }
   if (step && step.topics) {
     const topic = step.topics.find(t => (t.t - 1) === topicIndex || t.t === topicIndex);
     if (topic) {
-      console.log(`[Topic Complete] Section ${sectionIndex + 1}, Topic "${topic.title}" → done`);
+      console.log(`[Topic Complete] Section ${step.n}, Topic "${topic.title}" → done`);
       topic.status = 'done';
       // Activate next pending topic in this section
       const nextTopic = step.topics.find(t => t.status === 'pending');
@@ -1419,10 +1369,14 @@ function handleTopicComplete(sectionIndex, topicIndex) {
 }
 
 function handleSectionComplete(index) {
-  // index is 0-based, plan items are 1-based (n = index + 1)
-  const step = state.plan.find(s => s.n === index + 1);
+  // Find the section — try exact match first, then fall back to active section.
+  // (One-section-at-a-time: backend resets indices for each new TopicManager.)
+  let step = state.plan.find(s => s.n === index + 1);
+  if (!step) {
+    step = state.plan.find(s => s.status === 'active');
+  }
   if (step) {
-    console.log(`[Section Complete] Section ${index + 1}: "${step.title}" → done`);
+    console.log(`[Section Complete] Section ${step.n}: "${step.title}" → done`);
     step.status = 'done';
     const nextPending = state.plan.find(s => s.status === 'pending');
     if (nextPending) {
@@ -1509,7 +1463,7 @@ function finalizeAIMessage(fullText) {
   const lastInteractiveTag = allTags.filter(t =>
     ['teaching-mcq', 'teaching-freetext', 'teaching-agree-disagree',
      'teaching-fillblank', 'teaching-spot-error', 'teaching-confidence',
-     'teaching-canvas', 'teaching-derivation', 'teaching-teachback'].includes(t.name)
+     'teaching-canvas', 'teaching-teachback'].includes(t.name)
   ).pop();
 
   const hasRecap = allTags.some(t => t.name === 'teaching-recap');
@@ -1571,7 +1525,13 @@ function parseTeachingTags(text) {
   // [{ type: 'text', content }, { type: 'tag', tag: { name, attrs, content } }, ...]
   const segments = [];
 
-  const tagRegex = /<(teaching-[\w-]+)((?:\s+\w+(?:="[^"]*")?)*)\s*\/>|<(teaching-[\w-]+)((?:\s+\w+(?:="[^"]*")?)*)\s*>([\s\S]*?)<\/\3>/g;
+  // Attribute pattern handles both double-quoted and single-quoted values
+  const attrPat = `(?:\\s+[\\w-]+(?:=(?:"[^"]*"|'[^']*'))?)*`;
+  const tagRegex = new RegExp(
+    `<(teaching-[\\w-]+)(${attrPat})\\s*\\/>`
+    + `|<(teaching-[\\w-]+)(${attrPat})\\s*>([\\s\\S]*?)<\\/\\3>`,
+    'g'
+  );
   let lastIndex = 0;
   let match;
 
@@ -1584,14 +1544,16 @@ function parseTeachingTags(text) {
     const innerContent = match[5] || '';
 
     const attrs = {};
-    const attrRegex = /(\w+)="([^"]*)"/g;
+    // Parse both double-quoted and single-quoted attribute values
+    const attrRegex = /([\w-]+)=(?:"([^"]*)"|'([^']*)')/g;
     let attrMatch;
     while ((attrMatch = attrRegex.exec(attrStr)) !== null) {
-      attrs[attrMatch[1]] = attrMatch[2];
+      attrs[attrMatch[1]] = attrMatch[2] !== undefined ? attrMatch[2] : attrMatch[3];
     }
-    const boolRegex = /\s(\w+)(?=\s|$)(?!=)/g;
+    // Boolean attributes (no value)
+    const boolRegex = /\s([\w-]+)(?=\s|$)(?!=)/g;
     let boolMatch;
-    const attrStrClean = attrStr.replace(/\w+="[^"]*"/g, '');
+    const attrStrClean = attrStr.replace(/[\w-]+=(?:"[^"]*"|'[^']*')/g, '');
     while ((boolMatch = boolRegex.exec(attrStrClean)) !== null) {
       if (!attrs[boolMatch[1]]) attrs[boolMatch[1]] = true;
     }
@@ -1652,7 +1614,8 @@ function insertTopicHeading(title, concept, level = 'topic') {
 function stripTeachingTags(text) {
   return text
     .replace(/\[TOOL_STEPS:[^\]]*\]/g, '')
-    .replace(/<teaching-[\s\S]*?(?:\/>|<\/teaching-[\w-]+>)/g, '')  // complete tags
+    .replace(/<teaching-[\w-]+(?:\s+[\w-]+=(?:"[^"]*"|'[^']*')|\s+[\w-]+)*\s*\/>/g, '')  // self-closing tags
+    .replace(/<teaching-([\w-]+)(?:\s+[\w-]+=(?:"[^"]*"|'[^']*')|\s+[\w-]+)*\s*>[\s\S]*?<\/teaching-\1>/g, '')  // content tags
     .replace(/<teaching-[\w-]+[\s\S]*$/g, '')  // trailing unclosed tag (streaming)
     .trim();
 }
@@ -1660,7 +1623,7 @@ function stripTeachingTags(text) {
 
 function renderTeachingTag(tag) {
   // Record visual assets in session (exclude structural/navigation tags)
-  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss', 'teaching-derivation-advance']);
+  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss']);
   if (!structuralTags.has(tag.name)) {
     SessionManager.recordAsset(tag);
   }
@@ -1708,9 +1671,6 @@ function renderTeachingTag(tag) {
     case 'teaching-canvas':
       renderCanvasTag(tag);
       break;
-    case 'teaching-derivation':
-      renderDerivationTag(tag);
-      break;
     case 'teaching-teachback':
       renderTeachbackTag(tag);
       break;
@@ -1719,9 +1679,6 @@ function renderTeachingTag(tag) {
       break;
     case 'teaching-spotlight':
       showSpotlight(tag);
-      break;
-    case 'teaching-derivation-advance':
-      advanceDerivStep(parseInt(tag.attrs.step), tag.attrs.note || '');
       break;
     case 'teaching-spotlight-dismiss':
       hideSpotlight();
@@ -1819,23 +1776,54 @@ function renderVideoTag(tag) {
 // ═══════════════════════════════════════════════════════════
 
 function renderMCQTag(tag) {
-  const prompt = tag.attrs.prompt || '';
-  const optionRegex = /<option\s+value="([^"]*)"([^>]*)>([^<]*)<\/option>/g;
+  const prompt = tag.attrs.prompt || tag.attrs.question || '';
   const options = [];
+
+  // Strategy 1: Parse <option> elements from content
+  const optionRegex = /<option\s+value=(?:"([^"]*)"|'([^']*)')([^>]*)>([^<]*)<\/option>/g;
   let optMatch;
   while ((optMatch = optionRegex.exec(tag.content)) !== null) {
     options.push({
-      value: optMatch[1],
-      correct: optMatch[2].includes('correct'),
-      text: optMatch[3],
+      value: optMatch[1] || optMatch[2],
+      correct: optMatch[3].includes('correct'),
+      text: optMatch[4],
     });
+  }
+
+  // Strategy 2: Pipe-separated "options" attribute (e.g., options="A|B|C|D")
+  if (options.length === 0 && tag.attrs.options) {
+    const correctIdx = parseInt(tag.attrs.correct || tag.attrs.answer || '0', 10);
+    tag.attrs.options.split('|').forEach((text, i) => {
+      options.push({
+        value: String.fromCharCode(97 + i), // a, b, c, d
+        correct: i === correctIdx || i === correctIdx - 1, // support 0-based or 1-based
+        text: text.trim(),
+      });
+    });
+  }
+
+  // Strategy 3: Plain text content lines (one option per non-empty line)
+  if (options.length === 0 && tag.content) {
+    const lines = tag.content.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length >= 2) {
+      const correctIdx = parseInt(tag.attrs.correct || tag.attrs.answer || '0', 10);
+      lines.forEach((text, i) => {
+        // Strip leading letter/number markers like "A)" or "1."
+        const cleaned = text.replace(/^[A-Da-d1-4][.):\s]+/, '').trim();
+        options.push({
+          value: String.fromCharCode(97 + i),
+          correct: i === correctIdx || i === correctIdx - 1,
+          text: cleaned || text,
+        });
+      });
+    }
   }
 
   const mcqId = 'mcq-' + generateId().slice(0, 8);
   let optionsHtml = options.map(o => `
     <div class="mcq-option" data-value="${escapeAttr(o.value)}" data-correct="${o.correct}">
       <div class="mcq-radio"></div>
-      <span>${escapeHtml(o.text)}</span>
+      <span>${renderMarkdownBasic(o.text)}</span>
     </div>
   `).join('');
 
@@ -2494,475 +2482,6 @@ function renderCanvasGrid(ctx, grid) {
 }
 
 // ═══════════════════════════════════════════════════════════
-// Module 14: Derivation Spotlight Workspace
-// ═══════════════════════════════════════════════════════════
-
-function renderDerivationTag(tag) {
-  const topic = tag.attrs.topic || 'Derivation';
-  const goal = tag.attrs.goal || '';
-  const derivId = 'deriv-' + generateId().slice(0, 8);
-
-  // Parse steps — support symbols attribute
-  const stepRegex = /<step\s+n="(\d+)"\s+prompt="([^"]*)"(?:\s+hint="([^"]*)")?(?:\s+symbols="([^"]*)")?(?:\s+reveal="([^"]*)")?\s*>([\s\S]*?)<\/step>/g;
-  const steps = [];
-  let stepMatch;
-  while ((stepMatch = stepRegex.exec(tag.content)) !== null) {
-    steps.push({
-      n: parseInt(stepMatch[1]),
-      prompt: stepMatch[2],
-      hint: stepMatch[3] || null,
-      symbols: stepMatch[4] ? stepMatch[4].split(',').map(s => s.trim()).filter(Boolean) : [],
-      reveal: stepMatch[5] === 'true',
-      context: stepMatch[6].trim(),
-    });
-  }
-
-  if (steps.length === 0) return;
-
-  // Store derivation state
-  state.derivation = {
-    id: derivId,
-    topic,
-    goal,
-    steps,
-    currentStep: 1,
-    submitted: {},
-    feedback: {},
-  };
-
-  // Place compact reference card in chat stream
-  appendBlock('derivation', `
-    <div class="deriv-chat-card" onclick="reopenDerivSpotlight()">
-      <span class="deriv-chat-icon">\u{1f4dd}</span>
-      <div class="deriv-chat-info">
-        <div class="deriv-chat-title">${escapeHtml(topic)}</div>
-        <div class="deriv-chat-steps">${steps.length} step${steps.length > 1 ? 's' : ''}${goal ? ' \u2014 ' + escapeHtml(goal) : ''}</div>
-      </div>
-    </div>
-  `, { id: `${derivId}-card` });
-
-  // Open spotlight with workspace
-  renderDerivationSpotlight();
-}
-
-function renderDerivationSpotlight() {
-  const d = state.derivation;
-  if (!d) return;
-
-  const panel = $('#spotlight-panel');
-  const content = $('#spotlight-content');
-  const titleEl = $('#spotlight-title');
-  if (!panel || !content) return;
-
-  if (titleEl) titleEl.textContent = d.topic;
-
-  // Build progress dots
-  const dots = d.steps.map(step => {
-    const cls = step.n < d.currentStep ? 'completed' :
-                step.n === d.currentStep ? 'active' : '';
-    return `<span class="deriv-dot ${cls}"></span>`;
-  }).join('');
-
-  content.innerHTML = `
-    <div class="deriv-workspace" id="${d.id}-workspace">
-      <div class="deriv-header">
-        <div>
-          <div class="deriv-title">${escapeHtml(d.topic)}</div>
-          ${d.goal ? `<div class="deriv-goal">${escapeHtml(d.goal)}</div>` : ''}
-        </div>
-        <div class="deriv-progress" id="${d.id}-progress">${dots}</div>
-      </div>
-      <div class="deriv-timeline" id="${d.id}-timeline"></div>
-      <div id="${d.id}-active-container"></div>
-    </div>
-  `;
-
-  panel.classList.add('stage-active', 'deriv-active');
-  state.spotlightActive = true;
-  state.spotlightInfo = { type: 'derivation', title: d.topic, id: d.id };
-
-  // Render the first active step
-  renderDerivActiveStep(d.currentStep);
-}
-
-function renderDerivActiveStep(stepN) {
-  const d = state.derivation;
-  if (!d) return;
-
-  const step = d.steps.find(s => s.n === stepN);
-  if (!step) return;
-
-  const container = $(`#${d.id}-active-container`);
-  if (!container) return;
-
-  const symbolsHtml = buildStepSymbols(d.id, step.symbols);
-  const paletteHtml = buildGenericPalette(d.id);
-
-  const hintHtml = step.hint
-    ? `<button class="deriv-hint-btn" onclick="toggleDerivHint('${d.id}', ${step.n})">Need a hint?</button>
-       <div class="deriv-hint hidden" id="${d.id}-hint-${step.n}">${renderMarkdownBasic(step.hint)}</div>`
-    : '';
-
-  const contextRendered = step.context ? renderMarkdownBasic(step.context) : '';
-
-  container.innerHTML = `
-    <div class="deriv-active" id="${d.id}-active">
-      <div class="deriv-step-head">
-        <span class="deriv-badge current">${step.n}</span>
-        <div class="deriv-instruction">${renderMarkdownBasic(step.prompt)}</div>
-      </div>
-      ${contextRendered ? `<div class="deriv-context">${contextRendered}</div>` : ''}
-      <div class="deriv-symbols" id="${d.id}-symbols">${symbolsHtml}</div>
-      <div class="deriv-palette hidden" id="${d.id}-palette">${paletteHtml}</div>
-      <div class="deriv-input-area">
-        <textarea class="deriv-input" id="${d.id}-input-${step.n}"
-                  placeholder="Type your expression..." rows="2"></textarea>
-        <div class="deriv-preview" id="${d.id}-preview-${step.n}">
-          <span class="deriv-preview-label">Preview</span>
-          <div class="deriv-preview-math" id="${d.id}-preview-math-${step.n}"></div>
-        </div>
-      </div>
-      <div class="deriv-canvas-area">
-        <div class="deriv-canvas-label">or sketch it:</div>
-        <div class="canvas-toolbar" id="${d.id}-canvas-toolbar">
-          <button class="canvas-tool-btn active" data-tool="pen" data-color="#ffffff" title="White pen">&#9998;</button>
-          <button class="canvas-tool-btn" data-tool="pen" data-color="#6c8cff" title="Blue pen">&#9998;</button>
-          <button class="canvas-tool-btn" data-tool="eraser" title="Eraser">&#9003;</button>
-          <span class="canvas-separator"></span>
-          <button class="canvas-tool-btn" data-action="clear" title="Clear">&#10005;</button>
-        </div>
-        <canvas id="${d.id}-canvas" width="640" height="160"></canvas>
-      </div>
-      ${hintHtml}
-      <div class="deriv-actions">
-        <button class="btn btn-primary" id="${d.id}-submit-btn" onclick="submitDerivStep('${d.id}', ${step.n})">Submit to Tutor</button>
-      </div>
-    </div>
-  `;
-
-  // Wire up LaTeX live preview
-  const textarea = $(`#${d.id}-input-${step.n}`);
-  if (textarea) {
-    let previewTimer = null;
-    textarea.addEventListener('input', () => {
-      clearTimeout(previewTimer);
-      previewTimer = setTimeout(() => updateDerivPreview(d.id, step.n), 150);
-    });
-    textarea.focus();
-  }
-
-  // Init canvas
-  initDerivCanvas(d.id);
-}
-
-function buildStepSymbols(derivId, symbols) {
-  if (!symbols || symbols.length === 0) {
-    return `<button class="deriv-sym-more" onclick="toggleDerivPalette('${derivId}')">Symbols...</button>`;
-  }
-  const btns = symbols.map(sym => {
-    const latex = sym.replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Render display via KaTeX if available
-    let display = sym;
-    if (typeof katex !== 'undefined') {
-      try { display = katex.renderToString(sym, { displayMode: false, throwOnError: false }); }
-      catch { display = escapeHtml(sym); }
-    }
-    return `<button class="deriv-sym" data-latex="${escapeAttr(sym)}" onclick="insertSymbol('${derivId}', this.dataset.latex)" title="${escapeAttr(sym)}">${display}</button>`;
-  }).join('');
-  return btns + `<button class="deriv-sym-more" onclick="toggleDerivPalette('${derivId}')">More...</button>`;
-}
-
-function buildGenericPalette(derivId) {
-  const groups = [
-    { label: 'Greek', syms: ['\\alpha','\\beta','\\gamma','\\delta','\\epsilon','\\theta','\\lambda','\\mu','\\nu','\\pi','\\sigma','\\phi','\\psi','\\omega','\\hbar','\\Gamma','\\Delta','\\Theta','\\Lambda','\\Sigma','\\Phi','\\Psi','\\Omega'] },
-    { label: 'Operators', syms: ['+','-','\\times','\\cdot','=','\\neq','\\approx','\\leq','\\geq','\\pm','\\propto','\\equiv'] },
-    { label: 'Structure', syms: ['\\frac{}{}','\\sqrt{}','\\partial','\\nabla','\\int','\\sum','^{}','_{}','(',')','[',']'] },
-    { label: 'Physics', syms: ['\\hbar','|\\rangle','\\langle|','\\dagger','\\otimes','\\infty','\\exp','\\sin','\\cos','\\ln'] },
-  ];
-
-  return groups.map(g => {
-    const btns = g.syms.map(sym => {
-      let display = sym;
-      if (typeof katex !== 'undefined') {
-        try { display = katex.renderToString(sym.replace('{}','\\square'), { displayMode: false, throwOnError: false }); }
-        catch { display = escapeHtml(sym); }
-      }
-      return `<button class="deriv-sym" data-latex="${escapeAttr(sym)}" onclick="insertSymbol('${derivId}', this.dataset.latex)" title="${escapeAttr(sym)}">${display}</button>`;
-    }).join('');
-    return `<div class="deriv-palette-label">${g.label}</div><div class="deriv-palette-group">${btns}</div>`;
-  }).join('');
-}
-
-window.toggleDerivPalette = function(derivId) {
-  const palette = $(`#${derivId}-palette`);
-  if (palette) palette.classList.toggle('hidden');
-};
-
-window.insertSymbol = function(derivId, latex) {
-  const d = state.derivation;
-  if (!d) return;
-  const textarea = $(`#${derivId}-input-${d.currentStep}`);
-  if (!textarea) return;
-
-  const start = textarea.selectionStart;
-  const end = textarea.selectionEnd;
-  const text = textarea.value;
-
-  // Insert latex at cursor
-  textarea.value = text.slice(0, start) + latex + text.slice(end);
-
-  // Position cursor — if template like \frac{}{}, place inside first {}
-  const braceIdx = latex.indexOf('{}');
-  if (braceIdx !== -1) {
-    textarea.selectionStart = textarea.selectionEnd = start + braceIdx + 1;
-  } else {
-    textarea.selectionStart = textarea.selectionEnd = start + latex.length;
-  }
-
-  textarea.focus();
-  textarea.dispatchEvent(new Event('input'));
-};
-
-function updateDerivPreview(derivId, stepN) {
-  const textarea = $(`#${derivId}-input-${stepN}`);
-  const previewMath = $(`#${derivId}-preview-math-${stepN}`);
-  if (!textarea || !previewMath) return;
-
-  const val = textarea.value.trim();
-  if (!val) {
-    previewMath.innerHTML = '<span style="color:var(--text-dim);font-size:13px;">Your expression will appear here...</span>';
-    return;
-  }
-
-  if (typeof katex !== 'undefined') {
-    try {
-      previewMath.innerHTML = katex.renderToString(val, { displayMode: true, throwOnError: false });
-    } catch {
-      previewMath.innerHTML = `<span style="color:var(--red);">${escapeHtml(val)}</span>`;
-    }
-  } else {
-    previewMath.textContent = val;
-  }
-}
-
-function initDerivCanvas(derivId) {
-  const canvas = $(`#${derivId}-canvas`);
-  if (!canvas) return;
-  const ctx = canvas.getContext('2d');
-
-  ctx.fillStyle = '#1a1d27';
-  ctx.fillRect(0, 0, 640, 160);
-
-  let drawing = false;
-  let currentColor = '#ffffff';
-  let currentTool = 'pen';
-  let lineWidth = 2;
-
-  function getPos(e) {
-    const rect = canvas.getBoundingClientRect();
-    const scaleX = 640 / rect.width;
-    const scaleY = 160 / rect.height;
-    if (e.touches) {
-      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
-    }
-    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-  }
-
-  function startDraw(e) {
-    e.preventDefault();
-    drawing = true;
-    const pos = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(pos.x, pos.y);
-  }
-
-  function draw(e) {
-    if (!drawing) return;
-    e.preventDefault();
-    const pos = getPos(e);
-    ctx.lineWidth = currentTool === 'eraser' ? lineWidth * 5 : lineWidth;
-    ctx.strokeStyle = currentTool === 'eraser' ? '#1a1d27' : currentColor;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.lineTo(pos.x, pos.y);
-    ctx.stroke();
-  }
-
-  function stopDraw() { drawing = false; }
-
-  canvas.addEventListener('mousedown', startDraw);
-  canvas.addEventListener('mousemove', draw);
-  canvas.addEventListener('mouseup', stopDraw);
-  canvas.addEventListener('mouseleave', stopDraw);
-  canvas.addEventListener('touchstart', startDraw, { passive: false });
-  canvas.addEventListener('touchmove', draw, { passive: false });
-  canvas.addEventListener('touchend', stopDraw);
-
-  const toolbar = $(`#${derivId}-canvas-toolbar`);
-  if (toolbar) {
-    toolbar.querySelectorAll('.canvas-tool-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (btn.dataset.action === 'clear') {
-          ctx.fillStyle = '#1a1d27';
-          ctx.fillRect(0, 0, 640, 160);
-          return;
-        }
-        toolbar.querySelectorAll('.canvas-tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        if (btn.dataset.tool === 'eraser') {
-          currentTool = 'eraser';
-        } else {
-          currentTool = 'pen';
-          currentColor = btn.dataset.color || '#ffffff';
-        }
-      });
-    });
-  }
-}
-
-window.submitDerivStep = function(derivId, stepN) {
-  const d = state.derivation;
-  if (!d || d.id !== derivId) return;
-
-  const textarea = $(`#${derivId}-input-${stepN}`);
-  const canvas = $(`#${derivId}-canvas`);
-  const latexVal = textarea ? textarea.value.trim() : '';
-
-  // Check if canvas has content (not just blank background)
-  let canvasHasContent = false;
-  let canvasBase64 = null;
-  if (canvas) {
-    const ctx = canvas.getContext('2d');
-    const imageData = ctx.getImageData(0, 0, 640, 160).data;
-    // Check if any pixel differs from the background color #1a1d27 (26,29,39)
-    for (let i = 0; i < imageData.length; i += 4) {
-      if (imageData[i] !== 26 || imageData[i+1] !== 29 || imageData[i+2] !== 39) {
-        canvasHasContent = true;
-        break;
-      }
-    }
-    if (canvasHasContent) {
-      canvasBase64 = canvas.toDataURL('image/png').split(',')[1];
-    }
-  }
-
-  if (!latexVal && !canvasHasContent) return;
-
-  // Record submission
-  d.submitted[stepN] = {
-    type: canvasHasContent && !latexVal ? 'canvas' : 'latex',
-    value: latexVal || '[handwritten]',
-    timestamp: Date.now(),
-  };
-
-  // Mark UI as submitted
-  const activeEl = $(`#${derivId}-active`);
-  if (activeEl) activeEl.classList.add('submitted');
-  const submitBtn = $(`#${derivId}-submit-btn`);
-  if (submitBtn) submitBtn.textContent = 'Submitted \u2014 waiting for feedback...';
-
-  // Send LaTeX answer to chat
-  const step = d.steps.find(s => s.n === stepN);
-  const stepLabel = step ? step.prompt : `Step ${stepN}`;
-  if (latexVal) {
-    sendStudentResponse(`[Derivation step ${stepN}/${d.steps.length}: ${d.topic}] ${latexVal}`);
-  }
-
-  // Send canvas drawing if present
-  if (canvasHasContent && canvasBase64) {
-    sendCanvasDrawing(`Derivation step ${stepN}/${d.steps.length}: ${stepLabel}`, canvasBase64);
-  }
-};
-
-function advanceDerivStep(toStepN, note) {
-  const d = state.derivation;
-  if (!d) return;
-
-  const completedStepN = toStepN - 1;
-
-  // Store feedback
-  if (note && completedStepN >= 1) {
-    d.feedback[completedStepN] = note;
-  }
-
-  // Add completed step to timeline
-  const timeline = $(`#${d.id}-timeline`);
-  if (timeline && completedStepN >= 1) {
-    const completedStep = d.steps.find(s => s.n === completedStepN);
-    const submittedData = d.submitted[completedStepN];
-    const answerDisplay = submittedData
-      ? (submittedData.type === 'latex' && typeof katex !== 'undefined'
-        ? (() => { try { return katex.renderToString(submittedData.value, { displayMode: false, throwOnError: false }); } catch { return escapeHtml(submittedData.value); } })()
-        : escapeHtml(submittedData.value))
-      : '';
-
-    const doneEl = document.createElement('div');
-    doneEl.className = 'deriv-done-step';
-    doneEl.innerHTML = `
-      <span class="deriv-badge done">${completedStepN}</span>
-      <div class="deriv-done-info">
-        <div class="deriv-done-prompt">${escapeHtml(completedStep?.prompt || `Step ${completedStepN}`)}</div>
-        <div class="deriv-done-answer">${answerDisplay}</div>
-        ${note ? `<div class="deriv-done-note">\u2713 ${renderMarkdownBasic(note)}</div>` : ''}
-      </div>
-    `;
-    timeline.appendChild(doneEl);
-  }
-
-  // Update current step
-  d.currentStep = toStepN;
-
-  // Update progress dots
-  updateDerivProgress();
-
-  // Render next step if it exists
-  const nextStep = d.steps.find(s => s.n === toStepN);
-  if (nextStep) {
-    renderDerivActiveStep(toStepN);
-  } else {
-    // All steps done — show completion in workspace
-    const container = $(`#${d.id}-active-container`);
-    if (container) {
-      container.innerHTML = `
-        <div class="deriv-active" style="text-align:center;padding:24px;">
-          <span style="font-size:24px;">\u2705</span>
-          <div style="margin-top:8px;font-size:15px;color:var(--green);font-weight:600;">Derivation Complete!</div>
-          <div style="margin-top:4px;font-size:13px;color:var(--text-muted);">All ${d.steps.length} steps finished.</div>
-        </div>
-      `;
-    }
-  }
-}
-
-function updateDerivProgress() {
-  const d = state.derivation;
-  if (!d) return;
-  const progressEl = $(`#${d.id}-progress`);
-  if (!progressEl) return;
-
-  progressEl.innerHTML = d.steps.map(step => {
-    const cls = step.n < d.currentStep ? 'completed' :
-                step.n === d.currentStep ? 'active' : '';
-    return `<span class="deriv-dot ${cls}"></span>`;
-  }).join('');
-}
-
-window.reopenDerivSpotlight = function() {
-  if (state.derivation && !state.spotlightActive) {
-    renderDerivationSpotlight();
-  }
-};
-
-window.toggleDerivHint = function(derivId, stepN) {
-  const hint = $(`#${derivId}-hint-${stepN}`);
-  const btn = hint?.previousElementSibling;
-  if (hint) {
-    hint.classList.toggle('hidden');
-    if (btn) btn.textContent = hint.classList.contains('hidden') ? 'Need a hint?' : 'Hide hint';
-  }
-};
-
-// ═══════════════════════════════════════════════════════════
 // Module 15: Teachback Tag Renderer
 // ═══════════════════════════════════════════════════════════
 
@@ -3197,6 +2716,19 @@ function handleToolCallStart(event) {
   const toolName = event.toolCallName || event.tool_call_name;
   state.activeToolCalls[toolId] = { name: toolName, args: '' };
 
+  // Internal orchestration tools run in the background while the student
+  // interacts with an assessment. Do NOT disable interactive elements or
+  // show "Thinking..." — the assessment IS the student-facing activity.
+  const internalTools = ['spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching'];
+  if (internalTools.includes(toolName)) {
+    // Cancel pending fallback timer — tool is starting
+    if (state.pendingFallbackTimer) {
+      clearTimeout(state.pendingFallbackTimer);
+      state.pendingFallbackTimer = null;
+    }
+    return;
+  }
+
   // Disable any fallback input areas — the Tutor is executing a tool, not waiting for student input
   disablePreviousInteractive();
 
@@ -3204,14 +2736,6 @@ function handleToolCallStart(event) {
   if (state.pendingFallbackTimer) {
     clearTimeout(state.pendingFallbackTimer);
     state.pendingFallbackTimer = null;
-  }
-
-  // Suppress tool indicator for internal orchestration — students shouldn't see these
-  const internalTools = ['request_director_plan', 'get_next_section', 'get_next_topic', 'request_new_plan'];
-  if (internalTools.includes(toolName)) {
-    // Show a clean streaming indicator instead so user knows something is happening
-    showStreamingIndicator();
-    return;
   }
 
   if (toolName) {
@@ -3365,7 +2889,7 @@ async function showSpotlight(tag) {
 
 window.hideSpotlight = function() {
   const panel = $('#spotlight-panel');
-  if (panel) panel.classList.remove('stage-active', 'deriv-active');
+  if (panel) panel.classList.remove('stage-active');
 
   const content = $('#spotlight-content');
   if (content) content.innerHTML = '';
@@ -3375,11 +2899,6 @@ window.hideSpotlight = function() {
     stopSimBridge();
     state.activeSimulation = null;
     state.simulationLiveState = null;
-  }
-
-  // Clean up derivation state
-  if (state.derivation) {
-    state.derivation = null;
   }
 
   state.spotlightActive = false;
@@ -3840,7 +3359,7 @@ async function startNewSession(name, courseId, intent) {
       const progressNote = hasProgress
         ? ` They have completed ${completed} sections so far (session ${state.checkpoint.sessionCount}).`
         : '';
-      trigger = `[SYSTEM] Student "${state.studentName}" has joined.${progressNote} The student pre-stated their intent: "${state.studentIntent}". IMPORTANT: The student has already told you what they want. Do NOT ask diagnostic or probing questions — skip the probing phase entirely. Greet them with ONE short sentence acknowledging their goal, then IMMEDIATELY call request_director_plan with reason "probing_complete" and include their stated intent as probe_findings. The student's intent IS your probe result.`;
+      trigger = `[SYSTEM] Student "${state.studentName}" has joined.${progressNote} The student pre-stated their intent: "${state.studentIntent}". IMPORTANT: The student has already told you what they want. Do NOT ask diagnostic or probing questions — skip the probing phase entirely. Greet them with ONE short sentence acknowledging their goal, then IMMEDIATELY call spawn_agent("planning", ...) with their stated intent as the starting point, and give them a warm-up assessment in the same message. The student's intent IS your probe result.`;
     } else if (hasProgress) {
       trigger = `[SYSTEM] The student "${state.studentName}" is returning for session ${state.checkpoint.sessionCount}. They have completed ${completed} sections. Current position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}. Welcome them back briefly, state where you're picking up, and continue teaching following the current script. Do NOT ask what they want to do — you are the teacher, take charge.`;
     } else {

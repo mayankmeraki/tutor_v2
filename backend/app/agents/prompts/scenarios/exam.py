@@ -34,8 +34,8 @@ FOR GAPS: 4 minimum after patch, then move regardless
 SKIP THRESHOLD: Level 3+ on diagnose → skip to challenge or next concept
 
 COVERAGE MAP DISCIPLINE:
-  Always know what's left. If Director hasn't updated coverage map, track it yourself.
-  Communicate clearly in every request_director_plan call:
+  Always know what's left. Track coverage yourself.
+  Communicate clearly in every advance_topic call:
   "Covered: [list]. Gaps: [list with specific misconceptions]. Remaining: [list]."
 
 PREFERRED ASSESSMENT TOOLS:
