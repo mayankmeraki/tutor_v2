@@ -10,28 +10,87 @@ TAGS_PROMPT = r"""═══ TEACHING TAGS — EXACT FORMAT REFERENCE ═══
 The frontend parses these tags from your text and renders interactive components.
 If the format is wrong, the tag renders as raw text. Follow EXACTLY.
 
-── CONTENT TAGS (no student input needed) ──────────────────────────────────
+── SPOTLIGHT TAGS (open in the spotlight panel above chat) ─────────────────
 
-VIDEO (self-closing):
+VIDEO — opens directly in the spotlight panel (self-closing):
   <teaching-video lesson="3" start="260" end="380" label="Frequency vs intensity" />
   All attributes required. lesson=ID from Course Map. start/end in seconds.
+  Opens automatically in spotlight — no click needed from student.
 
-IMAGE (self-closing):
+SIMULATION — opens directly in the spotlight panel (self-closing):
+  <teaching-simulation id="sim_photoelectric" />
+  id must match an Available Simulation ID exactly.
+  Opens automatically in spotlight — no click needed from student.
+
+SPOTLIGHT — pin any asset above chat (self-closing):
+  <teaching-spotlight type="image" src="URL" caption="Description" />
+  <teaching-spotlight type="mermaid" syntax="graph LR\n  A-->B" />
+
+NOTEBOOK — Collaborative derivation or problem workspace (opens in spotlight):
+  <teaching-spotlight type="notebook" mode="derivation" title="Deriving the Work-Energy Theorem" />
+  <teaching-spotlight type="notebook" mode="problem" title="Find the acceleration" problem="A 5kg box is pushed with 10N on a frictionless surface. Find $a$." />
+
+  mode="derivation": Collaborative step-by-step workspace. Tutor and student
+    take turns adding steps. Tutor writes a step, asks student to continue,
+    student types or draws their work. Both contributions appear side-by-side.
+  mode="problem": Problem workspace with statement at top. Student solves using
+    type (LaTeX) or draw (freehand). Tutor can add scaffold steps/hints.
+
+  The student has a unified workspace at the bottom of the notebook with:
+  - A drawing canvas (always visible) with pen colors, eraser, and undo
+  - A text input (always visible) for LaTeX math ($...$, $$...$$) or plain text
+  The student can draw AND type in the same submission. Their work auto-sends
+  after 15 seconds of inactivity, or they click "Submit Work" manually.
+  Student submissions appear as green-accented steps in the notebook and are
+  sent to you for feedback.
+
+NOTEBOOK STEP — Adds a tutor step to an open notebook (either mode):
+  <teaching-notebook-step n="1" annotation="Start with Newton's second law">$$F = ma$$</teaching-notebook-step>
+  <teaching-notebook-step n="2" annotation="Rearrange for acceleration">$$a = \frac{F}{m}$$</teaching-notebook-step>
+  <teaching-notebook-step n="3" annotation="" feedback="Almost! Check the sign.">$$a = -\frac{F}{m}$$</teaching-notebook-step>
+
+  n = step number, annotation = what's happening (optional), content = math/text
+  feedback = inline feedback on a student's previous step (optional)
+
+  COLLABORATIVE PATTERN:
+  1. Open notebook with <teaching-spotlight type="notebook" ...>
+  2. Add your first step with <teaching-notebook-step>
+  3. Ask student "What's the next step?" in your message text
+  4. Student submits their step (appears as [Notebook step N] in chat)
+  5. Respond with feedback + your next step using <teaching-notebook-step>
+  6. Repeat until derivation/problem is complete
+  7. Close with <teaching-spotlight-dismiss />
+
+DISMISS SPOTLIGHT — close the spotlight panel:
+  <teaching-spotlight-dismiss />
+
+═══ SPOTLIGHT LIFECYCLE — MANDATORY RULES ═══
+
+1. ONE ASSET AT A TIME: Only one thing can be in the spotlight. A new video,
+   simulation, or spotlight tag automatically REPLACES the previous content.
+2. CLOSE WHEN DONE: When discussion moves past the asset, emit
+   <teaching-spotlight-dismiss /> BEFORE your next message. Do NOT leave
+   stale assets pinned in the spotlight.
+3. CLOSE BEFORE NEW TOPIC: When advancing to a new topic, dismiss any open
+   spotlight first (unless the next topic uses the same asset).
+4. NEVER leave a video or simulation open for more than 3 turns after
+   the student has responded to it. Close it and move on.
+
+── INLINE CONTENT TAGS (render in the chat stream, NOT spotlight) ──────────
+
+IMAGE — inline in chat (self-closing):
   <teaching-image src="https://example.com/photo.jpg" caption="Double slit apparatus" />
   src must be a valid URL from materials or search_images. Never invent URLs.
+  Use this for small reference images. For important images, use spotlight.
 
-SIMULATION (self-closing):
-  <teaching-simulation id="sim_photoelectric" title="Photoelectric Effect" description="Explore how light frequency affects electron emission" />
-  id must match an Available Simulation ID exactly.
-
-MERMAID (self-closing):
+MERMAID — inline diagram (self-closing):
   <teaching-mermaid syntax="graph LR\n  A[Light] --> B{Frequency}\n  B -->|high| C[Electrons emitted]\n  B -->|low| D[No emission]" />
   Use \n for newlines in syntax. Keep to 4-8 nodes.
 
 RECAP (container):
   <teaching-recap>Key points from this section...</teaching-recap>
 
-── ASSESSMENT TAGS (max 1 per message) ─────────────────────────────────────
+── ASSESSMENT TAGS (max 1 per message, always inline) ─────────────────────
 
 MCQ — Multiple Choice (container with <option> children):
   <teaching-mcq prompt="What determines the energy of a photoelectron?">
@@ -66,10 +125,6 @@ FILL-IN-THE-BLANK (container):
 SPOT-THE-ERROR (self-closing):
   <teaching-spot-error quote="Since brighter light has more energy, it must produce faster electrons." prompt="What's wrong with this reasoning?" />
 
-CANVAS — Drawing (self-closing):
-  <teaching-canvas prompt="Draw the force diagram for a block on an inclined plane." grid="cartesian" />
-  grid options: "cartesian", "polar", "blank"
-
 TEACHBACK — Deep assessment (self-closing):
   <teaching-teachback prompt="Explain the photoelectric effect as if teaching a friend who knows basic physics." concept="photoelectric_effect" />
 
@@ -80,13 +135,6 @@ CHECKPOINT (self-closing):
 
 PLAN UPDATE (container):
   <teaching-plan-update><complete step="1" /></teaching-plan-update>
-
-── SPOTLIGHT TAGS (pins asset above chat) ──────────────────────────────────
-
-  <teaching-spotlight type="simulation" id="sim_photoelectric" />
-  <teaching-spotlight type="image" src="URL" caption="Description" />
-  <teaching-spotlight type="video" lesson="3" start="260" end="380" label="Segment title" />
-  <teaching-spotlight-dismiss />
 
 ═══ CRITICAL TAG RULES ═══
 

@@ -458,7 +458,11 @@ const state = {
 
   // Spotlight panel
   spotlightActive: false,
-  spotlightInfo: null,   // { type, title, id? } — what's currently pinned
+  spotlightInfo: null,   // { type, title, id?, notebookId? } — what's currently pinned
+  notebookSteps: [],     // Steps accumulated in derivation notebook
+  spotlightHistory: [],  // { id, type, title, tag } — clickable reference cards
+  inactivityTimer: null,  // Auto-send timer for notebook workspace
+  notebookCleanup: null,  // Cleanup function for current notebook
 
 };
 
@@ -642,6 +646,8 @@ function renderCourseProgress() {
 
 const SVG_SEND = `<svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>`;
 const SVG_MIC = `<svg viewBox="0 0 24 24"><rect x="9" y="1" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
+const SVG_DRAW = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
+const SVG_TEXT = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2.5 4v3h5v12h3V7h5V4h-13z"/><path d="M21.5 9h-9v3h3v7h3v-7h3V9z"/></svg>`;
 
 function buildTextInput(id, placeholder, submitFnStr) {
   return `
@@ -909,7 +915,7 @@ function handleSSEEvent(event) {
 
     case 'PLAN_UPDATE':
       console.log('[SSE] PLAN_UPDATE received —', event.plan?.session_objective || event.sessionObjective || '?');
-      handlePlanUpdate(event.plan);
+      handlePlanFromAgent(event.plan, event.sessionObjective);
       break;
 
     case 'TEACHING_DELEGATION_START':
@@ -920,11 +926,6 @@ function handleSSEEvent(event) {
       console.log('[SSE] TEACHING_DELEGATION_END — reason:', event.reason);
       break;
 
-    case 'PLAN_UPDATE':
-      console.log('[SSE] PLAN_UPDATE received —', event.plan?.session_objective || event.sessionObjective || '?');
-      handlePlanUpdate(event.plan);
-      break;
-
     case 'TOPIC_COMPLETE':
       console.log('[SSE] TOPIC_COMPLETE —', event.topic_index, event.title || '');
       handleTopicComplete(event.section_index, event.topic_index);
@@ -933,6 +934,11 @@ function handleSSEEvent(event) {
     case 'SECTION_COMPLETE':
       console.log('[SSE] SECTION_COMPLETE — index:', event.index);
       handleSectionComplete(event.index);
+      break;
+
+    case 'PLAN_RESET':
+      console.log('[SSE] PLAN_RESET — reason:', event.reason);
+      handlePlanReset(event.reason, event.keep_scope);
       break;
 
     case 'SIM_CONTROL':
@@ -1039,15 +1045,40 @@ function buildContext() {
 
   // Context: Spotlight state (if an asset is pinned in the spotlight panel)
   if (state.spotlightActive && state.spotlightInfo) {
+    const spotlightCtx = {
+      spotlightOpen: true,
+      type: state.spotlightInfo.type,
+      title: state.spotlightInfo.title,
+      id: state.spotlightInfo.id || null,
+      rules: [
+        'Student can see this asset RIGHT NOW. Reference it naturally.',
+        'CLOSE IT when done: emit <teaching-spotlight-dismiss /> when discussion moves past this asset.',
+        'REPLACE IT: emitting a new <teaching-video>, <teaching-simulation>, or <teaching-spotlight> tag will auto-replace this content.',
+        'Do NOT leave stale assets open — if you are no longer discussing this, close it first.',
+      ],
+    };
+
+    // Include notebook step history for collaborative context
+    if (state.spotlightInfo.type === 'notebook' && state.notebookSteps.length > 0) {
+      spotlightCtx.mode = state.spotlightInfo.mode;
+      spotlightCtx.stepCount = state.notebookSteps.length;
+      spotlightCtx.steps = state.notebookSteps.map(s => ({
+        n: s.n,
+        author: s.author || 'tutor',
+        annotation: s.annotation || '',
+        content: s.math || s.content || '',
+        hasDrawing: s.hasDrawing || false,
+      }));
+      spotlightCtx.rules.push(
+        'This is a COLLABORATIVE notebook. Alternate steps with the student.',
+        'After adding your step with <teaching-notebook-step>, ask the student to fill in the NEXT step.',
+        'When student submits work (appears as [Notebook step N]), give feedback and continue.',
+      );
+    }
+
     items.push({
-      description: 'Spotlight Panel — an asset is currently pinned above the chat and visible to the student',
-      value: JSON.stringify({
-        spotlightOpen: true,
-        type: state.spotlightInfo.type,
-        title: state.spotlightInfo.title,
-        id: state.spotlightInfo.id || null,
-        hint: 'The student can see this asset right now. Reference it naturally. Emit <teaching-spotlight-dismiss /> when you are done discussing it.',
-      }),
+      description: 'ACTIVE SPOTLIGHT — asset currently pinned above chat',
+      value: JSON.stringify(spotlightCtx),
     });
   }
 
@@ -1243,10 +1274,10 @@ function transitionOnboardingToTeaching() {
   }, 800);
 }
 
-function handlePlanUpdate(plan) {
+function handlePlanFromAgent(plan, sessionObjective) {
   if (!plan) return;
   console.log('[Plan Update]', {
-    objective: plan.session_objective || plan.section_title,
+    objective: sessionObjective || plan.session_objective || plan.section_title,
     sections: (plan.sections || []).map(s => {
       const topics = (s.topics || []).map(t => t.title).join(', ');
       return `${s.n}. ${s.title} (${s.modality || ''}) [${topics}]`;
@@ -1331,7 +1362,7 @@ function handlePlanUpdate(plan) {
 
   // Show session objective
   const objEl = $('#plan-objective');
-  const sessionObj = plan.session_objective || plan.section_title;
+  const sessionObj = sessionObjective || plan.session_objective || plan.section_title;
   if (objEl && sessionObj) {
     objEl.innerHTML = `<div class="plan-objective-text">${escapeHtml(sessionObj)}</div>`;
   }
@@ -1339,6 +1370,34 @@ function handlePlanUpdate(plan) {
   SessionManager.setPlan(plan);
   renderPlanProgress();
   state.planCallCount++;
+}
+
+function handlePlanReset(reason, keepScope) {
+  console.log('[Plan Reset] Clearing plan sidebar — reason:', reason);
+
+  // Clear plan state
+  state.plan = [];
+  state.planActiveStep = null;
+  state.currentPlan = {};
+
+  // Show "replanning" indicator in sidebar
+  const stepsEl = $('#plan-steps');
+  const container = $('#plan-progress');
+  if (stepsEl && container) {
+    container.classList.remove('hidden');
+    stepsEl.innerHTML = `
+      <div class="plan-replanning">
+        <div class="plan-replanning-spinner"></div>
+        <div class="plan-replanning-text">Replanning...</div>
+      </div>
+    `;
+  }
+
+  // Clear objective if scope is also being reset
+  if (!keepScope) {
+    const objEl = $('#plan-objective');
+    if (objEl) objEl.innerHTML = '';
+  }
 }
 
 function handleTopicComplete(sectionIndex, topicIndex) {
@@ -1623,7 +1682,7 @@ function stripTeachingTags(text) {
 
 function renderTeachingTag(tag) {
   // Record visual assets in session (exclude structural/navigation tags)
-  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss']);
+  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss', 'teaching-notebook-step']);
   if (!structuralTags.has(tag.name)) {
     SessionManager.recordAsset(tag);
   }
@@ -1633,7 +1692,7 @@ function renderTeachingTag(tag) {
       handleTeachingPlan(tag);
       break;
     case 'teaching-plan-update':
-      handlePlanUpdate(tag);
+      handlePlanUpdateTag(tag);
       break;
     case 'teaching-checkpoint':
       handleTeachingCheckpoint(tag);
@@ -1669,7 +1728,16 @@ function renderTeachingTag(tag) {
       renderRecapTag(tag);
       break;
     case 'teaching-canvas':
-      renderCanvasTag(tag);
+      // Legacy: redirect to spotlight notebook with problem mode
+      showSpotlight({
+        name: 'teaching-spotlight',
+        attrs: {
+          type: 'notebook',
+          mode: 'problem',
+          title: tag.attrs.prompt || 'Drawing Workspace',
+          problem: tag.attrs.prompt || 'Draw your answer',
+        },
+      });
       break;
     case 'teaching-teachback':
       renderTeachbackTag(tag);
@@ -1682,6 +1750,9 @@ function renderTeachingTag(tag) {
       break;
     case 'teaching-spotlight-dismiss':
       hideSpotlight();
+      break;
+    case 'teaching-notebook-step':
+      appendNotebookStep(tag);
       break;
   }
 }
@@ -1739,36 +1810,55 @@ function renderVideoTag(tag) {
   const label = tag.attrs.label || 'Watch this segment';
   const lessonId = parseInt(tag.attrs.lesson) || state.checkpoint.currentLessonId;
 
-  const videoUrl = findVideoUrl(lessonId);
-  const startFmt = formatTimestamp(start);
-  const endFmt = formatTimestamp(end);
+  // Open directly in spotlight — no inline card
+  openVideoInSpotlight(lessonId, start, end, label);
+}
 
-  let iframeSrc = '';
-  if (videoUrl) {
-    iframeSrc = buildVideoSrc(videoUrl, start, end);
+function openVideoInSpotlight(lessonId, start, end, label) {
+  const panel = $('#spotlight-panel');
+  const content = $('#spotlight-content');
+  const titleEl = $('#spotlight-title');
+  const typeBadge = $('#spotlight-type-badge');
+  if (!panel || !content) return;
+
+  // Auto-cleanup previous spotlight content
+  if (state.spotlightActive) {
+    if (state.activeSimulation && state.activeSimulation.blockId.startsWith('spotlight-sim-')) {
+      stopSimBridge();
+      state.activeSimulation = null;
+      state.simulationLiveState = null;
+    }
+    if (state.spotlightInfo?.type === 'notebook') {
+      if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
+      state.notebookSteps = [];
+    }
+    content.innerHTML = '';
   }
 
-  const overlayId = 'video-overlay-' + generateId().slice(0, 8);
+  const videoUrl = findVideoUrl(lessonId);
+  if (titleEl) titleEl.textContent = label || 'Video segment';
+  if (typeBadge) {
+    typeBadge.textContent = 'Video';
+    typeBadge.setAttribute('data-type', 'video');
+    typeBadge.style.display = '';
+  }
 
-  appendBlock('video', `
-    <div class="video-container">
-      <div class="video-overlay" id="${overlayId}">
-        <span class="pause-icon">&#9654;</span>
-        <span class="pause-text">Click to watch (${startFmt} - ${endFmt})</span>
-      </div>
-      ${iframeSrc ? `<iframe src="${escapeAttr(iframeSrc)}"
-        allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>` :
-        `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-dim)">Video: ${startFmt} - ${endFmt}</div>`}
-    </div>
-    <div class="video-label">${escapeHtml(label)}</div>
-  `);
+  if (videoUrl) {
+    const iframeSrc = buildVideoSrc(videoUrl, start, end);
+    content.innerHTML = `<iframe src="${escapeAttr(iframeSrc)}" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>`;
+  } else {
+    const startFmt = formatTimestamp(start);
+    const endFmt = formatTimestamp(end);
+    content.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-dim);">Video: ${startFmt} - ${endFmt}</div>`;
+  }
 
-  setTimeout(() => {
-    const overlay = $(`#${overlayId}`);
-    if (overlay) {
-      overlay.addEventListener('click', () => overlay.classList.add('hidden'));
-    }
-  }, 50);
+  panel.classList.add('stage-active');
+  state.spotlightInfo = { type: 'video', title: label, lessonId, start, end };
+  state.spotlightActive = true;
+  enterSpotlightFullscreen();
+
+  // Append reference card in chat stream
+  appendSpotlightReference('video', label || 'Video segment', { lessonId, start, end, label });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1881,10 +1971,177 @@ function renderFreetextTag(tag) {
 
   appendBlock('freetext', `
     ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
-    <div class="text-input-area">
-      ${buildTextInput(ftId, placeholder, `submitFreetext('${ftId}')`)}
+    <div class="freetext-input-container" id="${ftId}-container">
+      <div class="input-mode-toggle">
+        <button class="mode-btn active" data-mode="text" title="Type answer">${SVG_TEXT}</button>
+        <button class="mode-btn" data-mode="draw" title="Draw answer">${SVG_DRAW}</button>
+      </div>
+      <div class="text-mode" id="${ftId}-text-mode">
+        <div class="text-input-area">
+          ${buildTextInput(ftId, placeholder, `submitFreetext('${ftId}')`)}
+        </div>
+      </div>
+      <div class="draw-mode" id="${ftId}-draw-mode" style="display:none;"></div>
     </div>
   `, { interactive: true });
+
+  setTimeout(() => { initFreetextToggle(ftId, prompt); }, 50);
+}
+
+function initFreetextToggle(ftId, prompt) {
+  const container = $(`#${ftId}-container`);
+  if (!container) return;
+
+  const toggleBtns = container.querySelectorAll('.mode-btn');
+  const textMode = $(`#${ftId}-text-mode`);
+  const drawMode = $(`#${ftId}-draw-mode`);
+  let canvasInitialized = false;
+
+  toggleBtns.forEach(btn => {
+    btn.addEventListener('click', () => {
+      const mode = btn.dataset.mode;
+      toggleBtns.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+
+      if (mode === 'text') {
+        textMode.style.display = '';
+        drawMode.style.display = 'none';
+      } else {
+        textMode.style.display = 'none';
+        drawMode.style.display = '';
+        if (!canvasInitialized) {
+          canvasInitialized = true;
+          initFreetextCanvas(ftId, prompt, drawMode);
+        }
+      }
+    });
+  });
+}
+
+function initFreetextCanvas(ftId, prompt, drawModeEl) {
+  const canvasId = ftId + '-canvas';
+  drawModeEl.innerHTML = `
+    <div class="canvas-toolbar" id="${canvasId}-toolbar">
+      <button class="canvas-tool-btn active" data-tool="pen" data-color="#ffffff" title="White pen">
+        <span style="color:#ffffff;">&#9679;</span>
+      </button>
+      <button class="canvas-tool-btn" data-tool="pen" data-color="var(--accent)" title="Blue pen">
+        <span style="color:var(--accent);">&#9679;</span>
+      </button>
+      <button class="canvas-tool-btn" data-tool="pen" data-color="var(--green)" title="Green pen">
+        <span style="color:var(--green);">&#9679;</span>
+      </button>
+      <button class="canvas-tool-btn" data-tool="eraser" title="Eraser">&#9003;</button>
+      <span class="canvas-separator"></span>
+      <button class="canvas-tool-btn" data-action="linewidth" title="Toggle line width">&#9644;</button>
+      <button class="canvas-tool-btn" data-action="clear" title="Clear canvas">&#10005;</button>
+    </div>
+    <canvas id="${canvasId}" width="640" height="400"></canvas>
+    <div class="strip-actions" style="margin-top:12px;">
+      <button class="btn btn-primary" id="submit-${canvasId}">Submit Drawing</button>
+    </div>
+  `;
+
+  const canvas = $(`#${canvasId}`);
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+
+  ctx.fillStyle = '#1a1d27';
+  ctx.fillRect(0, 0, 640, 400);
+
+  let drawing = false;
+  let currentColor = '#ffffff';
+  let currentTool = 'pen';
+  let lineWidth = 2;
+
+  function getPos(e) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = 640 / rect.width;
+    const scaleY = 400 / rect.height;
+    if (e.touches) {
+      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+    }
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    ctx.beginPath();
+    ctx.moveTo(pos.x, pos.y);
+  }
+
+  function draw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    ctx.lineWidth = currentTool === 'eraser' ? lineWidth * 5 : lineWidth;
+    ctx.strokeStyle = currentTool === 'eraser' ? '#1a1d27' : currentColor;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+  }
+
+  function stopDraw() { drawing = false; }
+
+  canvas.addEventListener('mousedown', startDraw);
+  canvas.addEventListener('mousemove', draw);
+  canvas.addEventListener('mouseup', stopDraw);
+  canvas.addEventListener('mouseleave', stopDraw);
+  canvas.addEventListener('touchstart', startDraw, { passive: false });
+  canvas.addEventListener('touchmove', draw, { passive: false });
+  canvas.addEventListener('touchend', stopDraw);
+
+  const toolbar = $(`#${canvasId}-toolbar`);
+  toolbar.querySelectorAll('.canvas-tool-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      if (btn.dataset.action === 'clear') {
+        ctx.fillStyle = '#1a1d27';
+        ctx.fillRect(0, 0, 640, 400);
+        return;
+      }
+      if (btn.dataset.action === 'linewidth') {
+        lineWidth = lineWidth === 2 ? 4 : lineWidth === 4 ? 6 : 2;
+        return;
+      }
+      toolbar.querySelectorAll('.canvas-tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      if (btn.dataset.tool === 'eraser') {
+        currentTool = 'eraser';
+      } else {
+        currentTool = 'pen';
+        currentColor = btn.dataset.color || '#ffffff';
+      }
+    });
+  });
+
+  const submitBtn = $(`#submit-${canvasId}`);
+  if (submitBtn) {
+    submitBtn.addEventListener('click', () => {
+      submitBtn.disabled = true;
+      const dataUrl = canvas.toDataURL('image/png');
+      const base64Data = dataUrl.split(',')[1];
+
+      const imgBlock = document.createElement('div');
+      imgBlock.className = 'canvas-block fade-in';
+      imgBlock.dataset.type = 'user';
+      imgBlock.innerHTML = `
+        <span class="response-label">Your drawing</span>
+        <img src="${dataUrl}" alt="Student drawing" style="max-width:100%;border-radius:var(--radius);margin-top:6px;display:block;" />
+      `;
+      $('#canvas-stream').appendChild(imgBlock);
+
+      // Send as multimodal content (text + image) — inlined from removed sendCanvasDrawing
+      if (!state.isStreaming) {
+        streamADK([
+          { type: 'text', text: `[Canvas drawing] Student drew a response to: "${prompt}"` },
+          { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Data } },
+        ]);
+      }
+    });
+  }
 }
 
 function renderConfidenceTag(tag) {
@@ -2056,43 +2313,9 @@ function renderImageTag(tag) {
 
 function renderSimulationTag(tag) {
   const simId = tag.attrs.id || 'unknown';
-  const title = tag.attrs.title || '';
-  const description = tag.attrs.description || '';
 
-  // Try to find the simulation in pre-fetched data for richer rendering
-  const simData = state.simulations.find(s => s.id === simId);
-  const displayTitle = title || (simData ? simData.title : simId);
-  const displayDesc = description || (simData ? simData.description : '');
-  const thumbnailUrl = simData ? simData.thumbnail_url : '';
-  const toolType = simData ? simData.tool_type : 'simulation';
-
-  const blockId = 'sim-block-' + generateId().slice(0, 8);
-
-  const thumbHtml = thumbnailUrl
-    ? `<img src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(displayTitle)}" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;margin-bottom:12px;" />`
-    : `<div style="padding:40px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:12px;">
-        <div style="font-size:32px;margin-bottom:8px;">&#9881;</div>
-        Interactive ${escapeHtml(toolType)}
-      </div>`;
-
-  appendBlock('simulation', `
-    <div class="sim-container" id="${blockId}">
-      <div class="sim-header">
-        <span class="lab-icon">Lab</span> ${escapeHtml(displayTitle)}
-      </div>
-      <div id="${blockId}-card">
-        ${thumbHtml}
-        ${displayDesc ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;">${escapeHtml(displayDesc)}</div>` : ''}
-        <button class="sim-open-btn" id="${blockId}-open" onclick="openSimulation('${escapeAttr(simId)}', '${blockId}')">
-          &#9654; Open Simulation
-        </button>
-      </div>
-      <div id="${blockId}-iframe-area" class="hidden"></div>
-    </div>
-    <div class="text-input-area" style="margin-top:12px;">
-      ${buildTextInput(`sim-obs-${escapeAttr(blockId)}`, 'What do you observe in the simulation...', `submitFreetext('sim-obs-${escapeAttr(blockId)}')`)}
-    </div>
-  `, { interactive: true });
+  // Open directly in spotlight — no inline card
+  showSpotlight({ attrs: { type: 'simulation', id: simId } });
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2118,28 +2341,37 @@ window.openSimulation = async function(simId, blockId) {
     const simData = state.simulations.find(s => s.id === simId);
     const displayTitle = simData ? simData.title : simId;
 
-    // Hide the card, show iframe area
+    // Open in spotlight panel instead of inline
+    const panel = $('#spotlight-panel');
+    const spotlightContent = $('#spotlight-content');
+    const titleEl = $('#spotlight-title');
+
+    if (panel && spotlightContent) {
+      const spotlightBlockId = 'spotlight-sim-' + generateId().slice(0, 8);
+      if (titleEl) titleEl.textContent = displayTitle;
+      spotlightContent.innerHTML = `<iframe id="${spotlightBlockId}-iframe" src="${escapeAttr(entryUrl)}" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>`;
+      panel.classList.add('stage-active');
+
+      // Start simulation bridge
+      startSimBridge(simId, spotlightBlockId);
+
+      // Track active simulation + spotlight (keep reference to inline card blockId)
+      state.activeSimulation = { simId, blockId: spotlightBlockId, title: displayTitle, entryUrl };
+      state.spotlightInfo = { type: 'simulation', title: displayTitle, id: simId, inlineBlockId: blockId };
+      state.spotlightActive = true;
+    }
+
+    // Show "open above" state on inline card
     const cardEl = $(`#${blockId}-card`);
-    const iframeArea = $(`#${blockId}-iframe-area`);
-    if (cardEl) cardEl.classList.add('hidden');
-    if (iframeArea) {
-      iframeArea.classList.remove('hidden');
-      iframeArea.innerHTML = `
-        <div class="sim-iframe-wrapper">
-          <iframe id="${blockId}-iframe" src="${escapeAttr(entryUrl)}" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>
-        </div>
-        <div class="sim-toolbar">
-          <button class="sim-toolbar-btn" onclick="openSimFullscreen('${blockId}', '${escapeAttr(displayTitle)}')">&#x26F6; Fullscreen</button>
-          <button class="sim-toolbar-btn" onclick="closeSimulation('${blockId}')">&#10005; Close</button>
+    if (cardEl) {
+      cardEl.innerHTML = `
+        <div class="sim-open-above">
+          <div class="sim-open-above-icon">&#8593;</div>
+          <div class="sim-open-above-text">Simulation open above</div>
+          <button class="sim-toolbar-btn" onclick="hideSpotlight(); closeSimulation('${blockId}')">Close simulation</button>
         </div>
       `;
     }
-
-    // Start simulation bridge
-    startSimBridge(simId, blockId);
-
-    // Track active simulation
-    state.activeSimulation = { simId, blockId, title: displayTitle, entryUrl };
 
   } catch (err) {
     if (openBtn) {
@@ -2156,18 +2388,30 @@ window.openSimulation = async function(simId, blockId) {
 
 window.closeSimulation = function(blockId) {
   const cardEl = $(`#${blockId}-card`);
-  const iframeArea = $(`#${blockId}-iframe-area`);
-  if (cardEl) cardEl.classList.remove('hidden');
-  if (iframeArea) {
-    iframeArea.classList.add('hidden');
-    iframeArea.innerHTML = '';
-  }
+  if (cardEl) {
+    // Restore original card with open button
+    const simContainer = $(`#${blockId}`);
+    const simId = state.activeSimulation?.simId || '';
+    const simData = state.simulations.find(s => s.id === simId);
+    const displayTitle = simData ? simData.title : simId;
+    const thumbnailUrl = simData ? simData.thumbnail_url : '';
+    const displayDesc = simData ? simData.description : '';
+    const toolType = simData ? simData.tool_type : 'simulation';
 
-  // Re-enable open button
-  const openBtn = $(`#${blockId}-open`);
-  if (openBtn) {
-    openBtn.disabled = false;
-    openBtn.innerHTML = '&#9654; Open Simulation';
+    const thumbHtml = thumbnailUrl
+      ? `<img src="${escapeHtml(thumbnailUrl)}" alt="${escapeHtml(displayTitle)}" style="width:100%;max-height:200px;object-fit:cover;border-radius:8px;margin-bottom:12px;" />`
+      : `<div style="padding:40px;text-align:center;color:var(--text-dim);background:rgba(255,255,255,0.03);border-radius:8px;margin-bottom:12px;">
+          <div style="font-size:32px;margin-bottom:8px;">&#9881;</div>
+          Interactive ${escapeHtml(toolType)}
+        </div>`;
+
+    cardEl.innerHTML = `
+      ${thumbHtml}
+      ${displayDesc ? `<div style="font-size:13px;color:var(--text-muted);margin-bottom:12px;line-height:1.5;">${escapeHtml(displayDesc)}</div>` : ''}
+      <button class="sim-open-btn" id="${blockId}-open" onclick="openSimulation('${escapeAttr(simId)}', '${blockId}')">
+        &#9654; Open Simulation
+      </button>
+    `;
   }
 
   // Clean up bridge
@@ -2316,170 +2560,7 @@ function renderRecapTag(tag) {
 // Module 13: Canvas Tag Renderer
 // ═══════════════════════════════════════════════════════════
 
-function renderCanvasTag(tag) {
-  const prompt = tag.attrs.prompt || 'Draw your answer';
-  const grid = tag.attrs.grid || 'blank';
-  const canvasId = 'canvas-' + generateId().slice(0, 8);
-
-  appendBlock('canvas', `
-    <div class="canvas-prompt">${escapeHtml(prompt)}</div>
-    <div class="canvas-toolbar" id="${canvasId}-toolbar">
-      <button class="canvas-tool-btn active" data-tool="pen" data-color="#ffffff" title="White pen">
-        <span style="color:#ffffff;">&#9679;</span>
-      </button>
-      <button class="canvas-tool-btn" data-tool="pen" data-color="var(--accent)" title="Blue pen">
-        <span style="color:var(--accent);">&#9679;</span>
-      </button>
-      <button class="canvas-tool-btn" data-tool="pen" data-color="var(--green)" title="Green pen">
-        <span style="color:var(--green);">&#9679;</span>
-      </button>
-      <button class="canvas-tool-btn" data-tool="eraser" title="Eraser">&#9003;</button>
-      <span class="canvas-separator"></span>
-      <button class="canvas-tool-btn" data-action="linewidth" title="Toggle line width">&#9644;</button>
-      <button class="canvas-tool-btn" data-action="clear" title="Clear canvas">&#10005;</button>
-    </div>
-    <canvas id="${canvasId}" width="640" height="400"></canvas>
-    <div class="strip-actions" style="margin-top:12px;">
-      <button class="btn btn-primary" id="submit-${canvasId}">Submit Drawing</button>
-    </div>
-  `, { interactive: true });
-
-  setTimeout(() => {
-    const canvas = $(`#${canvasId}`);
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-
-    ctx.fillStyle = '#1a1d27';
-    ctx.fillRect(0, 0, 640, 400);
-
-    if (grid === 'cartesian' || grid === 'polar') {
-      renderCanvasGrid(ctx, grid);
-    }
-
-    let drawing = false;
-    let currentColor = '#ffffff';
-    let currentTool = 'pen';
-    let lineWidth = 2;
-
-    function getPos(e) {
-      const rect = canvas.getBoundingClientRect();
-      const scaleX = 640 / rect.width;
-      const scaleY = 400 / rect.height;
-      if (e.touches) {
-        return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
-      }
-      return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
-    }
-
-    function startDraw(e) {
-      e.preventDefault();
-      drawing = true;
-      const pos = getPos(e);
-      ctx.beginPath();
-      ctx.moveTo(pos.x, pos.y);
-    }
-
-    function draw(e) {
-      if (!drawing) return;
-      e.preventDefault();
-      const pos = getPos(e);
-      ctx.lineWidth = currentTool === 'eraser' ? lineWidth * 5 : lineWidth;
-      ctx.strokeStyle = currentTool === 'eraser' ? '#1a1d27' : currentColor;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.lineTo(pos.x, pos.y);
-      ctx.stroke();
-    }
-
-    function stopDraw() { drawing = false; }
-
-    canvas.addEventListener('mousedown', startDraw);
-    canvas.addEventListener('mousemove', draw);
-    canvas.addEventListener('mouseup', stopDraw);
-    canvas.addEventListener('mouseleave', stopDraw);
-    canvas.addEventListener('touchstart', startDraw, { passive: false });
-    canvas.addEventListener('touchmove', draw, { passive: false });
-    canvas.addEventListener('touchend', stopDraw);
-
-    const toolbar = $(`#${canvasId}-toolbar`);
-    toolbar.querySelectorAll('.canvas-tool-btn').forEach(btn => {
-      btn.addEventListener('click', () => {
-        if (btn.dataset.action === 'clear') {
-          ctx.fillStyle = '#1a1d27';
-          ctx.fillRect(0, 0, 640, 400);
-          if (grid === 'cartesian' || grid === 'polar') {
-            renderCanvasGrid(ctx, grid);
-          }
-          return;
-        }
-        if (btn.dataset.action === 'linewidth') {
-          lineWidth = lineWidth === 2 ? 4 : lineWidth === 4 ? 6 : 2;
-          return;
-        }
-        toolbar.querySelectorAll('.canvas-tool-btn[data-tool]').forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        if (btn.dataset.tool === 'eraser') {
-          currentTool = 'eraser';
-        } else {
-          currentTool = 'pen';
-          currentColor = btn.dataset.color || '#ffffff';
-        }
-      });
-    });
-
-    const submitBtn = $(`#submit-${canvasId}`);
-    if (submitBtn) {
-      submitBtn.addEventListener('click', () => {
-        submitBtn.disabled = true;
-        // Convert canvas to base64 PNG image
-        const dataUrl = canvas.toDataURL('image/png');
-        const base64Data = dataUrl.split(',')[1]; // Strip "data:image/png;base64,"
-
-        // Render the drawing as a static image on the board
-        const imgBlock = document.createElement('div');
-        imgBlock.className = 'canvas-block fade-in';
-        imgBlock.dataset.type = 'user';
-        imgBlock.innerHTML = `
-          <span class="response-label">Your drawing</span>
-          <img src="${dataUrl}" alt="Student drawing" style="max-width:100%;border-radius:var(--radius);margin-top:6px;display:block;" />
-        `;
-        $('#canvas-stream').appendChild(imgBlock);
-
-        // Send as multimodal content (text + image)
-        sendCanvasDrawing(prompt, base64Data);
-      });
-    }
-  }, 50);
-}
-
-function renderCanvasGrid(ctx, grid) {
-  if (grid === 'cartesian') {
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    for (let x = 0; x <= 640; x += 40) {
-      ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x, 400); ctx.stroke();
-    }
-    for (let y = 0; y <= 400; y += 40) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(640, y); ctx.stroke();
-    }
-    ctx.strokeStyle = 'rgba(255,255,255,0.35)';
-    ctx.lineWidth = 2;
-    ctx.beginPath(); ctx.moveTo(320, 0); ctx.lineTo(320, 400); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, 200); ctx.lineTo(640, 200); ctx.stroke();
-  } else if (grid === 'polar') {
-    ctx.strokeStyle = 'rgba(255,255,255,0.1)';
-    ctx.lineWidth = 1;
-    for (let r = 40; r <= 200; r += 40) {
-      ctx.beginPath(); ctx.arc(320, 200, r, 0, Math.PI * 2); ctx.stroke();
-    }
-    for (let a = 0; a < Math.PI; a += Math.PI / 6) {
-      ctx.beginPath();
-      ctx.moveTo(320 - 200 * Math.cos(a), 200 - 200 * Math.sin(a));
-      ctx.lineTo(320 + 200 * Math.cos(a), 200 + 200 * Math.sin(a));
-      ctx.stroke();
-    }
-  }
-}
+// renderCanvasTag and renderCanvasGrid removed — teaching-canvas now routes to spotlight notebook
 
 // ═══════════════════════════════════════════════════════════
 // Module 15: Teachback Tag Renderer
@@ -2561,7 +2642,7 @@ function handleTeachingPlan(tag) {
   renderPlanProgress();
 }
 
-function handlePlanUpdate(tag) {
+function handlePlanUpdateTag(tag) {
   const completeRegex = /<complete\s+step="(\d+)"[^>]*\/>/g;
   let completeMatch;
   while ((completeMatch = completeRegex.exec(tag.content)) !== null) {
@@ -2721,11 +2802,7 @@ function handleToolCallStart(event) {
   // show "Thinking..." — the assessment IS the student-facing activity.
   const internalTools = ['spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching'];
   if (internalTools.includes(toolName)) {
-    // Cancel pending fallback timer — tool is starting
-    if (state.pendingFallbackTimer) {
-      clearTimeout(state.pendingFallbackTimer);
-      state.pendingFallbackTimer = null;
-    }
+    // Internal tools run in background — do NOT cancel fallback input timer.
     return;
   }
 
@@ -2796,9 +2873,34 @@ async function showSpotlight(tag) {
   const panel = $('#spotlight-panel');
   const content = $('#spotlight-content');
   const titleEl = $('#spotlight-title');
+  const typeBadge = $('#spotlight-type-badge');
   if (!panel || !content) return;
 
+  // Auto-cleanup: if spotlight already has content, close it first
+  if (state.spotlightActive) {
+    // Clean up simulation bridge if previous was a sim
+    if (state.activeSimulation && state.activeSimulation.blockId.startsWith('spotlight-sim-')) {
+      stopSimBridge();
+      state.activeSimulation = null;
+      state.simulationLiveState = null;
+    }
+    // Clean up notebook state
+    if (state.spotlightInfo?.type === 'notebook') {
+      if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
+      state.notebookSteps = [];
+    }
+    content.innerHTML = '';
+  }
+
   const type = tag.attrs.type || '';
+
+  // Set type badge
+  const typeLabels = { simulation: 'Simulation', video: 'Video', image: 'Image', notebook: 'Notebook', mermaid: 'Diagram' };
+  if (typeBadge) {
+    typeBadge.textContent = typeLabels[type] || type;
+    typeBadge.setAttribute('data-type', type);
+    typeBadge.style.display = type ? '' : 'none';
+  }
 
   if (type === 'simulation') {
     const simId = tag.attrs.id;
@@ -2882,10 +2984,429 @@ async function showSpotlight(tag) {
     }
     panel.classList.add('stage-active');
     state.spotlightInfo = { type: 'video', title: label };
+
+  } else if (type === 'notebook') {
+    // ═══ NOTEBOOK (derivation or problem workspace) ═══
+    const mode = tag.attrs.mode || 'derivation';
+    const title = tag.attrs.title || (mode === 'derivation' ? 'Derivation' : 'Problem');
+    const problem = tag.attrs.problem || '';
+
+    if (titleEl) titleEl.textContent = title;
+
+    const notebookId = 'notebook-' + generateId().slice(0, 8);
+
+    // Problem header (only for problem mode)
+    const problemHeader = mode === 'problem' ? `
+      <div class="notebook-problem-header">
+        <div class="notebook-problem-label">Problem</div>
+        <div class="notebook-problem-text">${renderMarkdownBasic(problem)}</div>
+      </div>` : '';
+
+    // Both modes use shared steps + unified workspace (canvas + text always visible)
+    content.innerHTML = `
+      <div class="notebook-panel" id="${notebookId}">
+        ${problemHeader}
+        <div class="notebook-page notebook-page-lined" id="${notebookId}-page">
+          <div class="notebook-steps" id="${notebookId}-steps"></div>
+        </div>
+        <div class="notebook-workspace" id="${notebookId}-workspace">
+          <div class="notebook-workspace-canvas-wrap">
+            <canvas id="${notebookId}-draw-canvas" width="800" height="200"></canvas>
+            <div class="notebook-draw-toolbar" id="${notebookId}-draw-toolbar"></div>
+          </div>
+          <div class="notebook-workspace-text-row">
+            <textarea id="${notebookId}-type-input" placeholder="Type your work... use $...$ for math" rows="1"></textarea>
+            <button class="notebook-submit-btn" id="${notebookId}-submit-btn">Submit Work</button>
+          </div>
+          <div class="notebook-workspace-hint">Draw above, type below. Use <b>$...$</b> for math</div>
+          <div class="notebook-auto-send-indicator" id="${notebookId}-auto-send" style="display:none;"></div>
+        </div>
+      </div>
+    `;
+    panel.classList.add('stage-active');
+    state.spotlightInfo = { type: 'notebook', mode, title, notebookId };
+    state.notebookSteps = [];
+
+    // Initialize interactive controls
+    setTimeout(() => { initNotebookInteractive(notebookId, mode, problem ? title + ': ' + problem : title); }, 50);
   }
 
   state.spotlightActive = true;
+  enterSpotlightFullscreen();
+
+  // Append reference card in chat stream
+  const refTitle = (state.spotlightInfo && state.spotlightInfo.title) || type || 'Spotlight';
+  appendSpotlightReference(type, refTitle, tag);
 }
+
+// ── Notebook step appender (works for both derivation and problem modes) ──
+function appendNotebookStep(tag) {
+  const info = state.spotlightInfo;
+  if (!info || info.type !== 'notebook') {
+    console.warn('[Notebook] No notebook open — ignoring step');
+    return;
+  }
+
+  const stepsEl = $(`#${info.notebookId}-steps`);
+  if (!stepsEl) return;
+
+  const n = tag.attrs.n || tag.attrs.step || (state.notebookSteps.length + 1);
+  const annotation = tag.attrs.annotation || tag.attrs.label || '';
+  const feedback = tag.attrs.feedback || '';
+  const mathContent = (tag.content || '').trim();
+
+  // Render math via KaTeX
+  const renderedMath = renderLatex(mathContent);
+
+  const stepEl = document.createElement('div');
+  stepEl.className = 'notebook-step fade-in';
+  stepEl.innerHTML = `
+    <div class="notebook-step-number">${escapeHtml(String(n))}</div>
+    <div class="notebook-step-body">
+      ${annotation ? `<div class="notebook-step-annotation">${escapeHtml(annotation)}</div>` : ''}
+      <div class="notebook-step-math">${renderedMath}</div>
+      ${feedback ? `<div class="notebook-step-feedback">${escapeHtml(feedback)}</div>` : ''}
+    </div>
+  `;
+  stepsEl.appendChild(stepEl);
+
+  // Track step
+  state.notebookSteps.push({ n, annotation, math: mathContent, author: 'tutor' });
+
+  // Scroll to newest step
+  const page = $(`#${info.notebookId}-page`);
+  if (page) page.scrollTop = page.scrollHeight;
+}
+
+// ── Add student step to notebook ──
+function addStudentStepToNotebook(content, drawingDataUrl) {
+  const info = state.spotlightInfo;
+  if (!info || info.type !== 'notebook') return;
+
+  const stepsEl = $(`#${info.notebookId}-steps`);
+  if (!stepsEl) return;
+
+  const n = state.notebookSteps.length + 1;
+
+  const renderedContent = content ? renderLatex(content) : '';
+
+  const stepEl = document.createElement('div');
+  stepEl.className = 'notebook-step student-step fade-in';
+
+  let bodyHtml = `<div class="notebook-step-annotation">Your work</div>`;
+  if (renderedContent) {
+    bodyHtml += `<div class="notebook-step-math">${renderedContent}</div>`;
+  }
+  if (drawingDataUrl) {
+    bodyHtml += `<div class="notebook-step-drawing"><img src="${drawingDataUrl}" alt="Your drawing" /></div>`;
+  }
+
+  stepEl.innerHTML = `
+    <div class="notebook-step-number">${n}</div>
+    <div class="notebook-step-body">${bodyHtml}</div>
+  `;
+  stepsEl.appendChild(stepEl);
+
+  // Track step
+  state.notebookSteps.push({ n, content, hasDrawing: !!drawingDataUrl, author: 'student' });
+
+  // Scroll to newest step
+  const page = $(`#${info.notebookId}-page`);
+  if (page) page.scrollTop = page.scrollHeight;
+
+  // Send to tutor
+  const msgParts = [];
+  if (content) {
+    msgParts.push({ type: 'text', text: `[Notebook step ${n}] Student wrote: ${content}` });
+  }
+  if (drawingDataUrl) {
+    const base64 = drawingDataUrl.split(',')[1];
+    if (content) {
+      msgParts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } });
+    } else {
+      msgParts.push({ type: 'text', text: `[Notebook step ${n}] Student drew their work:` });
+      msgParts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } });
+    }
+  }
+  if (msgParts.length > 0) {
+    streamADK(msgParts.length === 1 && msgParts[0].type === 'text' ? msgParts[0].text : msgParts);
+  }
+}
+
+// ── Notebook interactive initializer (unified workspace — canvas + text always visible) ──
+function initNotebookInteractive(notebookId, mode, promptText) {
+  // ── Draw canvas (eagerly initialized — always visible) ──
+  let drawCtx = null;
+  const DW = 800, DH = 200;
+  let drawing = false, currentColor = '#ffffff', currentTool = 'pen', lineWidth = 2;
+  let undoStack = [];
+  let blankImageData = null; // stored after first clear to detect content
+
+  const canvas = $(`#${notebookId}-draw-canvas`);
+  const toolbar = $(`#${notebookId}-draw-toolbar`);
+
+  if (canvas && toolbar) {
+    drawCtx = canvas.getContext('2d');
+    clearDrawCanvas();
+
+    // Build toolbar
+    toolbar.innerHTML = `
+      <button class="notebook-draw-tool active" data-tool="pen" data-color="#ffffff" title="White">&#9998;</button>
+      <button class="notebook-draw-tool" data-tool="pen" data-color="#6c8cff" title="Blue" style="color:#6c8cff;">&#9998;</button>
+      <button class="notebook-draw-tool" data-tool="pen" data-color="#4ade80" title="Green" style="color:#4ade80;">&#9998;</button>
+      <button class="notebook-draw-tool" data-tool="pen" data-color="#ff6b6b" title="Red" style="color:#ff6b6b;">&#9998;</button>
+      <button class="notebook-draw-tool" data-tool="eraser" title="Eraser">&#9003;</button>
+      <span class="notebook-draw-sep"></span>
+      <button class="notebook-draw-tool" data-action="undo" title="Undo">↩</button>
+      <button class="notebook-draw-tool" data-action="clear" title="Clear">✕</button>
+    `;
+
+    toolbar.querySelectorAll('.notebook-draw-tool').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const action = btn.dataset.action;
+        if (action === 'clear') { clearDrawCanvas(); return; }
+        if (action === 'undo') { undoDraw(); return; }
+        const tool = btn.dataset.tool;
+        if (tool) {
+          currentTool = tool;
+          if (tool === 'pen') currentColor = btn.dataset.color || '#ffffff';
+          toolbar.querySelectorAll('.notebook-draw-tool[data-tool]').forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+        }
+      });
+    });
+
+    // Drawing handlers
+    function getPos(e) {
+      const rect = canvas.getBoundingClientRect();
+      const touch = e.touches ? e.touches[0] : e;
+      return { x: (touch.clientX - rect.left) * (DW / rect.width), y: (touch.clientY - rect.top) * (DH / rect.height) };
+    }
+
+    function startDraw(e) {
+      e.preventDefault();
+      drawing = true;
+      undoStack.push(drawCtx.getImageData(0, 0, DW, DH));
+      if (undoStack.length > 20) undoStack.shift();
+      const pos = getPos(e);
+      drawCtx.beginPath();
+      drawCtx.moveTo(pos.x, pos.y);
+      resetInactivityTimer();
+    }
+
+    function draw(e) {
+      if (!drawing) return;
+      e.preventDefault();
+      const pos = getPos(e);
+      drawCtx.lineWidth = currentTool === 'eraser' ? lineWidth * 4 : lineWidth;
+      drawCtx.strokeStyle = currentTool === 'eraser' ? '#1e2130' : currentColor;
+      drawCtx.lineCap = 'round';
+      drawCtx.lineJoin = 'round';
+      drawCtx.lineTo(pos.x, pos.y);
+      drawCtx.stroke();
+      drawCtx.beginPath();
+      drawCtx.moveTo(pos.x, pos.y);
+    }
+
+    function stopDraw() {
+      drawing = false;
+      resetInactivityTimer();
+    }
+
+    canvas.addEventListener('mousedown', startDraw);
+    canvas.addEventListener('mousemove', draw);
+    canvas.addEventListener('mouseup', stopDraw);
+    canvas.addEventListener('mouseleave', stopDraw);
+    canvas.addEventListener('touchstart', startDraw, { passive: false });
+    canvas.addEventListener('touchmove', draw, { passive: false });
+    canvas.addEventListener('touchend', stopDraw);
+  }
+
+  function clearDrawCanvas() {
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    ctx.fillStyle = '#1e2130';
+    ctx.fillRect(0, 0, DW, DH);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
+    ctx.lineWidth = 1;
+    for (let y = 30; y < DH; y += 30) {
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(DW, y); ctx.stroke();
+    }
+    // Store blank state for content detection
+    blankImageData = ctx.getImageData(0, 0, DW, DH).data;
+    undoStack = [];
+  }
+
+  function undoDraw() {
+    if (undoStack.length === 0) return;
+    if (!canvas) return;
+    canvas.getContext('2d').putImageData(undoStack.pop(), 0, 0);
+  }
+
+  // ── Canvas content detection ──
+  function canvasHasContent() {
+    if (!canvas || !blankImageData) return false;
+    const currentData = canvas.getContext('2d').getImageData(0, 0, DW, DH).data;
+    // Compare a sampling of pixels (every 40th) for performance
+    for (let i = 0; i < currentData.length; i += 160) {
+      if (currentData[i] !== blankImageData[i] ||
+          currentData[i + 1] !== blankImageData[i + 1] ||
+          currentData[i + 2] !== blankImageData[i + 2]) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  // ── Type input: auto-resize textarea ──
+  const typeInput = $(`#${notebookId}-type-input`);
+  if (typeInput) {
+    typeInput.addEventListener('input', () => {
+      typeInput.style.height = 'auto';
+      typeInput.style.height = Math.min(typeInput.scrollHeight, 120) + 'px';
+      resetInactivityTimer();
+    });
+    typeInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitNotebookWork();
+      }
+    });
+  }
+
+  // ── Submit work (always collects BOTH canvas + text) ──
+  function submitNotebookWork() {
+    if (state.isStreaming) return;
+    clearInactivityTimer();
+
+    let textContent = '';
+    let drawingDataUrl = null;
+
+    // Always collect canvas if it has content
+    if (canvasHasContent()) {
+      drawingDataUrl = canvas.toDataURL('image/png');
+      clearDrawCanvas();
+    }
+
+    // Always collect text
+    const input = $(`#${notebookId}-type-input`);
+    if (input && input.value.trim()) {
+      textContent = input.value.trim();
+      input.value = '';
+      input.style.height = 'auto';
+    }
+
+    if (!textContent && !drawingDataUrl) return;
+
+    addStudentStepToNotebook(textContent, drawingDataUrl);
+  }
+
+  // ── Inactivity auto-send ──
+  function resetInactivityTimer() {
+    clearInactivityTimer();
+    // Only start timer if there's content to send
+    state.inactivityTimer = setTimeout(() => {
+      if (state.isStreaming) {
+        // Retry after streaming ends
+        state.inactivityTimer = setTimeout(() => resetInactivityTimer(), 2000);
+        return;
+      }
+      const hasContent = canvasHasContent() || (typeInput && typeInput.value.trim());
+      if (hasContent) {
+        autoSendNotebookWork();
+      }
+    }, 15000);
+  }
+
+  function clearInactivityTimer() {
+    if (state.inactivityTimer) {
+      clearTimeout(state.inactivityTimer);
+      state.inactivityTimer = null;
+    }
+  }
+
+  function autoSendNotebookWork() {
+    const indicator = $(`#${notebookId}-auto-send`);
+    if (indicator) {
+      indicator.style.display = '';
+      indicator.textContent = 'Sending your work...';
+      indicator.className = 'notebook-auto-send-indicator sending';
+    }
+    submitNotebookWork();
+    if (indicator) {
+      setTimeout(() => {
+        indicator.textContent = 'Sent!';
+        indicator.className = 'notebook-auto-send-indicator sent';
+        setTimeout(() => { indicator.style.display = 'none'; }, 2000);
+      }, 500);
+    }
+  }
+
+  // Store cleanup function on state for use by hideSpotlight
+  state.notebookCleanup = () => { clearInactivityTimer(); };
+
+  // Submit button
+  const submitBtn = $(`#${notebookId}-submit-btn`);
+  if (submitBtn) {
+    submitBtn.addEventListener('click', submitNotebookWork);
+  }
+}
+
+// ── Spotlight reference cards (clickable history in chat stream) ──
+function appendSpotlightReference(type, title, reopenTag) {
+  const refId = 'spot-ref-' + generateId().slice(0, 8);
+  const typeIcons = { video: '▶', simulation: '⚗', notebook: '📓', image: '🖼', mermaid: '◇' };
+  const icon = typeIcons[type] || '◆';
+
+  state.spotlightHistory.push({ id: refId, type, title, tag: reopenTag });
+
+  appendBlock('spotlight-ref', `
+    <div class="spotlight-ref-card" data-type="${escapeAttr(type)}" onclick="reopenSpotlight('${refId}')">
+      <span class="spotlight-ref-icon">${icon}</span>
+      <span class="spotlight-ref-title">${escapeHtml(title)}</span>
+      <span class="spotlight-ref-hint">Click to reopen</span>
+    </div>
+  `);
+}
+
+window.reopenSpotlight = function(refId) {
+  const entry = state.spotlightHistory.find(e => e.id === refId);
+  if (!entry) return;
+
+  if (entry.type === 'video' && entry.tag.lessonId !== undefined) {
+    openVideoInSpotlight(entry.tag.lessonId, entry.tag.start, entry.tag.end, entry.tag.label);
+  } else {
+    showSpotlight(entry.tag);
+  }
+};
+
+// ── Spotlight fullscreen helpers ──
+function enterSpotlightFullscreen() {
+  const mainLayout = $('#main-layout');
+  if (!mainLayout) return;
+  mainLayout.classList.add('notebook-fullscreen');
+  const fsBtn = $('#spotlight-fullscreen');
+  if (fsBtn) fsBtn.textContent = '⛶';
+}
+
+function exitSpotlightFullscreen() {
+  const mainLayout = $('#main-layout');
+  if (!mainLayout) return;
+  mainLayout.classList.remove('notebook-fullscreen');
+  const fsBtn = $('#spotlight-fullscreen');
+  if (fsBtn) fsBtn.textContent = '⛶';
+}
+
+// ── Spotlight fullscreen toggle (side-by-side: spotlight left, chat right) ──
+window.toggleNotebookFullscreen = function() {
+  const mainLayout = $('#main-layout');
+  if (!mainLayout) return;
+  if (mainLayout.classList.contains('notebook-fullscreen')) {
+    exitSpotlightFullscreen();
+  } else {
+    enterSpotlightFullscreen();
+  }
+};
 
 window.hideSpotlight = function() {
   const panel = $('#spotlight-panel');
@@ -2894,11 +3415,27 @@ window.hideSpotlight = function() {
   const content = $('#spotlight-content');
   if (content) content.innerHTML = '';
 
+  // Clear type badge
+  const typeBadge = $('#spotlight-type-badge');
+  if (typeBadge) {
+    typeBadge.textContent = '';
+    typeBadge.style.display = 'none';
+  }
+
+  // Exit fullscreen mode when closing spotlight
+  exitSpotlightFullscreen();
+
   // Clean up sim bridge if spotlight had a simulation
-  if (state.spotlightActive && state.activeSimulation && state.activeSimulation.blockId.startsWith('spotlight-sim-')) {
+  if (state.spotlightActive && state.activeSimulation) {
     stopSimBridge();
     state.activeSimulation = null;
     state.simulationLiveState = null;
+  }
+
+  // Clean up notebook state
+  if (state.spotlightInfo?.type === 'notebook') {
+    if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
+    state.notebookSteps = [];
   }
 
   state.spotlightActive = false;
@@ -2914,15 +3451,7 @@ function sendStudentResponse(text) {
   streamADK(text);
 }
 
-function sendCanvasDrawing(prompt, base64ImageData) {
-  if (state.isStreaming) return;
-  // Build multimodal content array for Claude API
-  const content = [
-    { type: 'text', text: `[Canvas drawing] Student drew a response to: "${prompt}"` },
-    { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64ImageData } },
-  ];
-  streamADK(content);
-}
+// sendCanvasDrawing removed — canvas drawing now handled via notebook workspace
 
 window.submitFreetext = function(inputId) {
   const el = $(`#${inputId}`);
