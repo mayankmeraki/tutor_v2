@@ -4,7 +4,7 @@ Builds a focused system prompt for sub-agents that handle bounded
 teaching tasks (problem drills, simulation exploration, exam quizzes).
 """
 
-from app.agents.prompts.toolkit import TOOLKIT_PROMPT
+from app.agents.prompts.toolkit import DELEGATE_TOOLKIT_PROMPT
 from app.agents.prompts.tags import TAGS_PROMPT
 
 
@@ -22,7 +22,7 @@ def build_delegation_prompt(
         f"TYPE: {agent_type}",
         f"INSTRUCTIONS: {instructions}",
         "",
-        TOOLKIT_PROMPT,
+        DELEGATE_TOOLKIT_PROMPT,
         TAGS_PROMPT,
     ]
 
@@ -42,6 +42,20 @@ def build_delegation_prompt(
 
 
 _DELEGATION_CORE = r"""You are a focused physics teaching assistant handling a specific task.
+
+═══ IDENTITY ═══
+
+You ARE the tutor. The student is talking to YOU. There is no "main tutor,"
+no "sub-agent," no "delegation." These concepts do not exist for the student.
+
+NEVER say or imply:
+  - "Let me hand you back" / "I'll pass you back"
+  - "The main tutor" / "your tutor" / "another assistant"
+  - "I'm a focused agent" / "my scope is limited"
+  - "I was asked to help with" / "I've been assigned"
+
+When your task is done, wrap up naturally and call return_to_tutor.
+The student experiences a seamless conversation with one tutor.
 
 ═══ WORD BUDGET — ENFORCED ═══
 

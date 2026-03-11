@@ -8,8 +8,8 @@ get_simulation_details, etc.).
 import json
 
 from .handlers import get_section_content, get_simulation_details
-from .render_diagram import render_manim_diagram
 from .search_images import search_images
+from .web_search import web_search
 
 # ── Tutor Tools ──────────────────────────────────────────────────────────────
 
@@ -31,6 +31,30 @@ TUTOR_TOOLS = [
                 "limit": {
                     "type": "number",
                     "description": "Max results (1-5, default 3)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "web_search",
+        "description": (
+            "Search the web for supplementary information not available in course materials. "
+            "Returns summaries and URLs from general web sources. "
+            "Use when: you need a real-world example, current data, a diagram/image not in Wikimedia, "
+            "a formula derivation, historical context, or any information beyond what the course provides. "
+            "Prefer course materials first — use this to supplement, not replace."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": 'Search query — be specific. e.g. "photoelectric effect threshold frequency graph"',
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Max results (1-8, default 5)",
                 },
             },
             "required": ["query"],
@@ -110,13 +134,67 @@ TUTOR_TOOLS = [
             "required": ["steps"],
         },
     },
+    # ── Knowledge state tools ─────────────────────────────────────────────
+    {
+        "name": "log_knowledge",
+        "description": (
+            "Record a freehand observation about the student's understanding. "
+            "Write naturally — what they understood, what confused them, "
+            "misconceptions spotted, how they performed on a problem, their "
+            "reasoning quality. These notes persist across sessions and build "
+            "a profile you can search later with query_knowledge."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "note": {
+                    "type": "string",
+                    "description": (
+                        "Your observation in natural language. Be specific: "
+                        "'Student correctly derived F=ma for the inclined plane problem "
+                        "but forgot to decompose weight into components initially. "
+                        "After a hint about the coordinate system, solved it correctly.'"
+                    ),
+                },
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": (
+                        "Optional short labels for search. Examples: "
+                        "'newtons_laws', 'gap', 'strong', 'misconception', 'module-2'"
+                    ),
+                },
+            },
+            "required": ["note"],
+        },
+    },
+    {
+        "name": "query_knowledge",
+        "description": (
+            "Look up what you know about the student's understanding. "
+            "Query by concept name, tag, module, or topic. "
+            "Use this BEFORE teaching a concept to adapt your approach, "
+            "or when the student seems confused to check their background."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Concept name, tag, module, or topic to search for",
+                },
+            },
+            "required": ["query"],
+        },
+    },
     # ── Agent orchestration tools ──────────────────────────────────────────
     {
         "name": "spawn_agent",
         "description": (
             "Start a background agent to do work while you continue teaching. "
             "Results arrive in [AGENT RESULTS] on your next turn. "
-            "Built-in types: 'planning' (plans next section), 'asset' (fetches images/content). "
+            "Built-in types: 'planning' (plans next section), 'asset' (fetches images/content), "
+            "'visual_gen' (generates interactive HTML/JS simulations). "
             "Any other type creates a custom LLM agent with your task/instructions as its prompt. "
             "Examples: 'research', 'problem_gen', 'content', 'analysis', 'worked_example'. "
             "CRITICAL: Always give the student something to do when spawning — "
@@ -201,6 +279,35 @@ TUTOR_TOOLS = [
         },
     },
     {
+        "name": "reset_plan",
+        "description": (
+            "Scrap the current teaching plan entirely and clear the sidebar. "
+            "Use when the student's direction fundamentally changes and the current plan "
+            "is no longer relevant — e.g. they need to go back to basics, want a different "
+            "topic, or revealed a prerequisite gap that invalidates the current plan. "
+            "After calling this, immediately spawn a new planning agent with the updated intent. "
+            "The student sees the plan sidebar clear and then repopulate with the new plan."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Why the plan is being scrapped (for logging)",
+                },
+                "keep_scope": {
+                    "type": "boolean",
+                    "description": (
+                        "If true, keep the session objective/scope (plan changes but goal stays). "
+                        "If false, also reset session objective/scope (student wants something different). "
+                        "Default: false."
+                    ),
+                },
+            },
+            "required": ["reason"],
+        },
+    },
+    {
         "name": "advance_topic",
         "description": (
             "Mark the current topic complete and move to the next planned topic. "
@@ -273,7 +380,7 @@ RETURN_TO_TUTOR_TOOL = {
 
 DELEGATION_TOOLS = [
     t for t in TUTOR_TOOLS
-    if t["name"] in ("search_images", "get_simulation_details", "get_section_content", "control_simulation")
+    if t["name"] in ("search_images", "web_search", "get_simulation_details", "get_section_content", "control_simulation")
 ]
 
 
@@ -282,6 +389,8 @@ DELEGATION_TOOLS = [
 async def execute_tutor_tool(name: str, tool_input: dict) -> str:
     if name == "search_images":
         return await search_images(tool_input["query"], tool_input.get("limit", 3))
+    elif name == "web_search":
+        return await web_search(tool_input["query"], tool_input.get("limit", 5))
     elif name == "get_simulation_details":
         return await get_simulation_details(tool_input["simulation_id"])
     elif name == "get_section_content":

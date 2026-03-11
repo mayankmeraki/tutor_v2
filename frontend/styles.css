@@ -183,9 +183,9 @@ body {
   background: rgba(167, 139, 250, 0.12);
   color: #a78bfa;
 }
-.spotlight-type-badge[data-type="mermaid"] {
-  background: rgba(167, 139, 250, 0.12);
-  color: #a78bfa;
+.spotlight-type-badge[data-type="board-draw"] {
+  background: rgba(126, 184, 218, 0.15);
+  color: #7eb8da;
 }
 
 #spotlight-title {
@@ -262,228 +262,306 @@ body {
   padding: 8px 16px;
 }
 
-/* ─── Notebook (Derivation & Problem Workspace) ──────────── */
+/* ─── Board (Shared Blackboard — Derivation & Problem Workspace) ──── */
 
-.notebook-panel {
+/* Chalk color vars */
+:root {
+  --chalk-white: #d4dbd4;
+  --chalk-blue: #7eb8da;
+  --chalk-green: #7ed99a;
+  --chalk-yellow: #e8d47a;
+}
+
+.board {
   display: flex;
   flex-direction: column;
   height: 100%;
   min-height: 0;
+  background: var(--bg-surface);
+  border-radius: 12px;
+  overflow: hidden;
+  border: 1px solid rgba(255,255,255,0.06);
+  box-shadow: inset 0 0 80px rgba(0,0,0,0.3);
 }
 
-.notebook-problem-header {
-  padding: 10px 16px;
-  border-bottom: 1px solid var(--border);
+.board-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 28px;
+  background: rgba(0,0,0,0.25);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  flex-shrink: 0;
+}
+.board-header-left { display: flex; align-items: center; gap: 12px; }
+.board-badge {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  background: rgba(108,140,255,0.15);
+  color: var(--accent);
+  padding: 4px 12px;
+  border-radius: 4px;
+  font-weight: 700;
+}
+.board-title {
+  font-family: var(--font-board);
+  font-size: 26px;
+  color: var(--chalk-white);
+}
+
+/* Problem header (problem mode only) */
+.board-problem-header {
+  padding: 14px 28px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
   flex-shrink: 0;
   background: rgba(108, 140, 255, 0.04);
 }
-
-.notebook-problem-label {
-  font-size: 10px;
+.board-problem-label {
+  font-size: 11px;
   text-transform: uppercase;
   letter-spacing: 1.5px;
   color: var(--accent);
   font-weight: 700;
-  margin-bottom: 4px;
+  margin-bottom: 6px;
 }
-
-.notebook-problem-text {
-  font-size: 14px;
+.board-problem-text {
+  font-size: 17px;
   color: var(--text);
-  line-height: 1.6;
+  line-height: 1.7;
 }
+.board-problem-text .katex { font-size: 1.1em; }
 
-.notebook-problem-text .katex { font-size: 1em; }
-
-.notebook-page {
+/* ── Board surface (where steps render) ── */
+.board-surface {
   flex: 1;
   overflow-y: auto;
   min-height: 0;
-  padding: 8px 16px 8px 56px;
+  padding: 28px 36px 24px;
+  background:
+    radial-gradient(ellipse at 20% 30%, rgba(255,255,255,0.008) 0%, transparent 50%),
+    radial-gradient(ellipse at 70% 60%, rgba(255,255,255,0.006) 0%, transparent 50%),
+    var(--bg-surface);
 }
 
-.notebook-page-lined {
-  background-image:
-    linear-gradient(rgba(108, 140, 255, 0.12) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(108, 140, 255, 0.1) 1px, transparent 1px);
-  background-size: 100% 32px, 48px 100%;
-  background-position: 0 0, 0 0;
+/* ── Tutor step (white chalk) ── */
+.step {
+  padding: 12px 0;
 }
-
-.notebook-page-label {
-  font-size: 10px;
-  text-transform: uppercase;
-  letter-spacing: 1.5px;
-  color: var(--text-dim);
-  margin-bottom: 4px;
-  margin-left: -40px;
+.step.fade-in {
+  animation: step-appear 0.3s ease-out;
 }
-
-.notebook-steps {
-  display: flex;
-  flex-direction: column;
-}
-
-/* ── Notebook Step (shared: tutor + student) ── */
-
-.notebook-step {
-  display: flex;
-  align-items: flex-start;
-  gap: 12px;
-  min-height: 32px;
-  padding: 6px 0;
-}
-
-.notebook-step-number {
-  width: 20px;
-  flex-shrink: 0;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--accent);
-  font-family: var(--font-mono);
-  text-align: right;
-  margin-left: -36px;
-  padding-top: 2px;
-  opacity: 0.7;
-}
-
-.notebook-step-body {
-  flex: 1;
-  min-width: 0;
-}
-
-.notebook-step-annotation {
-  font-size: 11px;
-  color: var(--text-dim);
-  font-style: italic;
-  margin-bottom: 2px;
-  line-height: 1.3;
-}
-
-.notebook-step-math {
-  font-size: 15px;
-  color: var(--text);
-  line-height: 32px;
-}
-
-.notebook-step-math .katex-display { margin: 0; padding: 0; }
-.notebook-step-math .katex { font-size: 1.1em; }
-
-/* Student step — green accent */
-.notebook-step.student-step {
-  background: rgba(74, 222, 128, 0.04);
-  border-radius: 6px;
-  padding: 6px 8px;
-  margin: 2px -8px;
-}
-.notebook-step.student-step .notebook-step-number {
-  color: var(--green);
-}
-.notebook-step.student-step .notebook-step-annotation {
-  color: var(--green);
-  opacity: 0.7;
-}
-
-/* Student drawing inside a step */
-.notebook-step-drawing {
-  margin-top: 4px;
-}
-.notebook-step-drawing img {
-  max-width: 100%;
-  max-height: 200px;
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  background: var(--bg-surface);
-}
-
-/* Tutor feedback annotation on a step */
-.notebook-step-feedback {
-  font-size: 12px;
-  color: var(--accent-bright);
-  margin-top: 4px;
-  padding: 4px 8px;
-  background: rgba(108, 140, 255, 0.06);
-  border-radius: 4px;
-  border-left: 2px solid var(--accent);
-}
-
-/* Step fade-in animation */
-.notebook-step.fade-in {
-  animation: notebook-step-appear 0.3s ease-out;
-}
-@keyframes notebook-step-appear {
+@keyframes step-appear {
   from { opacity: 0; transform: translateY(8px); }
   to { opacity: 1; transform: translateY(0); }
 }
+.step-label {
+  font-family: var(--font-board);
+  font-size: 22px;
+  color: var(--chalk-yellow);
+  margin-bottom: 8px;
+  line-height: 1.5;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+}
+.step-label .katex { font-size: 0.9em; }
+.step-num {
+  font-family: var(--font-board);
+  font-size: 18px;
+  color: rgba(255,255,255,0.3);
+  flex-shrink: 0;
+}
+.step-math {
+  font-size: 22px;
+  color: var(--chalk-white);
+  padding: 8px 0 8px 32px;
+  line-height: 2;
+  text-shadow: 0 0 4px rgba(255,255,255,0.08);
+}
+.step-math .katex-display { margin: 4px 0; padding: 0; }
+.step-math .katex { font-size: 1.4em; }
 
-/* Separator between steps */
-.notebook-step + .notebook-step {
-  border-top: 1px solid rgba(255, 255, 255, 0.04);
+/* Chalk-line separator */
+.chalk-line {
+  height: 1px;
+  margin: 6px 0 10px;
+  background: linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.08) 15%, rgba(255,255,255,0.06) 85%, transparent 100%);
 }
 
-/* ── Notebook Unified Workspace (canvas + text always visible) ── */
+/* ── Student step (green chalk) ── */
+.step.student {
+  border-left: 3px solid rgba(74,222,128,0.3);
+  padding-left: 12px;
+  margin-left: -12px;
+}
+.step.student .step-label { color: var(--chalk-green); }
+.step.student .step-math {
+  color: var(--chalk-green);
+  text-shadow: 0 0 4px rgba(74,222,128,0.08);
+}
+.step-drawing {
+  margin: 10px 0 0 32px;
+  background: rgba(0,0,0,0.2);
+  border-radius: 8px;
+  padding: 10px;
+  display: inline-block;
+}
+.step-drawing img {
+  max-width: 100%;
+  max-height: 280px;
+  border-radius: 4px;
+}
 
-.notebook-workspace {
+/* ── Tutor comment (blue chalk — hints, nudges, feedback) ── */
+.tutor-says {
+  font-family: var(--font-board);
+  font-size: 21px;
+  color: var(--chalk-blue);
+  line-height: 1.6;
+  padding: 6px 0 6px 32px;
+  text-shadow: 0 0 3px rgba(126,184,218,0.06);
+}
+.tutor-says .katex { font-size: 0.95em; }
+.tutor-says.fade-in {
+  animation: step-appear 0.3s ease-out;
+}
+
+/* ── Tutor correction step (blue chalk equation) ── */
+.step.correction {
+  border-left: 3px solid rgba(126,184,218,0.3);
+  padding-left: 12px;
+  margin-left: -12px;
+}
+.step.correction .step-label { color: var(--chalk-blue); }
+.step.correction .step-math {
+  color: var(--chalk-blue);
+  text-shadow: 0 0 4px rgba(126,184,218,0.08);
+}
+
+/* ── Board workspace (student input area) ── */
+.board-workspace {
   flex-shrink: 0;
-  border-top: 1px solid var(--border);
-  background: var(--bg-surface);
-  padding: 8px;
+  background: rgba(0,0,0,0.2);
+  border-top: 1px solid rgba(255,255,255,0.06);
+  padding: 16px 28px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 10px;
 }
-
-.notebook-workspace-canvas-wrap {
-  position: relative;
-  border: 1px solid var(--border);
-  border-radius: 6px;
+.board-ws-label {
+  font-family: var(--font-board);
+  font-size: 18px;
+  color: var(--chalk-green);
+  margin-bottom: 2px;
+}
+.board-ws-canvas-wrap {
+  border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px;
   overflow: hidden;
-  background: var(--bg-elevated);
+  background: rgba(0,0,0,0.15);
+  transition: border-color 0.2s ease;
 }
-.notebook-workspace-canvas-wrap canvas {
+.board-ws-canvas-wrap:focus-within,
+.board-ws-canvas-wrap:hover {
+  border-color: rgba(126,218,126,0.25);
+}
+.board-ws-canvas-wrap canvas {
   width: 100%;
-  height: 150px;
   display: block;
   cursor: crosshair;
   touch-action: none;
 }
-
-.notebook-workspace-text-row {
+.board-ws-toolbar {
   display: flex;
+  align-items: center;
   gap: 8px;
+  padding: 8px 12px;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  background: rgba(0,0,0,0.1);
+}
+.board-ws-color {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid transparent;
+  cursor: pointer;
+  transition: transform 0.15s ease, border-color 0.15s ease;
+}
+.board-ws-color:hover { transform: scale(1.15); }
+.board-ws-color.active {
+  border-color: white;
+  box-shadow: 0 0 8px rgba(255,255,255,0.3);
+}
+.board-ws-sep {
+  width: 1px;
+  height: 22px;
+  background: rgba(255,255,255,0.08);
+  margin: 0 6px;
+}
+.board-ws-btn {
+  width: 32px;
+  height: 32px;
+  border: none;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-dim);
+  cursor: pointer;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: color 0.15s ease;
+}
+.board-ws-btn:hover { color: var(--text); }
+.board-ws-text-row {
+  display: flex;
+  gap: 10px;
   align-items: flex-end;
 }
-.notebook-workspace-text-row textarea {
+.board-ws-input {
   flex: 1;
-  background: var(--bg-elevated);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  padding: 8px 12px;
-  color: var(--text);
-  font-family: var(--font-mono);
-  font-size: 14px;
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.08);
+  border-radius: 10px;
+  padding: 12px 16px;
+  color: var(--chalk-green);
+  font-family: var(--font-board);
+  font-size: 20px;
   resize: none;
   outline: none;
-  min-height: 36px;
-  max-height: 120px;
+  min-height: 48px;
+  max-height: 160px;
   line-height: 1.5;
+  transition: border-color 0.2s ease;
 }
-.notebook-workspace-text-row textarea:focus {
-  border-color: var(--green);
+.board-ws-input:focus {
+  border-color: rgba(126,218,126,0.3);
 }
-.notebook-workspace-text-row textarea::placeholder {
+.board-ws-input::placeholder {
   color: var(--text-dim);
   font-family: var(--font-sans);
-  font-size: 13px;
+  font-size: 14px;
 }
-
-.notebook-workspace-hint {
-  font-size: 10px;
+.board-ws-submit {
+  padding: 12px 24px;
+  border-radius: 10px;
+  border: none;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  background: var(--green);
+  color: #0f1117;
+  white-space: nowrap;
+  transition: opacity 0.15s ease;
+}
+.board-ws-submit:hover { opacity: 0.9; }
+.board-ws-hint {
+  font-size: 12px;
   color: var(--text-dim);
-  padding: 0 4px;
 }
 
-.notebook-auto-send-indicator {
+.board-auto-send-indicator {
   font-size: 11px;
   padding: 4px 8px;
   border-radius: 4px;
@@ -491,11 +569,11 @@ body {
   font-weight: 600;
   font-family: var(--font-sans);
 }
-.notebook-auto-send-indicator.sending {
+.board-auto-send-indicator.sending {
   color: var(--accent-bright);
   background: rgba(108, 140, 255, 0.1);
 }
-.notebook-auto-send-indicator.sent {
+.board-auto-send-indicator.sent {
   color: var(--green);
   background: rgba(74, 222, 128, 0.1);
 }
@@ -528,7 +606,7 @@ body {
 .spotlight-ref-card[data-type="simulation"] .spotlight-ref-icon { color: #a78bfa; }
 .spotlight-ref-card[data-type="notebook"] .spotlight-ref-icon { color: var(--green); }
 .spotlight-ref-card[data-type="image"] .spotlight-ref-icon { color: #60a5fa; }
-.spotlight-ref-card[data-type="mermaid"] .spotlight-ref-icon { color: #fbbf24; }
+.spotlight-ref-card[data-type="board-draw"] .spotlight-ref-icon { color: #7eb8da; }
 .spotlight-ref-title {
   font-weight: 600;
   color: inherit;
@@ -539,56 +617,7 @@ body {
   margin-left: 4px;
 }
 
-.notebook-draw-toolbar {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  padding: 6px 8px;
-  border-top: 1px solid var(--border);
-  background: var(--bg-surface);
-}
-
-.notebook-draw-tool {
-  width: 28px;
-  height: 28px;
-  border: 1px solid transparent;
-  border-radius: 4px;
-  background: none;
-  color: var(--text-muted);
-  cursor: pointer;
-  font-size: 14px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: all var(--transition);
-  font-family: var(--font-sans);
-}
-.notebook-draw-tool:hover { background: var(--bg-hover); color: var(--text); }
-.notebook-draw-tool.active { background: var(--bg-hover); border-color: var(--green); color: var(--green); }
-.notebook-draw-sep { width: 1px; height: 20px; background: var(--border); margin: 0 4px; }
-
-/* Submit row */
-.notebook-input-submit {
-  display: flex;
-  justify-content: flex-end;
-  padding: 6px 12px 8px;
-  gap: 8px;
-}
-
-.notebook-submit-btn {
-  padding: 6px 16px;
-  border-radius: 6px;
-  border: none;
-  font-size: 13px;
-  font-weight: 600;
-  cursor: pointer;
-  font-family: var(--font-sans);
-  transition: all var(--transition);
-  background: var(--green);
-  color: #0f1117;
-}
-.notebook-submit-btn:hover { background: #6ee7a0; }
-.notebook-submit-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+/* (old notebook-draw-* and notebook-submit-btn classes removed — replaced by board-ws-* above) */
 
 /* ── Spotlight Fullscreen Mode (side-by-side: spotlight left, chat right) ── */
 
@@ -1711,7 +1740,7 @@ body {
 
 .diagram-icon { color: #a78bfa; font-size: 16px; }
 
-.mermaid-container {
+.bd-diagram-container {
   background: rgba(15, 17, 23, 0.5);
   border-radius: var(--radius);
   padding: 20px;
@@ -1720,7 +1749,7 @@ body {
   justify-content: center;
 }
 
-.mermaid-container svg {
+.bd-diagram-container svg {
   max-width: 100%;
   height: auto;
 }
@@ -2232,6 +2261,47 @@ body {
 
 /* ─── Setup Panel ───────────────────────────────────────── */
 
+#login-panel {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  padding: 24px;
+}
+
+#login-panel .setup-start {
+  margin-top: 8px;
+}
+
+.setup-greeting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.setup-greeting {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--accent-bright);
+}
+
+.btn-link {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 13px;
+  font-family: var(--font-sans);
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: var(--radius);
+  transition: color var(--transition);
+}
+
+.btn-link:hover {
+  color: var(--red);
+}
+
 #setup-panel {
   display: flex;
   align-items: center;
@@ -2524,6 +2594,78 @@ body {
   justify-content: center;
   flex-shrink: 0;
   font-size: 14px;
+}
+
+/* ─── Agent Progress Indicators ─────────────────────────── */
+
+#agent-indicators {
+  display: flex;
+  gap: 12px;
+  padding: 6px 16px;
+  font-size: 12px;
+  color: var(--text-dim);
+}
+#agent-indicators:empty { display: none; }
+.agent-indicator {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  animation: fadeIn 0.3s ease;
+}
+.loading-spinner.small {
+  width: 12px;
+  height: 12px;
+  border-width: 1.5px;
+  margin-right: 0;
+}
+
+/* Agent-paused state (input dimmed during auto-trigger) */
+[data-agent-paused="true"] {
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity 0.3s ease;
+}
+
+/* ── Board Draw (Live Tutor Drawing) ── */
+.bd-container {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  background: #1a1d2e;
+  display: flex;
+  flex-direction: column;
+}
+.bd-canvas-wrap {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+#bd-canvas {
+  display: block;
+  width: 100%;
+}
+.bd-voice {
+  position: sticky;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  padding: 10px 20px;
+  background: linear-gradient(transparent, rgba(0,0,0,0.7));
+  pointer-events: none;
+  min-height: 36px;
+  display: flex;
+  align-items: flex-end;
+}
+.bd-voice-text {
+  font-family: var(--font-sans);
+  font-size: 14px;
+  color: rgba(255,255,255,0.85);
+  font-style: italic;
+  opacity: 0;
+  transition: opacity 0.4s;
+}
+.bd-voice-text.visible {
+  opacity: 1;
 }
 
 /* ─── Generic Hidden ────────────────────────────────────── */

@@ -11,6 +11,69 @@ const $ = (sel) => document.querySelector(sel);
 const $$ = (sel) => [...document.querySelectorAll(sel)];
 
 // ═══════════════════════════════════════════════════════════
+// Module 0: Auth Manager
+// ═══════════════════════════════════════════════════════════
+
+const AuthManager = (() => {
+  const TOKEN_KEY = 'mockup_auth_token';
+  const USER_KEY = 'mockup_auth_user';
+
+  function getToken() { return localStorage.getItem(TOKEN_KEY); }
+  function getUser() {
+    try { return JSON.parse(localStorage.getItem(USER_KEY)); } catch { return null; }
+  }
+  function isLoggedIn() { return !!getToken() && !!getUser(); }
+  function setAuth(token, user) {
+    localStorage.setItem(TOKEN_KEY, token);
+    localStorage.setItem(USER_KEY, JSON.stringify(user));
+  }
+  function clearAuth() {
+    localStorage.removeItem(TOKEN_KEY);
+    localStorage.removeItem(USER_KEY);
+  }
+  function authHeaders() {
+    const token = getToken();
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }
+
+  async function login(email, password) {
+    const apiUrl = $('#api-url')?.value?.trim() || 'http://localhost:3001';
+    const res = await fetch(`${apiUrl}/api/v1/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    if (res.status === 401) throw new Error('Invalid email or password');
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text.slice(0, 200) || `Login failed (${res.status})`);
+    }
+    const data = await res.json();
+    setAuth(data.token, data.user);
+    return data;
+  }
+
+  function logout() {
+    clearAuth();
+  }
+
+  async function validateSession() {
+    if (!isLoggedIn()) return false;
+    const apiUrl = $('#api-url')?.value?.trim() || 'http://localhost:3001';
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
+        headers: authHeaders(),
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  }
+
+  return { getToken, getUser, isLoggedIn, setAuth, clearAuth, authHeaders, login, logout, validateSession };
+})();
+
+// ═══════════════════════════════════════════════════════════
 // Module 1: Session Manager (MongoDB-backed)
 // ═══════════════════════════════════════════════════════════
 
@@ -37,7 +100,7 @@ const SessionManager = (() => {
   async function apiPost(path, body) {
     const res = await fetch(`${state.apiUrl}/api/v1/sessions${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Sessions API POST ${res.status}`);
@@ -47,7 +110,7 @@ const SessionManager = (() => {
   async function apiPatch(path, body) {
     const res = await fetch(`${state.apiUrl}/api/v1/sessions${path}`, {
       method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
       body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(`Sessions API PATCH ${res.status}`);
@@ -55,7 +118,9 @@ const SessionManager = (() => {
   }
 
   async function apiGet(path) {
-    const res = await fetch(`${state.apiUrl}/api/v1/sessions${path}`);
+    const res = await fetch(`${state.apiUrl}/api/v1/sessions${path}`, {
+      headers: { ...AuthManager.authHeaders() },
+    });
     if (!res.ok) { if (res.status === 404) return null; throw new Error(`Sessions API GET ${res.status}`); }
     return res.json();
   }
@@ -67,6 +132,7 @@ const SessionManager = (() => {
       sessionId: state.sessionId,
       courseId,
       studentName,
+      userEmail: state.userEmail || '',
       number: sessionNumber,
       status: 'active',
       startedAt: now(),
@@ -123,12 +189,18 @@ const SessionManager = (() => {
         plan: session.plan,
         durationSec: session.durationSec,
         summaries: session.summaries,
+        generatedVisuals: state.generatedVisuals,
+        spotlightHistory: state.spotlightHistory,
+        notebookSteps: state.notebookSteps,
       });
     } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
 
   async function loadPreviousSessions(courseId, studentName) {
     try {
+      if (AuthManager.isLoggedIn()) {
+        return await apiGet(`/me/${courseId}`);
+      }
       return await apiGet(`/student/${courseId}/${encodeURIComponent(studentName)}`);
     } catch (e) {
       console.warn('Failed to load previous sessions:', e);
@@ -160,7 +232,7 @@ const SessionManager = (() => {
       session.durationSec = state.sessionStartTime ? Math.floor((Date.now() - state.sessionStartTime) / 1000) : 0;
       fetch(`${state.apiUrl}/api/v1/sessions/${session.sessionId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
         body: JSON.stringify({
           transcript: session.transcript, sections: session.sections,
           metrics: session.metrics, durationSec: session.durationSec,
@@ -403,6 +475,7 @@ const state = {
   apiUrl: 'http://localhost:3001',
   courseId: null,
   studentName: '',
+  userEmail: '',
 
   // Course map from REST
   courseMap: null,
@@ -456,6 +529,14 @@ const state = {
   sessionStatus: 'active',
   completionReason: null,
 
+  // Generated visuals (from visual_gen agents)
+  generatedVisuals: {},  // { visId: { title, html } }
+
+  // Agent event system
+  agentEventSource: null,    // EventSource for /api/events/{sessionId}
+  runningAgents: {},         // { agentId: { type, description, startTime } }
+  autoTriggerTimer: null,    // Debounce timer for graceful auto-trigger
+
   // Spotlight panel
   spotlightActive: false,
   spotlightInfo: null,   // { type, title, id?, notebookId? } — what's currently pinned
@@ -463,6 +544,24 @@ const state = {
   spotlightHistory: [],  // { id, type, title, tag } — clickable reference cards
   inactivityTimer: null,  // Auto-send timer for notebook workspace
   notebookCleanup: null,  // Cleanup function for current notebook
+
+  // Board Draw (tutor live drawing)
+  boardDraw: {
+    active: false,
+    contentStartIdx: 0,
+    processedLines: 0,
+    complete: false,
+    dismissed: false,
+    commandQueue: [],
+    isProcessing: false,
+    cancelFlag: false,
+    currentH: 500,
+    canvas: null,
+    ctx: null,
+    voiceEl: null,
+    DPR: 1,
+    scale: 1,
+  },
 
 };
 
@@ -562,7 +661,7 @@ function buildCourseContext() {
       const dur = lesson.duration_seconds ? `${Math.round(lesson.duration_seconds / 60)} min` : '';
       const isCurrent = lesson.lesson_id === cp.currentLessonId;
       const marker = isCurrent ? ' << CURRENT LESSON' : '';
-      const videoTag = isCurrent && lesson.video_url ? ` [video: ${lesson.video_url}]` : '';
+      const videoTag = lesson.video_url ? ` [video: ${lesson.video_url}]` : ' [no video]';
       lines.push(`  Lesson ${lesson.lesson_id}: ${lesson.title} (${dur})${videoTag}${marker}`);
 
       // Only show sections for current lesson (keeps context compact)
@@ -799,6 +898,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
       headers: {
         'Content-Type': 'application/json',
         Accept: 'text/event-stream',
+        ...AuthManager.authHeaders(),
       },
       body: JSON.stringify(body),
     });
@@ -860,6 +960,11 @@ function handleSSEEvent(event) {
     case 'TEXT_MESSAGE_START':
       state.currentMessageId = event.messageId || event.message_id;
       state.accumulatedText = '';
+      state.boardDraw.active = false;
+      state.boardDraw.processedLines = 0;
+      state.boardDraw.contentStartIdx = 0;
+      state.boardDraw.complete = false;
+      state.boardDraw.dismissed = false;
       removeStreamingIndicator();
       // Safety net: if onboarding overlay is still showing when tutor starts talking, remove it
       const staleOnboard = $('#onboarding-block');
@@ -944,6 +1049,11 @@ function handleSSEEvent(event) {
     case 'SIM_CONTROL':
       handleSimControl(event.steps);
       break;
+
+    case 'VISUAL_READY':
+      console.log('[SSE] VISUAL_READY —', event.id, event.title);
+      state.generatedVisuals[event.id] = { title: event.title, html: event.html };
+      break;
   }
 }
 
@@ -961,6 +1071,7 @@ function buildContext() {
     value: JSON.stringify({
       studentName: state.studentName,
       courseId: state.courseId,
+      userEmail: state.userEmail || '',
       currentLessonId: cp.currentLessonId,
       currentSectionIndex: cp.currentSectionIndex,
       completedSections: cp.completedSections,
@@ -1059,21 +1170,31 @@ function buildContext() {
     };
 
     // Include notebook step history for collaborative context
-    if (state.spotlightInfo.type === 'notebook' && state.notebookSteps.length > 0) {
+    if (state.spotlightInfo.type === 'notebook') {
       spotlightCtx.mode = state.spotlightInfo.mode;
       spotlightCtx.stepCount = state.notebookSteps.length;
-      spotlightCtx.steps = state.notebookSteps.map(s => ({
-        n: s.n,
-        author: s.author || 'tutor',
-        annotation: s.annotation || '',
-        content: s.math || s.content || '',
-        hasDrawing: s.hasDrawing || false,
-      }));
-      spotlightCtx.rules.push(
-        'This is a COLLABORATIVE notebook. Alternate steps with the student.',
-        'After adding your step with <teaching-notebook-step>, ask the student to fill in the NEXT step.',
-        'When student submits work (appears as [Notebook step N]), give feedback and continue.',
-      );
+      if (state.notebookSteps.length > 0) {
+        spotlightCtx.steps = state.notebookSteps.map(s => ({
+          n: s.n,
+          author: s.author || 'tutor',
+          type: s.type || 'step',
+          annotation: s.annotation || '',
+          content: s.math || s.content || '',
+          hasDrawing: s.hasDrawing || false,
+        }));
+      }
+      spotlightCtx.rules = [
+        ...spotlightCtx.rules,
+        'NOTEBOOK IS OPEN — you are collaborating on a shared blackboard.',
+        'Three chalk colors: white (your equations via <teaching-notebook-step>), blue (your words via <teaching-notebook-comment>), green (student work).',
+        'Use <teaching-notebook-comment>text</teaching-notebook-comment> to write hints, nudges, praise, or explanations on the board in blue chalk.',
+        'Use <teaching-notebook-step n="N" annotation="label">$$math$$</teaching-notebook-step> for equation steps in white chalk.',
+        'Use <teaching-notebook-step n="N" annotation="label" correction>$$math$$</teaching-notebook-step> for corrections in blue chalk.',
+        'When student submits work (appears as a step with author=student), give constructive feedback via <teaching-notebook-comment>.',
+        'Do NOT cross out or erase. Everything stays visible — the journey IS the lesson.',
+        'After adding a step, ask the student to continue. After student work, give feedback then continue.',
+        'When the derivation/problem is complete, dismiss the notebook with <teaching-spotlight-dismiss />.',
+      ];
     }
 
     items.push({
@@ -1190,6 +1311,146 @@ function showStreamingIndicator() {
 function removeStreamingIndicator() {
   const el = $('#streaming-indicator');
   if (el) el.remove();
+}
+
+// ═══════════════════════════════════════════════════════════
+// Module 8b: Agent Event System (persistent SSE)
+// ═══════════════════════════════════════════════════════════
+
+function connectAgentEvents() {
+  disconnectAgentEvents();
+  if (!state.sessionId) return;
+
+  const url = `${state.apiUrl}/api/events/${state.sessionId}`;
+  const es = new EventSource(url);
+  state.agentEventSource = es;
+
+  es.onmessage = (evt) => {
+    try {
+      const event = JSON.parse(evt.data);
+      handleAgentEvent(event);
+    } catch (e) {
+      // skip unparseable
+    }
+  };
+
+  es.onerror = () => {
+    // EventSource auto-reconnects; just log
+    console.warn('[AgentEvents] SSE connection error, will auto-reconnect');
+  };
+
+  console.log('[AgentEvents] Connected —', state.sessionId.slice(0, 8));
+}
+
+function disconnectAgentEvents() {
+  if (state.agentEventSource) {
+    state.agentEventSource.close();
+    state.agentEventSource = null;
+  }
+  if (state.autoTriggerTimer) {
+    clearTimeout(state.autoTriggerTimer);
+    state.autoTriggerTimer = null;
+  }
+  state.runningAgents = {};
+  updateAgentIndicators();
+}
+
+function handleAgentEvent(event) {
+  switch (event.type) {
+    case 'AGENT_SPAWNED':
+      state.runningAgents[event.agent_id] = {
+        type: event.agent_type,
+        description: event.description,
+        startTime: Date.now(),
+      };
+      updateAgentIndicators();
+      break;
+
+    case 'AGENT_COMPLETE':
+      delete state.runningAgents[event.agent_id];
+      updateAgentIndicators();
+      handleAgentCompletion(event);
+      break;
+
+    case 'AGENT_ERROR':
+      delete state.runningAgents[event.agent_id];
+      updateAgentIndicators();
+      break;
+
+    case 'HEARTBEAT':
+    case 'EVENTS_CONNECTED':
+      break;
+  }
+}
+
+function handleAgentCompletion(event) {
+  // For visual_gen: cache the HTML immediately (idempotent with VISUAL_READY from chat SSE)
+  if (event.agent_type === 'visual_gen' && event.visual_id) {
+    state.generatedVisuals[event.visual_id] = { title: event.title, html: event.html };
+  }
+
+  // Only auto-trigger for visual_gen (planning/asset are consumed silently on next turn)
+  if (event.agent_type !== 'visual_gen') return;
+
+  // Don't trigger if a chat stream is already active — results will be picked up naturally
+  if (state.isStreaming) return;
+
+  // Graceful trigger: respect the student's flow
+  scheduleGracefulTrigger();
+}
+
+function scheduleGracefulTrigger() {
+  if (state.autoTriggerTimer) clearTimeout(state.autoTriggerTimer);
+
+  // Check if student is actively typing
+  const activeInput = document.querySelector('.text-input:focus, .board-ws-input:focus');
+  if (activeInput && activeInput.value.trim().length > 0) {
+    // Student is mid-thought — wait 3s of idle, then retry
+    state.autoTriggerTimer = setTimeout(() => scheduleGracefulTrigger(), 3000);
+    return;
+  }
+
+  // Nobody is typing — show typing indicator first, then trigger after a beat
+  showStreamingIndicator();
+  disableActiveInputs();
+
+  state.autoTriggerTimer = setTimeout(() => {
+    state.autoTriggerTimer = null;
+    if (state.isStreaming) { reenableInputs(); return; }  // Race check
+
+    // Fire synthetic turn — hidden from student, tutor picks up agent results
+    streamADK('[Agent results ready]', true);
+  }, 800);
+}
+
+function disableActiveInputs() {
+  const inputs = document.querySelectorAll('.canvas-block[data-interactive="true"]:not([data-resolved])');
+  inputs.forEach(block => {
+    block.dataset.agentPaused = 'true';
+  });
+}
+
+function reenableInputs() {
+  document.querySelectorAll('[data-agent-paused="true"]').forEach(block => {
+    delete block.dataset.agentPaused;
+  });
+}
+
+function updateAgentIndicators() {
+  const el = document.getElementById('agent-indicators');
+  if (!el) return;
+  const running = Object.values(state.runningAgents);
+  if (!running.length) { el.innerHTML = ''; return; }
+
+  const labels = {
+    planning: 'Planning lesson...',
+    visual_gen: 'Creating interactive visual...',
+    asset: 'Gathering materials...',
+    research: 'Researching...',
+  };
+  el.innerHTML = running.map(a =>
+    `<div class="agent-indicator"><span class="loading-spinner small"></span> ${labels[a.type] || a.type}</div>`
+  ).join('');
 }
 
 function showOnboardingSequence() {
@@ -1483,6 +1744,7 @@ function startAIMessageStream() {
 function updateAIMessageStream(text) {
   const el = $('#ai-stream-text');
   if (!el) return;
+  bdProcessStreaming(text);
   el.innerHTML = renderMarkdownBasic(stripTeachingTags(text));
   const stream = $('#canvas-stream');
   stream.scrollTop = stream.scrollHeight;
@@ -1502,8 +1764,18 @@ function finalizeAIMessage(fullText) {
   // Collect tags for controls logic
   const allTags = segments.filter(s => s.type === 'tag').map(s => s.tag);
 
-  // Source-order rendering
+  // Interactive assessment tags that render their own input controls
+  const interactiveTagNames = new Set([
+    'teaching-mcq', 'teaching-freetext', 'teaching-agree-disagree',
+    'teaching-fillblank', 'teaching-spot-error', 'teaching-confidence',
+    'teaching-canvas', 'teaching-teachback'
+  ]);
+
+  // Source-order rendering — stop after the first interactive assessment tag
+  // (the AI shouldn't send content after an assessment, but if it does, drop it)
+  let interactiveRendered = false;
   for (const seg of segments) {
+    if (interactiveRendered) break; // nothing renders after an assessment input
     if (seg.type === 'text') {
       const parts = splitTextAtHeadings(seg.content);
       for (const part of parts) {
@@ -1515,6 +1787,9 @@ function finalizeAIMessage(fullText) {
       }
     } else if (seg.type === 'tag') {
       renderTeachingTag(seg.tag);
+      if (interactiveTagNames.has(seg.tag.name)) {
+        interactiveRendered = true;
+      }
     }
   }
 
@@ -1682,8 +1957,20 @@ function stripTeachingTags(text) {
 
 function renderTeachingTag(tag) {
   // Record visual assets in session (exclude structural/navigation tags)
-  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss', 'teaching-notebook-step']);
-  if (!structuralTags.has(tag.name)) {
+  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss', 'teaching-notebook-step', 'teaching-notebook-comment']);
+
+  // Don't record images that fail URL validation — they shouldn't become tutor assets
+  let skipAssetRecord = false;
+  if (tag.name === 'teaching-image') {
+    const src = tag.attrs.src || '';
+    const check = validateExternalUrl(src);
+    if (!check.valid) {
+      console.warn(`[Image blocked] ${check.reason}: ${src}`);
+      skipAssetRecord = true;
+    }
+  }
+
+  if (!structuralTags.has(tag.name) && !skipAssetRecord) {
     SessionManager.recordAsset(tag);
   }
 
@@ -1742,17 +2029,37 @@ function renderTeachingTag(tag) {
     case 'teaching-teachback':
       renderTeachbackTag(tag);
       break;
-    case 'teaching-mermaid':
-      renderMermaidTag(tag);
+    case 'teaching-board-draw': {
+      if (!state.boardDraw.active) {
+        const bdTitle = tag.attrs.title || 'Board';
+        openBoardDrawSpotlight(bdTitle);
+        const bdLines = (tag.content || '').split('\n');
+        for (const bdLine of bdLines) {
+          const trimmed = bdLine.trim();
+          if (!trimmed) continue;
+          try { bdEnqueueCommand(JSON.parse(trimmed)); } catch (e) {}
+        }
+        state.boardDraw.active = true;
+      }
+      break;
+    }
+    case 'teaching-interactive':
+      showSpotlight({
+        name: 'teaching-spotlight',
+        attrs: { type: 'interactive', id: tag.attrs.id, title: tag.attrs.title || 'Interactive Visual' },
+      });
       break;
     case 'teaching-spotlight':
       showSpotlight(tag);
       break;
     case 'teaching-spotlight-dismiss':
-      hideSpotlight();
+      hideSpotlight({ agentInitiated: true });
       break;
     case 'teaching-notebook-step':
       appendNotebookStep(tag);
+      break;
+    case 'teaching-notebook-comment':
+      appendNotebookComment(tag);
       break;
   }
 }
@@ -1791,6 +2098,8 @@ function buildVideoSrc(videoUrl, startSec, endSec) {
     const match = videoUrl.match(/(?:youtu\.be\/|v=|\/embed\/)([^&?\s]+)/);
     if (match) videoUrl = `https://www.youtube.com/embed/${match[1]}`;
   }
+  // Strip any existing query string (e.g. ?list=...) to avoid double-? in the URL
+  videoUrl = videoUrl.split('?')[0];
   return `${videoUrl}?start=${startSec}&end=${endSec}&rel=0&modestbranding=1&enablejsapi=1`;
 }
 
@@ -1814,7 +2123,7 @@ function renderVideoTag(tag) {
   openVideoInSpotlight(lessonId, start, end, label);
 }
 
-function openVideoInSpotlight(lessonId, start, end, label) {
+function openVideoInSpotlight(lessonId, start, end, label, options = {}) {
   const panel = $('#spotlight-panel');
   const content = $('#spotlight-content');
   const titleEl = $('#spotlight-title');
@@ -1836,6 +2145,13 @@ function openVideoInSpotlight(lessonId, start, end, label) {
   }
 
   const videoUrl = findVideoUrl(lessonId);
+
+  if (!videoUrl) {
+    // No video URL for this lesson — skip spotlight entirely, log warning
+    console.warn(`teaching-video skipped: no video URL for lesson ${lessonId}`);
+    return;
+  }
+
   if (titleEl) titleEl.textContent = label || 'Video segment';
   if (typeBadge) {
     typeBadge.textContent = 'Video';
@@ -1843,22 +2159,18 @@ function openVideoInSpotlight(lessonId, start, end, label) {
     typeBadge.style.display = '';
   }
 
-  if (videoUrl) {
-    const iframeSrc = buildVideoSrc(videoUrl, start, end);
-    content.innerHTML = `<iframe src="${escapeAttr(iframeSrc)}" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>`;
-  } else {
-    const startFmt = formatTimestamp(start);
-    const endFmt = formatTimestamp(end);
-    content.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-dim);">Video: ${startFmt} - ${endFmt}</div>`;
-  }
+  const iframeSrc = buildVideoSrc(videoUrl, start, end);
+  content.innerHTML = `<iframe src="${escapeAttr(iframeSrc)}" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>`;
 
   panel.classList.add('stage-active');
   state.spotlightInfo = { type: 'video', title: label, lessonId, start, end };
   state.spotlightActive = true;
   enterSpotlightFullscreen();
 
-  // Append reference card in chat stream
-  appendSpotlightReference('video', label || 'Video segment', { lessonId, start, end, label });
+  // Append reference card in chat stream (skip on reopen to prevent duplicates)
+  if (!options.skipReference) {
+    appendSpotlightReference('video', label || 'Video segment', { lessonId, start, end, label });
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2133,11 +2445,11 @@ function initFreetextCanvas(ftId, prompt, drawModeEl) {
       `;
       $('#canvas-stream').appendChild(imgBlock);
 
-      // Send as multimodal content (text + image) — inlined from removed sendCanvasDrawing
+      // Send as multimodal content (image FIRST to reduce context-anchoring bias)
       if (!state.isStreaming) {
         streamADK([
-          { type: 'text', text: `[Canvas drawing] Student drew a response to: "${prompt}"` },
           { type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64Data } },
+          { type: 'text', text: `[Canvas drawing] Student drew a response to: "${prompt}". FIRST describe exactly what you see in the drawing before interpreting it.` },
         ]);
       }
     });
@@ -2264,35 +2576,20 @@ function renderSpotErrorTag(tag) {
   `, { interactive: true });
 }
 
-function renderMermaidTag(tag) {
-  const syntax = tag.attrs.syntax || tag.content || '';
-  if (!syntax.trim()) return;
-
-  const id = 'mermaid-' + generateId().slice(0, 8);
-  const cleaned = syntax.replace(/\\n/g, '\n');
-
-  appendBlock('diagram', `
-    <div class="teaching-diagram-card">
-      <div class="diagram-header">
-        <span class="diagram-icon">&#9670;</span> Diagram
-      </div>
-      <div class="mermaid-container" id="${id}">${escapeHtml(cleaned)}</div>
-    </div>
-  `);
-
-  try {
-    mermaid.run({ nodes: [document.getElementById(id)] });
-  } catch (e) {
-    console.warn('Mermaid render failed:', e);
-    const el = document.getElementById(id);
-    if (el) el.innerHTML = `<pre style="color:var(--text-muted);font-size:13px;">${escapeHtml(cleaned)}</pre>`;
-  }
-}
 
 function renderImageTag(tag) {
   const src = tag.attrs.src || '';
   const caption = tag.attrs.caption || '';
   if (!src) return;
+
+  // Validate external URL before rendering — silently drop invalid images
+  const check = validateExternalUrl(src);
+  if (!check.valid) {
+    // Don't render anything — invalid images are silently dropped
+    // (already logged in renderTeachingTag, not recorded as asset)
+    return;
+  }
+
   const isVideo = src.endsWith('.mp4') || src.endsWith('.webm');
   const mediaEl = isVideo
     ? `<video src="${escapeAttr(src)}" autoplay loop muted playsinline
@@ -2869,7 +3166,7 @@ function cleanupToolIndicators() {
 // Module 17b: Spotlight Panel
 // ═══════════════════════════════════════════════════════════
 
-async function showSpotlight(tag) {
+async function showSpotlight(tag, options = {}) {
   const panel = $('#spotlight-panel');
   const content = $('#spotlight-content');
   const titleEl = $('#spotlight-title');
@@ -2878,8 +3175,8 @@ async function showSpotlight(tag) {
 
   // Auto-cleanup: if spotlight already has content, close it first
   if (state.spotlightActive) {
-    // Clean up simulation bridge if previous was a sim
-    if (state.activeSimulation && state.activeSimulation.blockId.startsWith('spotlight-sim-')) {
+    // Clean up simulation bridge if previous was a sim or interactive visual
+    if (state.activeSimulation && (state.activeSimulation.blockId.startsWith('spotlight-sim-') || state.activeSimulation.blockId.startsWith('spotlight-vis-'))) {
       stopSimBridge();
       state.activeSimulation = null;
       state.simulationLiveState = null;
@@ -2895,7 +3192,7 @@ async function showSpotlight(tag) {
   const type = tag.attrs.type || '';
 
   // Set type badge
-  const typeLabels = { simulation: 'Simulation', video: 'Video', image: 'Image', notebook: 'Notebook', mermaid: 'Diagram' };
+  const typeLabels = { simulation: 'Simulation', video: 'Video', image: 'Image', notebook: 'Notebook', 'board-draw': 'Board', interactive: 'Interactive' };
   if (typeBadge) {
     typeBadge.textContent = typeLabels[type] || type;
     typeBadge.setAttribute('data-type', type);
@@ -2936,6 +3233,17 @@ async function showSpotlight(tag) {
     const caption = tag.attrs.caption || '';
     if (!src) return;
 
+    // Validate external URL before rendering in spotlight
+    const check = validateExternalUrl(src);
+    if (!check.valid) {
+      console.warn(`[Spotlight image blocked] ${check.reason}: ${src}`);
+      if (titleEl) titleEl.textContent = caption || 'Image';
+      content.innerHTML = `<div style="padding:40px;text-align:center;color:var(--text-dim);">Image unavailable — ${escapeHtml(check.reason)}</div>`;
+      panel.classList.add('stage-active');
+      state.spotlightInfo = { type: 'image', title: caption || 'Image' };
+      return;
+    }
+
     if (titleEl) titleEl.textContent = caption || 'Image';
 
     const isVideo = src.endsWith('.mp4') || src.endsWith('.webm');
@@ -2945,25 +3253,6 @@ async function showSpotlight(tag) {
     content.innerHTML = `${mediaEl}${caption ? `<div class="spotlight-caption">${escapeHtml(caption)}</div>` : ''}`;
     panel.classList.add('stage-active');
     state.spotlightInfo = { type: 'image', title: caption || 'Image' };
-
-  } else if (type === 'mermaid') {
-    const syntax = tag.attrs.syntax || '';
-    if (!syntax.trim()) return;
-
-    if (titleEl) titleEl.textContent = 'Diagram';
-    const spotlightMermaidId = 'spotlight-mermaid-' + generateId().slice(0, 8);
-    const cleaned = syntax.replace(/\\n/g, '\n');
-    content.innerHTML = `<div class="mermaid-container" id="${spotlightMermaidId}">${escapeHtml(cleaned)}</div>`;
-    panel.classList.add('stage-active');
-    state.spotlightInfo = { type: 'mermaid', title: 'Diagram' };
-
-    try {
-      mermaid.run({ nodes: [document.getElementById(spotlightMermaidId)] });
-    } catch (e) {
-      console.warn('Mermaid spotlight render failed:', e);
-      const el = document.getElementById(spotlightMermaidId);
-      if (el) el.innerHTML = `<pre style="color:var(--text-muted);font-size:13px;">${escapeHtml(cleaned)}</pre>`;
-    }
 
   } else if (type === 'video') {
     const lessonId = parseInt(tag.attrs.lesson) || state.checkpoint.currentLessonId;
@@ -2985,8 +3274,42 @@ async function showSpotlight(tag) {
     panel.classList.add('stage-active');
     state.spotlightInfo = { type: 'video', title: label };
 
+  } else if (type === 'interactive') {
+    // ═══ GENERATED INTERACTIVE VISUAL ═══
+    const visId = tag.attrs.id;
+    const visual = state.generatedVisuals[visId];
+    if (!visual) {
+      const iTitle = tag.attrs.title || 'Interactive Visual';
+      if (titleEl) titleEl.textContent = iTitle;
+      content.innerHTML = '<div style="padding:20px;color:var(--text-dim);text-align:center;">Visual not ready yet — it may still be generating.</div>';
+      panel.classList.add('stage-active');
+      state.spotlightActive = true;
+      state.spotlightInfo = { type: 'interactive', title: iTitle };
+    } else {
+      const iTitle = tag.attrs.title || visual.title || 'Interactive Visual';
+      if (titleEl) titleEl.textContent = iTitle;
+
+      const spotlightBlockId = 'spotlight-vis-' + generateId().slice(0, 8);
+      const iframe = document.createElement('iframe');
+      iframe.id = spotlightBlockId + '-iframe';
+      iframe.srcdoc = visual.html;
+      iframe.setAttribute('sandbox', 'allow-scripts allow-same-origin');
+      iframe.setAttribute('allow', 'accelerometer');
+      iframe.style.cssText = 'width:100%;height:100%;border:none;';
+
+      content.innerHTML = '';
+      content.appendChild(iframe);
+      panel.classList.add('stage-active');
+      state.spotlightActive = true;
+
+      // Reuse simulation bridge for interaction tracking
+      startSimBridge(visId, spotlightBlockId);
+      state.activeSimulation = { simId: visId, blockId: spotlightBlockId, title: iTitle, isGenerated: true };
+      state.spotlightInfo = { type: 'interactive', title: iTitle, id: visId };
+    }
+
   } else if (type === 'notebook') {
-    // ═══ NOTEBOOK (derivation or problem workspace) ═══
+    // ═══ NOTEBOOK / SHARED BOARD (derivation or problem workspace) ═══
     const mode = tag.attrs.mode || 'derivation';
     const title = tag.attrs.title || (mode === 'derivation' ? 'Derivation' : 'Problem');
     const problem = tag.attrs.problem || '';
@@ -2997,29 +3320,35 @@ async function showSpotlight(tag) {
 
     // Problem header (only for problem mode)
     const problemHeader = mode === 'problem' ? `
-      <div class="notebook-problem-header">
-        <div class="notebook-problem-label">Problem</div>
-        <div class="notebook-problem-text">${renderMarkdownBasic(problem)}</div>
+      <div class="board-problem-header">
+        <div class="board-problem-label">Problem</div>
+        <div class="board-problem-text">${renderMarkdownBasic(problem)}</div>
       </div>` : '';
 
-    // Both modes use shared steps + unified workspace (canvas + text always visible)
+    // Board layout: header, surface (steps), workspace (student input)
     content.innerHTML = `
-      <div class="notebook-panel" id="${notebookId}">
-        ${problemHeader}
-        <div class="notebook-page notebook-page-lined" id="${notebookId}-page">
-          <div class="notebook-steps" id="${notebookId}-steps"></div>
+      <div class="board" id="${notebookId}">
+        <div class="board-header">
+          <div class="board-header-left">
+            <span class="board-badge">${escapeHtml(mode)}</span>
+            <span class="board-title">${escapeHtml(title)}</span>
+          </div>
         </div>
-        <div class="notebook-workspace" id="${notebookId}-workspace">
-          <div class="notebook-workspace-canvas-wrap">
-            <canvas id="${notebookId}-draw-canvas" width="800" height="200"></canvas>
-            <div class="notebook-draw-toolbar" id="${notebookId}-draw-toolbar"></div>
+        ${problemHeader}
+        <div class="board-surface" id="${notebookId}-steps">
+        </div>
+        <div class="board-workspace" id="${notebookId}-workspace">
+          <div class="board-ws-label">\u270E Your workspace</div>
+          <div class="board-ws-canvas-wrap">
+            <canvas id="${notebookId}-draw-canvas"></canvas>
+            <div class="board-ws-toolbar" id="${notebookId}-draw-toolbar"></div>
           </div>
-          <div class="notebook-workspace-text-row">
-            <textarea id="${notebookId}-type-input" placeholder="Type your work... use $...$ for math" rows="1"></textarea>
-            <button class="notebook-submit-btn" id="${notebookId}-submit-btn">Submit Work</button>
+          <div class="board-ws-text-row">
+            <textarea class="board-ws-input" id="${notebookId}-type-input" placeholder="Type your work... use $...$ for math" rows="1"></textarea>
+            <button class="board-ws-submit" id="${notebookId}-submit-btn">Submit</button>
           </div>
-          <div class="notebook-workspace-hint">Draw above, type below. Use <b>$...$</b> for math</div>
-          <div class="notebook-auto-send-indicator" id="${notebookId}-auto-send" style="display:none;"></div>
+          <div class="board-ws-hint">Draw or type — both are sent to the tutor. Use $...$ for LaTeX math.</div>
+          <div class="board-auto-send-indicator" id="${notebookId}-auto-send" style="display:none;"></div>
         </div>
       </div>
     `;
@@ -3034,12 +3363,16 @@ async function showSpotlight(tag) {
   state.spotlightActive = true;
   enterSpotlightFullscreen();
 
-  // Append reference card in chat stream
-  const refTitle = (state.spotlightInfo && state.spotlightInfo.title) || type || 'Spotlight';
-  appendSpotlightReference(type, refTitle, tag);
+  // Append reference card in chat stream (skip on reopen to prevent duplicates)
+  if (!options.skipReference) {
+    const refTitle = (state.spotlightInfo && state.spotlightInfo.title) || type || 'Spotlight';
+    appendSpotlightReference(type, refTitle, tag);
+  }
 }
 
-// ── Notebook step appender (works for both derivation and problem modes) ──
+// ── Notebook step appender (chalk-style — works for both derivation and problem modes) ──
+const CIRCLED_NUMS = ['\u2460','\u2461','\u2462','\u2463','\u2464','\u2465','\u2466','\u2467','\u2468','\u2469'];
+
 function appendNotebookStep(tag) {
   const info = state.spotlightInfo;
   if (!info || info.type !== 'notebook') {
@@ -3050,143 +3383,270 @@ function appendNotebookStep(tag) {
   const stepsEl = $(`#${info.notebookId}-steps`);
   if (!stepsEl) return;
 
-  const n = tag.attrs.n || tag.attrs.step || (state.notebookSteps.length + 1);
+  const n = parseInt(tag.attrs.n || tag.attrs.step || (state.notebookSteps.length + 1));
   const annotation = tag.attrs.annotation || tag.attrs.label || '';
   const feedback = tag.attrs.feedback || '';
   const mathContent = (tag.content || '').trim();
+  const isCorrection = tag.attrs.correction !== undefined;
 
   // Render math via KaTeX
   const renderedMath = renderLatex(mathContent);
+  const circled = CIRCLED_NUMS[n - 1] || String(n);
+  const stepType = isCorrection ? 'correction' : 'step';
 
   const stepEl = document.createElement('div');
-  stepEl.className = 'notebook-step fade-in';
+  stepEl.className = `step fade-in${isCorrection ? ' correction' : ''}`;
+  stepEl.dataset.stepN = n;
+  const renderedAnnotation = renderLatex(escapeHtml(annotation));
   stepEl.innerHTML = `
-    <div class="notebook-step-number">${escapeHtml(String(n))}</div>
-    <div class="notebook-step-body">
-      ${annotation ? `<div class="notebook-step-annotation">${escapeHtml(annotation)}</div>` : ''}
-      <div class="notebook-step-math">${renderedMath}</div>
-      ${feedback ? `<div class="notebook-step-feedback">${escapeHtml(feedback)}</div>` : ''}
-    </div>
+    <div class="step-label"><span class="step-num">${circled}</span> ${renderedAnnotation}</div>
+    <div class="step-math">${renderedMath}</div>
   `;
   stepsEl.appendChild(stepEl);
 
+  // If there's inline feedback, render it as a .tutor-says element after the step
+  if (feedback) {
+    const feedbackEl = document.createElement('div');
+    feedbackEl.className = 'tutor-says fade-in';
+    feedbackEl.innerHTML = renderLatex(escapeHtml(feedback));
+    stepsEl.appendChild(feedbackEl);
+  }
+
+  // Chalk-line separator
+  const lineEl = document.createElement('div');
+  lineEl.className = 'chalk-line';
+  stepsEl.appendChild(lineEl);
+
   // Track step
-  state.notebookSteps.push({ n, annotation, math: mathContent, author: 'tutor' });
+  state.notebookSteps.push({ n, annotation, math: mathContent, author: 'tutor', type: stepType });
+  if (feedback) {
+    state.notebookSteps.push({ n: null, content: feedback, author: 'tutor', type: 'comment' });
+  }
 
   // Scroll to newest step
-  const page = $(`#${info.notebookId}-page`);
-  if (page) page.scrollTop = page.scrollHeight;
+  const surface = $(`#${info.notebookId}-steps`);
+  if (surface) surface.scrollTop = surface.scrollHeight;
 }
 
-// ── Add student step to notebook ──
-function addStudentStepToNotebook(content, drawingDataUrl) {
+// ── Notebook comment appender (blue chalk — tutor hints/nudges/praise) ──
+function appendNotebookComment(tag) {
+  const info = state.spotlightInfo;
+  if (!info || info.type !== 'notebook') {
+    console.warn('[Notebook] No notebook open — ignoring comment');
+    return;
+  }
+
+  const stepsEl = $(`#${info.notebookId}-steps`);
+  if (!stepsEl) return;
+
+  const text = (tag.content || '').trim();
+  if (!text) return;
+
+  // Render as blue chalk text (with LaTeX support)
+  const commentEl = document.createElement('div');
+  commentEl.className = 'tutor-says fade-in';
+  commentEl.innerHTML = renderLatex(escapeHtml(text));
+  stepsEl.appendChild(commentEl);
+
+  // Chalk-line separator
+  const lineEl = document.createElement('div');
+  lineEl.className = 'chalk-line';
+  stepsEl.appendChild(lineEl);
+
+  // Track in state
+  state.notebookSteps.push({ n: null, content: text, author: 'tutor', type: 'comment' });
+
+  // Scroll to newest
+  const surface = $(`#${info.notebookId}-steps`);
+  if (surface) surface.scrollTop = surface.scrollHeight;
+}
+
+// ── Add student step to notebook (green chalk) ──
+// aiImageUrl: preprocessed white-bg image for the AI (separate from display image)
+function addStudentStepToNotebook(content, drawingDataUrl, aiImageUrl) {
   const info = state.spotlightInfo;
   if (!info || info.type !== 'notebook') return;
 
   const stepsEl = $(`#${info.notebookId}-steps`);
   if (!stepsEl) return;
 
-  const n = state.notebookSteps.length + 1;
+  const lastNumbered = [...state.notebookSteps].reverse().find(s => s.n != null);
+  const n = lastNumbered ? lastNumbered.n + 1 : state.notebookSteps.length + 1;
 
   const renderedContent = content ? renderLatex(content) : '';
+  const circled = CIRCLED_NUMS[n - 1] || String(n);
 
   const stepEl = document.createElement('div');
-  stepEl.className = 'notebook-step student-step fade-in';
+  stepEl.className = 'step student fade-in';
+  stepEl.dataset.stepN = n;
 
-  let bodyHtml = `<div class="notebook-step-annotation">Your work</div>`;
+  let innerHtml = `<div class="step-label"><span class="step-num">${circled}</span> Your work</div>`;
   if (renderedContent) {
-    bodyHtml += `<div class="notebook-step-math">${renderedContent}</div>`;
+    innerHtml += `<div class="step-math">${renderedContent}</div>`;
   }
   if (drawingDataUrl) {
-    bodyHtml += `<div class="notebook-step-drawing"><img src="${drawingDataUrl}" alt="Your drawing" /></div>`;
+    innerHtml += `<div class="step-drawing"><img src="${drawingDataUrl}" alt="Your drawing" /></div>`;
   }
 
-  stepEl.innerHTML = `
-    <div class="notebook-step-number">${n}</div>
-    <div class="notebook-step-body">${bodyHtml}</div>
-  `;
+  stepEl.innerHTML = innerHtml;
   stepsEl.appendChild(stepEl);
 
-  // Track step
-  state.notebookSteps.push({ n, content, hasDrawing: !!drawingDataUrl, author: 'student' });
+  const lineEl = document.createElement('div');
+  lineEl.className = 'chalk-line';
+  stepsEl.appendChild(lineEl);
 
-  // Scroll to newest step
-  const page = $(`#${info.notebookId}-page`);
-  if (page) page.scrollTop = page.scrollHeight;
+  state.notebookSteps.push({ n, content, hasDrawing: !!drawingDataUrl, author: 'student', type: 'step' });
 
-  // Send to tutor
+  const surface = $(`#${info.notebookId}-steps`);
+  if (surface) surface.scrollTop = surface.scrollHeight;
+
+  // Build board state for context
+  const boardState = state.notebookSteps.map(s => {
+    if (s.type === 'comment') return `[Tutor comment] ${s.content}`;
+    if (s.author === 'student') return `[Student step ${s.n}] ${s.content || ''}${s.hasDrawing ? ' [+drawing attached]' : ''}`;
+    if (s.type === 'correction') return `[Tutor correction ${s.n}] ${s.annotation ? s.annotation + ': ' : ''}${s.math || s.content}`;
+    return `[Tutor step ${s.n}] ${s.annotation ? s.annotation + ': ' : ''}${s.math || s.content}`;
+  }).join('\n');
+
+  // Find what the student was asked to write for vision context
+  const lastTutorStep = [...state.notebookSteps].reverse().find(s => s.author === 'tutor' && s.type !== 'comment');
+  const promptHint = lastTutorStep
+    ? `The student was asked to work on: "${lastTutorStep.annotation || lastTutorStep.math || ''}"`
+    : '';
+
+  // Build message to AI
+  // IMPORTANT: image goes FIRST to reduce context-anchoring bias.
+  // If the text (with board state, expected answer) comes before the image,
+  // the model "sees" what it expects rather than what the student actually drew.
   const msgParts = [];
-  if (content) {
-    msgParts.push({ type: 'text', text: `[Notebook step ${n}] Student wrote: ${content}` });
+
+  if (aiImageUrl || drawingDataUrl) {
+    const imgSrc = aiImageUrl || drawingDataUrl;
+    const base64 = imgSrc.split(',')[1];
+    msgParts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } });
   }
+
+  const textLines = [`[Notebook step ${n}] Student submitted work on the derivation notebook.`];
+  if (content) textLines.push(`Student typed: "${content}"`);
+
   if (drawingDataUrl) {
-    const base64 = drawingDataUrl.split(',')[1];
-    if (content) {
-      msgParts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } });
-    } else {
-      msgParts.push({ type: 'text', text: `[Notebook step ${n}] Student drew their work:` });
-      msgParts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: base64 } });
-    }
+    textLines.push('');
+    textLines.push('IMPORTANT — The attached image above shows the student\'s handwritten mathematical work (preprocessed to dark strokes on white background for clarity).');
+    textLines.push('FIRST: describe EXACTLY what symbols, characters, and equations you see in the image — report the raw visual content literally (e.g. "I see the characters 2, x, +, y") BEFORE interpreting what they might mean in the physics context.');
+    textLines.push('Do NOT assume the student wrote the expected answer. Students often write wrong or unrelated things. Read the actual strokes.');
+    if (!content) textLines.push('The student did not type anything — their full response is in the drawing.');
   }
-  if (msgParts.length > 0) {
-    streamADK(msgParts.length === 1 && msgParts[0].type === 'text' ? msgParts[0].text : msgParts);
+
+  if (promptHint) {
+    textLines.push('');
+    textLines.push(promptHint);
   }
+  textLines.push('', '[Current board state]', boardState);
+
+  msgParts.push({ type: 'text', text: textLines.join('\n') });
+
+  streamADK(msgParts);
 }
 
 // ── Notebook interactive initializer (unified workspace — canvas + text always visible) ──
 function initNotebookInteractive(notebookId, mode, promptText) {
-  // ── Draw canvas (eagerly initialized — always visible) ──
+  // ── HiDPI Canvas setup ──
+  const DPR = Math.min(window.devicePixelRatio || 1, 3);
+  const CSS_W = 800;
+  const MIN_CSS_H = 200;
+  let cssH = MIN_CSS_H;
   let drawCtx = null;
-  const DW = 800, DH = 200;
-  let drawing = false, currentColor = '#ffffff', currentTool = 'pen', lineWidth = 2;
+  let drawing = false, currentColor = '#7ed99a', currentTool = 'pen', lineWidth = 5;
   let undoStack = [];
-  let blankImageData = null; // stored after first clear to detect content
+  let blankImageData = null;
+  let needsExpand = false;
 
   const canvas = $(`#${notebookId}-draw-canvas`);
   const toolbar = $(`#${notebookId}-draw-toolbar`);
 
-  if (canvas && toolbar) {
+  function resizeCanvas(newCssH) {
+    if (!canvas) return;
+    // Save old pixels before resize clears them
+    const oldW = canvas.width;
+    const oldH = canvas.height;
+    let oldData = null;
+    if (drawCtx && oldW && oldH) {
+      drawCtx.save();
+      drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+      oldData = drawCtx.getImageData(0, 0, oldW, oldH);
+      drawCtx.restore();
+    }
+
+    cssH = newCssH || cssH;
+    canvas.width = CSS_W * DPR;
+    canvas.height = cssH * DPR;
+    canvas.style.width = '100%';
+    canvas.style.height = cssH + 'px';
     drawCtx = canvas.getContext('2d');
+    drawCtx.scale(DPR, DPR);
+
+    // Fill entire canvas with dark background first
+    drawCtx.fillStyle = '#1e2130';
+    drawCtx.fillRect(0, 0, CSS_W, cssH);
+
+    // Restore old drawing on top
+    if (oldData) {
+      drawCtx.save();
+      drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+      drawCtx.putImageData(oldData, 0, 0);
+      drawCtx.restore();
+    }
+  }
+
+  if (canvas && toolbar) {
+    resizeCanvas(MIN_CSS_H);
     clearDrawCanvas();
 
-    // Build toolbar
     toolbar.innerHTML = `
-      <button class="notebook-draw-tool active" data-tool="pen" data-color="#ffffff" title="White">&#9998;</button>
-      <button class="notebook-draw-tool" data-tool="pen" data-color="#6c8cff" title="Blue" style="color:#6c8cff;">&#9998;</button>
-      <button class="notebook-draw-tool" data-tool="pen" data-color="#4ade80" title="Green" style="color:#4ade80;">&#9998;</button>
-      <button class="notebook-draw-tool" data-tool="pen" data-color="#ff6b6b" title="Red" style="color:#ff6b6b;">&#9998;</button>
-      <button class="notebook-draw-tool" data-tool="eraser" title="Eraser">&#9003;</button>
-      <span class="notebook-draw-sep"></span>
-      <button class="notebook-draw-tool" data-action="undo" title="Undo">↩</button>
-      <button class="notebook-draw-tool" data-action="clear" title="Clear">✕</button>
+      <button class="board-ws-color active" data-tool="pen" data-color="#7ed99a" title="Green" style="background:#7ed99a;"></button>
+      <button class="board-ws-color" data-tool="pen" data-color="#d4dbd4" title="White" style="background:#d4dbd4;"></button>
+      <button class="board-ws-color" data-tool="pen" data-color="#7eb8da" title="Blue" style="background:#7eb8da;"></button>
+      <button class="board-ws-color" data-tool="pen" data-color="#ff6b6b" title="Red" style="background:#ff6b6b;"></button>
+      <div class="board-ws-sep"></div>
+      <button class="board-ws-btn" data-tool="eraser" title="Eraser">&#9003;</button>
+      <button class="board-ws-btn" data-action="undo" title="Undo">↩</button>
+      <button class="board-ws-btn" data-action="clear" title="Clear">✕</button>
+      <div class="board-ws-sep"></div>
+      <button class="board-ws-btn" data-action="expand" title="Expand canvas">↕</button>
     `;
 
-    toolbar.querySelectorAll('.notebook-draw-tool').forEach(btn => {
+    toolbar.querySelectorAll('[data-tool], [data-action]').forEach(btn => {
       btn.addEventListener('click', () => {
         const action = btn.dataset.action;
         if (action === 'clear') { clearDrawCanvas(); return; }
         if (action === 'undo') { undoDraw(); return; }
+        if (action === 'expand') { expandCanvas(); return; }
         const tool = btn.dataset.tool;
         if (tool) {
           currentTool = tool;
-          if (tool === 'pen') currentColor = btn.dataset.color || '#ffffff';
-          toolbar.querySelectorAll('.notebook-draw-tool[data-tool]').forEach(b => b.classList.remove('active'));
-          btn.classList.add('active');
+          if (tool === 'pen') currentColor = btn.dataset.color || '#7ed99a';
+          toolbar.querySelectorAll('.board-ws-color').forEach(b => b.classList.remove('active'));
+          if (tool === 'pen') btn.classList.add('active');
         }
       });
     });
 
-    // Drawing handlers
     function getPos(e) {
       const rect = canvas.getBoundingClientRect();
       const touch = e.touches ? e.touches[0] : e;
-      return { x: (touch.clientX - rect.left) * (DW / rect.width), y: (touch.clientY - rect.top) * (DH / rect.height) };
+      return {
+        x: (touch.clientX - rect.left) * (CSS_W / rect.width),
+        y: (touch.clientY - rect.top) * (cssH / rect.height)
+      };
     }
 
     function startDraw(e) {
       e.preventDefault();
       drawing = true;
-      undoStack.push(drawCtx.getImageData(0, 0, DW, DH));
+      drawCtx.save();
+      drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+      undoStack.push(drawCtx.getImageData(0, 0, canvas.width, canvas.height));
+      drawCtx.restore();
       if (undoStack.length > 20) undoStack.shift();
       const pos = getPos(e);
       drawCtx.beginPath();
@@ -3206,10 +3666,20 @@ function initNotebookInteractive(notebookId, mode, promptText) {
       drawCtx.stroke();
       drawCtx.beginPath();
       drawCtx.moveTo(pos.x, pos.y);
+
+      // Flag for expansion — don't resize mid-stroke (causes stray lines)
+      if (pos.y > cssH - 30) {
+        needsExpand = true;
+      }
     }
 
     function stopDraw() {
       drawing = false;
+      // Expand now that the stroke is done
+      if (needsExpand) {
+        needsExpand = false;
+        expandCanvas();
+      }
       resetInactivityTimer();
     }
 
@@ -3222,40 +3692,137 @@ function initNotebookInteractive(notebookId, mode, promptText) {
     canvas.addEventListener('touchend', stopDraw);
   }
 
-  function clearDrawCanvas() {
-    if (!canvas) return;
-    const ctx = canvas.getContext('2d');
-    ctx.fillStyle = '#1e2130';
-    ctx.fillRect(0, 0, DW, DH);
-    ctx.strokeStyle = 'rgba(255, 255, 255, 0.04)';
-    ctx.lineWidth = 1;
-    for (let y = 30; y < DH; y += 30) {
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(DW, y); ctx.stroke();
+  function expandCanvas() {
+    const oldH = cssH;
+    const newH = Math.min(cssH + 120, 600);
+    if (newH === oldH) return;
+    resizeCanvas(newH);
+    // Draw grid only in the newly added area (old area preserved by putImageData)
+    drawGrid(oldH);
+  }
+
+  function drawGrid(fromY) {
+    if (!drawCtx) return;
+    drawCtx.strokeStyle = 'rgba(255, 255, 255, 0.03)';
+    drawCtx.lineWidth = 1;
+    const gridSpacing = 40;
+    const startY = fromY ? Math.ceil(fromY / gridSpacing) * gridSpacing : gridSpacing;
+    for (let y = startY; y < cssH; y += gridSpacing) {
+      drawCtx.beginPath(); drawCtx.moveTo(0, y); drawCtx.lineTo(CSS_W, y); drawCtx.stroke();
     }
-    // Store blank state for content detection
-    blankImageData = ctx.getImageData(0, 0, DW, DH).data;
+  }
+
+  function clearDrawCanvas() {
+    if (!canvas || !drawCtx) return;
+    resizeCanvas(MIN_CSS_H);
+    drawCtx.fillStyle = '#1e2130';
+    drawCtx.fillRect(0, 0, CSS_W, cssH);
+    drawGrid();
+    drawCtx.save();
+    drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+    blankImageData = drawCtx.getImageData(0, 0, canvas.width, canvas.height).data;
+    drawCtx.restore();
     undoStack = [];
   }
 
   function undoDraw() {
-    if (undoStack.length === 0) return;
-    if (!canvas) return;
-    canvas.getContext('2d').putImageData(undoStack.pop(), 0, 0);
+    if (undoStack.length === 0 || !canvas || !drawCtx) return;
+    drawCtx.save();
+    drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+    drawCtx.putImageData(undoStack.pop(), 0, 0);
+    drawCtx.restore();
   }
 
-  // ── Canvas content detection ──
   function canvasHasContent() {
-    if (!canvas || !blankImageData) return false;
-    const currentData = canvas.getContext('2d').getImageData(0, 0, DW, DH).data;
-    // Compare a sampling of pixels (every 40th) for performance
+    if (!canvas || !drawCtx) return false;
+    drawCtx.save();
+    drawCtx.setTransform(1, 0, 0, 1, 0, 0);
+    const currentData = drawCtx.getImageData(0, 0, canvas.width, canvas.height).data;
+    drawCtx.restore();
+    // Check for any pixel that differs from background (#1e2130)
+    const BG_R = 30, BG_G = 33, BG_B = 48;
     for (let i = 0; i < currentData.length; i += 160) {
-      if (currentData[i] !== blankImageData[i] ||
-          currentData[i + 1] !== blankImageData[i + 1] ||
-          currentData[i + 2] !== blankImageData[i + 2]) {
-        return true;
-      }
+      const r = currentData[i], g = currentData[i + 1], b = currentData[i + 2];
+      const dist = Math.abs(r - BG_R) + Math.abs(g - BG_G) + Math.abs(b - BG_B);
+      if (dist > 60) return true;
     }
     return false;
+  }
+
+  // ── Preprocess canvas for AI: white background + dark strokes ──
+  function processCanvasForAI() {
+    if (!canvas) return null;
+    const w = canvas.width, h = canvas.height;
+    const offscreen = document.createElement('canvas');
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext('2d');
+
+    const srcCtx = canvas.getContext('2d');
+    const imgData = srcCtx.getImageData(0, 0, w, h);
+    const data = imgData.data;
+
+    // Background color of the canvas (#1e2130 ≈ 30,33,48)
+    const BG_R = 30, BG_G = 33, BG_B = 48;
+
+    // Crop to the actual content bounding box (skip empty space)
+    let minY = h, maxY = 0, minX = w, maxX = 0;
+    let hasContent = false;
+
+    for (let py = 0; py < h; py++) {
+      for (let px = 0; px < w; px++) {
+        const i = (py * w + px) * 4;
+        const r = data[i], g = data[i + 1], b = data[i + 2];
+        const dist = Math.sqrt((r - BG_R) ** 2 + (g - BG_G) ** 2 + (b - BG_B) ** 2);
+        if (dist > 50) {
+          hasContent = true;
+          if (py < minY) minY = py;
+          if (py > maxY) maxY = py;
+          if (px < minX) minX = px;
+          if (px > maxX) maxX = px;
+        }
+      }
+    }
+
+    if (!hasContent) return null;
+
+    // Add padding around the content
+    const pad = Math.round(20 * DPR);
+    minX = Math.max(0, minX - pad);
+    minY = Math.max(0, minY - pad);
+    maxX = Math.min(w - 1, maxX + pad);
+    maxY = Math.min(h - 1, maxY + pad);
+    const cropW = maxX - minX + 1;
+    const cropH = maxY - minY + 1;
+
+    // Create a tightly cropped output canvas
+    const out = document.createElement('canvas');
+    out.width = cropW;
+    out.height = cropH;
+    const outCtx = out.getContext('2d');
+    outCtx.fillStyle = '#ffffff';
+    outCtx.fillRect(0, 0, cropW, cropH);
+
+    // Copy and remap pixels: background → white, strokes → dark
+    const cropData = srcCtx.getImageData(minX, minY, cropW, cropH);
+    const cd = cropData.data;
+
+    for (let i = 0; i < cd.length; i += 4) {
+      const r = cd[i], g = cd[i + 1], b = cd[i + 2];
+      const dist = Math.sqrt((r - BG_R) ** 2 + (g - BG_G) ** 2 + (b - BG_B) ** 2);
+      if (dist <= 50) {
+        cd[i] = 255; cd[i + 1] = 255; cd[i + 2] = 255; cd[i + 3] = 255;
+      } else {
+        // Make strokes pure black for maximum contrast and clarity
+        cd[i] = 0;
+        cd[i + 1] = 0;
+        cd[i + 2] = 0;
+        cd[i + 3] = 255;
+      }
+    }
+
+    outCtx.putImageData(cropData, 0, 0);
+    return out.toDataURL('image/png');
   }
 
   // ── Type input: auto-resize textarea ──
@@ -3263,7 +3830,7 @@ function initNotebookInteractive(notebookId, mode, promptText) {
   if (typeInput) {
     typeInput.addEventListener('input', () => {
       typeInput.style.height = 'auto';
-      typeInput.style.height = Math.min(typeInput.scrollHeight, 120) + 'px';
+      typeInput.style.height = Math.min(typeInput.scrollHeight, 160) + 'px';
       resetInactivityTimer();
     });
     typeInput.addEventListener('keydown', (e) => {
@@ -3281,14 +3848,15 @@ function initNotebookInteractive(notebookId, mode, promptText) {
 
     let textContent = '';
     let drawingDataUrl = null;
+    let aiImageUrl = null;
 
-    // Always collect canvas if it has content
     if (canvasHasContent()) {
       drawingDataUrl = canvas.toDataURL('image/png');
+      aiImageUrl = processCanvasForAI();
+      console.log('[Notebook] Canvas captured — display:', drawingDataUrl?.length, 'bytes, AI:', aiImageUrl?.length, 'bytes');
       clearDrawCanvas();
     }
 
-    // Always collect text
     const input = $(`#${notebookId}-type-input`);
     if (input && input.value.trim()) {
       textContent = input.value.trim();
@@ -3298,16 +3866,14 @@ function initNotebookInteractive(notebookId, mode, promptText) {
 
     if (!textContent && !drawingDataUrl) return;
 
-    addStudentStepToNotebook(textContent, drawingDataUrl);
+    addStudentStepToNotebook(textContent, drawingDataUrl, aiImageUrl);
   }
 
   // ── Inactivity auto-send ──
   function resetInactivityTimer() {
     clearInactivityTimer();
-    // Only start timer if there's content to send
     state.inactivityTimer = setTimeout(() => {
       if (state.isStreaming) {
-        // Retry after streaming ends
         state.inactivityTimer = setTimeout(() => resetInactivityTimer(), 2000);
         return;
       }
@@ -3330,22 +3896,20 @@ function initNotebookInteractive(notebookId, mode, promptText) {
     if (indicator) {
       indicator.style.display = '';
       indicator.textContent = 'Sending your work...';
-      indicator.className = 'notebook-auto-send-indicator sending';
+      indicator.className = 'board-auto-send-indicator sending';
     }
     submitNotebookWork();
     if (indicator) {
       setTimeout(() => {
         indicator.textContent = 'Sent!';
-        indicator.className = 'notebook-auto-send-indicator sent';
+        indicator.className = 'board-auto-send-indicator sent';
         setTimeout(() => { indicator.style.display = 'none'; }, 2000);
       }, 500);
     }
   }
 
-  // Store cleanup function on state for use by hideSpotlight
   state.notebookCleanup = () => { clearInactivityTimer(); };
 
-  // Submit button
   const submitBtn = $(`#${notebookId}-submit-btn`);
   if (submitBtn) {
     submitBtn.addEventListener('click', submitNotebookWork);
@@ -3355,7 +3919,7 @@ function initNotebookInteractive(notebookId, mode, promptText) {
 // ── Spotlight reference cards (clickable history in chat stream) ──
 function appendSpotlightReference(type, title, reopenTag) {
   const refId = 'spot-ref-' + generateId().slice(0, 8);
-  const typeIcons = { video: '▶', simulation: '⚗', notebook: '📓', image: '🖼', mermaid: '◇' };
+  const typeIcons = { video: '▶', simulation: '⚗', notebook: '📓', image: '🖼', 'board-draw': '✎' };
   const icon = typeIcons[type] || '◆';
 
   state.spotlightHistory.push({ id: refId, type, title, tag: reopenTag });
@@ -3374,9 +3938,9 @@ window.reopenSpotlight = function(refId) {
   if (!entry) return;
 
   if (entry.type === 'video' && entry.tag.lessonId !== undefined) {
-    openVideoInSpotlight(entry.tag.lessonId, entry.tag.start, entry.tag.end, entry.tag.label);
+    openVideoInSpotlight(entry.tag.lessonId, entry.tag.start, entry.tag.end, entry.tag.label, { skipReference: true });
   } else {
-    showSpotlight(entry.tag);
+    showSpotlight(entry.tag, { skipReference: true });
   }
 };
 
@@ -3408,38 +3972,53 @@ window.toggleNotebookFullscreen = function() {
   }
 };
 
-window.hideSpotlight = function() {
+window.hideSpotlight = function(options = {}) {
+  const wasVideo = state.spotlightInfo?.type === 'video';
+  const wasBoardDraw = state.spotlightInfo?.type === 'board-draw';
+  const prevTitle = state.spotlightInfo?.title || '';
+
   const panel = $('#spotlight-panel');
   if (panel) panel.classList.remove('stage-active');
 
   const content = $('#spotlight-content');
   if (content) content.innerHTML = '';
 
-  // Clear type badge
   const typeBadge = $('#spotlight-type-badge');
   if (typeBadge) {
     typeBadge.textContent = '';
     typeBadge.style.display = 'none';
   }
 
-  // Exit fullscreen mode when closing spotlight
   exitSpotlightFullscreen();
 
-  // Clean up sim bridge if spotlight had a simulation
   if (state.spotlightActive && state.activeSimulation) {
     stopSimBridge();
     state.activeSimulation = null;
     state.simulationLiveState = null;
   }
 
-  // Clean up notebook state
   if (state.spotlightInfo?.type === 'notebook') {
     if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
     state.notebookSteps = [];
   }
 
+  if (wasBoardDraw) bdCleanup();
+
   state.spotlightActive = false;
   state.spotlightInfo = null;
+
+  // Auto-trigger agent when student closes video or board-draw
+  if (!options.agentInitiated && !state.isStreaming) {
+    if (wasVideo) {
+      setTimeout(() => {
+        if (!state.isStreaming) streamADK('[I\'m done watching "' + prevTitle + '"]');
+      }, 400);
+    } else if (wasBoardDraw) {
+      setTimeout(() => {
+        if (!state.isStreaming) streamADK('[I\'ve seen the board drawing "' + prevTitle + '"]');
+      }, 400);
+    }
+  }
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -3538,6 +4117,42 @@ function updateStats() {
 // Module 20: Utilities
 // ═══════════════════════════════════════════════════════════
 
+// ── External resource URL validation ──
+// Only allow URLs from trusted sources. The search_images tool returns
+// Wikimedia thumbnail URLs (containing /thumb/). Direct Wikimedia file
+// URLs are almost always hallucinated by the model.
+function validateExternalUrl(url) {
+  if (!url || typeof url !== 'string') return { valid: false, reason: 'Empty URL' };
+
+  // Block dangerous schemes
+  const lower = url.trim().toLowerCase();
+  if (lower.startsWith('javascript:') || lower.startsWith('data:') || lower.startsWith('blob:')) {
+    return { valid: false, reason: 'Blocked URL scheme' };
+  }
+
+  // Must be http(s)
+  if (!lower.startsWith('http://') && !lower.startsWith('https://')) {
+    return { valid: false, reason: 'Invalid URL scheme' };
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    // Wikimedia/Wikipedia: only allow thumbnail URLs (from the search_images API tool)
+    // Thumbnail URLs contain /thumb/ and have a width-prefixed filename at the end
+    // Direct file URLs (e.g. /commons/3/3e/File.gif) are likely hallucinated
+    if (parsed.hostname.includes('wikimedia.org') || parsed.hostname.includes('wikipedia.org')) {
+      if (!parsed.pathname.includes('/thumb/')) {
+        return { valid: false, reason: 'Unverified image source — use search_images tool for Wikimedia content' };
+      }
+    }
+
+    return { valid: true };
+  } catch {
+    return { valid: false, reason: 'Malformed URL' };
+  }
+}
+
 function escapeHtml(str) {
   const div = document.createElement('div');
   div.textContent = str;
@@ -3596,7 +4211,7 @@ async function fetchAndRenderSessions(name, courseId) {
   const firstTime = $('#session-first-time');
   if (!listPanel || !firstTime) return;
 
-  if (!name || !courseId) {
+  if (!courseId) {
     listPanel.classList.add('hidden');
     firstTime.classList.add('hidden');
     return;
@@ -3605,7 +4220,15 @@ async function fetchAndRenderSessions(name, courseId) {
   setStatus('Loading sessions...');
 
   try {
-    const res = await fetch(`${state.apiUrl}/api/v1/sessions/student/${courseId}/${encodeURIComponent(name)}/with-headlines`);
+    let url;
+    const fetchOpts = {};
+    if (AuthManager.isLoggedIn()) {
+      url = `${state.apiUrl}/api/v1/sessions/me/${courseId}/with-headlines`;
+      fetchOpts.headers = AuthManager.authHeaders();
+    } else {
+      url = `${state.apiUrl}/api/v1/sessions/student/${courseId}/${encodeURIComponent(name)}/with-headlines`;
+    }
+    const res = await fetch(url, fetchOpts);
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const sessions = await res.json();
 
@@ -3712,8 +4335,73 @@ function deriveCheckpointFromSession(session) {
 
 // ─── Init & Session Lifecycle ─────────────────────────────
 
+function showLoginPanel() {
+  $('#login-panel').style.display = 'flex';
+  $('#setup-panel').style.display = 'none';
+}
+
+function showSetupPanel() {
+  const user = AuthManager.getUser();
+  if (!user) return showLoginPanel();
+
+  state.studentName = user.name;
+  state.userEmail = user.email;
+
+  const greeting = $('#setup-greeting');
+  if (greeting) greeting.textContent = `Welcome, ${user.name}`;
+
+  $('#login-panel').style.display = 'none';
+  $('#setup-panel').style.display = 'flex';
+}
+
+function handleAuthExpired() {
+  AuthManager.clearAuth();
+  showLoginPanel();
+  const el = $('#login-status');
+  if (el) {
+    el.textContent = 'Session expired. Please sign in again.';
+    el.className = 'setup-status error';
+  }
+}
+
+function initLoginForm() {
+  const emailInput = $('#login-email');
+  const passwordInput = $('#login-password');
+  const loginBtn = $('#btn-login');
+  const statusEl = $('#login-status');
+
+  async function doLogin() {
+    const email = emailInput.value.trim();
+    const password = passwordInput.value;
+    if (!email || !password) {
+      statusEl.textContent = 'Please enter email and password.';
+      statusEl.className = 'setup-status error';
+      return;
+    }
+    loginBtn.disabled = true;
+    statusEl.textContent = 'Signing in...';
+    statusEl.className = 'setup-status';
+    try {
+      await AuthManager.login(email, password);
+      statusEl.textContent = '';
+      showSetupPanel();
+      // Trigger session fetch for pre-selected course
+      const courseId = parseInt($('#course-id')?.value);
+      if (courseId) fetchAndRenderSessions(state.studentName, courseId);
+    } catch (e) {
+      statusEl.textContent = e.message || 'Login failed';
+      statusEl.className = 'setup-status error';
+    } finally {
+      loginBtn.disabled = false;
+    }
+  }
+
+  loginBtn.addEventListener('click', doLogin);
+  passwordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
+  emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') passwordInput.focus(); });
+}
+
 async function initSetup() {
-  const nameInput = $('#student-name');
   const courseIdInput = $('#course-id');
   const apiUrlInput = $('#api-url');
   const startBtn = $('#btn-start-session');
@@ -3721,19 +4409,37 @@ async function initSetup() {
 
   state.apiUrl = apiUrlInput?.value?.trim() || 'http://localhost:3001';
 
-  function onInputChange() {
-    const name = nameInput.value.trim();
+  // ─── Login form ────────────────────────────────────────
+  initLoginForm();
+
+  // ─── Logout ────────────────────────────────────────────
+  $('#btn-logout')?.addEventListener('click', () => {
+    AuthManager.logout();
+    state.studentName = '';
+    state.userEmail = '';
+    $('#session-list-panel')?.classList.add('hidden');
+    $('#session-first-time')?.classList.add('hidden');
+    showLoginPanel();
+  });
+
+  // ─── Auth gate ─────────────────────────────────────────
+  if (AuthManager.isLoggedIn()) {
+    showSetupPanel();
+  } else {
+    showLoginPanel();
+  }
+
+  // ─── Course change → fetch sessions ────────────────────
+  function onCourseChange() {
     const courseId = parseInt(courseIdInput.value);
 
-    // Enable/disable the first-time start button
-    if (startBtn) startBtn.disabled = !name || !courseId;
-    if (newBtn) newBtn.disabled = !name || !courseId;
+    if (startBtn) startBtn.disabled = !courseId;
+    if (newBtn) newBtn.disabled = !courseId;
 
-    // Debounced session fetch
     if (sessionFetchDebounce) clearTimeout(sessionFetchDebounce);
-    if (name && courseId) {
+    if (courseId && state.studentName) {
       sessionFetchDebounce = setTimeout(() => {
-        fetchAndRenderSessions(name, courseId);
+        fetchAndRenderSessions(state.studentName, courseId);
       }, 500);
     } else {
       $('#session-list-panel')?.classList.add('hidden');
@@ -3741,25 +4447,25 @@ async function initSetup() {
     }
   }
 
-  nameInput.addEventListener('input', onInputChange);
-  courseIdInput.addEventListener('change', onInputChange);
+  courseIdInput.addEventListener('change', onCourseChange);
 
   // First-time "Start Session"
   if (startBtn) startBtn.addEventListener('click', () => {
     const intentInput = $('#student-intent-first');
-    startNewSession(nameInput.value.trim(), parseInt(courseIdInput.value), (intentInput?.value || '').trim());
+    startNewSession(state.studentName, parseInt(courseIdInput.value), (intentInput?.value || '').trim());
   });
 
   // Returning "New Session"
   if (newBtn) newBtn.addEventListener('click', () => {
     const intentInput = $('#student-intent');
-    startNewSession(nameInput.value.trim(), parseInt(courseIdInput.value), (intentInput?.value || '').trim());
+    startNewSession(state.studentName, parseInt(courseIdInput.value), (intentInput?.value || '').trim());
   });
 
   $('#btn-back')?.addEventListener('click', () => {
     $('#teaching-layout').classList.add('hidden');
     $('#setup-panel').style.display = 'flex';
     if (timerInterval) clearInterval(timerInterval);
+    disconnectAgentEvents();
   });
 
   // Sidebar toggle
@@ -3793,7 +4499,9 @@ async function initSetup() {
   });
 
   // Trigger initial check (course may be pre-selected)
-  onInputChange();
+  if (AuthManager.isLoggedIn()) {
+    onCourseChange();
+  }
 }
 
 async function startNewSession(name, courseId, intent) {
@@ -3849,6 +4557,9 @@ async function startNewSession(name, courseId, intent) {
     state.messages = [];
     state.sessionId = generateId();
     state.currentScript = null;
+
+    // Connect persistent SSE for agent events
+    connectAgentEvents();
 
     try {
       const coursePosition = {
@@ -3906,7 +4617,9 @@ window.continueSession = async function(sessionId) {
 
   try {
     // Fetch the full session
-    const res = await fetch(`${state.apiUrl}/api/v1/sessions/${sessionId}`);
+    const res = await fetch(`${state.apiUrl}/api/v1/sessions/${sessionId}`, {
+      headers: { ...AuthManager.authHeaders() },
+    });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const sessionData = await res.json();
 
@@ -3914,6 +4627,9 @@ window.continueSession = async function(sessionId) {
     state.courseId = sessionData.courseId;
     state.sessionId = sessionData.sessionId;
     state.studentIntent = (sessionData.intent && sessionData.intent.raw) || '';
+
+    // Connect persistent SSE for agent events
+    connectAgentEvents();
 
     const courseMap = await loadCourseMap(state.courseId);
     await Promise.all([
@@ -3928,6 +4644,15 @@ window.continueSession = async function(sessionId) {
 
     // Resume the SessionManager
     SessionManager.resumeSession(sessionData);
+
+    // Restore generated visuals (HTML blobs from visual_gen)
+    state.generatedVisuals = sessionData.generatedVisuals || {};
+
+    // Restore spotlight history (reference cards)
+    state.spotlightHistory = sessionData.spotlightHistory || [];
+
+    // Restore notebook steps (derivation context)
+    state.notebookSteps = sessionData.notebookSteps || [];
 
     // Restore plan from session data
     if (sessionData.plan && sessionData.plan.raw) {
@@ -3966,6 +4691,11 @@ window.continueSession = async function(sessionId) {
       renderPlanProgress();
     }
 
+    // Rebuild historical canvas content from transcript
+    if (sessionData.transcript && sessionData.transcript.length > 0) {
+      rebuildCanvasFromTranscript(sessionData.transcript);
+    }
+
     // Populate messages from transcript (gives AI full context)
     state.messages = (sessionData.transcript || []).map(m => ({
       role: m.role,
@@ -3990,6 +4720,97 @@ window.continueSession = async function(sessionId) {
   }
 };
 
+// ── Canvas Rebuild (Session Resume) ──────────────────────────────
+
+function rebuildCanvasFromTranscript(transcript) {
+  const stream = document.getElementById('canvas-stream');
+  // Keep the welcome header that showTeachingLayout already added
+
+  for (const msg of transcript) {
+    if (msg.role === 'assistant') {
+      renderHistoricalTutorMessage(msg.content);
+    } else if (msg.role === 'user') {
+      // Skip system triggers (internal messages)
+      const c = msg.content || '';
+      if (c.startsWith('[SYSTEM]') || c.startsWith('[') || c.startsWith('The student')) {
+        continue;
+      }
+      renderHistoricalStudentMessage(c);
+    }
+  }
+
+  // Scroll to bottom
+  stream.scrollTop = stream.scrollHeight;
+}
+
+function renderHistoricalTutorMessage(text) {
+  if (!text) return;
+
+  // Strip backend artifacts
+  const cleanedText = text.replace(/\[TOOL_STEPS:[^\]]*\]/g, '');
+  const segments = parseTeachingTags(cleanedText);
+
+  for (const seg of segments) {
+    if (seg.type === 'text') {
+      const parts = splitTextAtHeadings(seg.content);
+      for (const part of parts) {
+        if (part.type === 'heading') {
+          insertTopicHeading(part.text, null, part.level === 2 ? 'topic' : 'sub');
+        } else if (part.content.trim()) {
+          appendBoardText(part.content);
+        }
+      }
+    } else if (seg.type === 'tag') {
+      renderHistoricalTag(seg.tag);
+    }
+  }
+}
+
+function renderHistoricalTag(tag) {
+  // For historical rendering, we render tags but mark interactive ones as resolved
+  const interactiveTags = new Set([
+    'teaching-mcq', 'teaching-freetext', 'teaching-agree-disagree',
+    'teaching-fillblank', 'teaching-spot-error', 'teaching-confidence',
+    'teaching-canvas', 'teaching-teachback'
+  ]);
+
+  // Skip tags that don't render well in history
+  const skipTags = new Set([
+    'teaching-plan', 'teaching-plan-update', 'teaching-checkpoint',
+    'teaching-spotlight-dismiss', 'teaching-notebook-step', 'teaching-notebook-comment'
+  ]);
+
+  if (skipTags.has(tag.name)) return;
+
+  // Render the tag using normal renderer
+  renderTeachingTag(tag);
+
+  // Mark interactive blocks as resolved so they can't be interacted with
+  if (interactiveTags.has(tag.name)) {
+    // Find the most recently added interactive block and resolve it
+    const blocks = document.querySelectorAll('.canvas-block[data-interactive="true"]:not([data-resolved])');
+    const lastBlock = blocks[blocks.length - 1];
+    if (lastBlock) {
+      lastBlock.dataset.resolved = 'true';
+      lastBlock.classList.add('resolved');
+      lastBlock.querySelectorAll('button, input, textarea, select').forEach(el => {
+        el.disabled = true;
+      });
+    }
+  }
+}
+
+function renderHistoricalStudentMessage(text) {
+  if (!text || !text.trim()) return;
+  const stream = document.getElementById('canvas-stream');
+  const block = document.createElement('div');
+  block.className = 'canvas-block board-response fade-in';
+  block.dataset.type = 'user';
+  block.dataset.resolved = 'true';
+  block.innerHTML = `<span class="response-label">You</span> <span class="response-text">${escapeHtml(text)}</span>`;
+  stream.appendChild(block);
+}
+
 function showTeachingLayout(courseMap) {
   $('#course-title').textContent = courseMap.title;
   $('#sidebar-section-label').textContent = 'COURSE PROGRESS';
@@ -4013,25 +4834,489 @@ function showTeachingLayout(courseMap) {
 }
 
 // ═══════════════════════════════════════════════════════════
+// Module 21: Board Draw — Live Tutor Drawing Engine
+// ═══════════════════════════════════════════════════════════
+
+const BD_COLORS = {
+  white: '#e8e8e0', yellow: '#f5d97a', green: '#7ed99a',
+  blue: '#7eb8da', red: '#ff6b6b', cyan: '#53d8fb',
+  dim: 'rgba(255,255,255,0.15)',
+};
+const BD_VIRTUAL_W = 800;
+const BD_INITIAL_H = 500;
+
+function bdInit(canvasEl, voiceEl) {
+  const bd = state.boardDraw;
+  bd.canvas = canvasEl;
+  bd.ctx = canvasEl.getContext('2d');
+  bd.voiceEl = voiceEl;
+  bd.cancelFlag = false;
+  bd.currentH = BD_INITIAL_H;
+  bd.DPR = Math.min(window.devicePixelRatio || 1, 3);
+  bdResizeCanvas();
+  bdDrawGrid();
+}
+
+function bdResizeCanvas() {
+  const bd = state.boardDraw;
+  if (!bd.canvas) return;
+  const wrap = bd.canvas.parentElement;
+  if (!wrap) return;
+  const w = wrap.clientWidth;
+  bd.scale = w / BD_VIRTUAL_W;
+  const actualW = w;
+  const actualH = bd.currentH * bd.scale;
+  let oldData = null;
+  if (bd.ctx && bd.canvas.width && bd.canvas.height) {
+    oldData = bd.ctx.getImageData(0, 0, bd.canvas.width, bd.canvas.height);
+  }
+  bd.canvas.width = actualW * bd.DPR;
+  bd.canvas.height = actualH * bd.DPR;
+  bd.canvas.style.width = actualW + 'px';
+  bd.canvas.style.height = actualH + 'px';
+  bd.ctx = bd.canvas.getContext('2d');
+  bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+  bd.ctx.fillStyle = '#1a1d2e';
+  bd.ctx.fillRect(0, 0, actualW, actualH);
+  if (oldData) {
+    bd.ctx.save();
+    bd.ctx.setTransform(1, 0, 0, 1, 0, 0);
+    bd.ctx.putImageData(oldData, 0, 0);
+    bd.ctx.restore();
+  }
+}
+
+function bdExpandIfNeeded(maxY) {
+  const bd = state.boardDraw;
+  if (maxY > bd.currentH - 60) {
+    bd.currentH = maxY + 200;
+    bdResizeCanvas();
+    bdDrawGrid();
+    const wrap = document.getElementById('bd-canvas-wrap');
+    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+function bdDrawGrid() {
+  const bd = state.boardDraw;
+  if (!bd.ctx) return;
+  const s = bd.scale;
+  bd.ctx.strokeStyle = 'rgba(255,255,255,0.025)';
+  bd.ctx.lineWidth = 1;
+  for (let x = 40; x < BD_VIRTUAL_W; x += 40) {
+    bd.ctx.beginPath(); bd.ctx.moveTo(x * s, 0); bd.ctx.lineTo(x * s, bd.currentH * s); bd.ctx.stroke();
+  }
+  for (let y = 40; y < bd.currentH; y += 40) {
+    bd.ctx.beginPath(); bd.ctx.moveTo(0, y * s); bd.ctx.lineTo(BD_VIRTUAL_W * s, y * s); bd.ctx.stroke();
+  }
+}
+
+function bdChalkStyle(color, width) {
+  const bd = state.boardDraw;
+  const c = BD_COLORS[color] || color || BD_COLORS.white;
+  bd.ctx.strokeStyle = c;
+  bd.ctx.fillStyle = c;
+  bd.ctx.lineWidth = (width || 2.5) * bd.scale;
+  bd.ctx.lineCap = 'round';
+  bd.ctx.lineJoin = 'round';
+  bd.ctx.shadowColor = c;
+  bd.ctx.shadowBlur = 3;
+}
+
+function bdClearShadow() {
+  const bd = state.boardDraw;
+  bd.ctx.shadowColor = 'transparent';
+  bd.ctx.shadowBlur = 0;
+}
+
+function bdSleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+async function bdAnimLine(x1, y1, x2, y2, color, width, duration) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  bdExpandIfNeeded(Math.max(y1, y2));
+  duration = duration || 400;
+  bdChalkStyle(color, width);
+  const steps = Math.max(Math.ceil(duration / 16), 8);
+  const dx = x2 - x1, dy = y2 - y1;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x1 * s, y1 * s);
+  for (let i = 1; i <= steps; i++) {
+    if (bd.cancelFlag) return;
+    const t = i / steps;
+    const ease = t < 0.5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+    const wobble = (1 - t) * (Math.random() - 0.5) * 1.5;
+    const px = x1 + dx * ease + wobble * (dy !== 0 ? 1 : 0);
+    const py = y1 + dy * ease + wobble * (dx !== 0 ? 1 : 0);
+    bd.ctx.lineTo(px * s, py * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(px * s, py * s);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  bd.ctx.lineTo(x2 * s, y2 * s);
+  bd.ctx.stroke();
+  bdClearShadow();
+}
+
+async function bdAnimArrow(x1, y1, x2, y2, color, width, duration) {
+  await bdAnimLine(x1, y1, x2, y2, color, width, duration);
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const angle = Math.atan2(y2 - y1, x2 - x1);
+  const hl = 12;
+  bdChalkStyle(color, width);
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x2 * s, y2 * s);
+  bd.ctx.lineTo((x2 - hl * Math.cos(angle - 0.4)) * s, (y2 - hl * Math.sin(angle - 0.4)) * s);
+  bd.ctx.stroke();
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x2 * s, y2 * s);
+  bd.ctx.lineTo((x2 - hl * Math.cos(angle + 0.4)) * s, (y2 - hl * Math.sin(angle + 0.4)) * s);
+  bd.ctx.stroke();
+  bdClearShadow();
+}
+
+async function bdAnimRect(x, y, w, h, color, lw) {
+  await bdAnimLine(x, y, x + w, y, color, lw, 250);
+  await bdAnimLine(x + w, y, x + w, y + h, color, lw, 250);
+  await bdAnimLine(x + w, y + h, x, y + h, color, lw, 250);
+  await bdAnimLine(x, y + h, x, y, color, lw, 250);
+}
+
+async function bdAnimCircle(cx, cy, r, color, lw, duration) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  bdExpandIfNeeded(cy + r);
+  duration = duration || 600;
+  bdChalkStyle(color, lw);
+  const steps = Math.max(Math.ceil(duration / 16), 20);
+  bd.ctx.beginPath();
+  bd.ctx.moveTo((cx + r) * s, cy * s);
+  for (let i = 1; i <= steps; i++) {
+    if (bd.cancelFlag) return;
+    const a = (i / steps) * Math.PI * 2;
+    const wb = (Math.random() - 0.5) * 1.2;
+    const px = cx + (r + wb) * Math.cos(a);
+    const py = cy + (r + wb) * Math.sin(a);
+    bd.ctx.lineTo(px * s, py * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(px * s, py * s);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  bdClearShadow();
+}
+
+async function bdAnimArc(cx, cy, r, sa, ea, color, lw, duration) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  bdExpandIfNeeded(cy + r);
+  duration = duration || 400;
+  bdChalkStyle(color, lw);
+  const steps = Math.max(Math.ceil(duration / 16), 12);
+  const da = ea - sa;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo((cx + r * Math.cos(sa)) * s, (cy + r * Math.sin(sa)) * s);
+  for (let i = 1; i <= steps; i++) {
+    if (bd.cancelFlag) return;
+    const a = sa + da * (i / steps);
+    bd.ctx.lineTo((cx + r * Math.cos(a)) * s, (cy + r * Math.sin(a)) * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo((cx + r * Math.cos(a)) * s, (cy + r * Math.sin(a)) * s);
+    await new Promise(r => requestAnimationFrame(r));
+  }
+  bdClearShadow();
+}
+
+async function bdAnimText(text, x, y, color, size, charDelay) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const fs = (size || 22) * s;
+  bdExpandIfNeeded(y + (size || 22));
+  charDelay = charDelay || 40;
+  bdChalkStyle(color, 1);
+  bd.ctx.font = `${fs}px 'Caveat', cursive`;
+  bd.ctx.textBaseline = 'middle';
+  let cx = x * s;
+  for (let i = 0; i < text.length; i++) {
+    if (bd.cancelFlag) return;
+    bd.ctx.fillText(text[i], cx, y * s);
+    cx += bd.ctx.measureText(text[i]).width;
+    await bdSleep(charDelay);
+  }
+  bdClearShadow();
+}
+
+async function bdAnimLatex(latex, x, y, color, size) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const c = BD_COLORS[color] || color || BD_COLORS.white;
+  const fs = (size || 24) * s;
+  bdExpandIfNeeded(y + (size || 24) * 2);
+
+  const tmp = document.createElement('span');
+  tmp.style.cssText = `position:absolute;visibility:hidden;font-size:${fs}px;color:${c};`;
+  document.body.appendChild(tmp);
+  try { katex.render(latex, tmp, { throwOnError: false, displayMode: false }); }
+  catch (e) {
+    bd.ctx.font = `${fs}px 'Caveat', cursive`;
+    bd.ctx.fillStyle = c;
+    bd.ctx.fillText(latex, x * s, y * s);
+    document.body.removeChild(tmp);
+    return;
+  }
+  const html = tmp.innerHTML, tw = tmp.offsetWidth, th = tmp.offsetHeight;
+  document.body.removeChild(tmp);
+
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${tw}" height="${th}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fs}px;color:${c};line-height:1;">${html}</div></foreignObject></svg>`;
+  const img = new Image();
+  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  await new Promise(resolve => {
+    img.onload = resolve;
+    img.onerror = () => {
+      bd.ctx.font = `${fs}px 'Caveat', cursive`;
+      bd.ctx.fillStyle = c;
+      bd.ctx.fillText(latex, x * s, y * s);
+      resolve();
+    };
+    img.src = url;
+  });
+  if (bd.cancelFlag) { URL.revokeObjectURL(url); return; }
+
+  const slW = 4, total = Math.ceil(tw / slW), delay = Math.max(8, 300 / total);
+  for (let i = 0; i < total; i++) {
+    if (bd.cancelFlag) break;
+    bd.ctx.drawImage(img, i * slW * bd.DPR, 0, slW * bd.DPR, img.height,
+      x * s + i * slW, y * s - th * 0.7, slW, th);
+    await bdSleep(delay);
+  }
+  URL.revokeObjectURL(url);
+}
+
+async function bdAnimFreehand(points, color, width, duration) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag || !points || points.length < 2) return;
+  const s = bd.scale;
+  bdExpandIfNeeded(Math.max(...points.map(p => p[1])));
+  duration = duration || 600;
+  bdChalkStyle(color, width);
+  const dl = duration / points.length;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(points[0][0] * s, points[0][1] * s);
+  for (let i = 1; i < points.length; i++) {
+    if (bd.cancelFlag) return;
+    bd.ctx.lineTo(points[i][0] * s, points[i][1] * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(points[i][0] * s, points[i][1] * s);
+    await bdSleep(dl);
+  }
+  bdClearShadow();
+}
+
+async function bdAnimDashed(x1, y1, x2, y2, color, width) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  bdExpandIfNeeded(Math.max(y1, y2));
+  bdChalkStyle(color, width || 1.5);
+  bd.ctx.setLineDash([6 * s, 6 * s]);
+  const dx = x2 - x1, dy = y2 - y1;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  const steps = Math.ceil(len / 8);
+  const dl = Math.max(4, 200 / steps);
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x1 * s, y1 * s);
+  for (let i = 1; i <= steps; i++) {
+    if (bd.cancelFlag) return;
+    const t = i / steps;
+    bd.ctx.lineTo((x1 + dx * t) * s, (y1 + dy * t) * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo((x1 + dx * t) * s, (y1 + dy * t) * s);
+    await bdSleep(dl);
+  }
+  bd.ctx.setLineDash([]);
+  bdClearShadow();
+}
+
+function bdDrawDot(x, y, r, color) {
+  const bd = state.boardDraw;
+  const s = bd.scale;
+  bdExpandIfNeeded(y + (r || 3));
+  bdChalkStyle(color);
+  bd.ctx.beginPath();
+  bd.ctx.arc(x * s, y * s, (r || 3) * s, 0, Math.PI * 2);
+  bd.ctx.fill();
+  bdClearShadow();
+}
+
+function bdShowVoice(text) {
+  const el = state.boardDraw.voiceEl;
+  if (!el) return;
+  el.textContent = text;
+  el.classList.add('visible');
+}
+
+function bdHideVoice() {
+  const el = state.boardDraw.voiceEl;
+  if (!el) return;
+  el.classList.remove('visible');
+}
+
+function bdClearBoard() {
+  const bd = state.boardDraw;
+  if (!bd.ctx) return;
+  bd.currentH = BD_INITIAL_H;
+  bdResizeCanvas();
+  bd.ctx.fillStyle = '#1a1d2e';
+  bd.ctx.fillRect(0, 0, BD_VIRTUAL_W * bd.scale, bd.currentH * bd.scale);
+  bdDrawGrid();
+  bdHideVoice();
+}
+
+async function bdRunCommand(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  switch (cmd.cmd) {
+    case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
+    case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
+    case 'rect': await bdAnimRect(cmd.x, cmd.y, cmd.w, cmd.h, cmd.color, cmd.lw); break;
+    case 'circle': await bdAnimCircle(cmd.cx, cmd.cy, cmd.r, cmd.color, cmd.lw, cmd.dur); break;
+    case 'arc': await bdAnimArc(cmd.cx, cmd.cy, cmd.r, cmd.sa, cmd.ea, cmd.color, cmd.lw, cmd.dur); break;
+    case 'text': await bdAnimText(cmd.text, cmd.x, cmd.y, cmd.color, cmd.size, cmd.charDelay); break;
+    case 'latex': await bdAnimLatex(cmd.tex, cmd.x, cmd.y, cmd.color, cmd.size); break;
+    case 'freehand': await bdAnimFreehand(cmd.pts, cmd.color, cmd.w, cmd.dur); break;
+    case 'dashed': await bdAnimDashed(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w); break;
+    case 'dot': bdDrawDot(cmd.x, cmd.y, cmd.r, cmd.color); break;
+    case 'voice':
+      bdShowVoice(cmd.text);
+      if (cmd.dur) { await bdSleep(cmd.dur); bdHideVoice(); }
+      break;
+    case 'pause': await bdSleep(cmd.ms || 500); break;
+    case 'clear': bdClearBoard(); break;
+  }
+}
+
+async function bdProcessQueue() {
+  const bd = state.boardDraw;
+  if (bd.isProcessing) return;
+  bd.isProcessing = true;
+  while (bd.commandQueue.length > 0) {
+    if (bd.cancelFlag) break;
+    await bdRunCommand(bd.commandQueue.shift());
+  }
+  bd.isProcessing = false;
+}
+
+function bdEnqueueCommand(cmd) {
+  state.boardDraw.commandQueue.push(cmd);
+  if (!state.boardDraw.isProcessing) bdProcessQueue();
+}
+
+function bdProcessStreaming(fullText) {
+  const bd = state.boardDraw;
+  if (bd.dismissed) return;
+  if (!bd.active) {
+    const m = fullText.match(/<teaching-board-draw([^>]*)>/);
+    if (!m) return;
+    const title = (m[1].match(/title="([^"]*)"/) || [])[1] || 'Board';
+    openBoardDrawSpotlight(title);
+    bd.active = true;
+    bd.contentStartIdx = m.index + m[0].length;
+    bd.processedLines = 0;
+    bd.complete = false;
+    bd.commandQueue = [];
+    bd.isProcessing = false;
+    bd.cancelFlag = false;
+  }
+  const closeIdx = fullText.indexOf('</teaching-board-draw>', bd.contentStartIdx);
+  const end = closeIdx >= 0 ? closeIdx : fullText.length;
+  const lines = fullText.slice(bd.contentStartIdx, end).split('\n');
+  const count = closeIdx >= 0 ? lines.length : Math.max(0, lines.length - 1);
+  for (let i = bd.processedLines; i < count; i++) {
+    const ln = lines[i].trim();
+    if (!ln) continue;
+    try { bdEnqueueCommand(JSON.parse(ln)); } catch (e) {}
+  }
+  bd.processedLines = count;
+  if (closeIdx >= 0) bd.complete = true;
+}
+
+function openBoardDrawSpotlight(title) {
+  const panel = $('#spotlight-panel');
+  const content = $('#spotlight-content');
+  const titleEl = $('#spotlight-title');
+  const typeBadge = $('#spotlight-type-badge');
+  if (!panel || !content) return;
+
+  if (state.spotlightActive) {
+    if (state.activeSimulation) { stopSimBridge(); state.activeSimulation = null; state.simulationLiveState = null; }
+    if (state.spotlightInfo?.type === 'notebook') {
+      if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
+      state.notebookSteps = [];
+    }
+    if (state.spotlightInfo?.type === 'board-draw') bdCleanup();
+    content.innerHTML = '';
+  }
+
+  if (titleEl) titleEl.textContent = title;
+  if (typeBadge) { typeBadge.textContent = 'Board'; typeBadge.setAttribute('data-type', 'board-draw'); typeBadge.style.display = ''; }
+
+  content.innerHTML = `
+    <div class="bd-container" id="bd-container">
+      <div class="bd-canvas-wrap" id="bd-canvas-wrap">
+        <canvas id="bd-canvas"></canvas>
+      </div>
+      <div class="bd-voice" id="bd-voice">
+        <span class="bd-voice-text" id="bd-voice-text"></span>
+      </div>
+    </div>`;
+
+  panel.classList.add('stage-active');
+  state.spotlightActive = true;
+  state.spotlightInfo = { type: 'board-draw', title };
+  enterSpotlightFullscreen();
+  appendSpotlightReference('board-draw', title, { name: 'teaching-board-draw', attrs: { title } });
+
+  setTimeout(() => {
+    const c = document.getElementById('bd-canvas');
+    const v = document.getElementById('bd-voice-text');
+    if (c) bdInit(c, v);
+  }, 30);
+}
+
+function bdCleanup() {
+  const bd = state.boardDraw;
+  bd.cancelFlag = true;
+  bd.active = false;
+  bd.dismissed = true;
+  bd.commandQueue = [];
+  bd.isProcessing = false;
+  bd.canvas = null;
+  bd.ctx = null;
+  bd.voiceEl = null;
+  bd.processedLines = 0;
+  bd.contentStartIdx = 0;
+  bd.complete = false;
+}
+
+// ═══════════════════════════════════════════════════════════
 // Boot
 // ═══════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'dark',
-    themeVariables: {
-      primaryColor: '#3d5ab8',
-      primaryTextColor: '#e4e7ef',
-      primaryBorderColor: '#4a5168',
-      lineColor: '#6c8cff',
-      secondaryColor: '#242836',
-      tertiaryColor: '#1a1d27',
-      fontFamily: 'var(--font-sans)',
-      fontSize: '14px',
-    },
-    flowchart: { curve: 'basis', padding: 16 },
-    securityLevel: 'strict',
-  });
   initSetup();
+
+  // Clean up agent event SSE on page unload
+  window.addEventListener('beforeunload', () => disconnectAgentEvents());
 });

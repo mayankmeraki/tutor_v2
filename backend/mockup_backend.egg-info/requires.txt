@@ -8,3 +8,5 @@ certifi
 pydantic-settings
 httpx
 python-dotenv
+python-jose[cryptography]
+passlib[bcrypt]

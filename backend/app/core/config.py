@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URI: str = Field(default="")
 
+    # Auth
+    MOCKUP_JWT_SECRET: str = Field(default="mockup-dev-secret-change-in-prod")
+    MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=1440)
+
     PORT: int = Field(default=3001)
 
     @computed_field

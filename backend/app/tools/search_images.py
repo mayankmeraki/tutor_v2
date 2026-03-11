@@ -24,7 +24,10 @@ async def search_images(query: str, limit: int = 3) -> str:
     }
 
     try:
-        async with httpx.AsyncClient(timeout=15) as client:
+        async with httpx.AsyncClient(
+            timeout=15,
+            headers={"User-Agent": "CapacityTutor/1.0 (educational; contact@capacity.dev)"},
+        ) as client:
             resp = await client.get("https://commons.wikimedia.org/w/api.php", params=params)
             data = resp.json()
 

@@ -8,7 +8,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import chat, content, learning_tools, sessions
+from app.api.routes import auth, chat, content, events, learning_tools, sessions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -45,9 +45,11 @@ app.add_middleware(
 )
 
 # API routes
+app.include_router(auth.router)
 app.include_router(content.router)
 app.include_router(learning_tools.router)
 app.include_router(sessions.router)
+app.include_router(events.router)
 app.include_router(chat.router)
 
 # Static files: rendered Manim output

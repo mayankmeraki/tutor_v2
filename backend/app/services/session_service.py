@@ -59,6 +59,18 @@ async def get_sessions_for_student(course_id: int, student_name: str) -> list[di
     return docs
 
 
+async def get_sessions_for_user(course_id: int, user_email: str) -> list[dict]:
+    """Return all sessions for a user (by email) + course, newest first."""
+    cursor = _sessions().find(
+        {"courseId": course_id, "userEmail": user_email},
+    ).sort("startedAt", -1)
+    docs = []
+    async for doc in cursor:
+        doc["_id"] = str(doc["_id"])
+        docs.append(doc)
+    return docs
+
+
 # ─── LLM Summary Generation ────────────────────────────────────────
 
 SECTION_SUMMARY_PROMPT = """\
@@ -210,6 +222,64 @@ async def get_sessions_with_headlines(course_id: int, student_name: str) -> list
         except Exception as e:
             log.warning("Failed to cache headline for session %s: %s", s.get("sessionId"), e)
     return sessions
+
+
+async def get_sessions_with_headlines_by_email(course_id: int, user_email: str) -> list[dict]:
+    """Return all sessions for a user (by email) + course with AI-generated headlines."""
+    sessions = await get_sessions_for_user(course_id, user_email)
+    for s in sessions:
+        if s.get("headline"):
+            continue
+        hl = await generate_session_headline(s)
+        s["headline"] = hl["headline"]
+        s["headlineDescription"] = hl["description"]
+        try:
+            await _sessions().update_one(
+                {"sessionId": s["sessionId"]},
+                {"$set": {"headline": hl["headline"], "headlineDescription": hl["description"]}},
+            )
+        except Exception as e:
+            log.warning("Failed to cache headline for session %s: %s", s.get("sessionId"), e)
+    return sessions
+
+
+# ─── Backend State Sync ──────────────────────────────────────
+
+async def sync_backend_state(session_id: str, session) -> None:
+    """Persist in-memory Session fields to MongoDB after each chat turn.
+
+    All backend-managed fields live under `backendState` to avoid conflicts
+    with frontend-managed fields (transcript, sections, metrics, plan, coursePosition).
+    `generatedVisuals` is top-level since both frontend and backend need it.
+    """
+    await _sessions().update_one(
+        {"sessionId": session_id},
+        {"$set": {
+            "backendState": {
+                "studentModel": session.student_model,
+                "tutorNotes": session.tutor_notes,
+                "currentPlan": session.current_plan,
+                "currentTopics": session.current_topics,
+                "currentTopicIndex": session.current_topic_index,
+                "completedTopics": session.completed_topics,
+                "sessionObjective": session.session_objective,
+                "sessionScope": session.session_scope,
+                "scopeConcepts": session.scope_concepts,
+                "activeScenario": session.active_scenario,
+            },
+            "generatedVisuals": session.generated_visuals,
+        }},
+        upsert=False,
+    )
+
+
+async def load_backend_state(session_id: str) -> dict | None:
+    """Load backend state from MongoDB for session restoration."""
+    doc = await _sessions().find_one(
+        {"sessionId": session_id},
+        {"backendState": 1, "generatedVisuals": 1},
+    )
+    return doc
 
 
 async def summarize_section(session_id: str, section_index: int) -> dict:

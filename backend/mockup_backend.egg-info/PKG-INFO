@@ -12,3 +12,5 @@ Requires-Dist: certifi
 Requires-Dist: pydantic-settings
 Requires-Dist: httpx
 Requires-Dist: python-dotenv
+Requires-Dist: python-jose[cryptography]
+Requires-Dist: passlib[bcrypt]

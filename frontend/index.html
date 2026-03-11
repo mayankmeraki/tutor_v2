@@ -12,17 +12,38 @@
 <body>
   <div id="app">
 
-    <!-- ═══ Setup Panel ═══ -->
-    <div id="setup-panel">
+    <!-- ═══ Login Panel ═══ -->
+    <div id="login-panel">
       <div class="setup-inner">
-        <h1 class="setup-title">Teaching Session</h1>
-        <p class="setup-subtitle">Enter your name and start learning with your AI tutor.</p>
+        <h1 class="setup-title">Sign In</h1>
+        <p class="setup-subtitle">Log in with your Capacity account to start learning.</p>
 
         <div class="setup-form">
           <div class="setup-row">
-            <label for="student-name">Your Name</label>
-            <input type="text" id="student-name" placeholder="e.g. Alex" autocomplete="off">
+            <label for="login-email">Email</label>
+            <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email">
           </div>
+          <div class="setup-row">
+            <label for="login-password">Password</label>
+            <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
+          </div>
+          <div class="setup-status" id="login-status"></div>
+          <button class="btn btn-primary setup-start" id="btn-login">Sign In</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Setup Panel ═══ -->
+    <div id="setup-panel" style="display:none">
+      <div class="setup-inner">
+        <div class="setup-greeting-row">
+          <span class="setup-greeting" id="setup-greeting">Welcome</span>
+          <button class="btn btn-link" id="btn-logout">Sign Out</button>
+        </div>
+        <h1 class="setup-title">Teaching Session</h1>
+        <p class="setup-subtitle">Select a course and start learning with your AI tutor.</p>
+
+        <div class="setup-form">
           <div class="setup-row">
             <label for="course-id">Course</label>
             <select id="course-id">
@@ -84,11 +105,17 @@
           <!-- Spotlight Panel — persistent asset viewer above chat -->
           <div id="spotlight-panel">
             <div class="spotlight-header">
-              <span id="spotlight-title">Resource</span>
-              <button class="icon-btn" id="spotlight-close" onclick="hideSpotlight()">✕</button>
+              <div class="spotlight-header-left">
+                <span class="spotlight-type-badge" id="spotlight-type-badge"></span>
+                <span id="spotlight-title">Resource</span>
+              </div>
+              <button class="spotlight-fullscreen-btn" id="spotlight-fullscreen" onclick="toggleNotebookFullscreen()" title="Toggle fullscreen">⛶</button>
+              <button class="spotlight-close-btn" id="spotlight-close" onclick="hideSpotlight()">✕ Close</button>
             </div>
             <div id="spotlight-content"></div>
           </div>
+          <!-- Agent progress indicators -->
+          <div id="agent-indicators"></div>
           <!-- Canvas Stream — single infinite scroll for all content -->
           <section id="canvas-stream">
             <!-- All blocks flow here linearly -->
@@ -142,7 +169,6 @@
   </div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

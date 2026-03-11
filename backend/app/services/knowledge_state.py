@@ -1,26 +1,18 @@
-"""Knowledge state service — per-student, per-course concept mastery (async MongoDB).
+"""Knowledge state service — append-only freehand notes per student-course.
 
-Mirrors capacity's student_state.py pattern but uses Motor (async) and
-a simplified mastery calculation (no lessons_completed or prereq_avg_mastery).
+One MongoDB document per student-course. The tutor writes natural prose
+observations that accumulate over time. No structured concepts, no enums,
+no mastery scores — just notes with optional tags and substring search.
 
-Collection: concept_states (in tutor_v2 database, same as sessions)
+Collection: concept_states (in tutor_v2 database)
 
 Document schema:
-    _id:              state_{courseId}_{studentName}
-    courseId:          int
-    studentName:      str
-    concepts:
-      {concept_name}:
-        mastery:              float 0-1
-        tested:               bool
-        test_passed:          bool | None
-        able_to_explain:      bool
-        evidence_level:       int (1-7, from evidence hierarchy)
-        last_seen:            str (ISO datetime)
-        first_seen:           str (ISO datetime)
-        verification_count:   int
-        notes:                [{at: str, text: str}]
-    last_updated:     str (ISO datetime)
+    _id:           ks_{courseId}_{safeEmail}
+    courseId:       int
+    userEmail:      str
+    notes:         [{text, tags, sessionId, at}]   # append-only
+    summary:       str | null                      # rolling summary
+    lastUpdated:   ISO datetime
 """
 
 import logging
@@ -37,284 +29,209 @@ def _collection():
     return get_tutor_db()["concept_states"]
 
 
-# ─── Mastery Calculation ───────────────────────────────────────────
-
-def calculate_mastery(concept_state: dict) -> float:
-    """Deterministic mastery from signals. Mirrors capacity's calculate_mastery.
-
-    Score breakdown:
-        +0.35  able_to_explain (L5+ evidence)
-        +0.25  tested and passed
-        +0.10  engaged (has notes)
-        +0.05  recency bonus (seen in last 3 days)
-        -0.15  tested but failed
-    Clamped to [0.0, 1.0]
-    """
-    score = 0.0
-
-    if concept_state.get("able_to_explain"):
-        score += 0.35
-
-    if concept_state.get("tested"):
-        if concept_state.get("test_passed"):
-            score += 0.25
-        else:
-            score -= 0.15
-
-    if concept_state.get("notes"):
-        score += 0.10
-
-    last_seen = concept_state.get("last_seen")
-    if last_seen:
-        try:
-            last_dt = datetime.fromisoformat(last_seen)
-            days_ago = (datetime.now(timezone.utc) - last_dt).days
-            if days_ago <= 3:
-                score += 0.05
-        except (ValueError, TypeError):
-            pass
-
-    return max(0.0, min(1.0, round(score, 2)))
+def _doc_id(course_id: int, user_email: str) -> str:
+    safe_email = user_email.replace(".", "_dot_").replace("@", "_at_")
+    return f"ks_{course_id}_{safe_email}"
 
 
-# ─── Init & CRUD ──────────────────────────────────────────────────
+# ─── Core Operations ───────────────────────────────────────────────
 
-async def get_or_init_knowledge_state(course_id: int, student_name: str) -> dict:
-    """Load or create concept state. Mirrors capacity's get_or_init_student_state."""
-    col = _collection()
-    doc_id = f"state_{course_id}_{student_name}"
-
-    doc = await col.find_one({"_id": doc_id})
-    if doc:
-        return doc
-
-    now = datetime.now(timezone.utc).isoformat()
-    doc = {
-        "_id": doc_id,
-        "courseId": course_id,
-        "studentName": student_name,
-        "concepts": {},
-        "last_updated": now,
-    }
-    await col.insert_one(doc)
-    log.info("Initialized knowledge state: course %d, student %s", course_id, student_name)
-    return doc
-
-
-async def get_knowledge_state(course_id: int, student_name: str) -> dict | None:
-    """Get a student's concept state for a course."""
-    doc_id = f"state_{course_id}_{student_name}"
-    return await _collection().find_one({"_id": doc_id})
-
-
-# ─── Updates ──────────────────────────────────────────────────────
-
-async def log_interaction(
+async def append_note(
     course_id: int,
-    student_name: str,
-    concept_name: str,
-    note: str = "",
-    tested: bool | None = None,
-    test_passed: bool | None = None,
-    able_to_explain: bool | None = None,
-    evidence_level: int | None = None,
+    user_email: str,
+    session_id: str,
+    text: str,
+    tags: list[str] | None = None,
 ) -> dict:
-    """Log an interaction and recalculate mastery. Mirrors capacity's log_interaction."""
+    """Append a freehand observation to the student's knowledge journal.
+
+    Single $push + $set lastUpdated. Creates the document if it doesn't exist.
+    """
     col = _collection()
+    doc_id = _doc_id(course_id, user_email)
     now = datetime.now(timezone.utc).isoformat()
 
-    state = await get_or_init_knowledge_state(course_id, student_name)
-    doc_id = state["_id"]
-
-    # Ensure concept exists in state
-    if concept_name not in state.get("concepts", {}):
-        await col.update_one(
-            {"_id": doc_id},
-            {"$set": {f"concepts.{concept_name}": {
-                "mastery": 0.0,
-                "tested": False,
-                "test_passed": None,
-                "able_to_explain": False,
-                "evidence_level": 0,
-                "last_seen": now,
-                "first_seen": now,
-                "verification_count": 0,
-                "notes": [],
-            }}}
-        )
-
-    # Build $set update
-    update_ops: dict = {
-        f"concepts.{concept_name}.last_seen": now,
-        "last_updated": now,
+    note = {
+        "text": text,
+        "tags": tags or [],
+        "sessionId": session_id,
+        "at": now,
     }
 
-    if tested is not None:
-        update_ops[f"concepts.{concept_name}.tested"] = tested
-    if test_passed is not None:
-        update_ops[f"concepts.{concept_name}.test_passed"] = test_passed
-    if able_to_explain is not None:
-        update_ops[f"concepts.{concept_name}.able_to_explain"] = able_to_explain
-    if evidence_level is not None:
-        update_ops[f"concepts.{concept_name}.evidence_level"] = evidence_level
-
-    push_ops = {}
-    if note:
-        push_ops[f"concepts.{concept_name}.notes"] = {"at": now, "text": note}
-
-    update_cmd: dict = {"$set": update_ops}
-    if push_ops:
-        update_cmd["$push"] = push_ops
-
-    await col.update_one({"_id": doc_id}, update_cmd)
-
-    # Recalculate mastery
-    updated = await col.find_one({"_id": doc_id})
-    concept_state = updated.get("concepts", {}).get(concept_name, {})
-    mastery = calculate_mastery(concept_state)
     await col.update_one(
         {"_id": doc_id},
-        {"$set": {f"concepts.{concept_name}.mastery": mastery}}
+        {
+            "$push": {"notes": note},
+            "$set": {"lastUpdated": now},
+            "$setOnInsert": {
+                "courseId": course_id,
+                "userEmail": user_email,
+                "summary": None,
+            },
+        },
+        upsert=True,
     )
 
-    log.info(
-        "Logged interaction: %s/%s concept=%s mastery=%.2f",
-        student_name, course_id, concept_name, mastery,
-    )
-    return {**concept_state, "mastery": mastery}
+    log.info("Knowledge note appended: %s/%d (%d chars, %d tags)",
+             user_email, course_id, len(text), len(tags or []))
+
+    return {"logged": True, "note_length": len(text), "tags": tags or []}
 
 
-async def batch_update_concepts(
+async def search_notes(
     course_id: int,
-    student_name: str,
-    concept_status: dict,
-    tutor_notes: str = "",
-) -> None:
-    """Bulk-update concepts from Tutor's concept_status observations.
+    user_email: str,
+    query: str,
+) -> str:
+    """Search student knowledge notes by substring matching.
 
-    Maps statuses to mastery signals:
-      verified → tested=True, test_passed=True, able_to_explain=True, evidence_level=5
-      checked  → tested=True, test_passed=True, evidence_level=4
-      gapped   → tested=True, test_passed=False, evidence_level=2
+    Case-insensitive search across note text and tags.
+    Returns matching notes formatted for the tutor, most relevant first.
     """
-    status_map = {
-        "verified": {
-            "tested": True,
-            "test_passed": True,
-            "able_to_explain": True,
-            "evidence_level": 5,
-        },
-        "checked": {
-            "tested": True,
-            "test_passed": True,
-            "able_to_explain": False,
-            "evidence_level": 4,
-        },
-        "gapped": {
-            "tested": True,
-            "test_passed": False,
-            "able_to_explain": False,
-            "evidence_level": 2,
-        },
-        "persisting": {
-            "tested": True,
-            "test_passed": False,
-            "able_to_explain": False,
-            "evidence_level": 1,
-        },
-    }
+    col = _collection()
+    doc_id = _doc_id(course_id, user_email)
+    doc = await col.find_one({"_id": doc_id})
 
-    for concept_name, status in concept_status.items():
-        signals = status_map.get(status)
-        if not signals:
-            # touched, explored, deepened — just log interaction without test signals
-            await log_interaction(
-                course_id, student_name, concept_name,
-                note=tutor_notes if tutor_notes else f"Status: {status}",
-            )
-            continue
+    if not doc:
+        return "No knowledge notes recorded yet for this student."
 
-        # For verified, increment verification_count
-        if status == "verified":
-            col = _collection()
-            state = await get_or_init_knowledge_state(course_id, student_name)
-            await col.update_one(
-                {"_id": state["_id"]},
-                {"$inc": {f"concepts.{concept_name}.verification_count": 1}}
-            )
+    notes = doc.get("notes", [])
+    if not notes:
+        return "No knowledge notes recorded yet for this student."
 
-        await log_interaction(
-            course_id, student_name, concept_name,
-            note=tutor_notes if tutor_notes else f"Status: {status}",
-            **signals,
-        )
+    query_lower = query.lower().strip()
+    query_terms = query_lower.split()
+    matches = []
 
-    log.info(
-        "Batch update concepts: %s/%d — %d concepts",
-        student_name, course_id, len(concept_status),
-    )
+    for i, note in enumerate(notes):
+        text = note.get("text", "")
+        tags = note.get("tags", [])
+        text_lower = text.lower()
+        tags_lower = [t.lower() for t in tags]
 
+        score = 0
 
-# ─── Formatting for Tutor Context ─────────────────────────────────
+        # Score: query terms found in text
+        for term in query_terms:
+            if term in text_lower:
+                score += 2
 
-def format_knowledge_state(knowledge_state: dict) -> str:
-    """Format concept state for the Tutor prompt context.
+        # Score: tag matches (bonus)
+        for term in query_terms:
+            for tag in tags_lower:
+                if term in tag:
+                    score += 3
 
-    Groups by status, highlights stale concepts (>7 days).
-    """
-    concepts = knowledge_state.get("concepts", {})
-    if not concepts:
-        return "No concept history yet."
+        if score > 0:
+            matches.append((score, i, note))
 
-    now = datetime.now(timezone.utc)
+    if not matches:
+        return f"No notes matching '{query}' found."
 
-    verified = []
-    checked = []
-    gapped = []
-    other = []
+    # Sort by relevance descending, then by recency (index) descending
+    matches.sort(key=lambda x: (-x[0], -x[1]))
 
-    for name, state in concepts.items():
-        mastery = state.get("mastery", 0.0)
-        evidence = state.get("evidence_level", 0)
-        last_seen = state.get("last_seen")
-        verification_count = state.get("verification_count", 0)
+    lines = [f"Found {len(matches)} note{'s' if len(matches) != 1 else ''} matching '{query}':"]
+    for _, idx, note in matches[:10]:
+        text = note.get("text", "")
+        tags = note.get("tags", [])
+        at = note.get("at", "")
 
-        # Calculate staleness
-        days_ago = None
-        stale = False
-        if last_seen:
+        # Truncate long notes for display
+        display_text = text if len(text) <= 200 else text[:200] + "..."
+        tags_str = f" [{', '.join(tags)}]" if tags else ""
+
+        # Format timestamp
+        time_str = ""
+        if at:
             try:
-                last_dt = datetime.fromisoformat(last_seen)
-                days_ago = (now - last_dt).days
-                stale = days_ago > 7
+                dt = datetime.fromisoformat(at)
+                days_ago = (datetime.now(timezone.utc) - dt).days
+                if days_ago == 0:
+                    time_str = " (today)"
+                elif days_ago == 1:
+                    time_str = " (yesterday)"
+                else:
+                    time_str = f" ({days_ago}d ago)"
             except (ValueError, TypeError):
                 pass
 
-        days_str = f"{days_ago}d ago" if days_ago is not None else "unknown"
-        stale_marker = " ← STALE" if stale else ""
-        line = f"  - {name}: mastery={mastery:.2f}, L{evidence}, last seen {days_str}{stale_marker}"
+        lines.append(f"\n  - {display_text}{tags_str}{time_str}")
 
-        if state.get("able_to_explain") and state.get("test_passed"):
-            verified.append(line)
-        elif state.get("tested") and state.get("test_passed"):
-            checked.append(line)
-        elif state.get("tested") and not state.get("test_passed"):
-            gapped.append(line)
-        else:
-            other.append(line)
+    return "\n".join(lines)
 
-    parts = []
-    if verified:
-        parts.append("VERIFIED (may need review):")
-        parts.extend(verified)
-    if checked:
-        parts.append("CHECKED (needs verification):")
-        parts.extend(checked)
-    if gapped:
-        parts.append("GAPPED:")
-        parts.extend(gapped)
-    if other:
-        parts.append("ENGAGED (no assessment yet):")
-        parts.extend(other)
+
+async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
+    """Return a brief summary for system prompt injection.
+
+    Returns doc.summary if set. Otherwise builds a simple summary
+    from the last few notes. Returns None if no notes exist.
+    """
+    col = _collection()
+    doc_id = _doc_id(course_id, user_email)
+    doc = await col.find_one({"_id": doc_id})
+
+    if not doc:
+        return None
+
+    # If there's a pre-built summary, use it
+    if doc.get("summary"):
+        return doc["summary"]
+
+    notes = doc.get("notes", [])
+    if not notes:
+        return None
+
+    # Build a simple summary from the last N notes
+    recent = notes[-5:]  # Last 5 notes
+    total = len(notes)
+
+    parts = [f"{total} observation{'s' if total != 1 else ''} recorded."]
+
+    # Collect all tags for a quick overview
+    all_tags = set()
+    for note in notes:
+        all_tags.update(note.get("tags", []))
+    if all_tags:
+        parts.append(f"Topics: {', '.join(sorted(all_tags)[:10])}.")
+
+    # Show most recent notes (truncated)
+    parts.append("Recent:")
+    for note in recent:
+        text = note.get("text", "")
+        snippet = text if len(text) <= 100 else text[:100] + "..."
+        parts.append(f"  - {snippet}")
 
     return "\n".join(parts)
+
+
+# ─── Legacy compatibility ──────────────────────────────────────────
+
+async def get_or_init_knowledge_state(course_id: int, student_name: str) -> dict:
+    """Legacy wrapper — used by _load_knowledge_state in chat.py."""
+    col = _collection()
+    doc_id = _doc_id(course_id, student_name)
+    doc = await col.find_one({"_id": doc_id})
+    if doc:
+        return doc
+    # Return empty structure (don't create doc — append_note handles upsert)
+    return {"notes": [], "summary": None}
+
+
+def format_knowledge_state(knowledge_state: dict) -> str:
+    """Legacy format — used by _load_knowledge_state in chat.py."""
+    notes = knowledge_state.get("notes", [])
+    if not notes:
+        return "No knowledge notes yet."
+
+    # Show last 5 notes
+    recent = notes[-5:]
+    lines = [f"{len(notes)} note{'s' if len(notes) != 1 else ''} recorded. Recent:"]
+    for note in recent:
+        text = note.get("text", "")
+        snippet = text if len(text) <= 120 else text[:120] + "..."
+        tags = note.get("tags", [])
+        tags_str = f" [{', '.join(tags)}]" if tags else ""
+        lines.append(f"  - {snippet}{tags_str}")
+
+    return "\n".join(lines)

@@ -46,6 +46,10 @@ def build_tutor_prompt(context_data: dict) -> str:
         if val:
             parts.append(f"[{label}]\n{val}\n")
 
+    knowledge_summary = context_data.get("knowledgeSummary")
+    if knowledge_summary:
+        parts.append(f"[Student Knowledge State]\n{knowledge_summary}\n")
+
     # Teaching plan from planning agent
     teaching_plan = context_data.get("teachingPlan")
     if teaching_plan:
@@ -64,6 +68,10 @@ def build_tutor_prompt(context_data: dict) -> str:
     completed_topics = context_data.get("completedTopics")
     if completed_topics:
         parts.append(f"\n[COMPLETED TOPICS]\n{completed_topics}\n")
+
+    session_scope = context_data.get("sessionScope")
+    if session_scope:
+        parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
 
     # Agent results from completed background agents
     agent_results = context_data.get("agentResults")
@@ -108,5 +116,13 @@ def build_planning_prompt(context_data: dict) -> str:
         val = context_data.get(key)
         if val:
             parts.append(f"[{label}]\n{val}\n")
+
+    completed = context_data.get("completedTopics")
+    if completed:
+        parts.append(f"\n[Completed Topics So Far]\n{completed}\n")
+
+    session_scope = context_data.get("sessionScope")
+    if session_scope:
+        parts.append(f"\n[Session Scope]\n{session_scope}\n")
 
     return "\n".join(parts)

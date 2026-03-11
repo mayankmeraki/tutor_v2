@@ -25,7 +25,11 @@ from app.agents.session import get_or_create_session
 from app.services.knowledge_state import (
     get_or_init_knowledge_state,
     format_knowledge_state,
+    append_note,
+    search_notes,
+    get_knowledge_summary,
 )
+from app.services.session_service import sync_backend_state
 from app.tools import (
     TUTOR_TOOLS,
     DELEGATION_TOOLS,
@@ -159,6 +163,17 @@ def _extract_student_info(context_data: dict) -> tuple[int | None, str | None]:
         return None, None
 
 
+def _extract_user_email(context_data: dict) -> str | None:
+    profile_str = context_data.get("studentProfile", "")
+    if not profile_str:
+        return None
+    try:
+        profile = json.loads(profile_str)
+        return profile.get("userEmail")
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
 async def _load_knowledge_state(context_data: dict) -> dict:
     course_id, student_name = _extract_student_info(context_data)
     if not course_id or not student_name:
@@ -208,6 +223,12 @@ def _sse(data: dict) -> str:
 def _promote_plan(session, plan_data: dict) -> None:
     """Promote a completed planning agent result into session state."""
     session.current_plan = plan_data
+
+    # Set session scope on first plan
+    if not session.session_objective:
+        session.session_objective = plan_data.get("session_objective", "")
+        session.scope_concepts = plan_data.get("learning_outcomes", [])
+        session.session_scope = plan_data.get("scope", "")
 
     # Extract topics from the plan
     topics = plan_data.get("_topics", [])
@@ -286,6 +307,30 @@ def _format_assets(assets: list[dict]) -> str | None:
     if not assets:
         return None
     return json.dumps(assets, indent=2)
+
+
+def _format_session_scope(session) -> str | None:
+    """Format session scope for injection into tutor/planning prompts."""
+    if not session.session_objective:
+        return None
+
+    parts = [f"Session Objective: {session.session_objective}"]
+    if session.session_scope:
+        parts.append(f"Scope: {session.session_scope}")
+    if session.scope_concepts:
+        parts.append(f"Learning Outcomes: {', '.join(session.scope_concepts)}")
+
+    total = len(session.current_topics) if session.current_topics else 0
+    done = len(session.completed_topics) if session.completed_topics else 0
+    parts.append(f"Progress: {done} of {total} topics complete")
+
+    if session.completed_topics:
+        completed_summary = "; ".join(
+            t.get("title", "?") for t in session.completed_topics
+        )
+        parts.append(f"Completed: {completed_summary}")
+
+    return "\n".join(parts)
 
 
 def _build_tutor_prompt(session, context_data) -> str:
@@ -426,6 +471,13 @@ async def _handle_delegated_teaching(session, claude_messages, context_data, req
                     })
                     yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
                     yield _sse({"type": "TEACHING_DELEGATION_END", "reason": session.delegation_result["reason"]})
+
+                    # Sync session state after delegation ends
+                    try:
+                        await sync_backend_state(session_id, session)
+                    except Exception as e:
+                        log.warning("Failed to sync session state after delegation: %s", e)
+
                     yield _sse({"type": "RUN_FINISHED"})
                     return
 
@@ -478,13 +530,20 @@ async def chat(request: Request):
     is_session_start = body.get("isSessionStart", False)
 
     context_data = extract_context(context)
-    session, session_id = get_or_create_session(req_session_id)
+    session, session_id = await get_or_create_session(req_session_id)
     claude_messages = convert_messages(messages)
 
     msg_count = len(claude_messages)
     last_msg = claude_messages[-1] if claude_messages else {}
-    preview = (last_msg.get("content", "")[:80] if isinstance(last_msg.get("content"), str) else "[complex]")
-    log.info("POST /api/chat — session: %s, %d msgs, last: %.80s", session_id[:8], msg_count, preview)
+    last_content = last_msg.get("content", "")
+    if isinstance(last_content, str):
+        preview = last_content[:80]
+    elif isinstance(last_content, list):
+        types = [b.get("type", "?") for b in last_content if isinstance(b, dict)]
+        preview = f"[multipart: {', '.join(types)}]"
+    else:
+        preview = "[complex]"
+    log.info("POST /api/chat — session: %s, %d msgs, last: %s", session_id[:8], msg_count, preview)
 
     if not claude_messages:
         async def _err():
@@ -554,11 +613,48 @@ async def chat(request: Request):
                         "sessionObjective": plan.get("session_objective", ""),
                     })
 
+                elif agent["type"] == "visual_gen" and agent["status"] == "complete" and agent.get("result"):
+                    result = agent["result"]
+                    visual_id = result.get("visual_id", "")
+                    title = result.get("title", "Interactive Visual")
+                    html = result.get("html", "")
+
+                    # Store in session
+                    session.generated_visuals[visual_id] = {"html": html, "title": title}
+                    log.info("Visual gen complete: %s — %s (%d bytes)", visual_id, title, len(html))
+
+                    # Emit SSE event for frontend
+                    yield _sse({
+                        "type": "VISUAL_READY",
+                        "id": visual_id,
+                        "title": title,
+                        "html": html,
+                    })
+
+                    # Replace the raw result with a summary for the tutor prompt
+                    agent["result"] = (
+                        f"Interactive visual ready — ID: {visual_id}, Title: \"{title}\"\n"
+                        f'Display it with: <teaching-interactive id="{visual_id}" title="{title}" />\n'
+                        "The student will see an interactive simulation in the spotlight panel.\n"
+                        "You can observe their interactions via [Active Simulation State] on the next turn."
+                    )
+
             # Check delegation result from just-ended delegation
             delegation_result_ctx = None
             if session.delegation_result:
                 delegation_result_ctx = json.dumps(session.delegation_result, indent=2)
                 session.delegation_result = None
+
+            # ── Step 4b: Load brief knowledge summary for prompt ─────
+            try:
+                course_id, _ = _extract_student_info(context_data)
+                user_email = _extract_user_email(context_data)
+                if course_id and user_email:
+                    ks_summary = await get_knowledge_summary(course_id, user_email)
+                    if ks_summary:
+                        context_data["knowledgeSummary"] = ks_summary
+            except Exception as e:
+                log.warning("Failed to load knowledge summary: %s", e)
 
             # ── Step 5: Build Tutor prompt ────────────────────────────
             # Inject agent results and delegation result into prompt
@@ -573,6 +669,7 @@ async def chat(request: Request):
                     else None
                 ),
                 "completedTopics": _format_completed(session.completed_topics),
+                "sessionScope": _format_session_scope(session),
                 "agentResults": agent_results_str,
                 "delegationResult": delegation_result_ctx,
                 "preparedAssets": _format_assets(session.available_assets),
@@ -681,8 +778,16 @@ async def chat(request: Request):
                             task_desc = block.input.get("task", "")
                             instructions = block.input.get("instructions", task_desc)
 
+                            spawn_context = context_data
+                            if agent_type == "planning":
+                                spawn_context = {
+                                    **context_data,
+                                    "sessionScope": _format_session_scope(session),
+                                    "completedTopics": _format_completed(session.completed_topics),
+                                }
+
                             agent_id = runtime.spawn(
-                                agent_type, task_desc, instructions, context_data
+                                agent_type, task_desc, instructions, spawn_context
                             )
                             result = (
                                 f"Agent {agent_id} spawned ({agent_type}). "
@@ -692,7 +797,7 @@ async def chat(request: Request):
                         # ── check_agents ──────────────────────────────
                         elif block.name == "check_agents":
                             check_completed = runtime.pop_completed()
-                            # Promote any planning results
+                            # Promote any planning or visual_gen results
                             for agent in check_completed:
                                 if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
                                     _promote_plan(session, agent["result"])
@@ -711,8 +816,23 @@ async def chat(request: Request):
                                             else None
                                         ),
                                         "completedTopics": _format_completed(session.completed_topics),
+                                        "sessionScope": _format_session_scope(session),
                                         "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
                                     })
+
+                                elif agent["type"] == "visual_gen" and agent["status"] == "complete" and agent.get("result"):
+                                    vr = agent["result"]
+                                    vid = vr.get("visual_id", "")
+                                    vtitle = vr.get("title", "Interactive Visual")
+                                    vhtml = vr.get("html", "")
+                                    session.generated_visuals[vid] = {"html": vhtml, "title": vtitle}
+                                    yield _sse({"type": "VISUAL_READY", "id": vid, "title": vtitle, "html": vhtml})
+                                    agent["result"] = (
+                                        f"Interactive visual ready — ID: {vid}, Title: \"{vtitle}\"\n"
+                                        f'Display it with: <teaching-interactive id="{vid}" title="{vtitle}" />\n'
+                                        "The student will see an interactive simulation in the spotlight panel.\n"
+                                        "You can observe their interactions via [Active Simulation State] on the next turn."
+                                    )
 
                             result = json.dumps({
                                 "agents": runtime.get_all_status(),
@@ -752,6 +872,54 @@ async def chat(request: Request):
                                 f"Topic: {topic}. The sub-agent will handle the next interactions."
                             )
 
+                        # ── reset_plan ──────────────────────────────
+                        elif block.name == "reset_plan":
+                            reason = block.input.get("reason", "direction change")
+                            keep_scope = block.input.get("keep_scope", False)
+
+                            log.info(
+                                "reset_plan: reason=%s, keep_scope=%s, had %d topics (%d completed)",
+                                reason, keep_scope,
+                                len(session.current_topics),
+                                len(session.completed_topics),
+                            )
+
+                            # Clear plan state
+                            session.current_plan = None
+                            session.current_topics = []
+                            session.current_topic_index = -1
+
+                            # Optionally reset scope
+                            if not keep_scope:
+                                session.session_objective = None
+                                session.session_scope = None
+                                session.scope_concepts = []
+
+                            # Emit PLAN_RESET SSE for frontend
+                            yield _sse({
+                                "type": "PLAN_RESET",
+                                "reason": reason,
+                                "keep_scope": keep_scope,
+                            })
+
+                            # Rebuild tutor prompt without plan
+                            tutor_prompt = build_tutor_prompt({
+                                **context_data,
+                                "teachingPlan": None,
+                                "currentTopic": None,
+                                "completedTopics": _format_completed(session.completed_topics),
+                                "sessionScope": _format_session_scope(session),
+                                "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
+                            })
+
+                            result = (
+                                f"Plan scrapped (reason: {reason}). "
+                                "The student's plan sidebar has been cleared.\n\n"
+                                "NOW: spawn a planning agent with the new direction. "
+                                "Include the updated entry point, student model, and any completed topics "
+                                "that are still relevant. Pair with an assessment to mask the wait."
+                            )
+
                         # ── advance_topic ─────────────────────────────
                         elif block.name == "advance_topic":
                             session.tutor_notes.append(block.input.get("tutor_notes", ""))
@@ -771,6 +939,19 @@ async def chat(request: Request):
                                     "concept": current.get("concept", ""),
                                 })
 
+                                # Log knowledge note for the completed topic
+                                _course_id, _ = _extract_student_info(context_data)
+                                _user_email = _extract_user_email(context_data)
+                                if _course_id and _user_email:
+                                    try:
+                                        await append_note(
+                                            _course_id, _user_email, session_id,
+                                            text=f"Topic completed: {current.get('title', '')}. {block.input.get('tutor_notes', '')}",
+                                            tags=[current.get("concept", ""), "topic_completed"],
+                                        )
+                                    except Exception as e:
+                                        log.warning("Failed to log knowledge on advance_topic: %s", e)
+
                             next_topic = _advance_topic(session)
                             if next_topic:
                                 log.info(
@@ -785,6 +966,7 @@ async def chat(request: Request):
                                     "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
                                     "currentTopic": json.dumps(next_topic, indent=2),
                                     "completedTopics": _format_completed(session.completed_topics),
+                                    "sessionScope": _format_session_scope(session),
                                     "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
                                 })
 
@@ -834,6 +1016,39 @@ async def chat(request: Request):
                                 "The student can see the result."
                             )
 
+                        # ── log_knowledge ─────────────────────────────
+                        elif block.name == "log_knowledge":
+                            course_id, _ = _extract_student_info(context_data)
+                            user_email = _extract_user_email(context_data)
+                            if course_id and user_email:
+                                try:
+                                    note_result = await append_note(
+                                        course_id, user_email, session_id,
+                                        text=block.input["note"],
+                                        tags=block.input.get("tags"),
+                                    )
+                                    result = json.dumps(note_result)
+                                except Exception as e:
+                                    log.error("log_knowledge failed: %s", e, exc_info=True)
+                                    result = f"Failed to log knowledge: {str(e)[:200]}"
+                            else:
+                                result = "Cannot log knowledge: missing student info (courseId or userEmail)"
+
+                        # ── query_knowledge ───────────────────────────
+                        elif block.name == "query_knowledge":
+                            course_id, _ = _extract_student_info(context_data)
+                            user_email = _extract_user_email(context_data)
+                            if course_id and user_email:
+                                try:
+                                    result = await search_notes(
+                                        course_id, user_email, block.input["query"]
+                                    )
+                                except Exception as e:
+                                    log.error("query_knowledge failed: %s", e, exc_info=True)
+                                    result = f"Failed to query knowledge: {str(e)[:200]}"
+                            else:
+                                result = "Cannot query knowledge: missing student info (courseId or userEmail)"
+
                         # ── Normal tool execution ─────────────────────
                         else:
                             try:
@@ -867,6 +1082,13 @@ async def chat(request: Request):
 
                 # No more tool calls — done
                 log.info("Request complete — %d round(s)", rounds)
+
+                # Sync session state to MongoDB
+                try:
+                    await sync_backend_state(session_id, session)
+                except Exception as e:
+                    log.warning("Failed to sync session state: %s", e)
+
                 yield _sse({"type": "RUN_FINISHED"})
                 return
 

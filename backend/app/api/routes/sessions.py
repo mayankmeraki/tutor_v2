@@ -2,13 +2,16 @@
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
+from app.api.routes.auth import get_current_user
 from app.services.session_service import (
     create_session,
     get_session,
     get_sessions_for_student,
+    get_sessions_for_user,
     get_sessions_with_headlines,
+    get_sessions_with_headlines_by_email,
     summarize_section,
     update_session,
 )
@@ -30,6 +33,36 @@ async def create(request: Request):
     return doc
 
 
+# ─── Auth-based routes (must come before /{session_id} to avoid conflict) ───
+
+@router.get("/me/{course_id}")
+async def my_sessions(course_id: int, user: dict = Depends(get_current_user)):
+    """Get all sessions for the authenticated user + course."""
+    docs = await get_sessions_for_user(course_id, user["email"])
+    return docs
+
+
+@router.get("/me/{course_id}/with-headlines")
+async def my_sessions_with_headlines(course_id: int, user: dict = Depends(get_current_user)):
+    """Get all sessions for the authenticated user + course with AI headlines."""
+    docs = await get_sessions_with_headlines_by_email(course_id, user["email"])
+    return docs
+
+
+@router.get("/student/{course_id}/{student_name}")
+async def student_sessions(course_id: int, student_name: str):
+    """Get all sessions for a student+course, newest first."""
+    docs = await get_sessions_for_student(course_id, student_name)
+    return docs
+
+
+@router.get("/student/{course_id}/{student_name}/with-headlines")
+async def student_sessions_with_headlines(course_id: int, student_name: str):
+    """Get all sessions for a student+course with AI-generated headlines."""
+    docs = await get_sessions_with_headlines(course_id, student_name)
+    return docs
+
+
 @router.get("/{session_id}")
 async def get(session_id: str):
     """Get a session by sessionId."""
@@ -47,20 +80,6 @@ async def patch(session_id: str, request: Request):
     if not doc:
         raise HTTPException(status_code=404, detail="Session not found")
     return {"ok": True}
-
-
-@router.get("/student/{course_id}/{student_name}")
-async def student_sessions(course_id: int, student_name: str):
-    """Get all sessions for a student+course, newest first."""
-    docs = await get_sessions_for_student(course_id, student_name)
-    return docs
-
-
-@router.get("/student/{course_id}/{student_name}/with-headlines")
-async def student_sessions_with_headlines(course_id: int, student_name: str):
-    """Get all sessions for a student+course with AI-generated headlines."""
-    docs = await get_sessions_with_headlines(course_id, student_name)
-    return docs
 
 
 @router.post("/{session_id}/summarize-section")
