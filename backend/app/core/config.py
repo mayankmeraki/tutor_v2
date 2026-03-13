@@ -13,8 +13,8 @@ class Settings(BaseSettings):
     )
 
     ANTHROPIC_API_KEY: str = Field(default="")
-    TUTOR_MODEL: str = Field(default="claude-sonnet-4-5-20250929")
-    PLANNING_MODEL: str = Field(default="claude-sonnet-4-5-20250929")
+    TUTOR_MODEL: str = Field(default="claude-sonnet-4-6")
+    PLANNING_MODEL: str = Field(default="claude-sonnet-4-6")
     RESEARCH_MODEL: str = Field(default="claude-haiku-4-5-20251001")
     SUMMARIZATION_MODEL: str = Field(default="claude-haiku-4-5-20251001")
 

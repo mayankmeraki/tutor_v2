@@ -25,7 +25,6 @@ from app.agents.session import get_or_create_session
 from app.services.knowledge_state import (
     get_or_init_knowledge_state,
     format_knowledge_state,
-    append_note,
     search_notes,
     get_knowledge_summary,
 )
@@ -348,6 +347,7 @@ def _build_tutor_prompt(session, context_data) -> str:
 
     return build_tutor_prompt({
         **context_data,
+        "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
         "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
         "currentTopic": current_topic,
         "completedTopics": _format_completed(session.completed_topics),
@@ -662,6 +662,7 @@ async def chat(request: Request):
 
             tutor_prompt = build_tutor_prompt({
                 **context_data,
+                "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
                 "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
                 "currentTopic": (
                     json.dumps(session.current_topics[session.current_topic_index], indent=2)
@@ -682,6 +683,13 @@ async def chat(request: Request):
             client = _get_client()
             rounds = 0
 
+            # Periodic student model update (every 5 turns)
+            session.assistant_turn_count += 1
+            force_student_update = (
+                session.assistant_turn_count >= 5
+                and session.assistant_turn_count % 5 == 0
+            )
+
             while rounds < MAX_ROUNDS:
                 rounds += 1
                 log.info("Tutor API call — round %d/%d, model: %s", rounds, MAX_ROUNDS, settings.TUTOR_MODEL)
@@ -697,17 +705,24 @@ async def chat(request: Request):
                 # Validate messages before API call
                 valid_messages = _validate_messages(claude_messages)
 
+                # Build API kwargs — force student model update on schedule
+                api_kwargs: dict = {
+                    "model": settings.TUTOR_MODEL,
+                    "max_tokens": 4096,
+                    "system": tutor_prompt,
+                    "messages": valid_messages,
+                    "tools": TUTOR_TOOLS,
+                }
+                if force_student_update and rounds == 1:
+                    api_kwargs["tool_choice"] = {"type": "tool", "name": "update_student_model"}
+                    force_student_update = False
+                    log.info("Forcing update_student_model (turn %d)", session.assistant_turn_count)
+
                 # Retry loop for transient errors
                 message = None
                 for attempt in range(MAX_RETRIES):
                     try:
-                        async with client.messages.stream(
-                            model=settings.TUTOR_MODEL,
-                            max_tokens=4096,
-                            system=tutor_prompt,
-                            messages=valid_messages,
-                            tools=TUTOR_TOOLS,
-                        ) as stream:
+                        async with client.messages.stream(**api_kwargs) as stream:
                             async for text in stream.text_stream:
                                 if await request.is_disconnected():
                                     return
@@ -809,6 +824,7 @@ async def chat(request: Request):
                                     # Rebuild prompt with new plan
                                     tutor_prompt = build_tutor_prompt({
                                         **context_data,
+                                        "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
                                         "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
                                         "currentTopic": (
                                             json.dumps(session.current_topics[session.current_topic_index], indent=2)
@@ -905,6 +921,7 @@ async def chat(request: Request):
                             # Rebuild tutor prompt without plan
                             tutor_prompt = build_tutor_prompt({
                                 **context_data,
+                                "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
                                 "teachingPlan": None,
                                 "currentTopic": None,
                                 "completedTopics": _format_completed(session.completed_topics),
@@ -919,6 +936,61 @@ async def chat(request: Request):
                                 "Include the updated entry point, student model, and any completed topics "
                                 "that are still relevant. Pair with an assessment to mask the wait."
                             )
+
+                        # ── request_board_image ────────────────────────
+                        elif block.name == "request_board_image":
+                            reason = block.input.get("reason", "")
+                            log.info("Tutor requested board image: %s", reason)
+                            yield _sse({"type": "BOARD_CAPTURE_REQUEST", "reason": reason})
+                            result = (
+                                "Board capture requested. The frontend will capture the current board "
+                                "and send it as the next user message (image). Continue your response — "
+                                "when the image arrives you'll be able to see the combined tutor+student work."
+                            )
+
+                        # ── update_student_model ────────────────────────
+                        elif block.name == "update_student_model":
+                            notes = block.input.get("notes", [])
+
+                            # Backward compat: if old schema (observations field), convert
+                            if not notes and block.input.get("observations"):
+                                notes = [{"concepts": ["_profile"], "note": block.input["observations"]}]
+
+                            # Update in-memory session model with latest notes
+                            if not session.student_model:
+                                session.student_model = {"notes": {}}
+                            model_notes = session.student_model.setdefault("notes", {})
+                            for entry in notes:
+                                concepts = entry.get("concepts", [])
+                                primary = concepts[0] if concepts else "_uncategorized"
+                                model_notes[primary] = {
+                                    "concepts": concepts,
+                                    "note": entry.get("note", ""),
+                                }
+
+                            log.info(
+                                "Student model updated: %d notes, concepts: %s",
+                                len(notes),
+                                [n.get("concepts", [None])[0] for n in notes],
+                            )
+
+                            # Persist each note via upsert (fire-and-forget)
+                            _sm_course_id, _ = _extract_student_info(context_data)
+                            _sm_email = _extract_user_email(context_data)
+                            if _sm_course_id and _sm_email:
+                                from app.services.knowledge_state import upsert_concept_note
+                                for entry in notes:
+                                    try:
+                                        await upsert_concept_note(
+                                            _sm_course_id, _sm_email, session_id,
+                                            concepts=entry.get("concepts", ["_uncategorized"]),
+                                            note_text=entry.get("note", ""),
+                                            lesson=entry.get("lesson"),
+                                        )
+                                    except Exception as e:
+                                        log.warning("Failed to upsert student note: %s", e)
+
+                            result = "Student model updated. Continue teaching — do not mention this update to the student."
 
                         # ── advance_topic ─────────────────────────────
                         elif block.name == "advance_topic":
@@ -939,18 +1011,20 @@ async def chat(request: Request):
                                     "concept": current.get("concept", ""),
                                 })
 
-                                # Log knowledge note for the completed topic
+                                # Upsert knowledge note for the completed topic
                                 _course_id, _ = _extract_student_info(context_data)
                                 _user_email = _extract_user_email(context_data)
                                 if _course_id and _user_email:
                                     try:
-                                        await append_note(
+                                        from app.services.knowledge_state import upsert_concept_note
+                                        concept_tag = current.get("concept", "") or "_uncategorized"
+                                        await upsert_concept_note(
                                             _course_id, _user_email, session_id,
-                                            text=f"Topic completed: {current.get('title', '')}. {block.input.get('tutor_notes', '')}",
-                                            tags=[current.get("concept", ""), "topic_completed"],
+                                            concepts=[concept_tag, "topic_completed"],
+                                            note_text=f"Topic completed: {current.get('title', '')}. {block.input.get('tutor_notes', '')}",
                                         )
                                     except Exception as e:
-                                        log.warning("Failed to log knowledge on advance_topic: %s", e)
+                                        log.warning("Failed to upsert knowledge on advance_topic: %s", e)
 
                             next_topic = _advance_topic(session)
                             if next_topic:
@@ -963,6 +1037,7 @@ async def chat(request: Request):
                                 # Rebuild Tutor prompt with new topic
                                 tutor_prompt = build_tutor_prompt({
                                     **context_data,
+                                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
                                     "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
                                     "currentTopic": json.dumps(next_topic, indent=2),
                                     "completedTopics": _format_completed(session.completed_topics),
@@ -1016,23 +1091,29 @@ async def chat(request: Request):
                                 "The student can see the result."
                             )
 
-                        # ── log_knowledge ─────────────────────────────
+                        # ── log_knowledge (deprecated — redirect to upsert) ──
                         elif block.name == "log_knowledge":
                             course_id, _ = _extract_student_info(context_data)
                             user_email = _extract_user_email(context_data)
                             if course_id and user_email:
                                 try:
-                                    note_result = await append_note(
+                                    from app.services.knowledge_state import upsert_concept_note
+                                    tags = block.input.get("tags", [])
+                                    if isinstance(tags, str):
+                                        tags = [t.strip() for t in tags.split(",") if t.strip()]
+                                    if not tags:
+                                        tags = ["_uncategorized"]
+                                    await upsert_concept_note(
                                         course_id, user_email, session_id,
-                                        text=block.input["note"],
-                                        tags=block.input.get("tags"),
+                                        concepts=tags,
+                                        note_text=block.input.get("note", ""),
                                     )
-                                    result = json.dumps(note_result)
+                                    result = '{"logged": true}'
                                 except Exception as e:
-                                    log.error("log_knowledge failed: %s", e, exc_info=True)
+                                    log.error("log_knowledge upsert failed: %s", e, exc_info=True)
                                     result = f"Failed to log knowledge: {str(e)[:200]}"
                             else:
-                                result = "Cannot log knowledge: missing student info (courseId or userEmail)"
+                                result = "Cannot log knowledge: missing student info"
 
                         # ── query_knowledge ───────────────────────────
                         elif block.name == "query_knowledge":

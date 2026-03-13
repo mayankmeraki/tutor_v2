@@ -146,6 +146,16 @@ class AgentRuntime:
         context: dict,
     ) -> str:
         """Create and start a background agent. Returns agent_id."""
+        # Cancel existing agents of the same type to avoid duplicates
+        for aid, existing in list(self.agents.items()):
+            if existing.type == agent_type and existing.status in ("spawned", "running"):
+                log.info("Cancelling duplicate %s agent %s (superseded)", agent_type, aid)
+                if existing._task and not existing._task.done():
+                    existing._task.cancel()
+                else:
+                    existing.status = "cancelled"
+                    del self.agents[aid]
+
         agent_id = f"agent-{uuid.uuid4().hex[:8]}"
         task = AgentTask(
             agent_id=agent_id,

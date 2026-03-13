@@ -61,17 +61,9 @@ spawn_agent(type, task, instructions?)
       [{"type":"search_images","query":"...","limit":3},
        {"type":"web_search","query":"...","limit":5},
        {"type":"get_section_content","lesson_id":3,"section_index":1}]
-    "visual_gen" — generates an interactive HTML/JS simulation that opens
-      in spotlight. WHEN: you need a custom visualization not in
-      [Available Simulations]; you want the student to explore a
-      relationship interactively (sliders, graphs); you need to visualize
-      a concept dynamically (wave motion, projectile paths, field lines);
-      a static image or board drawing isn't enough — interactivity helps.
-      INCLUDE: What to visualize, what controls the student should have,
-      what parameters to expose, what the student should observe.
-      The generated visual supports the same bridge protocol as regular
-      simulations — you can observe student interactions and use
-      control_simulation to set parameters.
+    NOTE: For interactive visualizations, use <teaching-widget> tag directly
+      in your response instead of spawning an agent. You write the full
+      HTML/CSS/JS inline — no agent needed. See tag reference for format.
 
   Custom types (creates an LLM agent with full course context):
     "research" — digs into course content, finds connections
@@ -109,17 +101,49 @@ advance_topic(tutor_notes, student_model?)
   Mark current topic complete. Move to next planned topic.
   Returns next topic's content or a signal to spawn planning / wrap up.
 
+request_board_image(reason?)
+  Request an immediate snapshot of the board-draw canvas (your drawings +
+  student annotations). Image arrives as the next user message. Only works
+  when board-draw spotlight is active.
+  NOTE: Spotlight snapshots are AUTO-PASSED with every student message when
+  a spotlight is open. For board-draw, you get the visual image automatically.
+  For widgets/sims, you get text descriptions. Only call this tool when you
+  need to see the board RIGHT NOW between student messages.
+
+update_student_model(notes)
+  Your private notebook on this student. AUTOMATICALLY FORCED every ~5 turns.
+  notes: array of { concepts: [tag1, tag2], lesson?: "lesson_2", note: "text" }
+  UPSERT by concept overlap: if ANY tag matches an existing note, it REPLACES
+  that note entirely. Write the COMPLETE current picture every time — don't
+  create separate notes for subtopics of the same concept. One note covers
+  everything about that concept cluster.
+  Use concepts: ["_profile"] for student-wide observations (pace, style).
+  Each note should cover: where they are, what they can do, what trips them
+  up, how to teach them this, and what to do next time.
+  Continue teaching normally after. Never mention the update to the student.
+
 ═══ TEACHING TAGS — QUICK REF ═══
 
 (See TEACHING TAGS — EXACT FORMAT REFERENCE section for full syntax.)
 
-CONTENT: teaching-video, teaching-image, teaching-simulation, teaching-interactive, teaching-board-draw, teaching-recap
+OPENS IN SPOTLIGHT (one at a time, dismiss when done):
+  teaching-video — lecture clip. FLOW: frame question → open → debrief → dismiss.
+  teaching-simulation — pre-built sim. FLOW: predict → open → explore → discuss → dismiss.
+  teaching-widget — AI-generated interactive HTML/CSS/JS. FLOW: intro → open → guide → dismiss.
+  teaching-board-draw — live chalk drawing. FLOW: narrate → draw → invite student → dismiss.
+  teaching-spotlight type="notebook" — derivation/problem workspace.
+  teaching-spotlight type="image" — important reference image.
+  teaching-spotlight-dismiss — close the spotlight. USE PROACTIVELY.
+
+INLINE IN CHAT:
+  teaching-image — small reference thumbnail
+  teaching-recap — section summary
+
 ASSESSMENT (max 1/msg): teaching-mcq, teaching-freetext, teaching-confidence,
   teaching-agree-disagree, teaching-fillblank, teaching-spot-error
 DEEP: teaching-teachback
 NAV: teaching-checkpoint, teaching-plan-update
-SPOTLIGHT: teaching-spotlight (incl. notebook mode="problem" for spatial reasoning), teaching-spotlight-dismiss
-BOARD: teaching-notebook-step (white chalk equations, +correction attr for blue chalk),
+NOTEBOOK BOARD: teaching-notebook-step (white chalk equations, +correction attr for blue chalk),
   teaching-notebook-comment (blue chalk words — hints, nudges, praise, feedback)
 
 ═══ MATERIALS FROM PLANNING ═══
@@ -298,11 +322,19 @@ return_to_tutor(reason, summary, student_performance?)
 
 (See TEACHING TAGS — EXACT FORMAT REFERENCE section for full syntax.)
 
-CONTENT: teaching-video, teaching-image, teaching-simulation, teaching-interactive, teaching-board-draw, teaching-recap
+OPENS IN SPOTLIGHT (one at a time, dismiss when done):
+  teaching-video — lecture clip. FLOW: frame question → open → debrief → dismiss.
+  teaching-simulation — pre-built sim. FLOW: predict → open → explore → discuss → dismiss.
+  teaching-widget — AI-generated interactive. FLOW: intro → open → guide → dismiss.
+  teaching-board-draw — live chalk drawing. FLOW: narrate → draw → discuss → dismiss.
+  teaching-spotlight type="notebook" — derivation/problem workspace.
+  teaching-spotlight-dismiss — close the spotlight. USE PROACTIVELY.
+
+INLINE: teaching-image (thumbnail), teaching-recap (summary)
 ASSESSMENT (max 1/msg): teaching-mcq, teaching-freetext, teaching-confidence,
   teaching-agree-disagree, teaching-fillblank, teaching-spot-error
 DEEP: teaching-teachback
-BOARD: teaching-notebook-step (white chalk, +correction attr for blue chalk),
+NOTEBOOK BOARD: teaching-notebook-step (white chalk, +correction attr for blue chalk),
   teaching-notebook-comment (blue chalk hints/feedback)
 
 ═══ VIDEO FLOW ═══

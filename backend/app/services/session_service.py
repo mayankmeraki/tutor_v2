@@ -195,8 +195,16 @@ async def generate_session_headline(session: dict) -> dict:
             "headline": result.get("headline", f"Session {number}"),
             "description": result.get("description", ""),
         }
+    except anthropic.BadRequestError as e:
+        err_body = getattr(e, "body", {}) or {}
+        err_msg = err_body.get("error", {}).get("message", "") if isinstance(err_body, dict) else str(e)
+        if "credit" in err_msg.lower() or "billing" in err_msg.lower():
+            log.warning("Headline generation skipped (billing): %s", err_msg)
+        else:
+            log.error("Failed to generate session headline: %s", e)
+        return {"headline": f"Session {number}", "description": ""}
     except Exception as e:
-        log.error("Failed to generate session headline: %s", e, exc_info=True)
+        log.error("Failed to generate session headline: %s", e)
         return {"headline": f"Session {number}", "description": ""}
 
 

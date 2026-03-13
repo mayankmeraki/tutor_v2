@@ -3,9 +3,9 @@
 import logging
 from datetime import datetime, timezone, timedelta
 
+import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from jose import jwt, JWTError
-from passlib.context import CryptContext
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -18,7 +18,11 @@ log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 ALGORITHM = "HS256"
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
+
+
+def _verify_password(plain: str, hashed: str) -> bool:
+    pw = plain.encode("utf-8")[:72]
+    return bcrypt.checkpw(pw, hashed.encode("utf-8"))
 
 
 # ─── JWT helpers ──────────────────────────────────────────
@@ -71,7 +75,7 @@ async def login(request: Request, db: AsyncSession = Depends(get_db)):
     if not user or not user.hashed_password:
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    if not pwd_context.verify(password, user.hashed_password):
+    if not _verify_password(password, user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
     # Issue mockup JWT

@@ -136,39 +136,6 @@ TUTOR_TOOLS = [
     },
     # ── Knowledge state tools ─────────────────────────────────────────────
     {
-        "name": "log_knowledge",
-        "description": (
-            "Record a freehand observation about the student's understanding. "
-            "Write naturally — what they understood, what confused them, "
-            "misconceptions spotted, how they performed on a problem, their "
-            "reasoning quality. These notes persist across sessions and build "
-            "a profile you can search later with query_knowledge."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "note": {
-                    "type": "string",
-                    "description": (
-                        "Your observation in natural language. Be specific: "
-                        "'Student correctly derived F=ma for the inclined plane problem "
-                        "but forgot to decompose weight into components initially. "
-                        "After a hint about the coordinate system, solved it correctly.'"
-                    ),
-                },
-                "tags": {
-                    "type": "array",
-                    "items": {"type": "string"},
-                    "description": (
-                        "Optional short labels for search. Examples: "
-                        "'newtons_laws', 'gap', 'strong', 'misconception', 'module-2'"
-                    ),
-                },
-            },
-            "required": ["note"],
-        },
-    },
-    {
         "name": "query_knowledge",
         "description": (
             "Look up what you know about the student's understanding. "
@@ -193,8 +160,8 @@ TUTOR_TOOLS = [
         "description": (
             "Start a background agent to do work while you continue teaching. "
             "Results arrive in [AGENT RESULTS] on your next turn. "
-            "Built-in types: 'planning' (plans next section), 'asset' (fetches images/content), "
-            "'visual_gen' (generates interactive HTML/JS simulations). "
+            "Built-in types: 'planning' (plans next section), 'asset' (fetches images/content). "
+            "For interactive visualizations, use <teaching-widget> tag directly instead of agents. "
             "Any other type creates a custom LLM agent with your task/instructions as its prompt. "
             "Examples: 'research', 'problem_gen', 'content', 'analysis', 'worked_example'. "
             "CRITICAL: Always give the student something to do when spawning — "
@@ -334,6 +301,82 @@ TUTOR_TOOLS = [
                 },
             },
             "required": ["tutor_notes"],
+        },
+    },
+    {
+        "name": "request_board_image",
+        "description": (
+            "Request a snapshot of the current board-draw canvas, including both your "
+            "drawings and any student annotations. Use when you need to see what the "
+            "student drew or annotated on the shared board. The image will be captured "
+            "and sent as the next user message. Only works when a board-draw spotlight "
+            "is currently active."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "reason": {
+                    "type": "string",
+                    "description": "Why you need to see the board (helps with context)",
+                },
+            },
+            "required": [],
+        },
+    },
+    {
+        "name": "update_student_model",
+        "description": (
+            "Your private notebook on this student. Called automatically every ~5 turns. "
+            "Write freehand notes tagged with concept names. UPSERT: if a note for a "
+            "concept already exists, your new note REPLACES it — always write the "
+            "CURRENT complete picture, not incremental updates. One note per concept. "
+            "Use concepts: ['_profile'] for student-wide observations (pace, style)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "notes": {
+                    "type": "array",
+                    "description": (
+                        "Freehand notes tagged with concept names. One note per concept cluster. "
+                        "If the concept was covered before, REWRITE the note with current state — "
+                        "don't create a new note with slightly different tags."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "concepts": {
+                                "type": "array",
+                                "items": {"type": "string"},
+                                "description": (
+                                    "Concept tags for retrieval and matching. Use course concept names "
+                                    "as primary tag. Add subtopics as secondary tags. "
+                                    "Use ['_profile'] for student-wide notes. "
+                                    "Example: ['binary_property', 'measurement', 'color_box']"
+                                ),
+                            },
+                            "lesson": {
+                                "type": "string",
+                                "description": (
+                                    "Lesson context, e.g. 'lesson_2' or 'introduction_to_superposition'. "
+                                    "Helps organize notes by where in the course they apply."
+                                ),
+                            },
+                            "note": {
+                                "type": "string",
+                                "description": (
+                                    "Complete freehand observation. Cover: mastery level, what they can "
+                                    "solve, what trips them up, what approach worked/failed, what to do "
+                                    "next time. Write the FULL picture — this REPLACES any previous note "
+                                    "on this concept."
+                                ),
+                            },
+                        },
+                        "required": ["concepts", "note"],
+                    },
+                },
+            },
+            "required": ["notes"],
         },
     },
 ]

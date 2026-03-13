@@ -26,6 +26,7 @@ class Session:
     student_intent: str | None = None
     active_scenario: str | None = None
     tutor_notes: list[str] = field(default_factory=list)
+    assistant_turn_count: int = 0
     chat_summaries: list[str] = field(default_factory=list)
     session_history: str = ""
     session_status: str = "active"

@@ -192,6 +192,12 @@ const SessionManager = (() => {
         generatedVisuals: state.generatedVisuals,
         spotlightHistory: state.spotlightHistory,
         notebookSteps: state.notebookSteps,
+        teachingCounters: {
+          totalAssistantTurns: state.totalAssistantTurns,
+          lastVisualTurn: state.lastVisualTurn,
+          visualAssetCount: state.visualAssetCount,
+          lastEngagementTurn: state.lastEngagementTurn,
+        },
       });
     } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
@@ -221,6 +227,9 @@ const SessionManager = (() => {
         durationSec: session.durationSec, metrics: session.metrics,
         transcript: session.transcript, sections: session.sections,
         summaries: session.summaries,
+        generatedVisuals: state.generatedVisuals,
+        spotlightHistory: state.spotlightHistory,
+        notebookSteps: state.notebookSteps,
       });
     } catch (e) { console.warn('Failed to archive session:', e); }
     if (flushInterval) clearInterval(flushInterval);
@@ -237,6 +246,15 @@ const SessionManager = (() => {
           transcript: session.transcript, sections: session.sections,
           metrics: session.metrics, durationSec: session.durationSec,
           coursePosition: session.coursePosition,
+          spotlightHistory: state.spotlightHistory,
+          notebookSteps: state.notebookSteps,
+          generatedVisuals: state.generatedVisuals,
+          teachingCounters: {
+            totalAssistantTurns: state.totalAssistantTurns,
+            lastVisualTurn: state.lastVisualTurn,
+            visualAssetCount: state.visualAssetCount,
+            lastEngagementTurn: state.lastEngagementTurn,
+          },
         }),
         keepalive: true,
       });
@@ -561,7 +579,36 @@ const state = {
     voiceEl: null,
     DPR: 1,
     scale: 1,
+    studentDrawing: false,
+    studentColor: '#22ee66',
+    studentStrokeW: 2.5,
+    rawContent: null,
+    tutorSnapshot: null,
   },
+
+  // Widget streaming state
+  widget: {
+    active: false,
+    contentStartIdx: 0,
+    complete: false,
+    title: '',
+    code: '',
+  },
+
+  // Pending spotlight close event (included as context in next message)
+  pendingSpotlightEvent: null,
+  pendingBoardCaptureRequest: false,
+  pendingBoardCapture: null,
+
+  // Visual engagement tracking
+  totalAssistantTurns: 0,
+  lastVisualTurn: 0,
+  visualAssetCount: 0,
+  spotlightOpenedAtTurn: 0,
+  lastEngagementTurn: 0,
+
+  // Replay mode flag — true during transcript rebuild (prevents spotlight opening)
+  replayMode: false,
 
 };
 
@@ -747,16 +794,89 @@ const SVG_SEND = `<svg viewBox="0 0 24 24"><line x1="22" y1="2" x2="11" y2="13"/
 const SVG_MIC = `<svg viewBox="0 0 24 24"><rect x="9" y="1" width="6" height="12" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
 const SVG_DRAW = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M3 17.25V21h3.75L17.81 9.94l-3.75-3.75L3 17.25z"/><path d="M20.71 7.04a1 1 0 0 0 0-1.41l-2.34-2.34a1 1 0 0 0-1.41 0l-1.83 1.83 3.75 3.75 1.83-1.83z"/></svg>`;
 const SVG_TEXT = `<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><path d="M2.5 4v3h5v12h3V7h5V4h-13z"/><path d="M21.5 9h-9v3h3v7h3v-7h3V9z"/></svg>`;
+const SVG_IMAGE = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="m21 15-5-5L5 21"/></svg>`;
 
 function buildTextInput(id, placeholder, submitFnStr) {
   return `
     <div class="input-wrapper">
+      <div class="input-image-preview" id="${id}-img-preview" style="display:none">
+        <img id="${id}-img-thumb" />
+        <button class="img-preview-remove" onclick="removeInputImage('${id}')">&times;</button>
+      </div>
       <textarea class="text-input" id="${id}" placeholder="${escapeAttr(placeholder)}" rows="1"></textarea>
       <div class="input-icons">
+        <input type="file" id="${id}-file" accept="image/*" style="display:none" onchange="handleImageSelect('${id}', this)" />
+        <button class="input-icon-btn input-img-btn" onclick="document.getElementById('${id}-file').click()" title="Upload image">${SVG_IMAGE}</button>
         <button class="input-icon-btn input-mic-btn" onclick="startVoiceInput('${id}')" title="Voice input">${SVG_MIC}</button>
-        <button class="input-icon-btn input-send-btn" onclick="${submitFnStr}" title="Send">${SVG_SEND}</button>
+        <button class="input-icon-btn input-send-btn" onclick="${submitFnStr}" title="Send (Shift+Enter)">${SVG_SEND}</button>
       </div>
     </div>`;
+}
+
+// Pending image attachment for input fields { inputId: { dataUrl, mediaType } }
+const _pendingImages = {};
+
+window.handleImageSelect = function(inputId, fileInput) {
+  const file = fileInput.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result;
+    const mediaType = file.type || 'image/png';
+    const base64 = dataUrl.split(',')[1];
+    _pendingImages[inputId] = { base64, mediaType };
+    const preview = $(`#${inputId}-img-preview`);
+    const thumb = $(`#${inputId}-img-thumb`);
+    if (preview && thumb) {
+      thumb.src = dataUrl;
+      preview.style.display = 'flex';
+    }
+  };
+  reader.readAsDataURL(file);
+};
+
+window.removeInputImage = function(inputId) {
+  delete _pendingImages[inputId];
+  const preview = $(`#${inputId}-img-preview`);
+  if (preview) preview.style.display = 'none';
+};
+
+// Bind Shift+Enter to send + paste image support on any text input after it's created
+function bindInputHandlers(inputId, submitFnStr) {
+  const el = $(`#${inputId}`);
+  if (!el) return;
+  el.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && e.shiftKey) {
+      e.preventDefault();
+      // Trigger the submit function
+      const fn = new Function(submitFnStr);
+      fn();
+    }
+  });
+  el.addEventListener('paste', (e) => {
+    const items = e.clipboardData?.items;
+    if (!items) return;
+    for (const item of items) {
+      if (item.type.startsWith('image/')) {
+        e.preventDefault();
+        const file = item.getAsFile();
+        const reader = new FileReader();
+        reader.onload = () => {
+          const dataUrl = reader.result;
+          const base64 = dataUrl.split(',')[1];
+          _pendingImages[inputId] = { base64, mediaType: item.type };
+          const preview = $(`#${inputId}-img-preview`);
+          const thumb = $(`#${inputId}-img-thumb`);
+          if (preview && thumb) {
+            thumb.src = dataUrl;
+            preview.style.display = 'flex';
+          }
+        };
+        reader.readAsDataURL(file);
+        break;
+      }
+    }
+  });
 }
 
 window.startVoiceInput = function(targetId) {
@@ -951,6 +1071,31 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state.isStreaming = false;
 
   SessionManager.saveSession();
+
+  // Handle deferred board capture request from tutor tool
+  if (state.pendingBoardCaptureRequest) {
+    state.pendingBoardCaptureRequest = false;
+    setTimeout(() => {
+      if (state.boardDraw.canvas) {
+        const combinedUrl = bdCaptureBoard();
+        if (combinedUrl) {
+          const bd = state.boardDraw;
+          const parts = [];
+          if (bd.tutorSnapshot) {
+            const tutorB64 = bd.tutorSnapshot.split(',')[1];
+            parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: tutorB64 } });
+            parts.push({ type: 'text', text: '[IMAGE 1 — TUTOR ORIGINAL] This is what YOU drew originally.' });
+          }
+          const combinedB64 = combinedUrl.split(',')[1];
+          parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: combinedB64 } });
+          parts.push({ type: 'text', text: bd.tutorSnapshot
+            ? '[IMAGE 2 — COMBINED] Your drawing + student additions. Compare with IMAGE 1 to see what the student added.'
+            : '[Board capture] Current state of the shared board.' });
+          streamADK(parts, true);
+        }
+      }
+    }, 200);
+  }
 }
 
 function handleSSEEvent(event) {
@@ -965,6 +1110,7 @@ function handleSSEEvent(event) {
       state.boardDraw.contentStartIdx = 0;
       state.boardDraw.complete = false;
       state.boardDraw.dismissed = false;
+      state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '' };
       removeStreamingIndicator();
       // Safety net: if onboarding overlay is still showing when tutor starts talking, remove it
       const staleOnboard = $('#onboarding-block');
@@ -982,6 +1128,7 @@ function handleSSEEvent(event) {
       break;
 
     case 'TEXT_MESSAGE_END':
+      state.totalAssistantTurns++;
       finalizeAIMessage(state.accumulatedText);
       state.messages.push({
         id: state.currentMessageId || generateId(),
@@ -1010,6 +1157,7 @@ function handleSSEEvent(event) {
     case 'RUN_FINISHED':
       removeStreamingIndicator();
       cleanupToolIndicators();
+      ensureFallbackInput();
       break;
 
     case 'RUN_ERROR':
@@ -1054,6 +1202,11 @@ function handleSSEEvent(event) {
       console.log('[SSE] VISUAL_READY —', event.id, event.title);
       state.generatedVisuals[event.id] = { title: event.title, html: event.html };
       break;
+
+    case 'BOARD_CAPTURE_REQUEST':
+      console.log('[SSE] BOARD_CAPTURE_REQUEST — reason:', event.reason);
+      state.pendingBoardCaptureRequest = true;
+      break;
   }
 }
 
@@ -1063,6 +1216,15 @@ function handleSSEEvent(event) {
 
 function buildContext() {
   const items = [];
+
+  // Include pending spotlight close event if any
+  if (state.pendingSpotlightEvent) {
+    items.push({
+      description: 'Spotlight Event',
+      value: state.pendingSpotlightEvent,
+    });
+    state.pendingSpotlightEvent = null;
+  }
 
   // Context 1: Student Profile & Course Progress
   const cp = state.checkpoint;
@@ -1154,20 +1316,58 @@ function buildContext() {
     });
   }
 
+  // Context: Visual Engagement tracking — only during explanation/discussion mode
+  const turnsSinceLastVisual = state.totalAssistantTurns - state.lastVisualTurn;
+  const turnsSinceLastEngagement = state.totalAssistantTurns - state.lastEngagementTurn;
+  const inExplanationMode = turnsSinceLastEngagement >= 2 && !state.spotlightActive;
+  if (state.totalAssistantTurns >= 3 && turnsSinceLastVisual >= 2 && inExplanationMode) {
+    const urgency = turnsSinceLastVisual >= 4 ? 'URGENT' : 'NOTICE';
+    items.push({
+      description: `Visual Engagement — ${urgency}`,
+      value: JSON.stringify({
+        turnsSinceLastVisual,
+        totalVisualAssets: state.visualAssetCount,
+        action: turnsSinceLastVisual >= 4
+          ? 'Your last 4+ explanation messages were pure text. Use a visual asset in this response.'
+          : 'Consider adding a visual — board drawing, image, or diagram — to keep engagement high.',
+        note: 'This alert is suppressed during MCQs, problem-solving, notebook work, and active spotlight viewing. It only applies to explanation and discussion turns.',
+        quickOptions: [
+          '<teaching-board-draw> — draw a diagram live (fastest)',
+          '<teaching-widget> — interactive simulation (sliders, animation)',
+          'search_images() — find a reference image',
+          '<teaching-video> — show a lecture clip',
+          '<teaching-simulation> — open a pre-built experiment',
+        ],
+      }),
+    });
+  }
+
   // Context: Spotlight state (if an asset is pinned in the spotlight panel)
   if (state.spotlightActive && state.spotlightInfo) {
+    const turnsOpen = state.totalAssistantTurns - state.spotlightOpenedAtTurn;
     const spotlightCtx = {
       spotlightOpen: true,
       type: state.spotlightInfo.type,
       title: state.spotlightInfo.title,
       id: state.spotlightInfo.id || null,
+      turnsOpen,
       rules: [
         'Student can see this asset RIGHT NOW. Reference it naturally.',
+        'SPOTLIGHT SNAPSHOT: A snapshot of the spotlight content is automatically attached to every student message while open — you can see what the student sees.',
         'CLOSE IT when done: emit <teaching-spotlight-dismiss /> when discussion moves past this asset.',
-        'REPLACE IT: emitting a new <teaching-video>, <teaching-simulation>, or <teaching-spotlight> tag will auto-replace this content.',
-        'Do NOT leave stale assets open — if you are no longer discussing this, close it first.',
+        '"Actively discussing" means you are POINTING AT or DESCRIBING specific elements in the spotlight content RIGHT NOW. General topic overlap is NOT enough — if you are asking questions or explaining without referencing the visual, CLOSE IT.',
       ],
     };
+    if (turnsOpen >= 2) {
+      spotlightCtx.rules.push(
+        `⚠ STALE SPOTLIGHT: "${state.spotlightInfo.title}" open for ${turnsOpen} turns. Ask yourself: "Am I pointing at something IN the spotlight right now?" If NO → emit <teaching-spotlight-dismiss /> as the FIRST TAG in your response, BEFORE any text. You can always reopen or draw a new one later.`
+      );
+    }
+    if (turnsOpen >= 3) {
+      spotlightCtx.rules.push(
+        `🚨 MANDATORY CLOSE: Spotlight open ${turnsOpen} turns — this is too long. Emit <teaching-spotlight-dismiss /> as the VERY FIRST thing in your response. No exceptions. If you still need a visual, close this one and open a fresh one.`
+      );
+    }
 
     // Include notebook step history for collaborative context
     if (state.spotlightInfo.type === 'notebook') {
@@ -1197,10 +1397,40 @@ function buildContext() {
       ];
     }
 
+    // Board-draw collaborative: let tutor know the student can draw on the board
+    if (state.spotlightInfo.type === 'board-draw') {
+      spotlightCtx.collaborative = true;
+      spotlightCtx.studentCanDraw = true;
+      spotlightCtx.rules.push(
+        'SHARED BOARD: The student has drawing tools and can annotate on the SAME canvas you drew on.',
+        'Student strokes appear in green/red/white over your drawing.',
+        'AUTOMATIC SNAPSHOT: A board image is auto-attached to every student message while the board is open — you can SEE what the student sees without asking.',
+        'If you need an immediate capture between student messages, use request_board_image tool.',
+        'Encourage the student to draw, annotate, or mark things on the board: "Try drawing the force vectors yourself!" or "Mark where you think the equilibrium point is."',
+      );
+    }
+
     items.push({
       description: 'ACTIVE SPOTLIGHT — asset currently pinned above chat',
       value: JSON.stringify(spotlightCtx),
     });
+  }
+
+  // Auto-include board snapshot when board is active and student has drawn
+  if (state.boardDraw.studentDrawing && state.boardDraw.canvas && state.spotlightInfo?.type === 'board-draw') {
+    items.push({
+      description: 'Board Draw — Student Activity',
+      value: 'The student has been drawing on the shared board. Use request_board_image if you want to see the current state, or wait for the student to click Send.',
+    });
+  }
+
+  // Include pending board capture if set
+  if (state.pendingBoardCapture) {
+    items.push({
+      description: 'Board Capture — Current Board Image',
+      value: state.pendingBoardCapture,
+    });
+    state.pendingBoardCapture = null;
   }
 
   // Teaching Plan Directive — tells the Tutor which step is active and how to advance
@@ -1448,7 +1678,16 @@ function updateAgentIndicators() {
     asset: 'Gathering materials...',
     research: 'Researching...',
   };
-  el.innerHTML = running.map(a =>
+
+  // Deduplicate by agent type — show only one indicator per type
+  const seen = new Set();
+  const unique = running.filter(a => {
+    if (seen.has(a.type)) return false;
+    seen.add(a.type);
+    return true;
+  });
+
+  el.innerHTML = unique.map(a =>
     `<div class="agent-indicator"><span class="loading-spinner small"></span> ${labels[a.type] || a.type}</div>`
   ).join('');
 }
@@ -1745,7 +1984,28 @@ function updateAIMessageStream(text) {
   const el = $('#ai-stream-text');
   if (!el) return;
   bdProcessStreaming(text);
-  el.innerHTML = renderMarkdownBasic(stripTeachingTags(text));
+  widgetProcessStreaming(text);
+
+  let displayHtml = renderMarkdownBasic(stripTeachingTags(text));
+
+  // Show generating indicator when widget is streaming
+  if (state.widget.active && !state.widget.complete) {
+    const wTitle = state.widget.title || 'Interactive Widget';
+    const codeLen = state.widget.code?.length || 0;
+    const progress = codeLen < 500 ? 'Setting up structure...'
+      : codeLen < 2000 ? 'Adding styles...'
+      : 'Writing simulation logic...';
+    displayHtml += `<div class="widget-gen-indicator">
+      <div class="widget-gen-icon">⚡</div>
+      <div class="widget-gen-info">
+        <div class="widget-gen-title">Generating: ${escapeHtml(wTitle)}</div>
+        <div class="widget-gen-progress">${progress}</div>
+      </div>
+      <div class="widget-gen-spinner"></div>
+    </div>`;
+  }
+
+  el.innerHTML = displayHtml;
   const stream = $('#canvas-stream');
   stream.scrollTop = stream.scrollHeight;
 }
@@ -1816,6 +2076,7 @@ function finalizeAIMessage(fullText) {
           ${buildTextInput(fallbackId, 'Type your response...', `submitFreetext('${fallbackId}')`)}
         </div>
       `, { interactive: true });
+      bindInputHandlers(fallbackId, `submitFreetext('${fallbackId}')`);
     }, 120);
   } else if (!hasRecap) {
     // No special tags — full fallback input (deferred to avoid flash before tool calls)
@@ -1826,26 +2087,140 @@ function finalizeAIMessage(fullText) {
           ${buildTextInput(fallbackId, 'Type your response...', `submitFreetext('${fallbackId}')`)}
         </div>
       `, { interactive: true });
+      bindInputHandlers(fallbackId, `submitFreetext('${fallbackId}')`);
     }, 120);
+  }
+
+  // Show attention hopper if spotlight is active — guides user from spotlight back to chat
+  if (state.spotlightActive) {
+    showChatAttentionHopper(fullText);
   }
 }
 
-function renderUserMessage(text) {
+function ensureFallbackInput() {
+  // After RUN_FINISHED, ensure there's an active input for the student.
+  // If the 120ms timer from finalizeAIMessage is still pending, let it handle it.
+  if (state.pendingFallbackTimer) return;
+
+  // Small delay to let any pending DOM updates settle (timer-created inputs, etc.)
+  setTimeout(() => {
+    if (state.pendingFallbackTimer) return;
+    if (state.isStreaming) return;
+
+    const stream = $('#canvas-stream');
+    if (!stream) return;
+    const activeInput = stream.querySelector('.canvas-block[data-interactive="true"]:not([data-resolved])');
+    if (activeInput) return;
+
+    const fallbackId = 'fallback-' + generateId().slice(0, 8);
+    appendBlock('ai', `
+      <div class="text-input-area">
+        ${buildTextInput(fallbackId, 'Type your response...', `submitFreetext('${fallbackId}')`)}
+      </div>
+    `, { interactive: true });
+    bindInputHandlers(fallbackId, `submitFreetext('${fallbackId}')`);
+  }, 150);
+}
+
+function showChatAttentionHopper(fullText) {
+  // Remove any existing hopper
+  const old = document.getElementById('chat-attention-hopper');
+  if (old) old.remove();
+
+  // Extract a preview — find the last question or meaningful text
+  const stripped = fullText.replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  let preview = '';
+  const questionMatch = stripped.match(/([^.!?]*\?)\s*$/);
+  if (questionMatch) {
+    preview = questionMatch[1].trim();
+    if (preview.length > 80) preview = preview.slice(-80);
+  } else {
+    preview = stripped.slice(-60).trim();
+  }
+
+  const hopper = document.createElement('div');
+  hopper.id = 'chat-attention-hopper';
+  hopper.innerHTML = `
+    <div class="hopper-pulse"></div>
+    <div class="hopper-content">
+      <span class="hopper-icon">💬</span>
+      <span class="hopper-text">${preview ? escapeHtml(preview) : 'New message below'}</span>
+    </div>
+    <span class="hopper-arrow">↓</span>
+  `;
+  hopper.addEventListener('click', () => {
+    const stream = $('#canvas-stream');
+    if (stream) stream.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    hopper.classList.add('hopper-dismissed');
+    setTimeout(() => hopper.remove(), 300);
+  });
+
+  const canvasCol = document.getElementById('canvas-column');
+  if (canvasCol) canvasCol.appendChild(hopper);
+
+  // Auto-dismiss when user scrolls the chat stream
+  const stream = $('#canvas-stream');
+  if (stream) {
+    const onScroll = () => {
+      const el = document.getElementById('chat-attention-hopper');
+      if (!el) { stream.removeEventListener('scroll', onScroll); return; }
+      // Check if any chat content is visible
+      const streamRect = stream.getBoundingClientRect();
+      const lastBlock = stream.lastElementChild;
+      if (lastBlock) {
+        const blockRect = lastBlock.getBoundingClientRect();
+        if (blockRect.top < streamRect.bottom) {
+          el.classList.add('hopper-dismissed');
+          setTimeout(() => el.remove(), 300);
+          stream.removeEventListener('scroll', onScroll);
+        }
+      }
+    };
+    stream.addEventListener('scroll', onScroll);
+  }
+
+  // Auto-dismiss after 15 seconds
+  setTimeout(() => {
+    const el = document.getElementById('chat-attention-hopper');
+    if (el) {
+      el.classList.add('hopper-dismissed');
+      setTimeout(() => el.remove(), 300);
+    }
+  }, 15000);
+}
+
+function renderUserMessage(text, imageDataUrl) {
   const stream = $('#canvas-stream');
   const block = document.createElement('div');
   block.className = 'canvas-block board-response fade-in';
   block.dataset.type = 'user';
-  block.innerHTML = `<span class="response-label">You</span> <span class="response-text">${escapeHtml(text)}</span>`;
+  let imgHtml = '';
+  if (imageDataUrl) {
+    imgHtml = `<div class="user-image-preview"><img src="${imageDataUrl}" alt="User image" /></div>`;
+  }
+  block.innerHTML = `<span class="response-label">You</span> <span class="response-text">${escapeHtml(text)}</span>${imgHtml}`;
   stream.appendChild(block);
   stream.scrollTop = stream.scrollHeight;
 }
 
 function renderAIError(message) {
+  const isBilling = /credit|billing|balance/i.test(message);
+  const icon = isBilling ? '💳' : '⚠';
+  const title = isBilling ? 'API Credits Exhausted' : 'Something went wrong';
+  const hint = isBilling
+    ? 'The AI service needs more credits to continue. Please top up and retry.'
+    : message;
+
   appendBlock('system', `
-    <div class="ai-label" style="color:var(--red)">Error</div>
-    <div class="ai-message" style="color:var(--red)">${escapeHtml(message)}</div>
-    <div style="margin-top:12px;text-align:right;">
-      <button class="btn btn-primary" onclick="handleRetry()">Retry</button>
+    <div class="error-card">
+      <div class="error-card-header">
+        <span class="error-card-icon">${icon}</span>
+        <span class="error-card-title">${escapeHtml(title)}</span>
+      </div>
+      <div class="error-card-body">${escapeHtml(hint)}</div>
+      <div class="error-card-actions">
+        <button class="btn btn-primary" onclick="handleRetry()">Retry</button>
+      </div>
     </div>
   `);
 }
@@ -2030,17 +2405,32 @@ function renderTeachingTag(tag) {
       renderTeachbackTag(tag);
       break;
     case 'teaching-board-draw': {
+      const bdTitle = tag.attrs.title || 'Board';
+      // Store raw commands for replay on reopen
+      if (tag.content) {
+        tag._boardDrawContent = tag.content;
+      }
+      openBoardDrawSpotlight(bdTitle, tag.content || null);
       if (!state.boardDraw.active) {
-        const bdTitle = tag.attrs.title || 'Board';
-        openBoardDrawSpotlight(bdTitle);
+        // Non-streaming path (e.g. message history) — parse commands from tag content
+        state.boardDraw.commandQueue = [];
         const bdLines = (tag.content || '').split('\n');
         for (const bdLine of bdLines) {
           const trimmed = bdLine.trim();
           if (!trimmed) continue;
-          try { bdEnqueueCommand(JSON.parse(trimmed)); } catch (e) {}
+          try { state.boardDraw.commandQueue.push(JSON.parse(trimmed)); } catch (e) {}
         }
-        state.boardDraw.active = true;
       }
+      // Commands (queued during streaming or parsed above) execute when canvas is ready
+      state.boardDraw.active = true;
+      break;
+    }
+    case 'teaching-widget': {
+      const wTitle = tag.attrs.title || 'Interactive Widget';
+      const wCode = tag.content || state.widget.code || '';
+      openWidgetSpotlight(wTitle, wCode, state.replayMode);
+      // Reset widget streaming state
+      state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '' };
       break;
     }
     case 'teaching-interactive':
@@ -2061,6 +2451,27 @@ function renderTeachingTag(tag) {
     case 'teaching-notebook-comment':
       appendNotebookComment(tag);
       break;
+  }
+
+  // Track visual asset usage for engagement enforcement
+  const _visualTags = new Set([
+    'teaching-video', 'teaching-simulation', 'teaching-interactive',
+    'teaching-image', 'teaching-board-draw', 'teaching-spotlight',
+    'teaching-widget',
+  ]);
+  if (_visualTags.has(tag.name)) {
+    state.lastVisualTurn = state.totalAssistantTurns;
+    state.visualAssetCount++;
+  }
+
+  // Track assessment/interactive engagement (suppresses visual alert)
+  const _engagementTags = new Set([
+    'teaching-mcq', 'teaching-freetext', 'teaching-agree-disagree',
+    'teaching-teachback', 'teaching-canvas',
+    'teaching-notebook-step', 'teaching-notebook-comment',
+  ]);
+  if (_engagementTags.has(tag.name)) {
+    state.lastEngagementTurn = state.totalAssistantTurns;
   }
 }
 
@@ -2181,24 +2592,31 @@ function renderMCQTag(tag) {
   const prompt = tag.attrs.prompt || tag.attrs.question || '';
   const options = [];
 
+  // Detect if a correct answer was explicitly specified
+  const hasCorrectAttr = tag.attrs.correct !== undefined || tag.attrs.answer !== undefined;
+  const isProbe = !hasCorrectAttr;
+
   // Strategy 1: Parse <option> elements from content
   const optionRegex = /<option\s+value=(?:"([^"]*)"|'([^']*)')([^>]*)>([^<]*)<\/option>/g;
   let optMatch;
+  let hasInlineCorrect = false;
   while ((optMatch = optionRegex.exec(tag.content)) !== null) {
+    const optCorrect = optMatch[3].includes('correct');
+    if (optCorrect) hasInlineCorrect = true;
     options.push({
       value: optMatch[1] || optMatch[2],
-      correct: optMatch[3].includes('correct'),
+      correct: optCorrect,
       text: optMatch[4],
     });
   }
 
   // Strategy 2: Pipe-separated "options" attribute (e.g., options="A|B|C|D")
   if (options.length === 0 && tag.attrs.options) {
-    const correctIdx = parseInt(tag.attrs.correct || tag.attrs.answer || '0', 10);
+    const correctIdx = hasCorrectAttr ? parseInt(tag.attrs.correct || tag.attrs.answer, 10) : -1;
     tag.attrs.options.split('|').forEach((text, i) => {
       options.push({
-        value: String.fromCharCode(97 + i), // a, b, c, d
-        correct: i === correctIdx || i === correctIdx - 1, // support 0-based or 1-based
+        value: String.fromCharCode(97 + i),
+        correct: correctIdx >= 0 && (i === correctIdx || i === correctIdx - 1),
         text: text.trim(),
       });
     });
@@ -2208,18 +2626,19 @@ function renderMCQTag(tag) {
   if (options.length === 0 && tag.content) {
     const lines = tag.content.split('\n').map(l => l.trim()).filter(l => l.length > 0);
     if (lines.length >= 2) {
-      const correctIdx = parseInt(tag.attrs.correct || tag.attrs.answer || '0', 10);
+      const correctIdx = hasCorrectAttr ? parseInt(tag.attrs.correct || tag.attrs.answer, 10) : -1;
       lines.forEach((text, i) => {
-        // Strip leading letter/number markers like "A)" or "1."
         const cleaned = text.replace(/^[A-Da-d1-4][.):\s]+/, '').trim();
         options.push({
           value: String.fromCharCode(97 + i),
-          correct: i === correctIdx || i === correctIdx - 1,
+          correct: correctIdx >= 0 && (i === correctIdx || i === correctIdx - 1),
           text: cleaned || text,
         });
       });
     }
   }
+
+  const isProbeMode = isProbe && !hasInlineCorrect && !options.some(o => o.correct);
 
   const mcqId = 'mcq-' + generateId().slice(0, 8);
   let optionsHtml = options.map(o => `
@@ -2229,51 +2648,84 @@ function renderMCQTag(tag) {
     </div>
   `).join('');
 
-  appendBlock('mcq', `
-    ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
-    <div class="mcq-options" id="${mcqId}">${optionsHtml}</div>
-    <div class="strip-actions">
-      <button class="btn btn-primary" id="submit-${mcqId}" disabled>Submit</button>
-    </div>
-  `, { interactive: true });
+  if (isProbeMode) {
+    appendBlock('mcq', `
+      ${prompt ? `<div class="probe-prompt">${renderMarkdownBasic(prompt)}</div>` : ''}
+      <div class="mcq-options mcq-probe" id="${mcqId}">${optionsHtml}</div>
+    `, { interactive: true });
 
-  setTimeout(() => {
-    let selected = null;
-    $$(`#${mcqId} .mcq-option`).forEach(opt => {
-      opt.addEventListener('click', () => {
-        $$(`#${mcqId} .mcq-option`).forEach(o => o.classList.remove('selected'));
-        opt.classList.add('selected');
-        selected = opt.dataset.value;
-        const btn = $(`#submit-${mcqId}`);
-        if (btn) btn.disabled = false;
+    setTimeout(() => {
+      $$(`#${mcqId} .mcq-option`).forEach(opt => {
+        opt.addEventListener('click', () => {
+          $$(`#${mcqId} .mcq-option`).forEach(o => {
+            o.classList.remove('selected');
+            o.style.pointerEvents = 'none';
+            o.style.opacity = '0.55';
+          });
+          opt.classList.add('selected', 'probe-selected');
+          opt.style.opacity = '1';
+          const selectedText = opt.textContent?.trim();
+          SessionManager.recordAssessment({
+            type: 'probe',
+            question: prompt,
+            options: options.map(o => o.text),
+            studentAnswer: selectedText || '',
+            correctAnswer: '',
+            correct: null,
+          });
+          setTimeout(() => {
+            sendStudentResponse(`[MCQ answer: ${opt.dataset.value}] ${selectedText || ''}`);
+          }, 500);
+        });
       });
-    });
+    }, 50);
+  } else {
+    appendBlock('mcq', `
+      ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
+      <div class="mcq-options" id="${mcqId}">${optionsHtml}</div>
+      <div class="strip-actions">
+        <button class="btn btn-primary" id="submit-${mcqId}" disabled>Submit</button>
+      </div>
+    `, { interactive: true });
 
-    const submitBtn = $(`#submit-${mcqId}`);
-    if (submitBtn) {
-      submitBtn.addEventListener('click', () => {
-        if (!selected) return;
-        $$(`#${mcqId} .mcq-option`).forEach(o => {
-          if (o.dataset.correct === 'true') o.classList.add('correct');
-          else if (o.classList.contains('selected')) o.classList.add('incorrect');
+    setTimeout(() => {
+      let selected = null;
+      $$(`#${mcqId} .mcq-option`).forEach(opt => {
+        opt.addEventListener('click', () => {
+          $$(`#${mcqId} .mcq-option`).forEach(o => o.classList.remove('selected'));
+          opt.classList.add('selected');
+          selected = opt.dataset.value;
+          const btn = $(`#submit-${mcqId}`);
+          if (btn) btn.disabled = false;
         });
-        submitBtn.disabled = true;
-        const selectedText = $$(`#${mcqId} .mcq-option`).find(o => o.dataset.value === selected)?.textContent?.trim();
-        const isCorrect = options.find(o => o.value === selected)?.correct === true;
-        SessionManager.recordAssessment({
-          type: 'mcq',
-          question: prompt,
-          options: options.map(o => o.text),
-          studentAnswer: selectedText || '',
-          correctAnswer: options.find(o => o.correct)?.text || '',
-          correct: isCorrect,
-        });
-        setTimeout(() => {
-          sendStudentResponse(`[MCQ answer: ${selected}] ${selectedText || ''}`);
-        }, 800);
       });
-    }
-  }, 50);
+
+      const submitBtn = $(`#submit-${mcqId}`);
+      if (submitBtn) {
+        submitBtn.addEventListener('click', () => {
+          if (!selected) return;
+          $$(`#${mcqId} .mcq-option`).forEach(o => {
+            if (o.dataset.correct === 'true') o.classList.add('correct');
+            else if (o.classList.contains('selected')) o.classList.add('incorrect');
+          });
+          submitBtn.disabled = true;
+          const selectedText = $$(`#${mcqId} .mcq-option`).find(o => o.dataset.value === selected)?.textContent?.trim();
+          const isCorrect = options.find(o => o.value === selected)?.correct === true;
+          SessionManager.recordAssessment({
+            type: 'mcq',
+            question: prompt,
+            options: options.map(o => o.text),
+            studentAnswer: selectedText || '',
+            correctAnswer: options.find(o => o.correct)?.text || '',
+            correct: isCorrect,
+          });
+          setTimeout(() => {
+            sendStudentResponse(`[MCQ answer: ${selected}] ${selectedText || ''}`);
+          }, 800);
+        });
+      }
+    }, 50);
+  }
 }
 
 function renderFreetextTag(tag) {
@@ -2285,8 +2737,8 @@ function renderFreetextTag(tag) {
     ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
     <div class="freetext-input-container" id="${ftId}-container">
       <div class="input-mode-toggle">
-        <button class="mode-btn active" data-mode="text" title="Type answer">${SVG_TEXT}</button>
-        <button class="mode-btn" data-mode="draw" title="Draw answer">${SVG_DRAW}</button>
+        <button class="mode-btn active" data-mode="text" title="Type answer">${SVG_TEXT} Type</button>
+        <button class="mode-btn" data-mode="draw" title="Draw answer">${SVG_DRAW} Draw</button>
       </div>
       <div class="text-mode" id="${ftId}-text-mode">
         <div class="text-input-area">
@@ -2297,7 +2749,10 @@ function renderFreetextTag(tag) {
     </div>
   `, { interactive: true });
 
-  setTimeout(() => { initFreetextToggle(ftId, prompt); }, 50);
+  setTimeout(() => {
+    initFreetextToggle(ftId, prompt);
+    bindInputHandlers(ftId, `submitFreetext('${ftId}')`);
+  }, 50);
 }
 
 function initFreetextToggle(ftId, prompt) {
@@ -3094,12 +3549,14 @@ function handleToolCallStart(event) {
   const toolName = event.toolCallName || event.tool_call_name;
   state.activeToolCalls[toolId] = { name: toolName, args: '' };
 
-  // Internal orchestration tools run in the background while the student
-  // interacts with an assessment. Do NOT disable interactive elements or
-  // show "Thinking..." — the assessment IS the student-facing activity.
-  const internalTools = ['spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching'];
+  // Internal/background tools run silently — do NOT disable interactive
+  // elements, cancel fallback timers, or show "Working..." indicators.
+  const internalTools = [
+    'spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching',
+    'update_student_model', 'log_knowledge', 'request_board_image',
+    'reset_plan',
+  ];
   if (internalTools.includes(toolName)) {
-    // Internal tools run in background — do NOT cancel fallback input timer.
     return;
   }
 
@@ -3167,6 +3624,16 @@ function cleanupToolIndicators() {
 // ═══════════════════════════════════════════════════════════
 
 async function showSpotlight(tag, options = {}) {
+  // In replay mode, only render the reference card — don't open the spotlight
+  if (state.replayMode) {
+    const type = tag.attrs?.type || tag.name?.replace('teaching-', '') || 'spotlight';
+    const title = tag.attrs?.title || tag.attrs?.label || type;
+    if (!options.skipReference) {
+      appendSpotlightReference(type, title, tag);
+    }
+    return;
+  }
+
   const panel = $('#spotlight-panel');
   const content = $('#spotlight-content');
   const titleEl = $('#spotlight-title');
@@ -3361,6 +3828,7 @@ async function showSpotlight(tag, options = {}) {
   }
 
   state.spotlightActive = true;
+  state.spotlightOpenedAtTurn = state.totalAssistantTurns;
   enterSpotlightFullscreen();
 
   // Append reference card in chat stream (skip on reopen to prevent duplicates)
@@ -3459,6 +3927,52 @@ function appendNotebookComment(tag) {
   // Scroll to newest
   const surface = $(`#${info.notebookId}-steps`);
   if (surface) surface.scrollTop = surface.scrollHeight;
+}
+
+// ── Restore notebook steps from saved state (for session resume / reopen) ──
+function restoreNotebookSteps() {
+  const info = state.spotlightInfo;
+  if (!info || info.type !== 'notebook') return;
+  const stepsEl = $(`#${info.notebookId}-steps`);
+  if (!stepsEl) return;
+
+  for (const step of state.notebookSteps) {
+    if (step.type === 'comment') {
+      const commentEl = document.createElement('div');
+      commentEl.className = 'tutor-says';
+      commentEl.innerHTML = renderLatex(escapeHtml(step.content || ''));
+      stepsEl.appendChild(commentEl);
+      const lineEl = document.createElement('div');
+      lineEl.className = 'chalk-line';
+      stepsEl.appendChild(lineEl);
+    } else {
+      const n = step.n || 0;
+      const circled = CIRCLED_NUMS[n - 1] || String(n);
+      const isCorrection = step.type === 'correction';
+      const isStudent = step.author === 'student';
+      const renderedMath = renderLatex(step.math || step.content || '');
+      const renderedAnnotation = renderLatex(escapeHtml(step.annotation || ''));
+
+      const stepEl = document.createElement('div');
+      stepEl.className = `step${isCorrection ? ' correction' : ''}${isStudent ? ' student-step' : ''}`;
+      stepEl.dataset.stepN = n;
+      stepEl.innerHTML = `
+        <div class="step-label"><span class="step-num">${circled}</span> ${renderedAnnotation}</div>
+        <div class="step-math">${renderedMath}</div>
+      `;
+      if (isStudent && step.hasDrawing && step.drawingDataUrl) {
+        const img = document.createElement('img');
+        img.src = step.drawingDataUrl;
+        img.className = 'student-drawing-preview';
+        stepEl.appendChild(img);
+      }
+      stepsEl.appendChild(stepEl);
+      const lineEl = document.createElement('div');
+      lineEl.className = 'chalk-line';
+      stepsEl.appendChild(lineEl);
+    }
+  }
+  stepsEl.scrollTop = stepsEl.scrollHeight;
 }
 
 // ── Add student step to notebook (green chalk) ──
@@ -3919,18 +4433,39 @@ function initNotebookInteractive(notebookId, mode, promptText) {
 // ── Spotlight reference cards (clickable history in chat stream) ──
 function appendSpotlightReference(type, title, reopenTag) {
   const refId = 'spot-ref-' + generateId().slice(0, 8);
-  const typeIcons = { video: '▶', simulation: '⚗', notebook: '📓', image: '🖼', 'board-draw': '✎' };
+  const typeIcons = { video: '▶', simulation: '⚗', notebook: '📓', image: '🖼', 'board-draw': '✎', widget: '⚡' };
   const icon = typeIcons[type] || '◆';
 
-  state.spotlightHistory.push({ id: refId, type, title, tag: reopenTag });
+  const historyEntry = { id: refId, type, title, tag: reopenTag };
+  if (type === 'board-draw' && reopenTag._boardDrawContent) {
+    historyEntry.boardDrawContent = reopenTag._boardDrawContent;
+  }
+  if (type === 'widget' && reopenTag._widgetCode) {
+    historyEntry.widgetCode = reopenTag._widgetCode;
+  }
+  state.spotlightHistory.push(historyEntry);
 
-  appendBlock('spotlight-ref', `
+  const stream = $('#canvas-stream');
+  const cardHtml = `
     <div class="spotlight-ref-card" data-type="${escapeAttr(type)}" onclick="reopenSpotlight('${refId}')">
       <span class="spotlight-ref-icon">${icon}</span>
       <span class="spotlight-ref-title">${escapeHtml(title)}</span>
       <span class="spotlight-ref-hint">Click to reopen</span>
     </div>
-  `);
+  `;
+  const block = document.createElement('div');
+  block.className = 'canvas-block fade-in';
+  block.dataset.type = 'spotlight-ref';
+  block.innerHTML = `<div class="block-card">${cardHtml}</div>`;
+
+  // Insert BEFORE the last interactive input block so cards don't displace the text input
+  const lastInteractive = stream.querySelector('.canvas-block[data-interactive="true"]:last-of-type');
+  if (lastInteractive && !lastInteractive.dataset.resolved) {
+    stream.insertBefore(block, lastInteractive);
+  } else {
+    stream.appendChild(block);
+  }
+  stream.scrollTop = stream.scrollHeight;
 }
 
 window.reopenSpotlight = function(refId) {
@@ -3939,6 +4474,26 @@ window.reopenSpotlight = function(refId) {
 
   if (entry.type === 'video' && entry.tag.lessonId !== undefined) {
     openVideoInSpotlight(entry.tag.lessonId, entry.tag.start, entry.tag.end, entry.tag.label, { skipReference: true });
+  } else if (entry.type === 'board-draw' && entry.boardDrawContent) {
+    // Replay board-draw with stored commands
+    const bdTitle = entry.title || 'Board';
+    openBoardDrawSpotlight(bdTitle, entry.boardDrawContent, { skipReference: true });
+    state.boardDraw.commandQueue = [];
+    const bdLines = entry.boardDrawContent.split('\n');
+    for (const ln of bdLines) {
+      const trimmed = ln.trim();
+      if (!trimmed) continue;
+      try { state.boardDraw.commandQueue.push(JSON.parse(trimmed)); } catch (e) {}
+    }
+    state.boardDraw.active = true;
+  } else if (entry.type === 'widget' && entry.widgetCode) {
+    openWidgetSpotlight(entry.title, entry.widgetCode, false, { skipReference: true });
+  } else if (entry.type === 'notebook') {
+    // Reopen notebook and restore saved steps
+    showSpotlight(entry.tag, { skipReference: true });
+    if (state.notebookSteps.length > 0) {
+      setTimeout(() => restoreNotebookSteps(), 100);
+    }
   } else {
     showSpotlight(entry.tag, { skipReference: true });
   }
@@ -3981,6 +4536,13 @@ window.hideSpotlight = function(options = {}) {
   if (panel) panel.classList.remove('stage-active');
 
   const content = $('#spotlight-content');
+
+  // Clean up widget iframe bridge listener before clearing content
+  if (state.spotlightInfo?.type === 'widget') {
+    const wIframe = content?.querySelector('.widget-iframe');
+    if (wIframe?._bridgeCleanup) wIframe._bridgeCleanup();
+  }
+
   if (content) content.innerHTML = '';
 
   const typeBadge = $('#spotlight-type-badge');
@@ -4006,17 +4568,14 @@ window.hideSpotlight = function(options = {}) {
 
   state.spotlightActive = false;
   state.spotlightInfo = null;
+  dismissChatHopper();
 
-  // Auto-trigger agent when student closes video or board-draw
-  if (!options.agentInitiated && !state.isStreaming) {
+  // Store close event as context for the student's next message (no auto-trigger)
+  if (!options.agentInitiated) {
     if (wasVideo) {
-      setTimeout(() => {
-        if (!state.isStreaming) streamADK('[I\'m done watching "' + prevTitle + '"]');
-      }, 400);
+      state.pendingSpotlightEvent = 'Student closed the video "' + prevTitle + '"';
     } else if (wasBoardDraw) {
-      setTimeout(() => {
-        if (!state.isStreaming) streamADK('[I\'ve seen the board drawing "' + prevTitle + '"]');
-      }, 400);
+      state.pendingSpotlightEvent = 'Student viewed the board drawing "' + prevTitle + '"';
     }
   }
 };
@@ -4027,7 +4586,24 @@ window.hideSpotlight = function(options = {}) {
 
 function sendStudentResponse(text) {
   if (state.isStreaming) return;
-  streamADK(text);
+  dismissChatHopper();
+
+  // Auto-attach spotlight snapshot if spotlight is open (gives AI visual context)
+  const snapParts = buildSpotlightSnapshotParts();
+  if (snapParts.length > 0) {
+    renderUserMessage(text);
+    streamADK([{ type: 'text', text }, ...snapParts]);
+  } else {
+    streamADK(text);
+  }
+}
+
+function dismissChatHopper() {
+  const el = document.getElementById('chat-attention-hopper');
+  if (el) {
+    el.classList.add('hopper-dismissed');
+    setTimeout(() => el.remove(), 300);
+  }
 }
 
 // sendCanvasDrawing removed — canvas drawing now handled via notebook workspace
@@ -4036,8 +4612,25 @@ window.submitFreetext = function(inputId) {
   const el = $(`#${inputId}`);
   if (!el) return;
   const val = el.value.trim();
-  if (!val) return;
-  sendStudentResponse(val);
+  const img = _pendingImages[inputId];
+  if (!val && !img) return;
+
+  if (img) {
+    const parts = [];
+    parts.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } });
+    parts.push({ type: 'text', text: val || '[Student sent an image]' });
+    // Also attach spotlight snapshot if open
+    const snapParts = buildSpotlightSnapshotParts();
+    parts.push(...snapParts);
+    const thumbUrl = `data:${img.mediaType};base64,${img.base64}`;
+    delete _pendingImages[inputId];
+    const preview = $(`#${inputId}-img-preview`);
+    if (preview) preview.style.display = 'none';
+    renderUserMessage(val || '[Image]', thumbUrl);
+    streamADK(parts);
+  } else {
+    sendStudentResponse(val);
+  }
 };
 
 window.submitFillBlank = function(fbId, count) {
@@ -4181,14 +4774,32 @@ function renderLatex(text) {
 }
 
 function renderMarkdownBasic(text) {
-  // Process LaTeX before markdown to protect math from markdown transforms
-  text = renderLatex(text);
-  return text
+  // Extract math expressions FIRST to protect KaTeX SVG from markdown transforms
+  const mathSlots = [];
+  if (typeof katex !== 'undefined') {
+    text = text.replace(/\$\$([\s\S]+?)\$\$/g, (match, math) => {
+      const i = mathSlots.length;
+      try { mathSlots.push(katex.renderToString(math.trim(), { displayMode: true, throwOnError: false })); }
+      catch { mathSlots.push(match); }
+      return `\x00M${i}\x00`;
+    });
+    text = text.replace(/(?<!\$)\$(?!\$)(.+?)(?<!\$)\$(?!\$)/g, (match, math) => {
+      const i = mathSlots.length;
+      try { mathSlots.push(katex.renderToString(math.trim(), { displayMode: false, throwOnError: false })); }
+      catch { mathSlots.push(match); }
+      return `\x00M${i}\x00`;
+    });
+  }
+  // Apply markdown transforms safely (no KaTeX HTML to corrupt)
+  text = text
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code style="background:var(--bg-elevated);padding:1px 4px;border-radius:3px;font-family:var(--font-mono);font-size:13px;">$1</code>')
     .replace(/\n\n/g, '<br><br>')
     .replace(/\n/g, '<br>');
+  // Restore math expressions
+  text = text.replace(/\x00M(\d+)\x00/g, (_, i) => mathSlots[parseInt(i)]);
+  return text;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -4654,6 +5265,13 @@ window.continueSession = async function(sessionId) {
     // Restore notebook steps (derivation context)
     state.notebookSteps = sessionData.notebookSteps || [];
 
+    // Restore engagement tracking counters
+    const tc = sessionData.teachingCounters || {};
+    state.totalAssistantTurns = tc.totalAssistantTurns || 0;
+    state.lastVisualTurn = tc.lastVisualTurn || 0;
+    state.visualAssetCount = tc.visualAssetCount || 0;
+    state.lastEngagementTurn = tc.lastEngagementTurn || 0;
+
     // Restore plan from session data
     if (sessionData.plan && sessionData.plan.raw) {
       const rawPlan = sessionData.plan.raw;
@@ -4726,11 +5344,15 @@ function rebuildCanvasFromTranscript(transcript) {
   const stream = document.getElementById('canvas-stream');
   // Keep the welcome header that showTeachingLayout already added
 
+  // Prevent spotlights from opening during replay (only render ref cards)
+  state.replayMode = true;
+  const savedHistory = state.spotlightHistory || [];
+  state.spotlightHistory = [];
+
   for (const msg of transcript) {
     if (msg.role === 'assistant') {
       renderHistoricalTutorMessage(msg.content);
     } else if (msg.role === 'user') {
-      // Skip system triggers (internal messages)
       const c = msg.content || '';
       if (c.startsWith('[SYSTEM]') || c.startsWith('[') || c.startsWith('The student')) {
         continue;
@@ -4738,6 +5360,19 @@ function rebuildCanvasFromTranscript(transcript) {
       renderHistoricalStudentMessage(c);
     }
   }
+
+  // Merge saved history data (boardDrawContent, widgetCode) into replay-generated entries.
+  // Replay entries have DOM-matching IDs; saved entries may have richer data.
+  for (const saved of savedHistory) {
+    const match = state.spotlightHistory.find(
+      e => e.type === saved.type && e.title === saved.title
+    );
+    if (match) {
+      if (saved.boardDrawContent && !match.boardDrawContent) match.boardDrawContent = saved.boardDrawContent;
+      if (saved.widgetCode && !match.widgetCode) match.widgetCode = saved.widgetCode;
+    }
+  }
+  state.replayMode = false;
 
   // Scroll to bottom
   stream.scrollTop = stream.scrollHeight;
@@ -4848,14 +5483,131 @@ const BD_INITIAL_H = 500;
 function bdInit(canvasEl, voiceEl) {
   const bd = state.boardDraw;
   bd.canvas = canvasEl;
-  bd.ctx = canvasEl.getContext('2d');
+  bd.ctx = canvasEl.getContext('2d', { willReadFrequently: true });
   bd.voiceEl = voiceEl;
   bd.cancelFlag = false;
   bd.currentH = BD_INITIAL_H;
   bd.DPR = Math.min(window.devicePixelRatio || 1, 3);
+  bd.studentDrawing = false;
+  bd.studentColor = '#22ee66';
+  bd.studentStrokeW = 2.5;
   bdResizeCanvas();
   bdDrawGrid();
+  bdInitStudentDrawing(canvasEl);
+  bdInitToolbar();
+  // Start processing commands that were queued during streaming
+  if (bd.commandQueue.length > 0 && !bd.isProcessing) {
+    bdProcessQueue();
+  }
 }
+
+function bdInitToolbar() {
+  const toolbar = document.getElementById('bd-toolbar');
+  if (!toolbar) return;
+  const bd = state.boardDraw;
+  toolbar.querySelectorAll('.bd-tool-btn[data-color]').forEach(btn => {
+    btn.addEventListener('click', () => {
+      toolbar.querySelectorAll('.bd-tool-btn[data-color]').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      const color = btn.dataset.color;
+      if (color === 'eraser') {
+        bd.studentColor = '#1a1d2e';
+        bd.studentStrokeW = 12;
+      } else {
+        bd.studentColor = color;
+        bd.studentStrokeW = 2.5;
+      }
+    });
+  });
+}
+
+function bdInitStudentDrawing(canvasEl) {
+  const bd = state.boardDraw;
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+
+  function getPos(e) {
+    const rect = canvasEl.getBoundingClientRect();
+    const scaleX = canvasEl.width / (bd.DPR * rect.width);
+    const scaleY = canvasEl.height / (bd.DPR * rect.height);
+    if (e.touches) {
+      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
+    }
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+  }
+
+  function startDraw(e) {
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    lastX = pos.x;
+    lastY = pos.y;
+    bd.studentDrawing = true;
+  }
+
+  function doDraw(e) {
+    if (!drawing) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    const ctx = bd.ctx;
+    if (!ctx) return;
+    ctx.save();
+    ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+    ctx.strokeStyle = bd.studentColor;
+    ctx.lineWidth = bd.studentStrokeW;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(pos.x, pos.y);
+    ctx.stroke();
+    ctx.restore();
+    lastX = pos.x;
+    lastY = pos.y;
+  }
+
+  function stopDraw() {
+    drawing = false;
+  }
+
+  canvasEl.addEventListener('mousedown', startDraw);
+  canvasEl.addEventListener('mousemove', doDraw);
+  canvasEl.addEventListener('mouseup', stopDraw);
+  canvasEl.addEventListener('mouseleave', stopDraw);
+  canvasEl.addEventListener('touchstart', startDraw, { passive: false });
+  canvasEl.addEventListener('touchmove', doDraw, { passive: false });
+  canvasEl.addEventListener('touchend', stopDraw);
+}
+
+window.bdClearStudentDrawing = function() {
+  const bd = state.boardDraw;
+  if (!bd.canvas || !bd.ctx) return;
+  bd.ctx.save();
+  bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+  bd.ctx.fillStyle = '#1a1d2e';
+  bd.ctx.fillRect(0, 0, bd.canvas.width / bd.DPR, bd.canvas.height / bd.DPR);
+  bd.ctx.restore();
+  bdDrawGrid();
+  bd.studentDrawing = false;
+  // Re-run tutor commands (without animation) from rawContent or spotlightHistory
+  const raw = bd.rawContent
+    || (state.spotlightHistory.find(e => e.type === 'board-draw' && e.boardDrawContent) || {}).boardDrawContent;
+  if (raw) {
+    const cmds = [];
+    for (const ln of raw.split('\n')) {
+      const t = ln.trim();
+      if (!t) continue;
+      try { cmds.push(JSON.parse(t)); } catch (e) {}
+    }
+    bdReplayCommandsInstant(cmds);
+  }
+  // Re-capture tutor snapshot after clearing student work
+  try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
+};
+
+window.bdSendDrawing = function() {
+  bdCaptureAndSend();
+};
 
 function bdResizeCanvas() {
   const bd = state.boardDraw;
@@ -4874,7 +5626,7 @@ function bdResizeCanvas() {
   bd.canvas.height = actualH * bd.DPR;
   bd.canvas.style.width = actualW + 'px';
   bd.canvas.style.height = actualH + 'px';
-  bd.ctx = bd.canvas.getContext('2d');
+  bd.ctx = bd.canvas.getContext('2d', { willReadFrequently: true });
   bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
   bd.ctx.fillStyle = '#1a1d2e';
   bd.ctx.fillRect(0, 0, actualW, actualH);
@@ -5054,6 +5806,107 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   bdClearShadow();
 }
 
+// LaTeX to readable Unicode text for canvas rendering (avoids SVG foreignObject which taints canvas)
+const _LATEX_GREEK = {
+  alpha:'α',beta:'β',gamma:'γ',delta:'δ',epsilon:'ε',zeta:'ζ',eta:'η',theta:'θ',
+  iota:'ι',kappa:'κ',lambda:'λ',mu:'μ',nu:'ν',xi:'ξ',pi:'π',rho:'ρ',sigma:'σ',
+  tau:'τ',upsilon:'υ',phi:'φ',chi:'χ',psi:'ψ',omega:'ω',
+  Gamma:'Γ',Delta:'Δ',Theta:'Θ',Lambda:'Λ',Xi:'Ξ',Pi:'Π',Sigma:'Σ',
+  Upsilon:'Υ',Phi:'Φ',Psi:'Ψ',Omega:'Ω',varepsilon:'ε',varphi:'φ',
+};
+const _LATEX_SYMS = {
+  infty:'∞',partial:'∂',nabla:'∇',hbar:'ℏ',ell:'ℓ',forall:'∀',exists:'∃',
+  in:'∈',notin:'∉',subset:'⊂',supset:'⊃',cup:'∪',cap:'∩',
+  times:'×',cdot:'·',pm:'±',mp:'∓',leq:'≤',geq:'≥',neq:'≠',approx:'≈',
+  equiv:'≡',propto:'∝',sim:'∼',ll:'≪',gg:'≫',
+  rightarrow:'→',leftarrow:'←',Rightarrow:'⇒',Leftarrow:'⇐',
+  leftrightarrow:'↔',uparrow:'↑',downarrow:'↓',
+  int:'∫',sum:'∑',prod:'∏',sqrt:'√',langle:'⟨',rangle:'⟩',
+  dagger:'†',otimes:'⊗',oplus:'⊕',circ:'∘',bullet:'•',star:'⋆',
+  ldots:'…',cdots:'⋯',vdots:'⋮',ddots:'⋱',
+  Re:'ℜ',Im:'ℑ',aleph:'ℵ',wp:'℘',emptyset:'∅',
+  land:'∧',lor:'∨',neg:'¬',angle:'∠',triangle:'△',
+  prime:'′',
+};
+const _LATEX_SUP = {'0':'⁰','1':'¹','2':'²','3':'³','4':'⁴','5':'⁵','6':'⁶','7':'⁷','8':'⁸','9':'⁹',
+  '+':'⁺','-':'⁻','=':'⁼','(':'⁽',')':'⁾','n':'ⁿ','i':'ⁱ','*':'*','T':'ᵀ',
+};
+const _LATEX_SUB = {'0':'₀','1':'₁','2':'₂','3':'₃','4':'₄','5':'₅','6':'₆','7':'₇','8':'₈','9':'₉',
+  '+':'₊','-':'₋','=':'₌','(':'₍',')':'₎','a':'ₐ','e':'ₑ','i':'ᵢ','j':'ⱼ',
+  'k':'ₖ','n':'ₙ','o':'ₒ','p':'ₚ','r':'ᵣ','s':'ₛ','t':'ₜ','u':'ᵤ','v':'ᵥ','x':'ₓ',
+};
+
+function latexToUnicode(tex) {
+  let s = tex;
+  // \text{...} → plain text
+  s = s.replace(/\\text\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\mathrm\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\textbf\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\mathbf\{([^}]*)\}/g, '$1');
+  s = s.replace(/\\operatorname\{([^}]*)\}/g, '$1');
+  // \frac{a}{b} → a/b
+  s = s.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1)/($2)');
+  // \sqrt{x} → √(x), \sqrt[n]{x} → ⁿ√(x)
+  s = s.replace(/\\sqrt\[([^\]]*)\]\{([^}]*)\}/g, (_, n, body) => (_LATEX_SUP[n] || n) + '√(' + body + ')');
+  s = s.replace(/\\sqrt\{([^}]*)\}/g, '√($1)');
+  // \vec{x} → x⃗, \hat{x} → x̂, \bar{x} → x̄, \dot{x} → ẋ, \tilde{x} → x̃
+  s = s.replace(/\\vec\{([^}]*)\}/g, '$1\u20D7');
+  s = s.replace(/\\hat\{([^}]*)\}/g, '$1\u0302');
+  s = s.replace(/\\bar\{([^}]*)\}/g, '$1\u0304');
+  s = s.replace(/\\dot\{([^}]*)\}/g, '$1\u0307');
+  s = s.replace(/\\tilde\{([^}]*)\}/g, '$1\u0303');
+  // Ket/Bra notation
+  s = s.replace(/\\ket\{([^}]*)\}/g, '|$1⟩');
+  s = s.replace(/\\bra\{([^}]*)\}/g, '⟨$1|');
+  s = s.replace(/\\braket\{([^}]*)\}\{([^}]*)\}/g, '⟨$1|$2⟩');
+  s = s.replace(/\\langle/g, '⟨');
+  s = s.replace(/\\rangle/g, '⟩');
+  // Superscripts: ^{...} or ^x
+  s = s.replace(/\^\{([^}]*)\}/g, (_, inner) => {
+    return inner.split('').map(ch => _LATEX_SUP[ch] || ch).join('');
+  });
+  s = s.replace(/\^([a-zA-Z0-9+\-*])/g, (_, ch) => _LATEX_SUP[ch] || '^' + ch);
+  // Subscripts: _{...} or _x
+  s = s.replace(/_\{([^}]*)\}/g, (_, inner) => {
+    return inner.split('').map(ch => _LATEX_SUB[ch] || ch).join('');
+  });
+  s = s.replace(/_([a-zA-Z0-9])/g, (_, ch) => _LATEX_SUB[ch] || '_' + ch);
+  // Greek letters
+  for (const [cmd, sym] of Object.entries(_LATEX_GREEK)) {
+    s = s.replace(new RegExp('\\\\' + cmd + '(?![a-zA-Z])', 'g'), sym);
+  }
+  // Symbols
+  for (const [cmd, sym] of Object.entries(_LATEX_SYMS)) {
+    s = s.replace(new RegExp('\\\\' + cmd + '(?![a-zA-Z])', 'g'), sym);
+  }
+  // Matrix environments: \begin{pmatrix}...\end{pmatrix} etc.
+  s = s.replace(/\\begin\{([pbBvV]?)matrix\}([\s\S]*?)\\end\{\1matrix\}/g, (_, bracket, body) => {
+    const brk = { p: ['(', ')'], b: ['[', ']'], B: ['{', '}'], v: ['|', '|'], V: ['‖', '‖'], '': ['', ''] };
+    const [l, r] = brk[bracket] || ['(', ')'];
+    const rows = body.split('\\\\').map(row => row.split('&').map(c => c.trim()).join('  '));
+    return l + rows.join(' ; ') + r;
+  });
+  // Common remaining commands
+  s = s.replace(/\\left\s*/g, '');
+  s = s.replace(/\\right\s*/g, '');
+  s = s.replace(/\\big\s*/g, '');
+  s = s.replace(/\\Big\s*/g, '');
+  s = s.replace(/\\bigg\s*/g, '');
+  s = s.replace(/\\Bigg\s*/g, '');
+  s = s.replace(/\\,/g, ' ');
+  s = s.replace(/\\;/g, ' ');
+  s = s.replace(/\\!/g, '');
+  s = s.replace(/\\quad/g, '  ');
+  s = s.replace(/\\qquad/g, '    ');
+  s = s.replace(/\\\\/g, '\n');
+  // Strip remaining backslash commands (e.g. \displaystyle)
+  s = s.replace(/\\[a-zA-Z]+/g, '');
+  // Clean up braces and extra spaces
+  s = s.replace(/[{}]/g, '');
+  s = s.replace(/\s{2,}/g, ' ');
+  return s.trim();
+}
+
 async function bdAnimLatex(latex, x, y, color, size) {
   const bd = state.boardDraw;
   if (bd.cancelFlag) return;
@@ -5062,44 +5915,192 @@ async function bdAnimLatex(latex, x, y, color, size) {
   const fs = (size || 24) * s;
   bdExpandIfNeeded(y + (size || 24) * 2);
 
-  const tmp = document.createElement('span');
-  tmp.style.cssText = `position:absolute;visibility:hidden;font-size:${fs}px;color:${c};`;
-  document.body.appendChild(tmp);
-  try { katex.render(latex, tmp, { throwOnError: false, displayMode: false }); }
-  catch (e) {
-    bd.ctx.font = `${fs}px 'Caveat', cursive`;
-    bd.ctx.fillStyle = c;
-    bd.ctx.fillText(latex, x * s, y * s);
-    document.body.removeChild(tmp);
-    return;
-  }
-  const html = tmp.innerHTML, tw = tmp.offsetWidth, th = tmp.offsetHeight;
-  document.body.removeChild(tmp);
+  const text = latexToUnicode(latex);
+  bd.ctx.font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
+  bd.ctx.fillStyle = c;
 
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${tw}" height="${th}"><foreignObject width="100%" height="100%"><div xmlns="http://www.w3.org/1999/xhtml" style="font-size:${fs}px;color:${c};line-height:1;">${html}</div></foreignObject></svg>`;
-  const img = new Image();
-  const blob = new Blob([svg], { type: 'image/svg+xml;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  await new Promise(resolve => {
-    img.onload = resolve;
-    img.onerror = () => {
-      bd.ctx.font = `${fs}px 'Caveat', cursive`;
-      bd.ctx.fillStyle = c;
-      bd.ctx.fillText(latex, x * s, y * s);
-      resolve();
-    };
-    img.src = url;
-  });
-  if (bd.cancelFlag) { URL.revokeObjectURL(url); return; }
-
-  const slW = 4, total = Math.ceil(tw / slW), delay = Math.max(8, 300 / total);
-  for (let i = 0; i < total; i++) {
+  // Progressive reveal: draw characters left-to-right
+  const chars = [...text];
+  const totalW = bd.ctx.measureText(text).width;
+  const delay = Math.max(12, Math.min(40, 600 / chars.length));
+  let drawn = '';
+  for (let i = 0; i < chars.length; i++) {
     if (bd.cancelFlag) break;
-    bd.ctx.drawImage(img, i * slW * bd.DPR, 0, slW * bd.DPR, img.height,
-      x * s + i * slW, y * s - th * 0.7, slW, th);
+    drawn += chars[i];
+    // Clear previous partial draw and redraw
+    const prevW = i > 0 ? bd.ctx.measureText(drawn.slice(0, -1)).width : 0;
+    bd.ctx.fillStyle = c;
+    bd.ctx.fillText(chars[i], x * s + prevW, y * s);
     await bdSleep(delay);
   }
-  URL.revokeObjectURL(url);
+}
+
+async function bdAnimMatrix(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const rows = cmd.rows || [];
+  if (rows.length === 0) return;
+  const nRows = rows.length;
+  const nCols = Math.max(...rows.map(r => r.length));
+  const fs = (cmd.size || 22) * s;
+  const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
+  const font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
+  bd.ctx.font = font;
+
+  const cellPadX = 12 * s;
+  const cellPadY = 8 * s;
+  const colWidths = [];
+  for (let col = 0; col < nCols; col++) {
+    let maxW = 0;
+    for (let row = 0; row < nRows; row++) {
+      const entry = latexToUnicode(String((rows[row] || [])[col] || ''));
+      maxW = Math.max(maxW, bd.ctx.measureText(entry).width);
+    }
+    colWidths.push(maxW);
+  }
+  const rowH = fs + cellPadY;
+  const totalW = colWidths.reduce((a, b) => a + b, 0) + (nCols - 1) * cellPadX;
+  const totalH = nRows * rowH;
+  const bracketW = 8 * s;
+  const ox = (cmd.x || 0) * s;
+  const oy = (cmd.y || 0) * s;
+  bdExpandIfNeeded((cmd.y || 0) + totalH / s + 20);
+
+  const bracket = cmd.bracket || 'round';
+  bdChalkStyle(cmd.color, 2);
+  if (bracket === 'round' || bracket === 'paren') {
+    const midY = oy + totalH / 2;
+    const halfH = totalH / 2 + 4 * s;
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(ox + bracketW, oy - 4 * s);
+    bd.ctx.quadraticCurveTo(ox, midY, ox + bracketW, oy + totalH + 4 * s);
+    bd.ctx.stroke();
+    const rx = ox + bracketW + totalW + cellPadX;
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(rx, oy - 4 * s);
+    bd.ctx.quadraticCurveTo(rx + bracketW, midY, rx, oy + totalH + 4 * s);
+    bd.ctx.stroke();
+  } else if (bracket === 'square') {
+    const lx = ox;
+    const rx2 = ox + bracketW * 2 + totalW + cellPadX;
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(lx + bracketW, oy - 4 * s);
+    bd.ctx.lineTo(lx, oy - 4 * s);
+    bd.ctx.lineTo(lx, oy + totalH + 4 * s);
+    bd.ctx.lineTo(lx + bracketW, oy + totalH + 4 * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(rx2 - bracketW, oy - 4 * s);
+    bd.ctx.lineTo(rx2, oy - 4 * s);
+    bd.ctx.lineTo(rx2, oy + totalH + 4 * s);
+    bd.ctx.lineTo(rx2 - bracketW, oy + totalH + 4 * s);
+    bd.ctx.stroke();
+  } else if (bracket === 'pipe') {
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(ox, oy - 4 * s); bd.ctx.lineTo(ox, oy + totalH + 4 * s);
+    bd.ctx.stroke();
+    const rx3 = ox + bracketW + totalW + cellPadX;
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(rx3 + bracketW, oy - 4 * s); bd.ctx.lineTo(rx3 + bracketW, oy + totalH + 4 * s);
+    bd.ctx.stroke();
+  }
+  bdClearShadow();
+
+  const startX = ox + bracketW + 2 * s;
+  for (let row = 0; row < nRows; row++) {
+    let cx = startX;
+    const cy = oy + row * rowH + fs * 0.85;
+    for (let col = 0; col < nCols; col++) {
+      if (bd.cancelFlag) return;
+      const entry = latexToUnicode(String((rows[row] || [])[col] || ''));
+      const entryW = bd.ctx.measureText(entry).width;
+      const colCenter = cx + colWidths[col] / 2;
+      bd.ctx.fillStyle = c;
+      bd.ctx.font = font;
+      bd.ctx.fillText(entry, colCenter - entryW / 2, cy);
+      cx += colWidths[col] + cellPadX;
+      await bdSleep(Math.max(15, 80 / nCols));
+    }
+  }
+}
+
+async function bdAnimBrace(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const x = (cmd.x || 0) * s;
+  const y1 = (cmd.y1 || 0) * s;
+  const y2 = (cmd.y2 || 0) * s;
+  const dir = cmd.dir === 'right' ? 1 : -1;
+  const w = (cmd.w || 10) * s * dir;
+  const midY = (y1 + y2) / 2;
+  bdExpandIfNeeded(Math.max(cmd.y1 || 0, cmd.y2 || 0));
+  bdChalkStyle(cmd.color, cmd.lw || 2);
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x, y1);
+  bd.ctx.quadraticCurveTo(x + w, y1, x + w, midY);
+  bd.ctx.stroke();
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x + w, midY);
+  bd.ctx.quadraticCurveTo(x + w, y2, x, y2);
+  bd.ctx.stroke();
+  bdClearShadow();
+  if (cmd.label) {
+    const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
+    const fs = (cmd.size || 18) * s;
+    bd.ctx.fillStyle = c;
+    bd.ctx.font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
+    bd.ctx.fillText(latexToUnicode(cmd.label), x + w + 6 * s * dir, midY + fs / 3);
+  }
+}
+
+async function bdAnimFillRect(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 0));
+  const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
+  bd.ctx.fillStyle = cmd.opacity ? c.replace(')', `,${cmd.opacity})`) .replace('rgb', 'rgba') : c;
+  if (cmd.opacity && !c.startsWith('rgb')) {
+    bd.ctx.globalAlpha = cmd.opacity;
+  }
+  bd.ctx.fillRect((cmd.x || 0) * s, (cmd.y || 0) * s, (cmd.w || 0) * s, (cmd.h || 0) * s);
+  bd.ctx.globalAlpha = 1;
+}
+
+async function bdAnimCurvedArrow(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  bdExpandIfNeeded(Math.max(cmd.y1 || 0, cmd.y2 || 0, cmd.cy || 0));
+  bdChalkStyle(cmd.color, cmd.w || 2);
+  const steps = 30;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo((cmd.x1 || 0) * s, (cmd.y1 || 0) * s);
+  for (let i = 1; i <= steps; i++) {
+    if (bd.cancelFlag) return;
+    const t = i / steps;
+    const px = (1 - t) * (1 - t) * (cmd.x1 || 0) + 2 * (1 - t) * t * (cmd.cx || 0) + t * t * (cmd.x2 || 0);
+    const py = (1 - t) * (1 - t) * (cmd.y1 || 0) + 2 * (1 - t) * t * (cmd.cy || 0) + t * t * (cmd.y2 || 0);
+    bd.ctx.lineTo(px * s, py * s);
+    bd.ctx.stroke();
+    bd.ctx.beginPath();
+    bd.ctx.moveTo(px * s, py * s);
+    await bdSleep(12);
+  }
+  const angle = Math.atan2((cmd.y2 - (cmd.cy || 0)), (cmd.x2 - (cmd.cx || 0)));
+  const hl = 10 * s;
+  bdChalkStyle(cmd.color, cmd.w || 2);
+  bd.ctx.beginPath();
+  bd.ctx.moveTo((cmd.x2 || 0) * s, (cmd.y2 || 0) * s);
+  bd.ctx.lineTo(((cmd.x2 || 0) - hl / s * Math.cos(angle - 0.4)) * s, ((cmd.y2 || 0) - hl / s * Math.sin(angle - 0.4)) * s);
+  bd.ctx.stroke();
+  bd.ctx.beginPath();
+  bd.ctx.moveTo((cmd.x2 || 0) * s, (cmd.y2 || 0) * s);
+  bd.ctx.lineTo(((cmd.x2 || 0) - hl / s * Math.cos(angle + 0.4)) * s, ((cmd.y2 || 0) - hl / s * Math.sin(angle + 0.4)) * s);
+  bd.ctx.stroke();
+  bdClearShadow();
 }
 
 async function bdAnimFreehand(points, color, width, duration) {
@@ -5198,6 +6199,10 @@ async function bdRunCommand(cmd) {
     case 'freehand': await bdAnimFreehand(cmd.pts, cmd.color, cmd.w, cmd.dur); break;
     case 'dashed': await bdAnimDashed(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w); break;
     case 'dot': bdDrawDot(cmd.x, cmd.y, cmd.r, cmd.color); break;
+    case 'matrix': await bdAnimMatrix(cmd); break;
+    case 'brace': await bdAnimBrace(cmd); break;
+    case 'fillrect': await bdAnimFillRect(cmd); break;
+    case 'curvedarrow': await bdAnimCurvedArrow(cmd); break;
     case 'voice':
       bdShowVoice(cmd.text);
       if (cmd.dur) { await bdSleep(cmd.dur); bdHideVoice(); }
@@ -5216,11 +6221,19 @@ async function bdProcessQueue() {
     await bdRunCommand(bd.commandQueue.shift());
   }
   bd.isProcessing = false;
+  // Capture tutor-only snapshot after all commands finish (before student draws)
+  if (!bd.cancelFlag && bd.canvas && !bd.tutorSnapshot) {
+    try {
+      bd.tutorSnapshot = bd.canvas.toDataURL('image/png');
+    } catch (e) {
+      console.warn('Could not capture tutor snapshot:', e);
+    }
+  }
 }
 
 function bdEnqueueCommand(cmd) {
   state.boardDraw.commandQueue.push(cmd);
-  if (!state.boardDraw.isProcessing) bdProcessQueue();
+  if (state.boardDraw.canvas && !state.boardDraw.isProcessing) bdProcessQueue();
 }
 
 function bdProcessStreaming(fullText) {
@@ -5229,8 +6242,7 @@ function bdProcessStreaming(fullText) {
   if (!bd.active) {
     const m = fullText.match(/<teaching-board-draw([^>]*)>/);
     if (!m) return;
-    const title = (m[1].match(/title="([^"]*)"/) || [])[1] || 'Board';
-    openBoardDrawSpotlight(title);
+    // Parse commands during streaming but defer spotlight opening to finalizeAIMessage
     bd.active = true;
     bd.contentStartIdx = m.index + m[0].length;
     bd.processedLines = 0;
@@ -5246,13 +6258,165 @@ function bdProcessStreaming(fullText) {
   for (let i = bd.processedLines; i < count; i++) {
     const ln = lines[i].trim();
     if (!ln) continue;
-    try { bdEnqueueCommand(JSON.parse(ln)); } catch (e) {}
+    try { bd.commandQueue.push(JSON.parse(ln)); } catch (e) {}
   }
   bd.processedLines = count;
-  if (closeIdx >= 0) bd.complete = true;
+  if (closeIdx >= 0) {
+    bd.complete = true;
+    bd.rawContent = fullText.slice(bd.contentStartIdx, closeIdx);
+  }
 }
 
-function openBoardDrawSpotlight(title) {
+// ── Widget Streaming ────────────────────────────────────────────────────
+function widgetProcessStreaming(fullText) {
+  const w = state.widget;
+  if (!w.active) {
+    const m = fullText.match(/<teaching-widget([^>]*)>/);
+    if (!m) return;
+    w.active = true;
+    w.contentStartIdx = m.index + m[0].length;
+    w.complete = false;
+    w.code = '';
+    // Parse title from attrs
+    const titleMatch = m[1].match(/title="([^"]*)"/);
+    w.title = titleMatch ? titleMatch[1] : 'Interactive Widget';
+
+    // Open spotlight immediately with loading skeleton
+    widgetOpenLoadingSkeleton(w.title);
+  }
+  const closeIdx = fullText.indexOf('</teaching-widget>', w.contentStartIdx);
+  if (closeIdx >= 0) {
+    w.complete = true;
+    w.code = fullText.slice(w.contentStartIdx, closeIdx);
+  } else {
+    w.code = fullText.slice(w.contentStartIdx);
+  }
+}
+
+function widgetOpenLoadingSkeleton(title) {
+  const panel = $('#spotlight-panel');
+  const content = $('#spotlight-content');
+  const titleEl = $('#spotlight-title');
+  const typeBadge = $('#spotlight-type-badge');
+  if (!panel || !content) return;
+
+  if (state.spotlightActive) {
+    hideSpotlight({ silent: true });
+  }
+
+  if (titleEl) titleEl.textContent = title;
+  if (typeBadge) {
+    typeBadge.textContent = 'Widget';
+    typeBadge.setAttribute('data-type', 'widget');
+    typeBadge.style.display = '';
+  }
+
+  content.innerHTML = `<div class="widget-loading">
+    <div class="widget-loading-anim">
+      <div class="widget-skel-row">
+        <div class="widget-skel-btn"></div>
+        <div class="widget-skel-btn"></div>
+        <div class="widget-skel-btn short"></div>
+      </div>
+      <div class="widget-skel-canvas"></div>
+      <div class="widget-skel-row">
+        <div class="widget-skel-slider"></div>
+        <div class="widget-skel-slider"></div>
+      </div>
+      <div class="widget-skel-text"></div>
+    </div>
+    <div class="widget-loading-label">
+      <div class="widget-loading-spinner"></div>
+      <span>Building interactive widget...</span>
+    </div>
+  </div>`;
+
+  panel.classList.add('stage-active');
+  state.spotlightActive = true;
+  state.spotlightInfo = { type: 'widget', title, widgetCode: '' };
+}
+
+function openWidgetSpotlight(title, widgetCode, isReplay, options = {}) {
+  const panel = $('#spotlight-panel');
+  const content = $('#spotlight-content');
+  const titleEl = $('#spotlight-title');
+  const typeBadge = $('#spotlight-type-badge');
+  if (!panel || !content) return;
+
+  if (isReplay) {
+    const refTag = { name: 'teaching-widget', attrs: { title }, _widgetCode: widgetCode };
+    appendSpotlightReference('widget', title, refTag);
+    return;
+  }
+
+  // If spotlight already showing widget skeleton from streaming, just upgrade to iframe
+  const alreadyShowingSkeleton = state.spotlightActive && state.spotlightInfo?.type === 'widget';
+
+  if (!alreadyShowingSkeleton) {
+    if (state.spotlightActive) {
+      hideSpotlight({ silent: true });
+    }
+
+    if (titleEl) titleEl.textContent = title;
+    if (typeBadge) {
+      typeBadge.textContent = 'Widget';
+      typeBadge.setAttribute('data-type', 'widget');
+      typeBadge.style.display = '';
+    }
+  }
+
+  if (widgetCode && widgetCode.trim()) {
+    renderWidgetIframe(content, widgetCode, title);
+  }
+
+  panel.classList.add('stage-active');
+  state.spotlightActive = true;
+  state.spotlightInfo = { type: 'widget', title, widgetCode };
+
+  if (!options.skipReference) {
+    const refTag = { name: 'teaching-widget', attrs: { title }, _widgetCode: widgetCode };
+    appendSpotlightReference('widget', title, refTag);
+  }
+}
+
+function renderWidgetIframe(container, widgetCode, title) {
+  const fullDoc = widgetCode.includes('<html') ? widgetCode :
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${widgetCode}</body></html>`;
+
+  const iframe = document.createElement('iframe');
+  iframe.className = 'widget-iframe';
+  iframe.srcdoc = fullDoc;
+  iframe.setAttribute('sandbox', 'allow-scripts');
+  iframe.setAttribute('title', title || 'Interactive Widget');
+
+  container.innerHTML = '';
+  container.appendChild(iframe);
+
+  // Bridge: listen for sim-ready and interaction events
+  const handler = (ev) => {
+    if (ev.source !== iframe.contentWindow) return;
+    const d = ev.data;
+    if (!d || !d.type) return;
+    if (d.type === 'capacity-sim-ready') {
+      console.log('[Widget] ready:', title);
+    } else if (d.type === 'capacity-sim-state' || d.type === 'capacity-sim-interaction') {
+      console.log('[Widget] event:', d.type, d.payload);
+    }
+  };
+  window.addEventListener('message', handler);
+  iframe._bridgeCleanup = () => window.removeEventListener('message', handler);
+}
+
+function openBoardDrawSpotlight(title, rawContent, options = {}) {
+  // In replay mode, only render the reference card
+  if (state.replayMode) {
+    if (rawContent) state.boardDraw.rawContent = rawContent;
+    const refTag = { name: 'teaching-board-draw', attrs: { title } };
+    if (state.boardDraw.rawContent) refTag._boardDrawContent = state.boardDraw.rawContent;
+    appendSpotlightReference('board-draw', title, refTag);
+    return;
+  }
+
   const panel = $('#spotlight-panel');
   const content = $('#spotlight-content');
   const titleEl = $('#spotlight-title');
@@ -5269,11 +6433,29 @@ function openBoardDrawSpotlight(title) {
     content.innerHTML = '';
   }
 
+  // Store raw JSONL content AFTER cleanup (bdCleanup wipes rawContent)
+  if (rawContent) state.boardDraw.rawContent = rawContent;
+
   if (titleEl) titleEl.textContent = title;
   if (typeBadge) { typeBadge.textContent = 'Board'; typeBadge.setAttribute('data-type', 'board-draw'); typeBadge.style.display = ''; }
 
   content.innerHTML = `
     <div class="bd-container" id="bd-container">
+      <div class="bd-toolbar" id="bd-toolbar">
+        <button class="bd-tool-btn active" data-color="#22ee66" title="Green pen">
+          <span style="color:#22ee66;">&#9679;</span>
+        </button>
+        <button class="bd-tool-btn" data-color="#ff6666" title="Red pen">
+          <span style="color:#ff6666;">&#9679;</span>
+        </button>
+        <button class="bd-tool-btn" data-color="#ffffff" title="White pen">
+          <span style="color:#ffffff;">&#9679;</span>
+        </button>
+        <button class="bd-tool-btn bd-eraser-btn" data-color="eraser" title="Eraser">&#9003;</button>
+        <span class="bd-toolbar-divider"></span>
+        <button class="bd-tool-btn bd-clear-btn" onclick="bdClearStudentDrawing()" title="Clear my drawing">Clear</button>
+        <button class="bd-tool-btn bd-send-btn" onclick="bdSendDrawing()" title="Send board to tutor">Send &#x2192;</button>
+      </div>
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
         <canvas id="bd-canvas"></canvas>
       </div>
@@ -5285,8 +6467,13 @@ function openBoardDrawSpotlight(title) {
   panel.classList.add('stage-active');
   state.spotlightActive = true;
   state.spotlightInfo = { type: 'board-draw', title };
+  state.spotlightOpenedAtTurn = state.totalAssistantTurns;
   enterSpotlightFullscreen();
-  appendSpotlightReference('board-draw', title, { name: 'teaching-board-draw', attrs: { title } });
+  if (!options.skipReference) {
+    const refTag = { name: 'teaching-board-draw', attrs: { title } };
+    if (state.boardDraw.rawContent) refTag._boardDrawContent = state.boardDraw.rawContent;
+    appendSpotlightReference('board-draw', title, refTag);
+  }
 
   setTimeout(() => {
     const c = document.getElementById('bd-canvas');
@@ -5307,7 +6494,369 @@ function bdCleanup() {
   bd.voiceEl = null;
   bd.processedLines = 0;
   bd.contentStartIdx = 0;
+  bd.zoom = 1;
   bd.complete = false;
+  bd.studentDrawing = false;
+  bd.rawContent = null;
+  bd.tutorSnapshot = null;
+}
+
+function bdReplayCommandsInstant(cmds) {
+  const bd = state.boardDraw;
+  if (!bd.ctx) return;
+  const s = bd.scale;
+  const ctx = bd.ctx;
+  for (const cmd of cmds) {
+    if (cmd.cmd === 'voice') continue;
+    ctx.save();
+    ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+    const c = cmd.color || 'white';
+    const w = (cmd.w || 2) * s;
+    ctx.strokeStyle = c;
+    ctx.lineWidth = w;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+
+    if (cmd.cmd === 'line' || cmd.cmd === 'dashed') {
+      if (cmd.cmd === 'dashed') ctx.setLineDash([6 * s, 4 * s]);
+      ctx.beginPath();
+      ctx.moveTo(cmd.x1 * s, cmd.y1 * s);
+      ctx.lineTo(cmd.x2 * s, cmd.y2 * s);
+      ctx.stroke();
+      if (cmd.cmd === 'dashed') ctx.setLineDash([]);
+    } else if (cmd.cmd === 'arrow') {
+      ctx.beginPath();
+      ctx.moveTo(cmd.x1 * s, cmd.y1 * s);
+      ctx.lineTo(cmd.x2 * s, cmd.y2 * s);
+      ctx.stroke();
+      const angle = Math.atan2((cmd.y2 - cmd.y1) * s, (cmd.x2 - cmd.x1) * s);
+      const headLen = 12 * s;
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.moveTo(cmd.x2 * s, cmd.y2 * s);
+      ctx.lineTo(cmd.x2 * s - headLen * Math.cos(angle - 0.4), cmd.y2 * s - headLen * Math.sin(angle - 0.4));
+      ctx.lineTo(cmd.x2 * s - headLen * Math.cos(angle + 0.4), cmd.y2 * s - headLen * Math.sin(angle + 0.4));
+      ctx.closePath();
+      ctx.fill();
+    } else if (cmd.cmd === 'rect') {
+      ctx.strokeRect(cmd.x * s, cmd.y * s, (cmd.w || cmd.w2) * s, cmd.h * s);
+    } else if (cmd.cmd === 'circle') {
+      ctx.beginPath();
+      ctx.arc(cmd.cx * s, cmd.cy * s, cmd.r * s, 0, Math.PI * 2);
+      ctx.stroke();
+    } else if (cmd.cmd === 'text') {
+      const sz = (cmd.size || 18) * s;
+      ctx.fillStyle = c;
+      ctx.font = `${cmd.style || ''} ${sz}px 'Patrick Hand', cursive`.trim();
+      ctx.fillText(cmd.text, cmd.x * s, cmd.y * s);
+    } else if (cmd.cmd === 'latex') {
+      const sz = (cmd.size || 22) * s;
+      const text = latexToUnicode(cmd.tex);
+      ctx.fillStyle = c;
+      ctx.font = `italic ${sz}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
+      ctx.fillText(text, cmd.x * s, cmd.y * s);
+    } else if (cmd.cmd === 'dot') {
+      ctx.fillStyle = c;
+      ctx.beginPath();
+      ctx.arc(cmd.x * s, cmd.y * s, (cmd.r || 4) * s, 0, Math.PI * 2);
+      ctx.fill();
+    } else if (cmd.cmd === 'freehand' && cmd.points) {
+      ctx.beginPath();
+      for (let i = 0; i < cmd.points.length; i++) {
+        const [px, py] = cmd.points[i];
+        if (i === 0) ctx.moveTo(px * s, py * s);
+        else ctx.lineTo(px * s, py * s);
+      }
+      ctx.stroke();
+    } else if (cmd.cmd === 'matrix') {
+      const rows = cmd.rows || [];
+      if (rows.length === 0) { ctx.restore(); continue; }
+      const nRows = rows.length;
+      const nCols = Math.max(...rows.map(r => r.length));
+      const fs = (cmd.size || 22) * s;
+      const font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
+      ctx.font = font;
+      const cellPadX = 12 * s, cellPadY = 8 * s;
+      const colWidths = [];
+      for (let col = 0; col < nCols; col++) {
+        let maxW = 0;
+        for (let row = 0; row < nRows; row++) {
+          maxW = Math.max(maxW, ctx.measureText(latexToUnicode(String((rows[row]||[])[col]||''))).width);
+        }
+        colWidths.push(maxW);
+      }
+      const rowH = fs + cellPadY;
+      const totalW = colWidths.reduce((a, b) => a + b, 0) + (nCols - 1) * cellPadX;
+      const totalH = nRows * rowH;
+      const bracketW = 8 * s;
+      const ox = (cmd.x || 0) * s, oy = (cmd.y || 0) * s;
+      ctx.strokeStyle = c; ctx.lineWidth = 2 * s; ctx.lineCap = 'round';
+      const bracket = cmd.bracket || 'round';
+      if (bracket === 'round' || bracket === 'paren') {
+        const midY = oy + totalH / 2;
+        ctx.beginPath();
+        ctx.moveTo(ox + bracketW, oy - 4*s);
+        ctx.quadraticCurveTo(ox, midY, ox + bracketW, oy + totalH + 4*s);
+        ctx.stroke();
+        const rx = ox + bracketW + totalW + cellPadX;
+        ctx.beginPath();
+        ctx.moveTo(rx, oy - 4*s);
+        ctx.quadraticCurveTo(rx + bracketW, midY, rx, oy + totalH + 4*s);
+        ctx.stroke();
+      } else if (bracket === 'square') {
+        const lx = ox, rx2 = ox + bracketW*2 + totalW + cellPadX;
+        ctx.beginPath();
+        ctx.moveTo(lx+bracketW, oy-4*s); ctx.lineTo(lx, oy-4*s);
+        ctx.lineTo(lx, oy+totalH+4*s); ctx.lineTo(lx+bracketW, oy+totalH+4*s);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo(rx2-bracketW, oy-4*s); ctx.lineTo(rx2, oy-4*s);
+        ctx.lineTo(rx2, oy+totalH+4*s); ctx.lineTo(rx2-bracketW, oy+totalH+4*s);
+        ctx.stroke();
+      } else if (bracket === 'pipe') {
+        ctx.beginPath(); ctx.moveTo(ox, oy-4*s); ctx.lineTo(ox, oy+totalH+4*s); ctx.stroke();
+        const rx3 = ox + bracketW + totalW + cellPadX;
+        ctx.beginPath(); ctx.moveTo(rx3+bracketW, oy-4*s); ctx.lineTo(rx3+bracketW, oy+totalH+4*s); ctx.stroke();
+      }
+      const startX = ox + bracketW + 2*s;
+      ctx.fillStyle = c;
+      ctx.font = font;
+      for (let row = 0; row < nRows; row++) {
+        let cx = startX;
+        const cy = oy + row * rowH + fs * 0.85;
+        for (let col = 0; col < nCols; col++) {
+          const entry = latexToUnicode(String((rows[row]||[])[col]||''));
+          const entryW = ctx.measureText(entry).width;
+          ctx.fillText(entry, cx + colWidths[col]/2 - entryW/2, cy);
+          cx += colWidths[col] + cellPadX;
+        }
+      }
+    } else if (cmd.cmd === 'fillrect') {
+      ctx.fillStyle = c;
+      if (cmd.opacity) ctx.globalAlpha = cmd.opacity;
+      ctx.fillRect((cmd.x||0)*s, (cmd.y||0)*s, (cmd.w||0)*s, (cmd.h||0)*s);
+      ctx.globalAlpha = 1;
+    } else if (cmd.cmd === 'brace') {
+      const bx = (cmd.x||0)*s, by1 = (cmd.y1||0)*s, by2 = (cmd.y2||0)*s;
+      const dir = cmd.dir === 'right' ? 1 : -1;
+      const bw = (cmd.w||10)*s*dir;
+      const midY = (by1+by2)/2;
+      ctx.beginPath(); ctx.moveTo(bx, by1); ctx.quadraticCurveTo(bx+bw, by1, bx+bw, midY); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(bx+bw, midY); ctx.quadraticCurveTo(bx+bw, by2, bx, by2); ctx.stroke();
+      if (cmd.label) {
+        const bfs = (cmd.size||18)*s;
+        ctx.fillStyle = c; ctx.font = `italic ${bfs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
+        ctx.fillText(latexToUnicode(cmd.label), bx+bw+6*s*dir, midY+bfs/3);
+      }
+    } else if (cmd.cmd === 'curvedarrow') {
+      ctx.beginPath();
+      ctx.moveTo((cmd.x1||0)*s, (cmd.y1||0)*s);
+      ctx.quadraticCurveTo((cmd.cx||0)*s, (cmd.cy||0)*s, (cmd.x2||0)*s, (cmd.y2||0)*s);
+      ctx.stroke();
+      const angle = Math.atan2(((cmd.y2||0)-(cmd.cy||0))*s, ((cmd.x2||0)-(cmd.cx||0))*s);
+      const hl = 10*s;
+      ctx.beginPath(); ctx.moveTo((cmd.x2||0)*s, (cmd.y2||0)*s);
+      ctx.lineTo((cmd.x2||0)*s-hl*Math.cos(angle-0.4), (cmd.y2||0)*s-hl*Math.sin(angle-0.4)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo((cmd.x2||0)*s, (cmd.y2||0)*s);
+      ctx.lineTo((cmd.x2||0)*s-hl*Math.cos(angle+0.4), (cmd.y2||0)*s-hl*Math.sin(angle+0.4)); ctx.stroke();
+    }
+    ctx.restore();
+  }
+}
+
+function bdCaptureBoard() {
+  const bd = state.boardDraw;
+  if (!bd.canvas) return null;
+  const ctx = bd.ctx;
+  const w = bd.canvas.width;
+  const h = bd.canvas.height;
+  let imageData;
+  try {
+    imageData = ctx.getImageData(0, 0, w, h);
+  } catch (e) {
+    console.warn('Canvas tainted, using toDataURL fallback');
+    try { return bd.canvas.toDataURL('image/png'); } catch (e2) { return null; }
+  }
+  const data = imageData.data;
+  const bgR = 0x1a, bgG = 0x1d, bgB = 0x2e;
+  let minX = w, minY = h, maxX = 0, maxY = 0;
+  for (let y = 0; y < h; y++) {
+    for (let x = 0; x < w; x++) {
+      const i = (y * w + x) * 4;
+      const dr = data[i] - bgR, dg = data[i + 1] - bgG, db = data[i + 2] - bgB;
+      if (Math.sqrt(dr * dr + dg * dg + db * db) > 30) {
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+    }
+  }
+  if (maxX <= minX || maxY <= minY) return null;
+  const pad = 20;
+  minX = Math.max(0, minX - pad);
+  minY = Math.max(0, minY - pad);
+  maxX = Math.min(w - 1, maxX + pad);
+  maxY = Math.min(h - 1, maxY + pad);
+  const cropW = maxX - minX + 1;
+  const cropH = maxY - minY + 1;
+
+  // Create output canvas with white background
+  const out = document.createElement('canvas');
+  out.width = cropW;
+  out.height = cropH;
+  const outCtx = out.getContext('2d');
+  outCtx.fillStyle = '#ffffff';
+  outCtx.fillRect(0, 0, cropW, cropH);
+  const cropped = ctx.getImageData(minX, minY, cropW, cropH);
+  const cd = cropped.data;
+  for (let i = 0; i < cd.length; i += 4) {
+    const dr = cd[i] - bgR, dg = cd[i + 1] - bgG, db = cd[i + 2] - bgB;
+    if (Math.sqrt(dr * dr + dg * dg + db * db) > 30) {
+      // Keep the original colors for contrast
+    } else {
+      cd[i] = 255; cd[i + 1] = 255; cd[i + 2] = 255; cd[i + 3] = 255;
+    }
+  }
+  outCtx.putImageData(cropped, 0, 0);
+
+  const quality = Math.min(1, 800 / Math.max(cropW, cropH));
+  if (quality < 1) {
+    const scaled = document.createElement('canvas');
+    scaled.width = Math.round(cropW * quality);
+    scaled.height = Math.round(cropH * quality);
+    const sCtx = scaled.getContext('2d');
+    sCtx.drawImage(out, 0, 0, scaled.width, scaled.height);
+    return scaled.toDataURL('image/png');
+  }
+  return out.toDataURL('image/png');
+}
+
+function bdCaptureAndSend() {
+  const combinedUrl = bdCaptureBoard();
+  if (!combinedUrl) return;
+  const combinedBase64 = combinedUrl.split(',')[1];
+  renderUserMessage('[Board drawing sent to tutor]', combinedUrl);
+
+  const bd = state.boardDraw;
+  const parts = [];
+
+  // Image 1: Tutor-only drawing (what AI originally drew — before student touched it)
+  if (bd.tutorSnapshot) {
+    const tutorBase64 = bd.tutorSnapshot.split(',')[1];
+    parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: tutorBase64 } });
+    parts.push({ type: 'text', text: '[IMAGE 1 — TUTOR ORIGINAL] This is what YOU (the tutor) drew. This is YOUR drawing, not the student\'s work.' });
+  }
+
+  // Image 2: Combined drawing (tutor + student annotations)
+  parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: combinedBase64 } });
+
+  if (bd.tutorSnapshot) {
+    parts.push({ type: 'text', text: '[IMAGE 2 — COMBINED BOARD] This shows YOUR original drawing PLUS the student\'s additions. The student drew in green/red/white on top of your work. Compare with IMAGE 1 to see exactly what the STUDENT added. ONLY describe and respond to what the STUDENT drew — do NOT attribute your own drawing to the student.' });
+  } else {
+    parts.push({ type: 'text', text: '[Board drawing] The student has drawn/annotated on the shared board. Student strokes are in green/red/white.' });
+  }
+
+  streamADK(parts);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Module: Spotlight Snapshot — auto-capture for AI context
+// ═══════════════════════════════════════════════════════════
+
+function captureSpotlightSnapshot() {
+  if (!state.spotlightActive || !state.spotlightInfo) return null;
+
+  const info = state.spotlightInfo;
+
+  if (info.type === 'board-draw') {
+    const dataUrl = bdCaptureBoard();
+    if (dataUrl) {
+      return {
+        type: 'board-draw',
+        title: info.title,
+        base64: dataUrl.split(',')[1],
+        mediaType: 'image/png',
+        description: `[SPOTLIGHT SNAPSHOT — Board: "${info.title}"] This is what the student currently sees on the shared drawing board.`,
+      };
+    }
+  }
+
+  if (info.type === 'widget') {
+    const iframe = document.querySelector('#spotlight-content .widget-iframe');
+    if (iframe) {
+      try {
+        const iframeDoc = iframe.contentDocument || iframe.contentWindow?.document;
+        if (iframeDoc) {
+          const bodyText = iframeDoc.body?.innerText?.slice(0, 500) || '';
+          return {
+            type: 'widget',
+            title: info.title,
+            base64: null,
+            description: `[SPOTLIGHT — Widget: "${info.title}"] Interactive widget is open. Visible text: ${bodyText}`,
+          };
+        }
+      } catch (e) { /* cross-origin */ }
+    }
+    return {
+      type: 'widget',
+      title: info.title,
+      base64: null,
+      description: `[SPOTLIGHT — Widget: "${info.title}"] Interactive widget is currently open.`,
+    };
+  }
+
+  if (info.type === 'notebook') {
+    const steps = state.notebookSteps.slice(-5).map(
+      s => `Step ${s.n} (${s.author || 'tutor'}): ${s.math || s.content || ''}`
+    ).join('\n');
+    return {
+      type: 'notebook',
+      title: info.title,
+      base64: null,
+      description: `[SPOTLIGHT — Notebook: "${info.title}"] ${state.notebookSteps.length} steps.\nRecent:\n${steps}`,
+    };
+  }
+
+  if (info.type === 'simulation') {
+    return {
+      type: 'simulation',
+      title: info.title,
+      base64: null,
+      description: `[SPOTLIGHT — Simulation: "${info.title}"] Student is viewing the interactive simulation.`,
+    };
+  }
+
+  if (info.type === 'video') {
+    return {
+      type: 'video',
+      title: info.title,
+      base64: null,
+      description: `[SPOTLIGHT — Video: "${info.title}"] Student is watching a lecture video clip.`,
+    };
+  }
+
+  if (info.type === 'image') {
+    return {
+      type: 'image',
+      title: info.title,
+      base64: null,
+      description: `[SPOTLIGHT — Image: "${info.title}"] Student is viewing a reference image.`,
+    };
+  }
+
+  return null;
+}
+
+function buildSpotlightSnapshotParts() {
+  const snap = captureSpotlightSnapshot();
+  if (!snap) return [];
+  const parts = [];
+  if (snap.base64) {
+    parts.push({ type: 'image', source: { type: 'base64', media_type: snap.mediaType || 'image/png', data: snap.base64 } });
+  }
+  parts.push({ type: 'text', text: snap.description });
+  return parts;
 }
 
 // ═══════════════════════════════════════════════════════════

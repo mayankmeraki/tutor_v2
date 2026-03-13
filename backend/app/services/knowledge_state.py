@@ -78,6 +78,93 @@ async def append_note(
     return {"logged": True, "note_length": len(text), "tags": tags or []}
 
 
+def _normalize_tags(tags) -> list[str]:
+    """Convert tags to a list of strings regardless of input format."""
+    if isinstance(tags, str):
+        return [t.strip() for t in tags.replace(",", " ").split() if t.strip()]
+    if isinstance(tags, list):
+        return [str(t).strip() for t in tags if t]
+    return []
+
+
+async def upsert_concept_note(
+    course_id: int,
+    user_email: str,
+    session_id: str,
+    concepts: list[str],
+    note_text: str,
+    lesson: str | None = None,
+) -> dict:
+    """Upsert a freehand note by concept overlap.
+
+    Matching strategy: find any existing note that shares at least one
+    concept tag with the new note. If found, REPLACE it entirely.
+    If multiple match, replace the one with the most tag overlap.
+    This keeps notes bounded — one note per concept cluster.
+    """
+    col = _collection()
+    doc_id = _doc_id(course_id, user_email)
+    now = datetime.now(timezone.utc).isoformat()
+    primary = concepts[0] if concepts else "_uncategorized"
+
+    new_note = {
+        "text": note_text,
+        "tags": concepts,
+        "sessionId": session_id,
+        "at": now,
+    }
+    if lesson:
+        new_note["lesson"] = lesson
+
+    new_set = set(concepts)
+
+    doc = await col.find_one({"_id": doc_id})
+
+    if doc:
+        notes = doc.get("notes", [])
+
+        # Find the best matching existing note (most tag overlap)
+        best_idx = -1
+        best_overlap = 0
+        for i, existing in enumerate(notes):
+            existing_tags = _normalize_tags(existing.get("tags", []))
+            overlap = len(new_set & set(existing_tags))
+            if overlap > best_overlap:
+                best_overlap = overlap
+                best_idx = i
+
+        if best_idx >= 0:
+            notes[best_idx] = new_note
+            action = "replaced"
+        else:
+            notes.append(new_note)
+            action = "created"
+
+        await col.update_one(
+            {"_id": doc_id},
+            {"$set": {"notes": notes, "lastUpdated": now}},
+        )
+    else:
+        await col.update_one(
+            {"_id": doc_id},
+            {
+                "$set": {"notes": [new_note], "lastUpdated": now},
+                "$setOnInsert": {
+                    "courseId": course_id,
+                    "userEmail": user_email,
+                    "summary": None,
+                },
+            },
+            upsert=True,
+        )
+        action = "created"
+
+    log.info("Knowledge note %s: %s/%d [%s] (%d chars)",
+             action, user_email, course_id, primary, len(note_text))
+
+    return {"action": action, "primary_concept": primary}
+
+
 async def search_notes(
     course_id: int,
     user_email: str,
@@ -105,7 +192,7 @@ async def search_notes(
 
     for i, note in enumerate(notes):
         text = note.get("text", "")
-        tags = note.get("tags", [])
+        tags = _normalize_tags(note.get("tags", []))
         text_lower = text.lower()
         tags_lower = [t.lower() for t in tags]
 
@@ -162,10 +249,10 @@ async def search_notes(
 
 
 async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
-    """Return a brief summary for system prompt injection.
+    """Return a structured student briefing for system prompt injection.
 
-    Returns doc.summary if set. Otherwise builds a simple summary
-    from the last few notes. Returns None if no notes exist.
+    Groups notes by profile vs concept, presenting an actionable overview.
+    Returns None if no notes exist.
     """
     col = _collection()
     doc_id = _doc_id(course_id, user_email)
@@ -174,7 +261,6 @@ async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
     if not doc:
         return None
 
-    # If there's a pre-built summary, use it
     if doc.get("summary"):
         return doc["summary"]
 
@@ -182,27 +268,28 @@ async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
     if not notes:
         return None
 
-    # Build a simple summary from the last N notes
-    recent = notes[-5:]  # Last 5 notes
-    total = len(notes)
+    profile_text = None
+    concept_entries = []
 
-    parts = [f"{total} observation{'s' if total != 1 else ''} recorded."]
-
-    # Collect all tags for a quick overview
-    all_tags = set()
     for note in notes:
-        all_tags.update(note.get("tags", []))
-    if all_tags:
-        parts.append(f"Topics: {', '.join(sorted(all_tags)[:10])}.")
-
-    # Show most recent notes (truncated)
-    parts.append("Recent:")
-    for note in recent:
+        tags = _normalize_tags(note.get("tags", []))
         text = note.get("text", "")
-        snippet = text if len(text) <= 100 else text[:100] + "..."
-        parts.append(f"  - {snippet}")
+        primary = tags[0] if tags else ""
 
-    return "\n".join(parts)
+        if primary == "_profile":
+            profile_text = text
+        elif primary:
+            snippet = text if len(text) <= 150 else text[:150] + "..."
+            concept_entries.append(f"  {primary}: {snippet}")
+
+    parts = []
+    if profile_text:
+        parts.append(f"[Student Profile] {profile_text}")
+    if concept_entries:
+        parts.append(f"[Student Notes — {len(concept_entries)} concepts]")
+        parts.extend(concept_entries)
+
+    return "\n".join(parts) if parts else None
 
 
 # ─── Legacy compatibility ──────────────────────────────────────────
@@ -219,19 +306,47 @@ async def get_or_init_knowledge_state(course_id: int, student_name: str) -> dict
 
 
 def format_knowledge_state(knowledge_state: dict) -> str:
-    """Legacy format — used by _load_knowledge_state in chat.py."""
+    """Format student notes grouped by concept for tutor context."""
     notes = knowledge_state.get("notes", [])
     if not notes:
-        return "No knowledge notes yet."
+        return "No student notes yet — this is a new student."
 
-    # Show last 5 notes
-    recent = notes[-5:]
-    lines = [f"{len(notes)} note{'s' if len(notes) != 1 else ''} recorded. Recent:"]
-    for note in recent:
+    profile_notes = []
+    concept_notes = {}
+
+    for note in notes:
+        tags = _normalize_tags(note.get("tags", []))
         text = note.get("text", "")
-        snippet = text if len(text) <= 120 else text[:120] + "..."
-        tags = note.get("tags", [])
-        tags_str = f" [{', '.join(tags)}]" if tags else ""
-        lines.append(f"  - {snippet}{tags_str}")
+        primary = tags[0] if tags else "_uncategorized"
+        lesson = note.get("lesson", "")
+
+        if primary == "_profile":
+            profile_notes.append(text)
+        else:
+            concept_notes[primary] = {
+                "text": text,
+                "tags": tags,
+                "lesson": lesson,
+            }
+
+    lines = []
+
+    if profile_notes:
+        lines.append("[Student Profile]")
+        for p in profile_notes:
+            lines.append(f"  {p}")
+        lines.append("")
+
+    if concept_notes:
+        lines.append(f"[Student Notes — {len(concept_notes)} concepts]")
+        for concept, data in concept_notes.items():
+            text = data["text"]
+            snippet = text if len(text) <= 200 else text[:200] + "..."
+            other_tags = [t for t in data["tags"] if t != concept]
+            related = f" (also: {', '.join(other_tags)})" if other_tags else ""
+            lesson = f" [L:{data['lesson']}]" if data.get("lesson") else ""
+            lines.append(f"  {concept}{related}{lesson}: {snippet}")
+    elif not profile_notes:
+        lines.append("No student notes yet — this is a new student.")
 
     return "\n".join(lines)

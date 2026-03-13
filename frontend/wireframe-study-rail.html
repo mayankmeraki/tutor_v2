@@ -1,0 +1,820 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Study Rail — Navigation + Quick Reference Notes</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
+<script src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+<style>
+  :root {
+    --bg: #0f1117;
+    --bg-surface: #161924;
+    --bg-card: #1a1d2e;
+    --bg-card-hover: #1f2338;
+    --border: #2d3244;
+    --border-dim: rgba(255,255,255,0.06);
+    --text: #e4e7ef;
+    --text-dim: #5c6070;
+    --text-muted: #8a8fa8;
+    --accent: #6c8cff;
+    --accent-dim: rgba(108,140,255,0.25);
+    --green: #4ade80;
+    --yellow: #e8d47a;
+    --cyan: #67e8f9;
+    --red: #f87171;
+    --font-board: 'Caveat', cursive;
+    --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    --radius: 8px;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: var(--bg); color: var(--text); font-family: var(--font-sans); }
+
+  .page { max-width: 1100px; margin: 0 auto; padding: 32px 24px; }
+  .page-title {
+    font-size: 11px; color: var(--text-dim); letter-spacing: 2px;
+    text-transform: uppercase; margin-bottom: 4px;
+  }
+  .page-subtitle {
+    font-size: 13px; color: var(--text-muted); margin-bottom: 32px; line-height: 1.6;
+    max-width: 700px;
+  }
+  .page-subtitle em { color: var(--yellow); font-style: normal; }
+  .page-subtitle strong { color: var(--text); }
+
+  .scene-label {
+    display: flex; align-items: center; gap: 10px;
+    margin: 40px 0 16px; font-size: 10px; color: var(--text-dim);
+    text-transform: uppercase; letter-spacing: 1.8px; font-weight: 600;
+  }
+  .scene-label::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .callout {
+    margin: 0 0 12px 0; padding: 10px 16px;
+    font-size: 12px; color: var(--text-muted); line-height: 1.6;
+    border-left: 2px solid var(--accent-dim); background: rgba(108,140,255,0.04);
+    border-radius: 0 6px 6px 0;
+  }
+  .callout strong { color: var(--text); }
+  .callout code { color: var(--cyan); font-size: 11px; background: rgba(255,255,255,0.05); padding: 1px 5px; border-radius: 3px; }
+
+  /* ═══════════════════════════════════════
+     FULL-WIDTH LAYOUT MOCKUP
+     ═══════════════════════════════════════ */
+  .layout-mock {
+    display: flex;
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    overflow: hidden;
+    height: 680px;
+    margin-bottom: 20px;
+    background: var(--bg);
+    box-shadow: 0 8px 40px rgba(0,0,0,0.35);
+  }
+
+  /* ── Study Rail (LEFT) ── */
+  .rail {
+    width: 260px;
+    background: var(--bg-surface);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    flex-shrink: 0;
+    overflow: hidden;
+  }
+  .rail-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 14px 16px 10px;
+    border-bottom: 1px solid var(--border-dim);
+  }
+  .rail-header h3 {
+    font-size: 10px; letter-spacing: 1.8px; text-transform: uppercase;
+    color: var(--text-muted); font-weight: 700;
+  }
+  .rail-tabs {
+    display: flex; gap: 2px; background: rgba(255,255,255,0.04);
+    border-radius: 6px; padding: 2px;
+  }
+  .rail-tab {
+    font-size: 10px; padding: 4px 10px; border-radius: 4px;
+    color: var(--text-dim); cursor: pointer; border: none;
+    background: transparent; font-weight: 600; letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .rail-tab.active {
+    background: var(--accent-dim);
+    color: var(--accent);
+  }
+  .rail-body {
+    flex: 1; overflow-y: auto; padding: 8px 0;
+  }
+  .rail-body::-webkit-scrollbar { width: 3px; }
+  .rail-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }
+
+  /* ── CHECKPOINTS TAB ── */
+  .checkpoint-group {
+    padding: 4px 12px;
+  }
+  .checkpoint-section {
+    font-size: 10px; color: var(--text-dim); letter-spacing: 1.2px;
+    text-transform: uppercase; font-weight: 700;
+    padding: 10px 4px 6px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .checkpoint-section .dot {
+    width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  }
+  .checkpoint-section .dot.done { background: var(--green); }
+  .checkpoint-section .dot.active { background: var(--accent); box-shadow: 0 0 6px var(--accent); }
+  .checkpoint-section .dot.upcoming { background: var(--border); }
+
+  .checkpoint-item {
+    display: flex; align-items: flex-start; gap: 8px;
+    padding: 6px 4px 6px 18px;
+    cursor: pointer; border-radius: 6px;
+    transition: background 0.15s;
+    position: relative;
+  }
+  .checkpoint-item::before {
+    content: '';
+    position: absolute; left: 7px; top: 0; bottom: 0;
+    width: 1px; background: var(--border-dim);
+  }
+  .checkpoint-item:hover { background: var(--bg-card-hover); }
+  .checkpoint-item.active { background: var(--bg-card); }
+  .checkpoint-item.active .cp-title { color: var(--text); }
+  .checkpoint-item .cp-icon {
+    font-size: 12px; flex-shrink: 0; margin-top: 1px; width: 14px; text-align: center;
+  }
+  .checkpoint-item .cp-title {
+    font-size: 12px; color: var(--text-muted); line-height: 1.4;
+  }
+  .checkpoint-item .cp-title strong { color: var(--text); font-weight: 600; }
+  .checkpoint-item.done .cp-icon { color: var(--green); }
+  .checkpoint-item.active .cp-icon { color: var(--accent); }
+
+  .cp-time {
+    font-size: 9px; color: var(--text-dim); margin-left: auto; flex-shrink: 0;
+    padding-top: 2px;
+  }
+
+  /* ── NOTES TAB ── */
+  .note-card {
+    margin: 4px 10px;
+    padding: 10px 12px;
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .note-card:hover {
+    border-color: var(--accent-dim);
+    background: var(--bg-card-hover);
+  }
+  .note-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
+  }
+  .note-card-title {
+    font-size: 12px; font-weight: 600; color: var(--accent);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .note-card-title .icon { font-size: 11px; }
+  .note-card-tag {
+    font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    background: rgba(108,140,255,0.1); color: var(--accent);
+    text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;
+  }
+  .note-card-body {
+    font-family: var(--font-board);
+    font-size: 16px;
+    color: var(--text-muted);
+    line-height: 1.45;
+  }
+  .note-card-body .formula {
+    display: block;
+    margin: 4px 0;
+    color: var(--text);
+    font-size: 17px;
+  }
+  .note-card-body .key-point {
+    color: var(--yellow);
+  }
+  .note-card-body .detail {
+    font-size: 14px;
+    color: var(--text-dim);
+  }
+  .note-card-pin {
+    font-size: 10px; color: var(--text-dim); cursor: pointer;
+  }
+  .note-card-pin:hover { color: var(--yellow); }
+
+  .note-divider {
+    height: 1px; background: var(--border-dim);
+    margin: 6px 16px;
+  }
+
+  .note-section-label {
+    font-size: 9px; color: var(--text-dim); letter-spacing: 1px;
+    text-transform: uppercase; padding: 8px 14px 2px; font-weight: 700;
+  }
+
+  /* ── MAIN CONTENT (CENTER) ── */
+  .main-col {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    overflow: hidden;
+  }
+
+  .spotlight-mock {
+    background: var(--bg-card);
+    border-bottom: 1px solid var(--border);
+    padding: 16px 24px;
+    min-height: 180px;
+    display: flex; flex-direction: column;
+  }
+  .spotlight-mock-header {
+    display: flex; align-items: center; gap: 8px;
+    margin-bottom: 12px;
+  }
+  .spotlight-badge {
+    font-size: 9px; text-transform: uppercase; letter-spacing: 1px;
+    background: rgba(108,140,255,0.12); color: var(--accent);
+    padding: 3px 8px; border-radius: 4px; font-weight: 700;
+  }
+  .spotlight-mock-title {
+    font-family: var(--font-board); font-size: 20px; color: var(--text);
+  }
+  .spotlight-mock-body {
+    flex: 1; display: flex; align-items: center; justify-content: center;
+    color: var(--text-dim); font-size: 13px;
+    border: 1px dashed var(--border); border-radius: 8px;
+    background: rgba(0,0,0,0.15);
+  }
+
+  .chat-mock {
+    flex: 1; overflow-y: auto; padding: 16px 20px;
+    display: flex; flex-direction: column; gap: 12px;
+  }
+  .chat-msg {
+    font-family: var(--font-board); font-size: 19px;
+    line-height: 1.5; color: var(--text); max-width: 92%;
+  }
+  .chat-msg.dim { color: var(--text-muted); font-size: 17px; }
+  .chat-msg .hl { color: var(--yellow); }
+  .chat-msg .accent { color: var(--accent); }
+  .chat-msg .green { color: var(--green); }
+  .chat-you {
+    padding: 8px 14px; background: rgba(108,140,255,0.08);
+    border-radius: 8px; font-size: 13px;
+    color: var(--text-muted); font-family: var(--font-sans);
+    align-self: flex-end; max-width: 70%;
+  }
+  .chat-ref {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 4px 10px; background: rgba(108,140,255,0.08);
+    border: 1px solid var(--border-dim); border-radius: 6px;
+    font-size: 11px; color: var(--accent); cursor: pointer;
+    font-family: var(--font-sans);
+  }
+  .chat-heading {
+    font-size: 15px; font-weight: 700; color: var(--text);
+    padding: 8px 0 2px; display: flex; align-items: center; gap: 6px;
+    font-family: var(--font-sans);
+  }
+  .chat-heading .indicator { color: var(--accent); font-size: 11px; }
+  .chat-heading .badge {
+    font-size: 9px; padding: 2px 6px; border-radius: 3px;
+    background: rgba(255,255,255,0.06); color: var(--text-dim);
+    text-transform: uppercase;
+  }
+
+  .chat-input-mock {
+    padding: 12px 20px; border-top: 1px solid var(--border-dim);
+  }
+  .chat-input-box {
+    padding: 10px 14px; background: var(--bg-card);
+    border: 1px solid var(--border); border-radius: 8px;
+    color: var(--text-dim); font-size: 13px;
+  }
+
+  /* ── RIGHT SIDEBAR (existing) ── */
+  .sidebar-mock {
+    width: 200px;
+    background: var(--bg-surface);
+    border-left: 1px solid var(--border);
+    padding: 16px 12px;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .sidebar-mock h4 {
+    font-size: 10px; letter-spacing: 1.5px; text-transform: uppercase;
+    color: var(--text-dim); margin-bottom: 10px; font-weight: 700;
+  }
+  .sidebar-plan-step {
+    font-size: 11px; color: var(--text-muted); padding: 4px 0 4px 12px;
+    border-left: 2px solid var(--border-dim); margin-bottom: 4px;
+  }
+  .sidebar-plan-step.done { border-color: var(--green); color: var(--text-dim); text-decoration: line-through; }
+  .sidebar-plan-step.active { border-color: var(--accent); color: var(--text); font-weight: 600; }
+  .sidebar-stat {
+    font-size: 11px; color: var(--text-dim); padding: 4px 0;
+  }
+
+  /* ═══════════════════════════════════════
+     COLLAPSED / TOGGLE STATES
+     ═══════════════════════════════════════ */
+  .layout-mock.rail-collapsed .rail {
+    width: 40px;
+    min-width: 40px;
+  }
+  .layout-mock.rail-collapsed .rail-body,
+  .layout-mock.rail-collapsed .rail-tabs,
+  .layout-mock.rail-collapsed .rail-header h3 {
+    display: none;
+  }
+  .rail-toggle {
+    width: 28px; height: 28px; border-radius: 6px;
+    background: rgba(255,255,255,0.04); border: 1px solid var(--border-dim);
+    color: var(--text-dim); cursor: pointer; font-size: 14px;
+    display: flex; align-items: center; justify-content: center;
+    flex-shrink: 0;
+  }
+  .rail-toggle:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+
+  /* ═══════════════════════════════════════
+     INTERACTION ANNOTATIONS
+     ═══════════════════════════════════════ */
+  .annotation {
+    position: relative;
+  }
+  .annotation-marker {
+    position: absolute;
+    font-size: 10px;
+    color: var(--red);
+    font-weight: 700;
+    line-height: 1;
+  }
+  .interaction-list {
+    margin: 8px 0 0; padding: 0;
+    list-style: none;
+  }
+  .interaction-list li {
+    font-size: 12px; color: var(--text-muted); line-height: 1.6;
+    padding-left: 20px; position: relative;
+  }
+  .interaction-list li::before {
+    content: attr(data-n);
+    position: absolute; left: 0; color: var(--red);
+    font-weight: 700; font-size: 11px;
+  }
+
+  /* ═══════════════════════════════════════
+     COMPARISON
+     ═══════════════════════════════════════ */
+  .compare-grid {
+    display: grid; grid-template-columns: 1fr 1fr;
+    gap: 16px; margin: 16px 0;
+  }
+  .compare-card {
+    padding: 14px 16px; background: var(--bg-card);
+    border: 1px solid var(--border-dim); border-radius: 8px;
+  }
+  .compare-card h4 {
+    font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+    color: var(--text-dim); margin-bottom: 8px; font-weight: 700;
+  }
+  .compare-card ul {
+    list-style: none; padding: 0;
+  }
+  .compare-card li {
+    font-size: 12px; color: var(--text-muted); padding: 3px 0;
+    display: flex; align-items: flex-start; gap: 6px;
+  }
+  .compare-card li::before {
+    content: '→'; color: var(--accent); flex-shrink: 0;
+  }
+  .compare-card.preferred {
+    border-color: var(--accent-dim);
+    background: rgba(108,140,255,0.04);
+  }
+  .compare-card.preferred h4 { color: var(--accent); }
+
+  /* Highlight flash effect for demo */
+  @keyframes flash-highlight {
+    0% { background: rgba(108,140,255,0.15); }
+    100% { background: transparent; }
+  }
+  .note-card.flash { animation: flash-highlight 1.5s ease-out; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="page-title">wireframe</div>
+  <h1 style="font-size: 22px; margin-bottom: 6px;">Study Rail — Navigation & Quick Reference</h1>
+  <div class="page-subtitle">
+    A slim left panel that gives students <em>two superpowers</em>: jump to any teaching moment
+    (checkpoints), and glance at key formulas/concepts (quick notes) without scrolling back.
+    <br>The tutor generates notes <strong>as it teaches</strong> — they appear automatically.
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       SCENE 1 — FULL LAYOUT (CHECKPOINT TAB)
+       ═══════════════════════════════════════ -->
+  <div class="scene-label">Scene 1 — Layout with Checkpoint Navigation</div>
+
+  <div class="callout">
+    <strong>Study Rail</strong> sits on the <strong>left</strong> of the chat stream.
+    Two tabs: <code>MAP</code> (checkpoints) and <code>NOTES</code> (quick reference).
+    It mirrors headings already in the chat and adds tutor-generated reference cards.
+    <strong>Click any checkpoint → chat scrolls to that moment.</strong>
+  </div>
+
+  <div class="layout-mock">
+    <!-- STUDY RAIL -->
+    <div class="rail">
+      <div class="rail-header">
+        <button class="rail-toggle" title="Collapse rail">◀</button>
+        <div class="rail-tabs">
+          <button class="rail-tab active">Map</button>
+          <button class="rail-tab">Notes</button>
+        </div>
+      </div>
+      <div class="rail-body">
+        <div class="checkpoint-group">
+          <!-- Section 1 -->
+          <div class="checkpoint-section">
+            <span class="dot done"></span>
+            Qubits & Basics
+          </div>
+          <div class="checkpoint-item done">
+            <span class="cp-icon">✓</span>
+            <span class="cp-title">What is a qubit?</span>
+            <span class="cp-time">2m</span>
+          </div>
+          <div class="checkpoint-item done">
+            <span class="cp-icon">✓</span>
+            <span class="cp-title">Superposition & measurement</span>
+            <span class="cp-time">5m</span>
+          </div>
+
+          <!-- Section 2 -->
+          <div class="checkpoint-section">
+            <span class="dot active"></span>
+            Quantum Gates
+          </div>
+          <div class="checkpoint-item done">
+            <span class="cp-icon">✓</span>
+            <span class="cp-title">X Gate — quantum NOT</span>
+            <span class="cp-time">8m</span>
+          </div>
+          <div class="checkpoint-item active">
+            <span class="cp-icon">●</span>
+            <span class="cp-title"><strong>H Gate — Hadamard</strong></span>
+          </div>
+          <div class="checkpoint-item">
+            <span class="cp-icon" style="color:var(--text-dim)">○</span>
+            <span class="cp-title">Z Gate & phase</span>
+          </div>
+          <div class="checkpoint-item">
+            <span class="cp-icon" style="color:var(--text-dim)">○</span>
+            <span class="cp-title">CNOT & entanglement</span>
+          </div>
+
+          <!-- Section 3 -->
+          <div class="checkpoint-section">
+            <span class="dot upcoming"></span>
+            Circuits & Measurement
+          </div>
+          <div class="checkpoint-item">
+            <span class="cp-icon" style="color:var(--text-dim)">○</span>
+            <span class="cp-title">Bell state circuit</span>
+          </div>
+          <div class="checkpoint-item">
+            <span class="cp-icon" style="color:var(--text-dim)">○</span>
+            <span class="cp-title">Measurement & collapse</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-col">
+      <div class="spotlight-mock">
+        <div class="spotlight-mock-header">
+          <span class="spotlight-badge">Board</span>
+          <span class="spotlight-mock-title">H Gate — Hadamard</span>
+        </div>
+        <div class="spotlight-mock-body">
+          [ Board drawing: H matrix, action on |0⟩ and |1⟩, Bloch sphere rotation ]
+        </div>
+      </div>
+      <div class="chat-mock">
+        <div class="chat-heading">
+          <span class="indicator">▸</span>
+          H Gate — Hadamard
+          <span class="badge">gate</span>
+        </div>
+        <div class="chat-msg">
+          The <span class="hl">H gate</span> is the most important one — it creates
+          <span class="accent">superposition</span> from a classical state.
+        </div>
+        <div class="chat-msg dim" style="font-size:15px;">
+          <span class="chat-ref">🖊 H Gate — Hadamard  <span style="font-size:9px;opacity:0.5">click to reopen</span></span>
+        </div>
+        <div class="chat-msg">
+          Key property: <span class="hl">H² = I</span> — apply it twice and you're back where you started.
+        </div>
+        <div class="chat-msg dim">
+          Now apply that: what does <span class="accent">X|+⟩</span> give you?
+        </div>
+        <div class="chat-you">ok lets go</div>
+      </div>
+      <div class="chat-input-mock">
+        <div class="chat-input-box">Type your response… &nbsp;&nbsp;⇧↵</div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR (existing) -->
+    <div class="sidebar-mock">
+      <h4>Teaching Plan</h4>
+      <div class="sidebar-plan-step done">Intro: qubits</div>
+      <div class="sidebar-plan-step done">X gate basics</div>
+      <div class="sidebar-plan-step active">H gate deep dive</div>
+      <div class="sidebar-plan-step">Z gate & phase</div>
+      <div class="sidebar-plan-step">CNOT gate</div>
+      <div class="sidebar-plan-step">Bell states</div>
+      <div style="height:1px;background:var(--border-dim);margin:12px 0;"></div>
+      <h4>Session</h4>
+      <div class="sidebar-stat">⏱ 12:34</div>
+      <div class="sidebar-stat">💬 8 responses</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       SCENE 2 — NOTES TAB
+       ═══════════════════════════════════════ -->
+  <div class="scene-label">Scene 2 — Quick Reference Notes Tab</div>
+
+  <div class="callout">
+    When the tutor explains a gate or formula, it <strong>simultaneously emits a note card</strong>
+    via a new <code>&lt;teaching-note&gt;</code> tag. Notes stack in the rail, grouped by topic.
+    Students can glance left at any time to see <strong>formulas, rules, and key points</strong>
+    without scrolling back through the chat.
+  </div>
+
+  <div class="layout-mock">
+    <!-- STUDY RAIL — NOTES TAB -->
+    <div class="rail">
+      <div class="rail-header">
+        <button class="rail-toggle" title="Collapse rail">◀</button>
+        <div class="rail-tabs">
+          <button class="rail-tab">Map</button>
+          <button class="rail-tab active">Notes</button>
+        </div>
+      </div>
+      <div class="rail-body">
+        <div class="note-section-label">Quantum Gates</div>
+
+        <div class="note-card flash">
+          <div class="note-card-header">
+            <span class="note-card-title"><span class="icon">⚡</span> H Gate</span>
+            <span class="note-card-tag">Gate</span>
+          </div>
+          <div class="note-card-body">
+            <span class="formula" id="note-h-matrix"></span>
+            <span class="key-point">Creates superposition</span>
+            <span class="detail">H|0⟩ = |+⟩ &nbsp; H|1⟩ = |−⟩</span>
+            <span class="detail">H² = I (self-inverse)</span>
+          </div>
+        </div>
+
+        <div class="note-card">
+          <div class="note-card-header">
+            <span class="note-card-title"><span class="icon">⚡</span> X Gate</span>
+            <span class="note-card-tag">Gate</span>
+          </div>
+          <div class="note-card-body">
+            <span class="formula" id="note-x-matrix"></span>
+            <span class="key-point">Quantum NOT — flips |0⟩ ↔ |1⟩</span>
+            <span class="detail">X² = I &nbsp; swaps amplitudes</span>
+          </div>
+        </div>
+
+        <div class="note-divider"></div>
+        <div class="note-section-label">Key Concepts</div>
+
+        <div class="note-card">
+          <div class="note-card-header">
+            <span class="note-card-title"><span class="icon">💡</span> Superposition</span>
+            <span class="note-card-tag">Concept</span>
+          </div>
+          <div class="note-card-body">
+            <span class="formula">|ψ⟩ = α|0⟩ + β|1⟩</span>
+            <span class="detail">|α|² + |β|² = 1</span>
+            <span class="detail">Measurement → collapses to |0⟩ or |1⟩</span>
+          </div>
+        </div>
+
+        <div class="note-card">
+          <div class="note-card-header">
+            <span class="note-card-title"><span class="icon">📐</span> Bloch Sphere</span>
+            <span class="note-card-tag">Visual</span>
+          </div>
+          <div class="note-card-body">
+            <span class="key-point">|0⟩ = north pole, |1⟩ = south</span>
+            <span class="detail">H = 90° rotation around Y+Z axis</span>
+            <span class="detail">X = 180° around X axis</span>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MAIN CONTENT -->
+    <div class="main-col">
+      <div class="spotlight-mock">
+        <div class="spotlight-mock-header">
+          <span class="spotlight-badge">Board</span>
+          <span class="spotlight-mock-title">H Gate — Hadamard</span>
+        </div>
+        <div class="spotlight-mock-body">
+          [ Board: H matrix with action on basis states, Bloch sphere diagram ]
+        </div>
+      </div>
+      <div class="chat-mock">
+        <div class="chat-msg">
+          <span class="hl">H² = I</span> — H is its own inverse. Apply it twice → back to start.
+        </div>
+        <div class="chat-msg dim">
+          Now here's where it gets interesting. What happens if you apply
+          <span class="accent">X</span> to the <span class="accent">|+⟩</span> state?
+        </div>
+        <div class="chat-msg dim" style="font-size:13px;color:var(--text-dim);font-family:var(--font-sans);">
+          💡 Hint: check the <span style="color:var(--accent)">X Gate</span> note on the left
+        </div>
+        <div class="chat-you">X just swaps amplitudes so… |+⟩ stays |+⟩?</div>
+        <div class="chat-msg">
+          <span class="green">Exactly right.</span> X|+⟩ = |+⟩ because X swaps |0⟩ and |1⟩
+          but |+⟩ is an equal mix of both. The amplitudes just switch places.
+        </div>
+      </div>
+      <div class="chat-input-mock">
+        <div class="chat-input-box">Type your response… &nbsp;&nbsp;⇧↵</div>
+      </div>
+    </div>
+
+    <!-- RIGHT SIDEBAR -->
+    <div class="sidebar-mock">
+      <h4>Teaching Plan</h4>
+      <div class="sidebar-plan-step done">Intro: qubits</div>
+      <div class="sidebar-plan-step done">X gate basics</div>
+      <div class="sidebar-plan-step active">H gate deep dive</div>
+      <div class="sidebar-plan-step">Z gate & phase</div>
+      <div class="sidebar-plan-step">CNOT gate</div>
+      <div style="height:1px;background:var(--border-dim);margin:12px 0;"></div>
+      <h4>Session</h4>
+      <div class="sidebar-stat">⏱ 14:22</div>
+      <div class="sidebar-stat">💬 11 responses</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       SCENE 3 — COLLAPSED STATE
+       ═══════════════════════════════════════ -->
+  <div class="scene-label">Scene 3 — Collapsed Rail (more chat space)</div>
+
+  <div class="callout">
+    Click the <strong>◀ toggle</strong> to collapse the rail to a thin 40px icon strip.
+    Students get full chat width back. Click <strong>▶</strong> to reopen.
+    On mobile / narrow screens, the rail starts collapsed.
+  </div>
+
+  <div class="layout-mock rail-collapsed" style="height:300px;">
+    <div class="rail" style="align-items:center;padding-top:12px;">
+      <button class="rail-toggle" title="Expand rail">▶</button>
+      <div style="margin-top:16px;display:flex;flex-direction:column;gap:8px;align-items:center;">
+        <span style="font-size:14px;cursor:pointer;" title="Map">🗺</span>
+        <span style="font-size:14px;cursor:pointer;" title="Notes">📝</span>
+      </div>
+    </div>
+    <div class="main-col">
+      <div class="chat-mock" style="padding:20px;">
+        <div class="chat-msg">
+          Full-width chat when rail is collapsed. Student has more reading space.
+        </div>
+        <div class="chat-msg dim">
+          The rail remembers which tab was open and restores it on expand.
+        </div>
+      </div>
+    </div>
+    <div class="sidebar-mock">
+      <h4>Teaching Plan</h4>
+      <div class="sidebar-plan-step active">H gate deep dive</div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════
+       DESIGN DECISIONS
+       ═══════════════════════════════════════ -->
+  <div class="scene-label">Design Decisions & Mechanics</div>
+
+  <div class="compare-grid">
+    <div class="compare-card preferred">
+      <h4>Checkpoint Map (left tab)</h4>
+      <ul>
+        <li>Auto-generated from <code>&lt;teaching-heading&gt;</code> tags already in the stream</li>
+        <li>Sections = section headings, items = topic headings</li>
+        <li>Click → scrolls chat to that block (smooth scroll + brief highlight)</li>
+        <li>Active checkpoint tracks scroll position (intersection observer)</li>
+        <li>Done/active/upcoming states mirror the teaching plan progress</li>
+        <li>Shows time offset from session start for each checkpoint</li>
+      </ul>
+    </div>
+    <div class="compare-card preferred">
+      <h4>Quick Notes (right tab)</h4>
+      <ul>
+        <li>New <code>&lt;teaching-note&gt;</code> tag — tutor emits as it teaches</li>
+        <li>Attributes: title, category (gate/concept/formula/rule), content</li>
+        <li>Cards use board font (Caveat) for formulas — feels like scribbled notes</li>
+        <li>Grouped by topic section, most recent at top within group</li>
+        <li>Flash animation when new note arrives (draws attention)</li>
+        <li>Click a note card → scrolls to where it was generated in chat</li>
+        <li>Persisted to session state → restored on page reload</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="compare-grid">
+    <div class="compare-card">
+      <h4>What Tutor Emits</h4>
+      <ul>
+        <li><code>&lt;teaching-note title="H Gate" category="gate"&gt;</code></li>
+        <li>Content: plain text + LaTeX formulas between $ signs</li>
+        <li>Tutor generates a note after explaining each key concept</li>
+        <li>Prompted to include: the formula, one-line rule, key properties</li>
+        <li>NOT a teaching action — invisible in chat, only appears in rail</li>
+        <li>One note per concept — new note replaces old if same title</li>
+      </ul>
+    </div>
+    <div class="compare-card">
+      <h4>Collapse & Responsiveness</h4>
+      <ul>
+        <li>Rail width: 260px expanded, 40px collapsed (icon-only)</li>
+        <li>Starts expanded on desktop, collapsed on mobile (&lt;768px)</li>
+        <li>Toggle button persists preference in localStorage</li>
+        <li>When collapsed, icon-only buttons for Map 🗺 and Notes 📝</li>
+        <li>No content lost — just hidden, state preserved</li>
+        <li>Right sidebar unchanged — still has plan + session stats</li>
+      </ul>
+    </div>
+  </div>
+
+  <div class="scene-label">Teaching Note Tag Spec</div>
+
+  <div class="callout">
+    <strong>Tag format:</strong><br>
+    <code>&lt;teaching-note title="H Gate" category="gate"&gt;</code><br>
+    <code>$H = \frac{1}{\sqrt{2}}\begin{pmatrix}1 &amp; 1 \\ 1 &amp; -1\end{pmatrix}$</code><br>
+    <code>Creates superposition from classical states</code><br>
+    <code>H|0⟩ = |+⟩, H|1⟩ = |−⟩</code><br>
+    <code>Self-inverse: H² = I</code><br>
+    <code>&lt;/teaching-note&gt;</code><br><br>
+    <strong>Categories:</strong> gate, concept, formula, rule, definition, visual<br>
+    <strong>Rendering:</strong> Does NOT appear in chat stream. Appears only in the Notes tab of the study rail.<br>
+    <strong>Upsert:</strong> If a note with the same title already exists, it gets replaced (latest wins).
+  </div>
+
+  <div class="scene-label">Interaction Flow</div>
+
+  <div class="callout">
+    <strong>1.</strong> Tutor explains X gate → emits <code>&lt;teaching-note title="X Gate" category="gate"&gt;...&lt;/teaching-note&gt;</code><br>
+    <strong>2.</strong> Note card appears in rail Notes tab with a brief flash animation<br>
+    <strong>3.</strong> Checkpoint "X Gate — quantum NOT" appears in Map tab (from heading already emitted)<br>
+    <strong>4.</strong> Student progresses to H gate → new note + checkpoint added<br>
+    <strong>5.</strong> Tutor asks "What does X|+⟩ give?" → student glances at X Gate note on the left, sees the swap rule<br>
+    <strong>6.</strong> Student clicks "X Gate" checkpoint in Map tab → chat scrolls back to that section<br>
+    <strong>7.</strong> Student clicks back to "H Gate" checkpoint → chat scrolls forward to current position<br>
+  </div>
+
+</div>
+
+<script>
+  // Render KaTeX in note formulas
+  document.addEventListener('DOMContentLoaded', () => {
+    const hMat = document.getElementById('note-h-matrix');
+    if (hMat && typeof katex !== 'undefined') {
+      katex.render('H = \\frac{1}{\\sqrt{2}}\\begin{pmatrix}1 & 1 \\\\ 1 & -1\\end{pmatrix}', hMat, { displayMode: false, throwOnError: false });
+    }
+    const xMat = document.getElementById('note-x-matrix');
+    if (xMat && typeof katex !== 'undefined') {
+      katex.render('X = \\begin{pmatrix}0 & 1 \\\\ 1 & 0\\end{pmatrix}', xMat, { displayMode: false, throwOnError: false });
+    }
+  });
+</script>
+</body>
+</html>

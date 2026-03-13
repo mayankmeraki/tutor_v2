@@ -50,6 +50,10 @@ def build_tutor_prompt(context_data: dict) -> str:
     if knowledge_summary:
         parts.append(f"[Student Knowledge State]\n{knowledge_summary}\n")
 
+    student_model = context_data.get("studentModel")
+    if student_model:
+        parts.append(f"[Student Model — Your Evolving Understanding of This Student]\n{student_model}\n")
+
     # Teaching plan from planning agent
     teaching_plan = context_data.get("teachingPlan")
     if teaching_plan:
