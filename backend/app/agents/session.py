@@ -14,7 +14,7 @@ from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from app.agents.agent_runtime import AgentRuntime, DelegationState
+    from app.agents.agent_runtime import AgentRuntime, DelegationState, AssessmentState
 
 log = logging.getLogger(__name__)
 
@@ -37,6 +37,12 @@ class Session:
     agent_runtime: AgentRuntime | None = None
     delegation: DelegationState | None = None
     delegation_result: dict | None = None
+
+    # ── Assessment agent ──
+    assessment: AssessmentState | None = None
+    assessment_result: dict | None = None
+    pre_assessment_note: dict | None = None  # Teaching checkpoint saved before assessment
+    last_assessment_summary: dict | None = None  # Persists until next assessment — score, weak concepts, recommendation
 
     # ── Teaching plan (from planning agent) ──
     current_plan: dict | None = None           # Full plan JSON
@@ -77,6 +83,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
     """Attempt to restore session state from MongoDB."""
     try:
         from app.services.session_service import load_backend_state
+        from app.agents.agent_runtime import DelegationState, AssessmentState
 
         doc = await load_backend_state(session_id)
         if not doc or not doc.get("backendState"):
@@ -85,7 +92,11 @@ async def _try_restore_session(session_id: str) -> Session | None:
         bs = doc["backendState"]
         session = Session(
             student_model=bs.get("studentModel"),
+            student_intent=bs.get("studentIntent"),
             tutor_notes=bs.get("tutorNotes", []),
+            assistant_turn_count=bs.get("assistantTurnCount", 0),
+            session_status=bs.get("sessionStatus", "active"),
+            completion_reason=bs.get("completionReason"),
             current_plan=bs.get("currentPlan"),
             current_topics=bs.get("currentTopics", []),
             current_topic_index=bs.get("currentTopicIndex", -1),
@@ -94,8 +105,42 @@ async def _try_restore_session(session_id: str) -> Session | None:
             session_scope=bs.get("sessionScope"),
             scope_concepts=bs.get("scopeConcepts", []),
             active_scenario=bs.get("activeScenario"),
+            available_assets=bs.get("availableAssets", []),
             generated_visuals=doc.get("generatedVisuals", {}),
+            assessment_result=bs.get("assessmentResult"),
+            pre_assessment_note=bs.get("preAssessmentNote"),
+            last_assessment_summary=bs.get("lastAssessmentSummary"),
+            delegation_result=bs.get("delegationResult"),
         )
+
+        # Restore in-flight delegation state
+        deleg = bs.get("delegation")
+        if deleg:
+            session.delegation = DelegationState(
+                agent_type=deleg["agentType"],
+                system_prompt=deleg["systemPrompt"],
+                max_turns=deleg.get("maxTurns", 6),
+                turns_used=deleg.get("turnsUsed", 0),
+                topic=deleg.get("topic", ""),
+                instructions=deleg.get("instructions", ""),
+            )
+
+        # Restore in-flight assessment agent state
+        assess = bs.get("assessmentAgent")
+        if assess:
+            session.assessment = AssessmentState(
+                system_prompt=assess["systemPrompt"],
+                brief=assess.get("brief", {}),
+                section_title=assess.get("sectionTitle", ""),
+                concepts_tested=assess.get("conceptsTested", []),
+                questions_asked=assess.get("questionsAsked", 0),
+                max_questions=assess.get("maxQuestions", 5),
+                min_questions=assess.get("minQuestions", 3),
+                turns_used=assess.get("turnsUsed", 0),
+                max_turns=assess.get("maxTurns", 15),
+                messages=assess.get("messages", []),
+            )
+
         log.info("Restored session from MongoDB: %s", session_id)
         return session
     except Exception as e:

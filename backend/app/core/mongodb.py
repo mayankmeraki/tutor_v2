@@ -12,6 +12,11 @@ def get_mongo_client() -> AsyncIOMotorClient:
         _client = AsyncIOMotorClient(
             settings.MONGODB_URI,
             tlsCAFile=certifi.where(),
+            serverSelectionTimeoutMS=5000,
+            connectTimeoutMS=5000,
+            socketTimeoutMS=30000,
+            maxPoolSize=20,
+            retryWrites=True,
         )
     return _client
 

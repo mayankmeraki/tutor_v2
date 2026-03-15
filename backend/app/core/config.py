@@ -1,6 +1,6 @@
 from urllib.parse import quote_plus
 
-from pydantic import Field, computed_field
+from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,7 +12,9 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    LLM_PROVIDER: str = Field(default="openrouter")  # "anthropic" or "openrouter"
     ANTHROPIC_API_KEY: str = Field(default="")
+    OPENROUTER_API_KEY: str = Field(default="")
     TUTOR_MODEL: str = Field(default="claude-sonnet-4-6")
     PLANNING_MODEL: str = Field(default="claude-sonnet-4-6")
     RESEARCH_MODEL: str = Field(default="claude-haiku-4-5-20251001")
@@ -23,16 +25,22 @@ class Settings(BaseSettings):
     DB_PORT: int = Field(default=5433)
     DB_NAME: str = Field(default="capacity")
     DB_USER: str = Field(default="capacity_service_user")
-    DB_PASSWORD: str = Field(default="capacity@123")
+    DB_PASSWORD: str = Field(default="")
 
     # MongoDB
     MONGODB_URI: str = Field(default="")
 
     # Auth
-    MOCKUP_JWT_SECRET: str = Field(default="mockup-dev-secret-change-in-prod")
+    MOCKUP_JWT_SECRET: str = Field(default="")
     MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=1440)
 
     PORT: int = Field(default=3001)
+
+    @model_validator(mode="after")
+    def _validate_secrets(self):
+        if not self.MOCKUP_JWT_SECRET:
+            raise ValueError("MOCKUP_JWT_SECRET must be set via environment variable")
+        return self
 
     @computed_field
     @property

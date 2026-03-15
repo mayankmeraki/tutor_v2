@@ -1,8 +1,0 @@
-pyproject.toml
-app/__init__.py
-app/main.py
-mockup_backend.egg-info/PKG-INFO
-mockup_backend.egg-info/SOURCES.txt
-mockup_backend.egg-info/dependency_links.txt
-mockup_backend.egg-info/requires.txt
-mockup_backend.egg-info/top_level.txt

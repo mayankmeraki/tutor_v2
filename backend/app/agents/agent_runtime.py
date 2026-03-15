@@ -19,9 +19,8 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
-import anthropic
-
 from app.core.config import settings
+from app.core.llm import llm_call, is_retryable, extract_retry_after
 from app.tools import execute_tutor_tool
 
 log = logging.getLogger(__name__)
@@ -30,16 +29,6 @@ MAX_PLANNING_TOOL_ROUNDS = 3
 MAX_PLANNING_OUTPUT_ROUNDS = 2
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds — doubles each retry (2, 4, 8)
-
-_client: anthropic.AsyncAnthropic | None = None
-
-
-def _get_client() -> anthropic.AsyncAnthropic:
-    global _client
-    if _client is None:
-        _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    return _client
-
 
 # ── Data classes ────────────────────────────────────────────────────────────
 
@@ -71,22 +60,23 @@ class DelegationState:
     instructions: str = ""
 
 
+@dataclass
+class AssessmentState:
+    """Active assessment checkpoint — the assessment agent is in control."""
+    system_prompt: str              # Assessment agent's full system prompt
+    tools: list[dict] = field(default_factory=list)
+    brief: dict = field(default_factory=dict)   # Tutor's handoff brief
+    section_title: str = ""
+    concepts_tested: list[str] = field(default_factory=list)
+    questions_asked: int = 0
+    max_questions: int = 5
+    min_questions: int = 3
+    turns_used: int = 0
+    max_turns: int = 15             # Hard limit (min 3 questions × ~2 turns each + overhead)
+    messages: list = field(default_factory=list)  # Assessment's own message history (separate from tutor)
+
+
 # ── Retry helpers ──────────────────────────────────────────────────────────
-
-
-def _is_transient(exc: Exception) -> bool:
-    """Check if an exception is transient and should be retried."""
-    if isinstance(exc, anthropic.RateLimitError):
-        return True
-    if isinstance(exc, anthropic.APIStatusError) and exc.status_code in (429, 529):
-        return True
-    if isinstance(exc, anthropic.APIConnectionError):
-        return True
-    if isinstance(exc, anthropic.InternalServerError):
-        return True
-    if isinstance(exc, (asyncio.TimeoutError, ConnectionError, TimeoutError)):
-        return True
-    return False
 
 
 async def _retry_api_call(fn, *, max_retries: int = MAX_RETRIES, label: str = "API"):
@@ -100,10 +90,10 @@ async def _retry_api_call(fn, *, max_retries: int = MAX_RETRIES, label: str = "A
             return await fn()
         except Exception as e:
             last_exc = e
-            if not _is_transient(e) or attempt >= max_retries:
+            if not is_retryable(e) or attempt >= max_retries:
                 raise
             delay = RETRY_BASE_DELAY * (2 ** attempt)
-            retry_after = _extract_retry_after(e)
+            retry_after = extract_retry_after(e)
             if retry_after and retry_after > delay:
                 delay = min(retry_after, 30.0)
             log.warning(
@@ -113,18 +103,6 @@ async def _retry_api_call(fn, *, max_retries: int = MAX_RETRIES, label: str = "A
             )
             await asyncio.sleep(delay)
     raise last_exc  # unreachable, but satisfies type checker
-
-
-def _extract_retry_after(exc: Exception) -> float | None:
-    """Try to extract Retry-After header from Anthropic errors."""
-    if hasattr(exc, "response") and hasattr(exc.response, "headers"):
-        ra = exc.response.headers.get("retry-after")
-        if ra:
-            try:
-                return float(ra)
-            except (ValueError, TypeError):
-                pass
-    return None
 
 
 # ── Agent Runtime ───────────────────────────────────────────────────────────
@@ -284,7 +262,7 @@ class AgentRuntime:
             })
         except Exception as e:
             task.status = "error"
-            task.error_type = "transient" if _is_transient(e) else "permanent"
+            task.error_type = "transient" if is_retryable(e) else "permanent"
             task.error = (
                 f"{type(e).__name__}: {str(e)[:300]}\n"
                 f"Retries used: {task.retries_used}/{MAX_RETRIES}"
@@ -322,7 +300,6 @@ class AgentRuntime:
         from app.agents.prompts import build_planning_prompt
 
         planning_prompt = build_planning_prompt(context)
-        client = _get_client()
         planning_tools = _get_planning_tools()
 
         # Wrap instructions with phase guidance
@@ -347,7 +324,7 @@ class AgentRuntime:
             }
 
             async def _call(params=request_params):
-                return await client.messages.create(**params)
+                return await llm_call(**params)
 
             response = await _retry_api_call(
                 _call, label=f"Planning[{task.agent_id}] P1R{round_num}"
@@ -363,7 +340,7 @@ class AgentRuntime:
             # Check for valid JSONL in any text blocks
             plan_data = None
             for block in response.content:
-                if hasattr(block, "text") and block.text.strip():
+                if block.type == "text" and block.text and block.text.strip():
                     try:
                         plan_data = _parse_planning_jsonl(block.text)
                     except (ValueError, json.JSONDecodeError) as e:
@@ -431,7 +408,7 @@ class AgentRuntime:
             }
 
             async def _call2(params=request_params):
-                return await client.messages.create(**params)
+                return await llm_call(**params)
 
             response = await _retry_api_call(
                 _call2, label=f"Planning[{task.agent_id}] P2R{round_num}"
@@ -446,7 +423,7 @@ class AgentRuntime:
 
             # Try parsing with any prefill prepended
             for block in response.content:
-                if hasattr(block, "text") and block.text.strip():
+                if block.type == "text" and block.text and block.text.strip():
                     text_to_parse = prefill + block.text if prefill else block.text
                     try:
                         return _parse_planning_jsonl(text_to_parse)
@@ -524,7 +501,7 @@ class AgentRuntime:
                     else:
                         return {"type": spec_type, "error": f"Unknown asset type: {spec_type}"}
                 except Exception as e:
-                    if _is_transient(e) and attempt < MAX_RETRIES:
+                    if is_retryable(e) and attempt < MAX_RETRIES:
                         delay = RETRY_BASE_DELAY * (2 ** attempt)
                         log.warning("Asset fetch retry %d: %s", attempt + 1, str(e)[:100])
                         await asyncio.sleep(delay)
@@ -544,8 +521,6 @@ class AgentRuntime:
         Uses Haiku for lightweight tasks, Sonnet if the Tutor specifies.
         The Tutor's instructions define what this agent does — it's fully dynamic.
         """
-        client = _get_client()
-
         # Build a context-aware system prompt
         system_parts = [
             f"You are a background assistant for a physics tutoring system.",
@@ -568,7 +543,7 @@ class AgentRuntime:
             model = settings.PLANNING_MODEL  # Sonnet for heavier work
 
         async def _call():
-            return await client.messages.create(
+            return await llm_call(
                 model=model,
                 max_tokens=4096,
                 system=system_prompt,
@@ -587,7 +562,7 @@ class AgentRuntime:
 
         text = ""
         for block in response.content:
-            if hasattr(block, "text"):
+            if block.text:
                 text += block.text
         return text
 
@@ -600,7 +575,6 @@ class AgentRuntime:
         """
         import re
 
-        client = _get_client()
         visual_id = f"vis-{uuid.uuid4().hex[:8]}"
 
         # Build context-aware system prompt
@@ -694,7 +668,7 @@ class AgentRuntime:
             user_prompt = f"Task: {task.description}\n\nDetails: {task.instructions}"
 
         async def _call():
-            return await client.messages.create(
+            return await llm_call(
                 model=settings.PLANNING_MODEL,  # Sonnet — good at code generation
                 max_tokens=8192,
                 system=system_prompt,
@@ -714,7 +688,7 @@ class AgentRuntime:
         # Extract HTML from response
         text = ""
         for block in response.content:
-            if hasattr(block, "text"):
+            if block.text:
                 text += block.text
 
         # Handle ```html fenced code blocks or raw HTML

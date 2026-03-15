@@ -1,28 +1,19 @@
-"""Auth routes — direct DB login, issue mockup JWT."""
+"""Auth routes — MongoDB login/signup, issue mockup JWT."""
 
 import logging
 from datetime import datetime, timezone, timedelta
 
-import bcrypt
 from fastapi import APIRouter, Depends, HTTPException, Request
 from jose import jwt, JWTError
-from sqlalchemy import select
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
-from app.core.database import get_db
-from app.models.user import Users
+from app.services.user_service import create_user, get_user_by_email, verify_password
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/v1/auth", tags=["auth"])
 
 ALGORITHM = "HS256"
-
-
-def _verify_password(plain: str, hashed: str) -> bool:
-    pw = plain.encode("utf-8")[:72]
-    return bcrypt.checkpw(pw, hashed.encode("utf-8"))
 
 
 # ─── JWT helpers ──────────────────────────────────────────
@@ -59,8 +50,8 @@ async def get_current_user(request: Request) -> dict:
 # ─── Routes ──────────────────────────────────────────────
 
 @router.post("/login")
-async def login(request: Request, db: AsyncSession = Depends(get_db)):
-    """Authenticate against the users table in PostgreSQL, issue a mockup JWT."""
+async def login(request: Request):
+    """Authenticate against MongoDB users collection, issue a mockup JWT."""
     body = await request.json()
     email = body.get("email", "").strip().lower()
     password = body.get("password", "")
@@ -68,23 +59,49 @@ async def login(request: Request, db: AsyncSession = Depends(get_db)):
     if not email or not password:
         raise HTTPException(status_code=400, detail="Email and password are required")
 
-    # Query user from PostgreSQL
-    result = await db.execute(select(Users).where(Users.email == email))
-    user = result.scalar_one_or_none()
+    user = await get_user_by_email(email)
 
-    if not user or not user.hashed_password:
+    if not user or not user.get("hashed_password"):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    if not _verify_password(password, user.hashed_password):
+    if not verify_password(password, user["hashed_password"]):
         raise HTTPException(status_code=401, detail="Invalid email or password")
 
-    # Issue mockup JWT
-    token = create_mockup_token(user.email, user.name, user.role.value)
+    token = create_mockup_token(user["email"], user["name"], user.get("role", "student"))
 
-    log.info("User logged in: %s (%s)", user.email, user.name)
+    log.info("User logged in: %s (%s)", user["email"], user["name"])
     return {
         "token": token,
-        "user": {"email": user.email, "name": user.name, "role": user.role.value},
+        "user": {"email": user["email"], "name": user["name"], "role": user.get("role", "student")},
+    }
+
+
+@router.post("/signup")
+async def signup(request: Request):
+    """Create a new user account in MongoDB and issue a JWT."""
+    body = await request.json()
+    name = body.get("name", "").strip()
+    email = body.get("email", "").strip().lower()
+    password = body.get("password", "")
+
+    if not name or not email or not password:
+        raise HTTPException(status_code=400, detail="Name, email, and password are required")
+
+    if len(password) < 6:
+        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+
+    existing = await get_user_by_email(email)
+    if existing:
+        raise HTTPException(status_code=409, detail="An account with this email already exists")
+
+    user = await create_user(name, email, password)
+
+    token = create_mockup_token(user["email"], user["name"], user.get("role", "student"))
+
+    log.info("User signed up: %s (%s)", user["email"], user["name"])
+    return {
+        "token": token,
+        "user": {"email": user["email"], "name": user["name"], "role": user.get("role", "student")},
     }
 
 

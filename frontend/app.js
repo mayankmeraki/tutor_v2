@@ -37,7 +37,7 @@ const AuthManager = (() => {
   }
 
   async function login(email, password) {
-    const apiUrl = $('#api-url')?.value?.trim() || 'http://localhost:3001';
+    const apiUrl = $('#api-url')?.value?.trim() || window.location.origin;
     const res = await fetch(`${apiUrl}/api/v1/auth/login`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -57,9 +57,30 @@ const AuthManager = (() => {
     clearAuth();
   }
 
+  async function signup(name, email, password) {
+    const apiUrl = $('#api-url')?.value?.trim() || window.location.origin;
+    const res = await fetch(`${apiUrl}/api/v1/auth/signup`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password }),
+    });
+    if (res.status === 409) throw new Error('An account with this email already exists');
+    if (res.status === 400) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || 'Please fill in all fields');
+    }
+    if (!res.ok) {
+      const text = await res.text();
+      throw new Error(text.slice(0, 200) || `Signup failed (${res.status})`);
+    }
+    const data = await res.json();
+    setAuth(data.token, data.user);
+    return data;
+  }
+
   async function validateSession() {
     if (!isLoggedIn()) return false;
-    const apiUrl = $('#api-url')?.value?.trim() || 'http://localhost:3001';
+    const apiUrl = $('#api-url')?.value?.trim() || window.location.origin;
     try {
       const res = await fetch(`${apiUrl}/api/v1/auth/me`, {
         headers: authHeaders(),
@@ -70,7 +91,96 @@ const AuthManager = (() => {
     }
   }
 
-  return { getToken, getUser, isLoggedIn, setAuth, clearAuth, authHeaders, login, logout, validateSession };
+  return { getToken, getUser, isLoggedIn, setAuth, clearAuth, authHeaders, login, signup, logout, validateSession };
+})();
+
+// ═══════════════════════════════════════════════════════════
+// Module 0b: First-time UI Hints
+// ═══════════════════════════════════════════════════════════
+
+const UIHints = (() => {
+  const STORAGE_KEY = 'capacity_hints_seen';
+
+  function getSeen() {
+    try { return JSON.parse(localStorage.getItem(STORAGE_KEY)) || {}; } catch { return {}; }
+  }
+  function markSeen(id) {
+    const seen = getSeen();
+    seen[id] = true;
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(seen));
+  }
+  function hasSeen(id) { return !!getSeen()[id]; }
+
+  function dismiss(id) {
+    markSeen(id);
+    const el = document.getElementById('ui-hint-' + id);
+    if (el) {
+      el.style.opacity = '0';
+      el.style.transform = 'translateY(6px)';
+      el.style.transition = 'opacity 0.25s ease, transform 0.25s ease';
+      setTimeout(() => el.remove(), 250);
+    }
+  }
+
+  /**
+   * Show a hint tooltip anchored to a target element.
+   * @param {string} id - Unique hint ID (for dismiss/seen tracking)
+   * @param {HTMLElement} anchor - Element to position near
+   * @param {string} title - Bold title line
+   * @param {string} body - Description text
+   * @param {string} arrow - 'top'|'bottom'|'left'|'right' — where the arrow points
+   * @param {object} offset - { top, left } pixel offsets from anchor
+   */
+  function show(id, anchor, title, body, arrow = 'top', offset = {}) {
+    if (hasSeen(id) || document.getElementById('ui-hint-' + id)) return;
+    if (!anchor) return;
+
+    const hint = document.createElement('div');
+    hint.className = 'ui-hint arrow-' + arrow;
+    hint.id = 'ui-hint-' + id;
+    hint.innerHTML = `
+      <div class="ui-hint-title">${title}</div>
+      <div>${body}</div>
+      <span class="ui-hint-dismiss" onclick="UIHints.dismiss('${id}')">Got it</span>
+    `;
+    document.body.appendChild(hint);
+
+    // Position relative to anchor
+    const rect = anchor.getBoundingClientRect();
+    const hintRect = hint.getBoundingClientRect();
+    let top, left;
+
+    if (arrow === 'top') {
+      top = rect.bottom + 8 + (offset.top || 0);
+      left = rect.left + (offset.left || 0);
+    } else if (arrow === 'bottom') {
+      top = rect.top - hintRect.height - 8 + (offset.top || 0);
+      left = rect.left + (offset.left || 0);
+    } else if (arrow === 'left') {
+      top = rect.top + (offset.top || 0);
+      left = rect.right + 8 + (offset.left || 0);
+    } else {
+      top = rect.top + (offset.top || 0);
+      left = rect.left - hintRect.width - 8 + (offset.left || 0);
+    }
+
+    // Clamp to viewport
+    top = Math.max(8, Math.min(top, window.innerHeight - hintRect.height - 8));
+    left = Math.max(8, Math.min(left, window.innerWidth - hintRect.width - 8));
+
+    hint.style.position = 'fixed';
+    hint.style.top = top + 'px';
+    hint.style.left = left + 'px';
+
+    // Auto-dismiss after 12s
+    setTimeout(() => dismiss(id), 12000);
+  }
+
+  function removeAll() {
+    document.querySelectorAll('.ui-hint').forEach(el => el.remove());
+  }
+
+  return { show, dismiss, hasSeen, markSeen, removeAll };
 })();
 
 // ═══════════════════════════════════════════════════════════
@@ -192,12 +302,31 @@ const SessionManager = (() => {
         generatedVisuals: state.generatedVisuals,
         spotlightHistory: state.spotlightHistory,
         notebookSteps: state.notebookSteps,
+        activeSpotlight: state.spotlightActive ? {
+          active: true,
+          info: state.spotlightInfo,
+          openedAtTurn: state.spotlightOpenedAtTurn,
+        } : null,
+        scribbleStrokes: state.scribble.strokes.map(s => ({
+          points: s.points,
+          color: s.color,
+          width: s.width,
+          isHighlighter: s.isHighlighter,
+        })),
         teachingCounters: {
           totalAssistantTurns: state.totalAssistantTurns,
           lastVisualTurn: state.lastVisualTurn,
           visualAssetCount: state.visualAssetCount,
           lastEngagementTurn: state.lastEngagementTurn,
         },
+        assessment: state.assessment.active ? {
+          active: true,
+          sectionTitle: state.assessment.sectionTitle,
+          concepts: state.assessment.concepts,
+          questionNumber: state.assessment.questionNumber,
+          maxQuestions: state.assessment.maxQuestions,
+        } : null,
+        conceptNotes: state.assessment.conceptNotes,
       });
     } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
@@ -226,10 +355,34 @@ const SessionManager = (() => {
         status: 'complete', endedAt: session.endedAt,
         durationSec: session.durationSec, metrics: session.metrics,
         transcript: session.transcript, sections: session.sections,
+        plan: session.plan,
+        coursePosition: session.coursePosition,
         summaries: session.summaries,
         generatedVisuals: state.generatedVisuals,
         spotlightHistory: state.spotlightHistory,
         notebookSteps: state.notebookSteps,
+        activeSpotlight: state.spotlightActive ? {
+          active: true,
+          info: state.spotlightInfo,
+          openedAtTurn: state.spotlightOpenedAtTurn,
+        } : null,
+        scribbleStrokes: state.scribble.strokes.map(s => ({
+          points: s.points, color: s.color, width: s.width, isHighlighter: s.isHighlighter,
+        })),
+        teachingCounters: {
+          totalAssistantTurns: state.totalAssistantTurns,
+          lastVisualTurn: state.lastVisualTurn,
+          visualAssetCount: state.visualAssetCount,
+          lastEngagementTurn: state.lastEngagementTurn,
+        },
+        assessment: state.assessment.active ? {
+          active: true,
+          sectionTitle: state.assessment.sectionTitle,
+          concepts: state.assessment.concepts,
+          questionNumber: state.assessment.questionNumber,
+          maxQuestions: state.assessment.maxQuestions,
+        } : null,
+        conceptNotes: state.assessment.conceptNotes,
       });
     } catch (e) { console.warn('Failed to archive session:', e); }
     if (flushInterval) clearInterval(flushInterval);
@@ -245,16 +398,30 @@ const SessionManager = (() => {
         body: JSON.stringify({
           transcript: session.transcript, sections: session.sections,
           metrics: session.metrics, durationSec: session.durationSec,
+          plan: session.plan,
           coursePosition: session.coursePosition,
           spotlightHistory: state.spotlightHistory,
           notebookSteps: state.notebookSteps,
           generatedVisuals: state.generatedVisuals,
+          activeSpotlight: state.spotlightActive ? {
+            active: true, info: state.spotlightInfo, openedAtTurn: state.spotlightOpenedAtTurn,
+          } : null,
+          scribbleStrokes: state.scribble.strokes.map(s => ({
+            points: s.points, color: s.color, width: s.width, isHighlighter: s.isHighlighter,
+          })),
           teachingCounters: {
             totalAssistantTurns: state.totalAssistantTurns,
             lastVisualTurn: state.lastVisualTurn,
             visualAssetCount: state.visualAssetCount,
             lastEngagementTurn: state.lastEngagementTurn,
           },
+          assessment: state.assessment.active ? {
+            active: true, sectionTitle: state.assessment.sectionTitle,
+            concepts: state.assessment.concepts,
+            questionNumber: state.assessment.questionNumber,
+            maxQuestions: state.assessment.maxQuestions,
+          } : null,
+          conceptNotes: state.assessment.conceptNotes,
         }),
         keepalive: true,
       });
@@ -263,9 +430,15 @@ const SessionManager = (() => {
 
   // ─── Recording ───────────────────────────────────────────
 
-  function recordMessage(role, content) {
+  function recordMessage(role, content, multipartContent) {
     if (!session) return;
     const msg = { id: generateId(), role, content, timestamp: now(), sectionIndex: getActiveSectionIndex() };
+    if (multipartContent && Array.isArray(multipartContent)) {
+      msg.hasImages = true;
+      msg.parts = multipartContent.map(p =>
+        p.type === 'image' ? { type: 'image', source_type: p.source?.type, media_type: p.source?.media_type } : p
+      );
+    }
     session.transcript.push(msg);
     const sec = getActiveSection();
     if (sec) sec.transcript.push(msg);
@@ -490,7 +663,7 @@ const SessionManager = (() => {
 // ═══════════════════════════════════════════════════════════
 
 const state = {
-  apiUrl: 'http://localhost:3001',
+  apiUrl: window.location.origin,
   courseId: null,
   studentName: '',
   userEmail: '',
@@ -526,6 +699,8 @@ const state = {
 
   // Streaming
   isStreaming: false,
+  _lastSSETimestamp: 0,
+  _streamingTimeout: null,
   currentMessageId: null,
   accumulatedText: '',
 
@@ -610,6 +785,32 @@ const state = {
   // Replay mode flag — true during transcript rebuild (prevents spotlight opening)
   replayMode: false,
 
+  // Scribble annotation system
+  scribble: {
+    active: false,
+    canvas: null,
+    ctx: null,
+    strokes: [],
+    currentStroke: null,
+    color: '#22ee66',
+    lineWidth: 3,
+    isHighlighter: false,
+    visible: true,
+    dirty: false,
+    beforeSnapshot: null,
+    capturePromise: null,
+  },
+
+  // Assessment checkpoint system
+  assessment: {
+    active: false,          // true while assessment agent is in control (set by SSE events)
+    sectionTitle: '',       // section being assessed (from ASSESSMENT_START)
+    concepts: [],           // concepts being tested (from ASSESSMENT_START)
+    conceptNotes: {},       // persisted concept notes from assessments
+    questionNumber: 0,      // current question (1-based, incremented on each question render)
+    maxQuestions: 5,        // from ASSESSMENT_START SSE event
+  },
+
 };
 
 // ═══════════════════════════════════════════════════════════
@@ -672,7 +873,6 @@ async function fetchSimulations(courseId) {
       return;
     }
     state.simulations = await res.json();
-    console.log(`Loaded ${state.simulations.length} simulations for course ${courseId}`);
   } catch (e) {
     console.warn('Failed to fetch simulations:', e);
     state.simulations = [];
@@ -688,7 +888,6 @@ async function fetchConcepts(courseId) {
       return;
     }
     state.concepts = await res.json();
-    console.log(`Loaded ${state.concepts.length} concepts for course ${courseId}`);
   } catch (e) {
     console.warn('Failed to fetch concepts:', e);
     state.concepts = [];
@@ -805,7 +1004,7 @@ function buildTextInput(id, placeholder, submitFnStr) {
       </div>
       <textarea class="text-input" id="${id}" placeholder="${escapeAttr(placeholder)}" rows="1"></textarea>
       <div class="input-icons">
-        <input type="file" id="${id}-file" accept="image/*" style="display:none" onchange="handleImageSelect('${id}', this)" />
+        <input type="file" id="${id}-file" accept="image/*,application/pdf" style="display:none" onchange="handleImageSelect('${id}', this)" />
         <button class="input-icon-btn input-img-btn" onclick="document.getElementById('${id}-file').click()" title="Upload image">${SVG_IMAGE}</button>
         <button class="input-icon-btn input-mic-btn" onclick="startVoiceInput('${id}')" title="Voice input">${SVG_MIC}</button>
         <button class="input-icon-btn input-send-btn" onclick="${submitFnStr}" title="Send (Shift+Enter)">${SVG_SEND}</button>
@@ -845,6 +1044,15 @@ window.removeInputImage = function(inputId) {
 function bindInputHandlers(inputId, submitFnStr) {
   const el = $(`#${inputId}`);
   if (!el) return;
+
+  // First-time hint for chat input
+  setTimeout(() => {
+    UIHints.show('chat-input', el,
+      'Respond to Euler here',
+      'Euler will ask you questions in the chat. Type your answer and press <b>Shift+Enter</b> or tap the send button.',
+      'bottom', { left: 0 });
+  }, 500);
+
   el.addEventListener('keydown', (e) => {
     if (e.key === 'Enter' && e.shiftKey) {
       e.preventDefault();
@@ -975,6 +1183,18 @@ function generateId() {
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
   if (state.isStreaming) return;
   state.isStreaming = true;
+  state._lastSSETimestamp = Date.now();
+
+  // Safety timeout: force-reset after 120s of total streaming
+  if (state._streamingTimeout) clearTimeout(state._streamingTimeout);
+  state._streamingTimeout = setTimeout(() => {
+    if (state.isStreaming) {
+      console.warn('[streamADK] Safety timeout — force-resetting streaming state');
+      state.isStreaming = false;
+      removeStreamingIndicator();
+      renderAIError('Response timed out. Please try again.');
+    }
+  }, 120000);
 
   const userMsg = {
     id: generateId(),
@@ -983,11 +1203,11 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   };
   state.messages.push(userMsg);
 
-  // For session recording, extract text portion
   const recordText = typeof userMessageContent === 'string'
     ? userMessageContent
     : (userMessageContent.find(b => b.type === 'text')?.text || '[image content]');
-  SessionManager.recordMessage('user', recordText);
+  const multipart = Array.isArray(userMessageContent) ? userMessageContent : null;
+  SessionManager.recordMessage('user', recordText, multipart);
 
   if (!isSystemTrigger) {
     state.responses++;
@@ -1065,10 +1285,12 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
     }
   } catch (err) {
     removeStreamingIndicator();
+    removeAssessmentTransition();
     renderAIError(err.message);
   }
 
   state.isStreaming = false;
+  if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
 
   SessionManager.saveSession();
 
@@ -1099,6 +1321,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
 }
 
 function handleSSEEvent(event) {
+  state._lastSSETimestamp = Date.now();
   const type = event.type;
 
   switch (type) {
@@ -1137,6 +1360,10 @@ function handleSSEEvent(event) {
       });
       SessionManager.recordMessage('assistant', state.accumulatedText);
       state.currentMessageId = null;
+      // Show indicator if still streaming (more tool calls / messages coming)
+      if (state.isStreaming && !$('#streaming-indicator')) {
+        showStreamingIndicator();
+      }
       break;
 
     case 'TOOL_CALL_START':
@@ -1156,41 +1383,37 @@ function handleSSEEvent(event) {
 
     case 'RUN_FINISHED':
       removeStreamingIndicator();
+      removeAssessmentTransition();
       cleanupToolIndicators();
       ensureFallbackInput();
       break;
 
     case 'RUN_ERROR':
       removeStreamingIndicator();
+      removeAssessmentTransition();
       cleanupToolIndicators();
       renderAIError(event.message || 'Unknown error');
       break;
 
     case 'PLAN_UPDATE':
-      console.log('[SSE] PLAN_UPDATE received —', event.plan?.session_objective || event.sessionObjective || '?');
       handlePlanFromAgent(event.plan, event.sessionObjective);
       break;
 
     case 'TEACHING_DELEGATION_START':
-      console.log('[SSE] TEACHING_DELEGATION_START — topic:', event.topic, 'type:', event.agentType);
       break;
 
     case 'TEACHING_DELEGATION_END':
-      console.log('[SSE] TEACHING_DELEGATION_END — reason:', event.reason);
       break;
 
     case 'TOPIC_COMPLETE':
-      console.log('[SSE] TOPIC_COMPLETE —', event.topic_index, event.title || '');
       handleTopicComplete(event.section_index, event.topic_index);
       break;
 
     case 'SECTION_COMPLETE':
-      console.log('[SSE] SECTION_COMPLETE — index:', event.index);
       handleSectionComplete(event.index);
       break;
 
     case 'PLAN_RESET':
-      console.log('[SSE] PLAN_RESET — reason:', event.reason);
       handlePlanReset(event.reason, event.keep_scope);
       break;
 
@@ -1199,14 +1422,150 @@ function handleSSEEvent(event) {
       break;
 
     case 'VISUAL_READY':
-      console.log('[SSE] VISUAL_READY —', event.id, event.title);
       state.generatedVisuals[event.id] = { title: event.title, html: event.html };
       break;
 
     case 'BOARD_CAPTURE_REQUEST':
-      console.log('[SSE] BOARD_CAPTURE_REQUEST — reason:', event.reason);
       state.pendingBoardCaptureRequest = true;
       break;
+
+    case 'ASSESSMENT_START':
+      state.assessment.active = true;
+      state.assessment.sectionTitle = event.section?.title || 'Section Checkpoint';
+      state.assessment.concepts = event.concepts || [];
+      state.assessment.questionNumber = 0;
+      state.assessment.maxQuestions = event.maxQuestions || 5;
+      // Remove the tutor's last message if it leaked handoff language
+      // (tutor is instructed to not write text, but safety net)
+      {
+        const lastAI = document.querySelector('#canvas-stream .canvas-block[data-type="ai"]:last-of-type');
+        if (lastAI) {
+          lastAI.style.transition = 'opacity 0.2s ease';
+          lastAI.style.opacity = '0';
+          setTimeout(() => lastAI.remove(), 200);
+        }
+      }
+      // Dismiss any open spotlight (clean slate for assessment)
+      if (state.spotlightActive) {
+        window.hideSpotlight({ agentInitiated: true });
+      }
+      // Insert visual transition divider
+      appendBlock('system', `
+        <div class="assessment-divider">
+          <div class="assessment-badge">Section Checkpoint</div>
+        </div>
+      `, { className: 'assessment-divider-block' });
+      // Open assessment spotlight
+      openAssessmentSpotlight();
+      break;
+
+    case 'ASSESSMENT_END': {
+      state.assessment.active = false;
+      state.assessment.questionNumber = 0;
+      const score = event.score || {};
+      const isHandback = event.reason && event.reason !== 'complete';
+      const sectionTitle = event.section || state.assessment.sectionTitle || 'Section Checkpoint';
+
+      // Close assessment spotlight
+      if (state.spotlightActive && state.spotlightInfo?.type === 'assessment') {
+        window.hideSpotlight({ agentInitiated: true });
+      }
+      // Restore close/fullscreen buttons (in case they were hidden)
+      const closeBtn = document.querySelector('.spotlight-close-btn');
+      const fsBtn = document.querySelector('.spotlight-fullscreen-btn');
+      if (closeBtn) closeBtn.style.display = '';
+      if (fsBtn) fsBtn.style.display = '';
+
+      // Build contextual assessment summary card
+      const pct = score.pct != null ? score.pct : (score.total ? Math.round((score.correct / score.total) * 100) : 0);
+      const cardClass = isHandback ? 'handback' : 'complete';
+      const statusLabel = isHandback ? 'Paused' : 'Complete';
+      const mastery = event.overallMastery || '';
+
+      // Per-concept breakdown
+      let conceptsHtml = '';
+      const perConcept = event.perConcept || [];
+      if (perConcept.length > 0) {
+        const conceptItems = perConcept.map(pc => {
+          const cMastery = pc.mastery || 'developing';
+          const cLabel = (pc.concept || '').replace(/_/g, ' ');
+          return `<span class="assessment-concept-chip ${cMastery}">${cLabel} ${pc.correct || 0}/${pc.total || 0}</span>`;
+        }).join('');
+        conceptsHtml = `<div class="assessment-concepts-row">${conceptItems}</div>`;
+      }
+
+      // Mastery indicator
+      let masteryHtml = '';
+      if (mastery && !isHandback) {
+        const masteryLabels = { strong: 'Strong', developing: 'Developing', weak: 'Needs Review' };
+        masteryHtml = `<div class="assessment-mastery ${mastery}">${masteryLabels[mastery] || mastery}</div>`;
+      }
+
+      // Handback reason
+      let reasonHtml = '';
+      if (isHandback && event.reason) {
+        const reasonLabels = {
+          student_struggling: 'Let\'s review this together',
+          declined: 'Checkpoint skipped',
+          needs_help: 'Let\'s work through this step by step',
+          disengaged: 'We\'ll come back to this later',
+          max_turns: 'Checkpoint paused',
+        };
+        reasonHtml = `<div class="assessment-reason">${reasonLabels[event.reason] || ''}</div>`;
+      }
+
+      const cardHtml = `
+        <div class="assessment-summary-card ${cardClass}">
+          <div class="assessment-summary-header">
+            <span class="assessment-summary-icon">${isHandback ? '⏸' : '✓'}</span>
+            <span class="assessment-summary-title">${escapeHtml(sectionTitle)}</span>
+            <span class="assessment-summary-status">${statusLabel}</span>
+          </div>
+          ${score.total ? `
+            <div class="assessment-summary-score">
+              <div class="assessment-score-bar">
+                <div class="assessment-score-fill" style="width: ${pct}%"></div>
+              </div>
+              <span class="assessment-score-text">${score.correct || 0}/${score.total || 0} (${pct}%)</span>
+            </div>
+          ` : ''}
+          ${conceptsHtml}
+          ${masteryHtml}
+          ${reasonHtml}
+        </div>
+      `;
+      appendBlock('system', cardHtml, { className: 'assessment-divider-block' });
+
+      // Add to spotlight history for serialization
+      state.spotlightHistory.push({
+        id: 'assessment-' + generateId().slice(0, 8),
+        type: 'assessment',
+        title: sectionTitle,
+        assessmentResult: {
+          reason: event.reason,
+          score,
+          overallMastery: mastery,
+          perConcept,
+          section: sectionTitle,
+          isHandback,
+        },
+      });
+
+      // Show intermediate transition message while tutor prepares
+      showAssessmentTransition(isHandback);
+
+      // Auto-trigger tutor handoff after transition appears
+      setTimeout(() => {
+        if (state.isStreaming) return;
+        disableActiveInputs();
+        setTimeout(() => {
+          if (state.isStreaming) { reenableInputs(); return; }
+          streamADK('[Assessment checkpoint completed — resume teaching]', true);
+        }, 800);
+      }, 600);
+
+      break;
+    }
   }
 }
 
@@ -1262,7 +1621,7 @@ function buildContext() {
     }),
   });
 
-  // Context 5: Available Simulations — only current lesson + nearby
+  // Context 5: Available Simulations
   if (state.simulations && state.simulations.length > 0) {
     const relevant = state.simulations.filter(s =>
       s.lesson_id === cp.currentLessonId ||
@@ -1433,7 +1792,7 @@ function buildContext() {
     state.pendingBoardCapture = null;
   }
 
-  // Teaching Plan Directive — tells the Tutor which step is active and how to advance
+  // Directive: Teaching plan
   if (state.plan.length > 0) {
     items.push({
       description: 'Teaching Plan Directive — YOUR CURRENT TASK',
@@ -1519,28 +1878,116 @@ YOUR TASK THIS TURN: Execute the current topic's steps. When complete, the syste
     directive += `\nUp next: ${upcoming.map(s => `${s.title} (${s.modality})`).join(', ')}`;
   }
 
+  // Assessment handoff: when all topics in the active section are done
   return directive;
 }
+
+// Assessment protocol and directive functions removed — all agent logic is now in the backend.
+// The backend assessment agent has its own system prompt and tools.
+// The tutor's backend prompt includes handoff_to_assessment tool instructions.
 
 // ═══════════════════════════════════════════════════════════
 // Module 8: Streaming & AI Message Rendering
 // ═══════════════════════════════════════════════════════════
 
+const _thinkingPhrases = [
+  'Thinking...',
+  'Preparing the next step...',
+  'Working on it...',
+  'Putting ideas together...',
+  'Setting things up...',
+  'Almost there...',
+];
+let _thinkingRotateTimer = null;
+
 function showStreamingIndicator() {
+  // If assessment transition is visible, it serves as the indicator — skip
+  if ($('#assessment-transition')) return;
   removeStreamingIndicator();
   const stream = $('#canvas-stream');
   const block = document.createElement('div');
   block.className = 'canvas-block board-text-block fade-in';
   block.dataset.type = 'ai';
   block.id = 'streaming-indicator';
-  block.innerHTML = '<div class="board-text" style="color:var(--text-dim);"><span class="loading-spinner"></span> Thinking...</div>';
+  block.innerHTML = '<div class="board-text" style="color:var(--text-dim);"><span class="loading-spinner"></span> <span class="thinking-text">Thinking...</span></div>';
   stream.appendChild(block);
   stream.scrollTop = stream.scrollHeight;
+
+  // Rotate phrases every 3s
+  let idx = 0;
+  if (_thinkingRotateTimer) clearInterval(_thinkingRotateTimer);
+  _thinkingRotateTimer = setInterval(() => {
+    const textEl = block.querySelector('.thinking-text');
+    if (!textEl || !document.contains(block)) {
+      clearInterval(_thinkingRotateTimer);
+      _thinkingRotateTimer = null;
+      return;
+    }
+    idx = (idx + 1) % _thinkingPhrases.length;
+    textEl.style.opacity = '0';
+    setTimeout(() => {
+      if (textEl) {
+        textEl.textContent = _thinkingPhrases[idx];
+        textEl.style.opacity = '1';
+      }
+    }, 200);
+  }, 3000);
 }
 
 function removeStreamingIndicator() {
+  if (_thinkingRotateTimer) { clearInterval(_thinkingRotateTimer); _thinkingRotateTimer = null; }
   const el = $('#streaming-indicator');
   if (el) el.remove();
+}
+
+function showAssessmentTransition(isHandback) {
+  removeAssessmentTransition();
+  const stream = $('#canvas-stream');
+  const block = document.createElement('div');
+  block.className = 'canvas-block assessment-divider-block fade-in';
+  block.dataset.type = 'system';
+  block.id = 'assessment-transition';
+
+  const messages = isHandback
+    ? ['Handing back to your tutor...', 'Preparing to continue...']
+    : ['Reviewing your results...', 'Preparing feedback...', 'Getting ready to discuss...'];
+
+  block.innerHTML = `
+    <div class="block-card" style="background:transparent;border:none;box-shadow:none;padding:0;">
+      <div class="assessment-transition-msg">
+        <span class="assessment-transition-spinner"></span>
+        <span class="assessment-transition-text">${messages[0]}</span>
+      </div>
+    </div>`;
+  stream.appendChild(block);
+  stream.scrollTop = stream.scrollHeight;
+
+  // Rotate through messages
+  if (messages.length > 1) {
+    let idx = 0;
+    const interval = setInterval(() => {
+      idx = (idx + 1) % messages.length;
+      const textEl = block.querySelector('.assessment-transition-text');
+      if (textEl) {
+        textEl.style.opacity = '0';
+        setTimeout(() => {
+          textEl.textContent = messages[idx];
+          textEl.style.opacity = '1';
+        }, 200);
+      } else {
+        clearInterval(interval);
+      }
+    }, 2000);
+    block._transitionInterval = interval;
+  }
+}
+
+function removeAssessmentTransition() {
+  const el = $('#assessment-transition');
+  if (el) {
+    if (el._transitionInterval) clearInterval(el._transitionInterval);
+    el.remove();
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -1569,7 +2016,6 @@ function connectAgentEvents() {
     console.warn('[AgentEvents] SSE connection error, will auto-reconnect');
   };
 
-  console.log('[AgentEvents] Connected —', state.sessionId.slice(0, 8));
 }
 
 function disconnectAgentEvents() {
@@ -1672,23 +2118,22 @@ function updateAgentIndicators() {
   const running = Object.values(state.runningAgents);
   if (!running.length) { el.innerHTML = ''; return; }
 
+  // Only show visual_gen indicator — planning/asset/research are invisible to student
   const labels = {
-    planning: 'Planning lesson...',
     visual_gen: 'Creating interactive visual...',
-    asset: 'Gathering materials...',
-    research: 'Researching...',
   };
 
   // Deduplicate by agent type — show only one indicator per type
   const seen = new Set();
   const unique = running.filter(a => {
+    if (!labels[a.type]) return false;  // Hide non-student-facing agents
     if (seen.has(a.type)) return false;
     seen.add(a.type);
     return true;
   });
 
   el.innerHTML = unique.map(a =>
-    `<div class="agent-indicator"><span class="loading-spinner small"></span> ${labels[a.type] || a.type}</div>`
+    `<div class="agent-indicator"><span class="loading-spinner small"></span> ${labels[a.type]}</div>`
   ).join('');
 }
 
@@ -1776,14 +2221,6 @@ function transitionOnboardingToTeaching() {
 
 function handlePlanFromAgent(plan, sessionObjective) {
   if (!plan) return;
-  console.log('[Plan Update]', {
-    objective: sessionObjective || plan.session_objective || plan.section_title,
-    sections: (plan.sections || []).map(s => {
-      const topics = (s.topics || []).map(t => t.title).join(', ');
-      return `${s.n}. ${s.title} (${s.modality || ''}) [${topics}]`;
-    }),
-    topics: (plan._topics || plan.topics || []).map(t => t.title),
-  });
   state.currentPlan = plan;
 
   // Build sections from plan — planning agent may output sections or flat topics
@@ -1837,7 +2274,6 @@ function handlePlanFromAgent(plan, sessionObjective) {
     const maxN = Math.max(...state.plan.map(s => s.n));
     newSections.forEach((sec, i) => { sec.n = maxN + 1 + i; });
     state.plan.push(...newSections);
-    console.log(`[Plan Update] Appended ${newSections.length} section(s) — total now ${state.plan.length}`);
   } else if (newSections.length > 0) {
     state.plan = newSections;
   }
@@ -1873,8 +2309,6 @@ function handlePlanFromAgent(plan, sessionObjective) {
 }
 
 function handlePlanReset(reason, keepScope) {
-  console.log('[Plan Reset] Clearing plan sidebar — reason:', reason);
-
   // Clear plan state
   state.plan = [];
   state.planActiveStep = null;
@@ -1911,13 +2345,11 @@ function handleTopicComplete(sectionIndex, topicIndex) {
   if (step && step.topics) {
     const topic = step.topics.find(t => (t.t - 1) === topicIndex || t.t === topicIndex);
     if (topic) {
-      console.log(`[Topic Complete] Section ${step.n}, Topic "${topic.title}" → done`);
       topic.status = 'done';
       // Activate next pending topic in this section
       const nextTopic = step.topics.find(t => t.status === 'pending');
       if (nextTopic) {
         nextTopic.status = 'active';
-        console.log(`[Topic Complete] Next active topic: "${nextTopic.title}"`);
         insertTopicHeading(nextTopic.title, nextTopic.concept, 'topic');
       }
     }
@@ -1935,21 +2367,17 @@ function handleSectionComplete(index) {
     step = state.plan.find(s => s.status === 'active');
   }
   if (step) {
-    console.log(`[Section Complete] Section ${step.n}: "${step.title}" → done`);
     step.status = 'done';
     const nextPending = state.plan.find(s => s.status === 'pending');
     if (nextPending) {
       nextPending.status = 'active';
       state.planActiveStep = nextPending.n;
-      console.log(`[Section Complete] Next active: Section ${nextPending.n}: "${nextPending.title}"`);
       // Auto-insert section heading + first topic heading on the board
       insertTopicHeading(nextPending.title, null, 'section');
       if (nextPending.topics && nextPending.topics[0]) {
         nextPending.topics[0].status = 'active';
         insertTopicHeading(nextPending.topics[0].title, nextPending.topics[0].concept, 'topic');
       }
-    } else {
-      console.log('[Section Complete] No more pending sections — all done');
     }
     // Stage stays open — tutor controls dismiss via <teaching-spotlight-dismiss>
   } else {
@@ -1962,6 +2390,7 @@ function handleSectionComplete(index) {
 
 function startAIMessageStream() {
   removeStreamingIndicator();
+  removeAssessmentTransition();
   // Safety: insert any deferred headings before tutor starts writing
   if (state._pendingFirstHeadings && state.plan.length > 0) {
     insertTopicHeading(state.plan[0].title, null, 'section');
@@ -2068,7 +2497,6 @@ function finalizeAIMessage(fullText) {
   if (lastInteractiveTag) {
     // Interactive tag already rendered its own controls — done
   } else if (hasVideo) {
-    // Video but no interactive tag — show "Done watching" + free input (deferred to avoid flash)
     state.pendingFallbackTimer = setTimeout(() => {
       state.pendingFallbackTimer = null;
       appendBlock('ai', `
@@ -2077,9 +2505,8 @@ function finalizeAIMessage(fullText) {
         </div>
       `, { interactive: true });
       bindInputHandlers(fallbackId, `submitFreetext('${fallbackId}')`);
-    }, 120);
+    }, 800);
   } else if (!hasRecap) {
-    // No special tags — full fallback input (deferred to avoid flash before tool calls)
     state.pendingFallbackTimer = setTimeout(() => {
       state.pendingFallbackTimer = null;
       appendBlock('ai', `
@@ -2088,12 +2515,12 @@ function finalizeAIMessage(fullText) {
         </div>
       `, { interactive: true });
       bindInputHandlers(fallbackId, `submitFreetext('${fallbackId}')`);
-    }, 120);
+    }, 800);
   }
 
-  // Show attention hopper if spotlight is active — guides user from spotlight back to chat
+  // Highlight last chat message when spotlight is active — draws student's eye back to chat
   if (state.spotlightActive) {
-    showChatAttentionHopper(fullText);
+    highlightLastChatMessage();
   }
 }
 
@@ -2187,6 +2614,50 @@ function showChatAttentionHopper(fullText) {
       setTimeout(() => el.remove(), 300);
     }
   }, 15000);
+}
+
+function highlightLastChatMessage() {
+  // Remove any existing glow
+  document.querySelectorAll('.chat-attention-glow').forEach(el => {
+    // Unwrap: move children out and remove the span
+    const parent = el.parentNode;
+    while (el.firstChild) parent.insertBefore(el.firstChild, el);
+    el.remove();
+  });
+  const stream = document.getElementById('canvas-stream');
+  if (!stream) return;
+  // Find the last .board-text element (the actual text content)
+  const textEls = stream.querySelectorAll('.board-text');
+  const lastText = textEls.length ? textEls[textEls.length - 1] : null;
+  if (!lastText) return;
+  // Find the last paragraph — split at <br><br>
+  const html = lastText.innerHTML;
+  const splitIdx = html.lastIndexOf('<br><br>');
+  if (splitIdx >= 0) {
+    // Wrap only the last paragraph in a glow span
+    const before = html.slice(0, splitIdx + 8); // include the <br><br>
+    const after = html.slice(splitIdx + 8);
+    lastText.innerHTML = before + '<span class="chat-attention-glow">' + after + '</span>';
+  } else {
+    // Single paragraph — wrap the whole text
+    lastText.innerHTML = '<span class="chat-attention-glow">' + html + '</span>';
+  }
+  // Scroll chat to show the glowing text
+  lastText.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  // Dismiss glow when user focuses any input or clicks in the chat
+  const dismissGlow = () => {
+    document.querySelectorAll('.chat-attention-glow').forEach(el => {
+      const parent = el.parentNode;
+      while (el.firstChild) parent.insertBefore(el.firstChild, el);
+      el.remove();
+    });
+    stream.removeEventListener('focusin', dismissGlow);
+    stream.removeEventListener('click', dismissGlow);
+  };
+  stream.addEventListener('focusin', dismissGlow, { once: true });
+  stream.addEventListener('click', dismissGlow, { once: true });
+  // Auto-dismiss after 20 seconds
+  setTimeout(dismissGlow, 20000);
 }
 
 function renderUserMessage(text, imageDataUrl) {
@@ -2312,10 +2783,7 @@ function insertTopicHeading(title, concept, level = 'topic') {
   const stream = $('#canvas-stream');
   const block = document.createElement('div');
   block.className = `board-${level}-heading fade-in`;
-  const conceptBadge = concept ? `<span class="heading-concept">${escapeHtml(concept)}</span>` : '';
-  block.innerHTML = level === 'section'
-    ? `<span class="heading-text">${escapeHtml(title)}</span>`
-    : `<span class="heading-indicator">\u25b8</span><span class="heading-text">${escapeHtml(title)}</span>${conceptBadge}`;
+  block.innerHTML = `<span class="heading-text">${escapeHtml(title)}</span>`;
   stream.appendChild(block);
   stream.scrollTop = stream.scrollHeight;
 }
@@ -2363,22 +2831,28 @@ function renderTeachingTag(tag) {
       renderVideoTag(tag);
       break;
     case 'teaching-mcq':
-      renderMCQTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'mcq');
+      else renderMCQTag(tag);
       break;
     case 'teaching-freetext':
-      renderFreetextTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'freetext');
+      else renderFreetextTag(tag);
       break;
     case 'teaching-confidence':
-      renderConfidenceTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'confidence');
+      else renderConfidenceTag(tag);
       break;
     case 'teaching-agree-disagree':
-      renderAgreeDisagreeTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'agree-disagree');
+      else renderAgreeDisagreeTag(tag);
       break;
     case 'teaching-fillblank':
-      renderFillBlankTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'fillblank');
+      else renderFillBlankTag(tag);
       break;
     case 'teaching-spot-error':
-      renderSpotErrorTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'spot-error');
+      else renderSpotErrorTag(tag);
       break;
     case 'teaching-image':
       renderImageTag(tag);
@@ -2402,7 +2876,8 @@ function renderTeachingTag(tag) {
       });
       break;
     case 'teaching-teachback':
-      renderTeachbackTag(tag);
+      if (state.assessment.active) renderAssessmentQuestion(tag, 'teachback');
+      else renderTeachbackTag(tag);
       break;
     case 'teaching-board-draw': {
       const bdTitle = tag.attrs.title || 'Board';
@@ -2451,6 +2926,8 @@ function renderTeachingTag(tag) {
     case 'teaching-notebook-comment':
       appendNotebookComment(tag);
       break;
+    // Assessment tags removed — backend now uses tools (handoff_to_assessment,
+    // complete_assessment, handback_to_tutor) and emits ASSESSMENT_START/END SSE events.
   }
 
   // Track visual asset usage for engagement enforcement
@@ -2505,12 +2982,13 @@ function handleTeachingCheckpoint(tag) {
 // ═══════════════════════════════════════════════════════════
 
 function buildVideoSrc(videoUrl, startSec, endSec) {
-  if (!videoUrl.includes('/embed/')) {
-    const match = videoUrl.match(/(?:youtu\.be\/|v=|\/embed\/)([^&?\s]+)/);
-    if (match) videoUrl = `https://www.youtube.com/embed/${match[1]}`;
+  // Extract just the video ID from any YouTube URL format
+  const match = videoUrl.match(/(?:youtu\.be\/|v=|\/embed\/)([A-Za-z0-9_-]{11})/);
+  if (match) {
+    videoUrl = `https://www.youtube.com/embed/${match[1]}`;
   }
-  // Strip any existing query string (e.g. ?list=...) to avoid double-? in the URL
-  videoUrl = videoUrl.split('?')[0];
+  // Safety: strip any query string or stray parameters after the video ID
+  videoUrl = videoUrl.split('?')[0].split('&')[0];
   return `${videoUrl}?start=${startSec}&end=${endSec}&rel=0&modestbranding=1&enablejsapi=1`;
 }
 
@@ -2549,6 +3027,7 @@ function openVideoInSpotlight(lessonId, start, end, label, options = {}) {
       state.simulationLiveState = null;
     }
     if (state.spotlightInfo?.type === 'notebook') {
+      saveNotebookStepsToHistory();
       if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
       state.notebookSteps = [];
     }
@@ -2582,6 +3061,489 @@ function openVideoInSpotlight(lessonId, start, end, label, options = {}) {
   if (!options.skipReference) {
     appendSpotlightReference('video', label || 'Video segment', { lessonId, start, end, label });
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Assessment Spotlight — questions render inside spotlight panel
+// ═══════════════════════════════════════════════════════════
+
+function openAssessmentSpotlight() {
+  const panel = $('#spotlight-panel');
+  const content = $('#spotlight-content');
+  const titleEl = $('#spotlight-title');
+  const typeBadge = $('#spotlight-type-badge');
+  if (!panel || !content) return;
+
+  // Set spotlight header
+  if (titleEl) titleEl.textContent = state.assessment.sectionTitle || 'Section Checkpoint';
+  if (typeBadge) {
+    typeBadge.textContent = 'Checkpoint';
+    typeBadge.setAttribute('data-type', 'assessment');
+    typeBadge.style.display = '';
+  }
+
+  // Hide close/fullscreen buttons during assessment
+  const closeBtn = document.querySelector('.spotlight-close-btn');
+  const fsBtn = document.querySelector('.spotlight-fullscreen-btn');
+  if (closeBtn) closeBtn.style.display = 'none';
+  if (fsBtn) fsBtn.style.display = 'none';
+
+  // Render assessment container with progress indicator + empty question area
+  const maxQ = state.assessment.maxQuestions || 5;
+  content.innerHTML = `
+    <div class="assessment-spotlight-container">
+      <div class="assessment-progress">
+        <div class="assessment-progress-bar">
+          <div class="assessment-progress-fill" id="assessment-progress-fill" style="width: 0%"></div>
+        </div>
+        <div class="assessment-progress-text" id="assessment-progress-text">Question 0 of ${maxQ}</div>
+      </div>
+      <div class="assessment-question-area" id="assessment-question-area"></div>
+    </div>
+  `;
+
+  // Activate spotlight
+  panel.classList.add('stage-active');
+  state.spotlightActive = true;
+  state.spotlightInfo = { type: 'assessment', title: state.assessment.sectionTitle };
+}
+
+function renderAssessmentQuestion(tag, type) {
+  const questionArea = $('#assessment-question-area');
+  if (!questionArea) {
+    // Spotlight not open (resilience) — try reopening
+    if (state.assessment.active) {
+      openAssessmentSpotlight();
+      const retryArea = $('#assessment-question-area');
+      if (!retryArea) {
+        // Fallback to inline rendering
+        console.warn('[Assessment] Could not open spotlight, falling back to inline');
+        _renderInlineAssessmentFallback(tag, type);
+        return;
+      }
+      return renderAssessmentQuestion(tag, type);
+    }
+    _renderInlineAssessmentFallback(tag, type);
+    return;
+  }
+
+  // Increment question number and update progress
+  state.assessment.questionNumber++;
+  const qNum = state.assessment.questionNumber;
+  const maxQ = state.assessment.maxQuestions || 5;
+
+  const progressFill = $('#assessment-progress-fill');
+  const progressText = $('#assessment-progress-text');
+  if (progressFill) progressFill.style.width = `${(qNum / maxQ) * 100}%`;
+  if (progressText) progressText.textContent = `Question ${qNum} of ${maxQ}`;
+
+  // Fade out old question, render new one
+  questionArea.style.opacity = '0';
+  setTimeout(() => {
+    questionArea.innerHTML = '';
+
+    switch (type) {
+      case 'mcq': renderAssessmentMCQ(tag, questionArea); break;
+      case 'freetext': renderAssessmentFreetext(tag, questionArea); break;
+      case 'agree-disagree': renderAssessmentAgreeDisagree(tag, questionArea); break;
+      case 'confidence': renderAssessmentConfidence(tag, questionArea); break;
+      case 'fillblank': renderAssessmentFillBlank(tag, questionArea); break;
+      case 'spot-error': renderAssessmentSpotError(tag, questionArea); break;
+      case 'teachback': renderAssessmentTeachback(tag, questionArea); break;
+      default: renderAssessmentFreetext(tag, questionArea); break;
+    }
+
+    questionArea.style.opacity = '1';
+  }, 200);
+}
+
+function _renderInlineAssessmentFallback(tag, type) {
+  // Fall back to normal inline renderers if spotlight isn't available
+  switch (type) {
+    case 'mcq': renderMCQTag(tag); break;
+    case 'freetext': renderFreetextTag(tag); break;
+    case 'agree-disagree': renderAgreeDisagreeTag(tag); break;
+    case 'confidence': renderConfidenceTag(tag); break;
+    case 'fillblank': renderFillBlankTag(tag); break;
+    case 'spot-error': renderSpotErrorTag(tag); break;
+    case 'teachback': renderTeachbackTag(tag); break;
+  }
+}
+
+// ── Assessment MCQ (no correctness feedback) ──
+function renderAssessmentMCQ(tag, container) {
+  const prompt = tag.attrs.prompt || tag.attrs.question || '';
+  const options = [];
+
+  // Parse <option> elements from content
+  const optionRegex = /<option\s+value=(?:"([^"]*)"|'([^']*)')([^>]*)>([^<]*)<\/option>/g;
+  let optMatch;
+  while ((optMatch = optionRegex.exec(tag.content)) !== null) {
+    options.push({
+      value: optMatch[1] || optMatch[2],
+      text: optMatch[4],
+    });
+  }
+
+  // Pipe-separated fallback
+  if (options.length === 0 && tag.attrs.options) {
+    tag.attrs.options.split('|').forEach((text, i) => {
+      options.push({ value: String.fromCharCode(97 + i), text: text.trim() });
+    });
+  }
+
+  // Plain text lines fallback
+  if (options.length === 0 && tag.content) {
+    const lines = tag.content.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length >= 2) {
+      lines.forEach((text, i) => {
+        const cleaned = text.replace(/^[A-Da-d1-4][.):\s]+/, '').trim();
+        options.push({ value: String.fromCharCode(97 + i), text: cleaned || text });
+      });
+    }
+  }
+
+  const mcqId = 'aq-' + generateId().slice(0, 8);
+  // NOTE: No data-correct attribute in DOM — prevents student inspecting
+  const optionsHtml = options.map(o => `
+    <div class="mcq-option" data-value="${escapeAttr(o.value)}">
+      <div class="mcq-radio"></div>
+      <span>${renderMarkdownBasic(o.text)}</span>
+    </div>
+  `).join('');
+
+  container.innerHTML = `
+    ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
+    <div class="mcq-options" id="${mcqId}">${optionsHtml}</div>
+    <div class="strip-actions">
+      <button class="btn btn-primary" id="submit-${mcqId}" disabled>Submit</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    let selected = null;
+    const allOpts = container.querySelectorAll(`#${mcqId} .mcq-option`);
+    allOpts.forEach(opt => {
+      opt.addEventListener('click', () => {
+        allOpts.forEach(o => o.classList.remove('selected'));
+        opt.classList.add('selected');
+        selected = opt.dataset.value;
+        const btn = container.querySelector(`#submit-${mcqId}`);
+        if (btn) btn.disabled = false;
+      });
+    });
+
+    const submitBtn = container.querySelector(`#submit-${mcqId}`);
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => {
+        if (!selected) return;
+        // Highlight selected with accent (no green/red), dim others
+        allOpts.forEach(o => {
+          o.classList.add('submitted');
+          o.style.pointerEvents = 'none';
+        });
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        const selectedText = allOpts[Array.from(allOpts).findIndex(o => o.dataset.value === selected)]?.textContent?.trim();
+        SessionManager.recordAssessment({
+          type: 'mcq',
+          question: prompt,
+          options: options.map(o => o.text),
+          studentAnswer: selectedText || '',
+          correctAnswer: '',
+          correct: null, // unknown to frontend
+        });
+        setTimeout(() => {
+          sendStudentResponse(`[MCQ answer: ${selected}] ${selectedText || ''}`);
+        }, 500);
+      });
+    }
+  }, 50);
+}
+
+// ── Assessment Freetext (no draw mode in spotlight) ──
+function renderAssessmentFreetext(tag, container) {
+  const prompt = tag.attrs.prompt || '';
+  const placeholder = tag.attrs.placeholder || 'Type your answer...';
+  const ftId = 'aft-' + generateId().slice(0, 8);
+
+  container.innerHTML = `
+    ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
+    <div class="text-input-area">
+      <textarea class="text-input" id="${ftId}" placeholder="${escapeAttr(placeholder)}" style="padding-right:12px;"></textarea>
+    </div>
+    <div class="strip-actions">
+      <button class="btn btn-primary" id="submit-${ftId}">Submit</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const submitBtn = container.querySelector(`#submit-${ftId}`);
+    const textarea = container.querySelector(`#${ftId}`);
+    if (submitBtn && textarea) {
+      submitBtn.addEventListener('click', () => {
+        const val = textarea.value.trim();
+        if (!val) return;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        textarea.disabled = true;
+        SessionManager.recordAssessment({
+          type: 'freetext',
+          question: prompt,
+          studentAnswer: val,
+          correct: null,
+        });
+        setTimeout(() => sendStudentResponse(val), 500);
+      });
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitBtn.click();
+        }
+      });
+    }
+  }, 50);
+}
+
+// ── Assessment Agree/Disagree ──
+function renderAssessmentAgreeDisagree(tag, container) {
+  const prompt = tag.attrs.prompt || '';
+  const adId = 'aad-' + generateId().slice(0, 8);
+
+  container.innerHTML = `
+    ${prompt ? `<div class="ai-message">${renderMarkdownBasic(prompt)}</div>` : ''}
+    <div class="agree-toggle" id="${adId}">
+      <button class="agree-btn agree" data-value="agree">Agree</button>
+      <button class="agree-btn disagree" data-value="disagree">Disagree</button>
+    </div>
+    <div class="text-input-area">
+      <textarea class="text-input" id="${adId}-reason" placeholder="Explain your reasoning..." style="padding-right:12px;"></textarea>
+    </div>
+    <div class="strip-actions">
+      <button class="btn btn-primary" id="submit-${adId}" disabled>Submit</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    let choice = null;
+    container.querySelectorAll(`#${adId} .agree-btn`).forEach(btn => {
+      btn.addEventListener('click', () => {
+        container.querySelectorAll(`#${adId} .agree-btn`).forEach(b => b.classList.remove('selected'));
+        btn.classList.add('selected');
+        choice = btn.dataset.value;
+        const submitBtn = container.querySelector(`#submit-${adId}`);
+        if (submitBtn) submitBtn.disabled = false;
+      });
+    });
+
+    const submitBtn = container.querySelector(`#submit-${adId}`);
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => {
+        if (!choice) return;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        container.querySelectorAll(`#${adId} .agree-btn`).forEach(b => b.style.pointerEvents = 'none');
+        const reason = container.querySelector(`#${adId}-reason`)?.value?.trim() || '';
+        const reasonEl = container.querySelector(`#${adId}-reason`);
+        if (reasonEl) reasonEl.disabled = true;
+        SessionManager.recordAssessment({
+          type: 'agree-disagree',
+          question: prompt,
+          studentAnswer: `${choice}: ${reason}`,
+          correct: null,
+        });
+        setTimeout(() => sendStudentResponse(`[${choice}] ${reason}`), 500);
+      });
+    }
+  }, 50);
+}
+
+// ── Assessment Confidence ──
+function renderAssessmentConfidence(tag, container) {
+  const prompt = tag.attrs.prompt || 'How confident are you?';
+  const confId = 'acf-' + generateId().slice(0, 8);
+
+  container.innerHTML = `
+    <div class="confidence-container">
+      <span class="confidence-label">${escapeHtml(prompt)}</span>
+      <input type="range" class="confidence-slider" id="${confId}" min="0" max="100" value="50">
+      <span class="confidence-value" id="${confId}-val">50%</span>
+    </div>
+    <div class="strip-actions">
+      <button class="btn btn-primary" id="submit-${confId}">Submit</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const slider = container.querySelector(`#${confId}`);
+    const valEl = container.querySelector(`#${confId}-val`);
+    if (slider && valEl) {
+      slider.addEventListener('input', () => {
+        valEl.textContent = slider.value + '%';
+      });
+    }
+    const submitBtn = container.querySelector(`#submit-${confId}`);
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => {
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        slider.disabled = true;
+        SessionManager.recordAssessment({
+          type: 'confidence',
+          question: prompt,
+          studentAnswer: slider.value + '%',
+          correct: null,
+        });
+        setTimeout(() => sendStudentResponse(`[Confidence: ${slider.value}%]`), 500);
+      });
+    }
+  }, 50);
+}
+
+// ── Assessment Fill-in-the-Blank ──
+function renderAssessmentFillBlank(tag, container) {
+  const fbId = 'afb-' + generateId().slice(0, 8);
+  let content = tag.content;
+
+  let blankCount = 0;
+  content = content.replace(/<blank\s+id="([^"]*)"([^>]*)\s*\/>/g, (_, id, attrs) => {
+    blankCount++;
+    const optionsMatch = attrs.match(/options="([^"]*)"/);
+    if (optionsMatch) {
+      const opts = optionsMatch[1].split(',').map(o => o.trim());
+      return `<select class="blank-select" id="${fbId}-${id}">
+        <option value="">Select...</option>
+        ${opts.map(o => `<option value="${o}">${o}</option>`).join('')}
+      </select>`;
+    } else {
+      return `<input type="text" class="blank-input" id="${fbId}-${id}" placeholder="..." style="width:120px;">`;
+    }
+  });
+
+  container.innerHTML = `
+    <div class="blank-container">${content}</div>
+    <div class="strip-actions">
+      <button class="btn btn-primary" id="submit-${fbId}">Submit</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const submitBtn = container.querySelector(`#submit-${fbId}`);
+    if (submitBtn) {
+      submitBtn.addEventListener('click', () => {
+        const answers = [];
+        for (let i = 1; i <= 10; i++) {
+          const el = container.querySelector(`#${fbId}-${i}`);
+          if (el) {
+            answers.push(`blank${i}: ${el.value}`);
+            el.disabled = true;
+          }
+        }
+        if (answers.length === 0) return;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        SessionManager.recordAssessment({
+          type: 'fillblank',
+          question: tag.content,
+          studentAnswer: answers.join(', '),
+          correct: null,
+        });
+        setTimeout(() => sendStudentResponse(`[Fill-in-blank] ${answers.join(', ')}`), 500);
+      });
+    }
+  }, 50);
+}
+
+// ── Assessment Spot-the-Error ──
+function renderAssessmentSpotError(tag, container) {
+  const quote = tag.attrs.quote || '';
+  const prompt = tag.attrs.prompt || 'What\'s wrong with this?';
+  const seId = 'ase-' + generateId().slice(0, 8);
+
+  container.innerHTML = `
+    <h3 style="font-size:15px;font-weight:600;margin-bottom:12px;">Spot the Error</h3>
+    <div class="error-quote">
+      <div class="error-quote-label">Statement</div>
+      ${escapeHtml(quote)}
+    </div>
+    <div class="ai-message">${renderMarkdownBasic(prompt)}</div>
+    <div class="text-input-area">
+      <textarea class="text-input" id="${seId}" placeholder="The flaw is..." style="padding-right:12px;"></textarea>
+    </div>
+    <div class="strip-actions">
+      <button class="btn btn-primary" id="submit-${seId}">Submit</button>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const submitBtn = container.querySelector(`#submit-${seId}`);
+    const textarea = container.querySelector(`#${seId}`);
+    if (submitBtn && textarea) {
+      submitBtn.addEventListener('click', () => {
+        const val = textarea.value.trim();
+        if (!val) return;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        textarea.disabled = true;
+        SessionManager.recordAssessment({
+          type: 'spot-error',
+          question: `${quote} — ${prompt}`,
+          studentAnswer: val,
+          correct: null,
+        });
+        setTimeout(() => sendStudentResponse(`[Spot error] ${val}`), 500);
+      });
+      textarea.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+          e.preventDefault();
+          submitBtn.click();
+        }
+      });
+    }
+  }, 50);
+}
+
+// ── Assessment Teachback ──
+function renderAssessmentTeachback(tag, container) {
+  const prompt = tag.attrs.prompt || 'Explain this concept in your own words.';
+  const tbId = 'atb-' + generateId().slice(0, 8);
+
+  container.innerHTML = `
+    <div class="teaching-teachback-card" style="background:transparent;border:none;padding:0;">
+      <div class="teachback-header">
+        <span class="teachback-icon">&#128172;</span>
+        <span>Teach it back</span>
+      </div>
+      <div class="ai-message">${renderMarkdownBasic(prompt)}</div>
+      <div class="text-input-area">
+        <textarea class="text-input teachback-textarea" id="${tbId}" placeholder="Explain as if teaching a friend..." style="padding-right:12px;"></textarea>
+      </div>
+      <div class="strip-actions">
+        <button class="btn btn-primary" id="submit-${tbId}">Submit</button>
+      </div>
+    </div>
+  `;
+
+  setTimeout(() => {
+    const submitBtn = container.querySelector(`#submit-${tbId}`);
+    const textarea = container.querySelector(`#${tbId}`);
+    if (submitBtn && textarea) {
+      submitBtn.addEventListener('click', () => {
+        const val = textarea.value.trim();
+        if (!val) return;
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Submitted';
+        textarea.disabled = true;
+        SessionManager.recordAssessment({
+          type: 'teachback',
+          question: prompt,
+          studentAnswer: val,
+          correct: null,
+        });
+        setTimeout(() => sendStudentResponse(`[Teachback] ${val}`), 500);
+      });
+    }
+  }, 50);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -3216,7 +4178,6 @@ function startSimBridge(simId, blockId) {
     switch (data.type) {
       case 'capacity-sim-ready':
         state.simulationLiveState.ready = true;
-        console.log(`[SimBridge] Simulation ${simId} ready`);
         break;
 
       case 'capacity-sim-state':
@@ -3520,15 +4481,12 @@ function renderPlanProgress() {
           : topicStatus === 'active' ? '›'
           : '·';
         const topicTitle = topic.title || `Topic ${topic.t}`;
-        const conceptBadge = topic.concept
-          ? `<span class="plan-topic-concept">${escapeHtml(topic.concept)}</span>`
-          : '';
 
         html += `
           <div class="plan-topic ${topicStatus}">
             <div class="plan-topic-indicator">${topicIcon}</div>
             <div class="plan-topic-text">
-              <div class="plan-topic-title">${escapeHtml(topicTitle)} ${conceptBadge}</div>
+              <div class="plan-topic-title">${escapeHtml(topicTitle)}</div>
             </div>
           </div>
         `;
@@ -3549,25 +4507,23 @@ function handleToolCallStart(event) {
   const toolName = event.toolCallName || event.tool_call_name;
   state.activeToolCalls[toolId] = { name: toolName, args: '' };
 
-  // Internal/background tools run silently — do NOT disable interactive
-  // elements, cancel fallback timers, or show "Working..." indicators.
-  const internalTools = [
-    'spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching',
-    'update_student_model', 'log_knowledge', 'request_board_image',
-    'reset_plan',
-  ];
-  if (internalTools.includes(toolName)) {
-    return;
-  }
-
-  // Disable any fallback input areas — the Tutor is executing a tool, not waiting for student input
-  disablePreviousInteractive();
-
-  // Cancel pending fallback timer — tool is starting, no need for fallback input
+  // Cancel pending fallback timer for ANY tool call — more content is coming
   if (state.pendingFallbackTimer) {
     clearTimeout(state.pendingFallbackTimer);
     state.pendingFallbackTimer = null;
   }
+
+  // Internal/background tools run silently — no UI indicators
+  const silentTools = [
+    'spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching',
+    'update_student_model', 'upsert_concept_note', 'log_knowledge',
+    'request_board_image', 'reset_plan',
+  ];
+  if (silentTools.includes(toolName)) {
+    return;
+  }
+
+  disablePreviousInteractive();
 
   if (toolName) {
     // For visible tools, show a user-friendly indicator
@@ -3609,6 +4565,11 @@ function handleToolCallEnd(event) {
       if (block) block.remove();
     }, 2000);
   }
+
+  // Show a "generating" indicator between tool rounds so the UI isn't blank
+  if (state.isStreaming && !$('#streaming-indicator')) {
+    showStreamingIndicator();
+  }
 }
 
 function cleanupToolIndicators() {
@@ -3622,6 +4583,18 @@ function cleanupToolIndicators() {
 // ═══════════════════════════════════════════════════════════
 // Module 17b: Spotlight Panel
 // ═══════════════════════════════════════════════════════════
+
+// Save current notebook steps into the matching spotlightHistory entry before clearing
+function saveNotebookStepsToHistory() {
+  if (state.spotlightInfo?.type !== 'notebook' || state.notebookSteps.length === 0) return;
+  const title = state.spotlightInfo.title;
+  const entry = [...state.spotlightHistory].reverse().find(
+    e => e.type === 'notebook' && e.title === title
+  );
+  if (entry) {
+    entry.notebookSteps = [...state.notebookSteps];
+  }
+}
 
 async function showSpotlight(tag, options = {}) {
   // In replay mode, only render the reference card — don't open the spotlight
@@ -3650,6 +4623,7 @@ async function showSpotlight(tag, options = {}) {
     }
     // Clean up notebook state
     if (state.spotlightInfo?.type === 'notebook') {
+      saveNotebookStepsToHistory();
       if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
       state.notebookSteps = [];
     }
@@ -4009,7 +4983,7 @@ function addStudentStepToNotebook(content, drawingDataUrl, aiImageUrl) {
   lineEl.className = 'chalk-line';
   stepsEl.appendChild(lineEl);
 
-  state.notebookSteps.push({ n, content, hasDrawing: !!drawingDataUrl, author: 'student', type: 'step' });
+  state.notebookSteps.push({ n, content, hasDrawing: !!drawingDataUrl, drawingDataUrl: drawingDataUrl || null, author: 'student', type: 'step' });
 
   const surface = $(`#${info.notebookId}-steps`);
   if (surface) surface.scrollTop = surface.scrollHeight;
@@ -4367,7 +5341,6 @@ function initNotebookInteractive(notebookId, mode, promptText) {
     if (canvasHasContent()) {
       drawingDataUrl = canvas.toDataURL('image/png');
       aiImageUrl = processCanvasForAI();
-      console.log('[Notebook] Canvas captured — display:', drawingDataUrl?.length, 'bytes, AI:', aiImageUrl?.length, 'bytes');
       clearDrawCanvas();
     }
 
@@ -4489,9 +5462,11 @@ window.reopenSpotlight = function(refId) {
   } else if (entry.type === 'widget' && entry.widgetCode) {
     openWidgetSpotlight(entry.title, entry.widgetCode, false, { skipReference: true });
   } else if (entry.type === 'notebook') {
-    // Reopen notebook and restore saved steps
+    // Reopen notebook and restore saved steps from history entry
+    const savedSteps = entry.notebookSteps || [];
     showSpotlight(entry.tag, { skipReference: true });
-    if (state.notebookSteps.length > 0) {
+    if (savedSteps.length > 0) {
+      state.notebookSteps = savedSteps;
       setTimeout(() => restoreNotebookSteps(), 100);
     }
   } else {
@@ -4528,6 +5503,24 @@ window.toggleNotebookFullscreen = function() {
 };
 
 window.hideSpotlight = function(options = {}) {
+  // Prevent student from closing spotlight during assessment
+  if (state.assessment.active && state.spotlightInfo?.type === 'assessment' && !options.agentInitiated) {
+    const panel = $('#spotlight-panel');
+    if (panel) {
+      // Show brief "hang in there" notice
+      let notice = panel.querySelector('.assessment-close-notice');
+      if (!notice) {
+        notice = document.createElement('div');
+        notice.className = 'assessment-close-notice';
+        notice.textContent = 'Almost done — hang in there!';
+        panel.style.position = 'relative';
+        panel.appendChild(notice);
+        setTimeout(() => notice.remove(), 2000);
+      }
+    }
+    return;
+  }
+
   const wasVideo = state.spotlightInfo?.type === 'video';
   const wasBoardDraw = state.spotlightInfo?.type === 'board-draw';
   const prevTitle = state.spotlightInfo?.title || '';
@@ -4560,6 +5553,7 @@ window.hideSpotlight = function(options = {}) {
   }
 
   if (state.spotlightInfo?.type === 'notebook') {
+    saveNotebookStepsToHistory();
     if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
     state.notebookSteps = [];
   }
@@ -4584,11 +5578,20 @@ window.hideSpotlight = function(options = {}) {
 // Module 18: User Actions & Handlers
 // ═══════════════════════════════════════════════════════════
 
-function sendStudentResponse(text) {
+async function sendStudentResponse(text) {
   if (state.isStreaming) return;
   dismissChatHopper();
 
-  // Auto-attach spotlight snapshot if spotlight is open (gives AI visual context)
+  const sc = state.scribble;
+
+  // If scribble has annotations, open the review overlay so student can preview
+  if (sc.active && sc.dirty) {
+    const promptEl = document.getElementById('scribble-review-prompt');
+    if (promptEl) promptEl.value = text;
+    scribbleShowReview();
+    return;
+  }
+
   const snapParts = buildSpotlightSnapshotParts();
   if (snapParts.length > 0) {
     renderUserMessage(text);
@@ -4608,7 +5611,7 @@ function dismissChatHopper() {
 
 // sendCanvasDrawing removed — canvas drawing now handled via notebook workspace
 
-window.submitFreetext = function(inputId) {
+window.submitFreetext = async function(inputId) {
   const el = $(`#${inputId}`);
   if (!el) return;
   const val = el.value.trim();
@@ -4619,7 +5622,6 @@ window.submitFreetext = function(inputId) {
     const parts = [];
     parts.push({ type: 'image', source: { type: 'base64', media_type: img.mediaType, data: img.base64 } });
     parts.push({ type: 'text', text: val || '[Student sent an image]' });
-    // Also attach spotlight snapshot if open
     const snapParts = buildSpotlightSnapshotParts();
     parts.push(...snapParts);
     const thumbUrl = `data:${img.mediaType};base64,${img.base64}`;
@@ -4631,6 +5633,10 @@ window.submitFreetext = function(inputId) {
   } else {
     sendStudentResponse(val);
   }
+};
+
+window.toggleScribbleMode = function() {
+  // Scribble feature removed
 };
 
 window.submitFillBlank = function(fbId, count) {
@@ -4871,62 +5877,52 @@ function renderSessionCards(active, completed) {
   const completedContainer = $('#session-list-completed');
   if (!activeContainer || !completedContainer) return;
 
+  function timeAgo(dateStr) {
+    if (!dateStr) return '';
+    const diff = Date.now() - new Date(dateStr).getTime();
+    const mins = Math.floor(diff / 60000);
+    if (mins < 60) return `${mins}m ago`;
+    const hrs = Math.floor(mins / 60);
+    if (hrs < 24) return `${hrs}h ago`;
+    const days = Math.floor(hrs / 24);
+    return days === 1 ? 'Yesterday' : `${days}d ago`;
+  }
+
   let activeHtml = '';
-  if (active.length > 0) {
-    activeHtml += '<div class="session-list-label">Active</div>';
-    for (const s of active) {
-      const headline = escapeHtml(s.headline || `Session ${s.number || '?'}`);
-      const desc = s.headlineDescription ? `<div class="session-card-desc">${escapeHtml(s.headlineDescription)}</div>` : '';
-      const date = s.startedAt ? new Date(s.startedAt).toLocaleDateString() : '';
-      const dur = s.durationSec ? `${Math.round(s.durationSec / 60)}m` : '';
-      const sections = (s.metrics?.sectionsCompleted || 0) + '/' + (s.metrics?.sectionsTotal || 0) + ' sections';
-      activeHtml += `
-        <div class="session-card active" onclick="continueSession('${escapeAttr(s.sessionId)}')">
-          <div class="session-card-top">
-            <span class="session-card-headline">${headline}</span>
-            <span class="session-card-badge active">Active</span>
-          </div>
-          ${desc}
-          <div class="session-card-meta">
-            <span>#${s.number || '?'}</span>
-            ${date ? `<span>${date}</span>` : ''}
-            ${dur ? `<span>${dur}</span>` : ''}
-            <span>${sections}</span>
-          </div>
-          <div class="session-card-actions">
-            <button class="btn btn-primary">Continue</button>
-          </div>
+  for (const s of active) {
+    const headline = escapeHtml(s.headline || `Session ${s.number || '?'}`);
+    const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
+    const ago = timeAgo(s.startedAt);
+    const meta = [dur, ago].filter(Boolean).join(' · ');
+    activeHtml += `
+      <div class="dash-session-row" onclick="Router.navigate('/session/${escapeAttr(s.sessionId)}')">
+        <div class="dash-session-dot active"></div>
+        <div class="dash-session-info">
+          <div class="dash-session-title">${headline}</div>
+          <div class="dash-session-meta">${meta}</div>
         </div>
-      `;
-    }
+        <span class="dash-session-arrow">&rsaquo;</span>
+      </div>
+    `;
   }
   activeContainer.innerHTML = activeHtml;
 
   let completedHtml = '';
-  if (completed.length > 0) {
-    completedHtml += '<div class="session-list-label">History</div>';
-    for (const s of completed) {
-      const headline = escapeHtml(s.headline || `Session ${s.number || '?'}`);
-      const desc = s.headlineDescription ? `<div class="session-card-desc">${escapeHtml(s.headlineDescription)}</div>` : '';
-      const date = s.startedAt ? new Date(s.startedAt).toLocaleDateString() : '';
-      const dur = s.durationSec ? `${Math.round(s.durationSec / 60)}m` : '';
-      const sections = (s.metrics?.sectionsCompleted || 0) + '/' + (s.metrics?.sectionsTotal || 0) + ' sections';
-      completedHtml += `
-        <div class="session-card completed">
-          <div class="session-card-top">
-            <span class="session-card-headline">${headline}</span>
-            <span class="session-card-badge complete">Complete</span>
-          </div>
-          ${desc}
-          <div class="session-card-meta">
-            <span>#${s.number || '?'}</span>
-            ${date ? `<span>${date}</span>` : ''}
-            ${dur ? `<span>${dur}</span>` : ''}
-            <span>${sections}</span>
-          </div>
+  for (const s of completed) {
+    const headline = escapeHtml(s.headline || `Session ${s.number || '?'}`);
+    const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
+    const ago = timeAgo(s.startedAt);
+    const meta = [dur, ago].filter(Boolean).join(' · ');
+    completedHtml += `
+      <div class="dash-session-row">
+        <div class="dash-session-dot done"></div>
+        <div class="dash-session-info">
+          <div class="dash-session-title">${headline}</div>
+          <div class="dash-session-meta">${meta}</div>
         </div>
-      `;
-    }
+        <span class="dash-session-arrow">&rsaquo;</span>
+      </div>
+    `;
   }
   completedContainer.innerHTML = completedHtml;
 }
@@ -4946,28 +5942,78 @@ function deriveCheckpointFromSession(session) {
 
 // ─── Init & Session Lifecycle ─────────────────────────────
 
+function showLandingPanel() {
+  UIHints.removeAll();
+  const lp = $('#landing-panel');
+  if (lp) lp.style.display = 'block';
+  $('#login-panel').style.display = 'none';
+  $('#setup-panel').style.display = 'none';
+  $('#teaching-layout').classList.add('hidden');
+  document.body.style.overflow = 'auto';
+  document.body.style.height = 'auto';
+}
+
 function showLoginPanel() {
+  UIHints.removeAll();
+  const lp = $('#landing-panel');
+  if (lp) lp.style.display = 'none';
   $('#login-panel').style.display = 'flex';
   $('#setup-panel').style.display = 'none';
+  $('#teaching-layout').classList.add('hidden');
+  document.body.style.overflow = 'hidden';
+  document.body.style.height = '100vh';
+}
+
+function updateCourseCardSelection(courseId) {
+  document.querySelectorAll('.dash-course-card').forEach(card => {
+    const cid = card.dataset.course;
+    card.classList.toggle('selected', cid === String(courseId));
+  });
 }
 
 function showSetupPanel() {
+  UIHints.removeAll();
   const user = AuthManager.getUser();
-  if (!user) return showLoginPanel();
+  if (!user) return Router.navigate('/', { replace: true });
 
   state.studentName = user.name;
   state.userEmail = user.email;
 
+  const firstName = user.name.split(' ')[0];
   const greeting = $('#setup-greeting');
-  if (greeting) greeting.textContent = `Welcome, ${user.name}`;
+  if (greeting) greeting.textContent = `Hey ${firstName}`;
 
+  // Update nav user pill
+  const avatar = $('#dash-avatar');
+  if (avatar) avatar.textContent = user.name.charAt(0).toUpperCase();
+  const userName = $('#dash-user-name');
+  if (userName) userName.textContent = firstName;
+
+  const lp = $('#landing-panel');
+  if (lp) lp.style.display = 'none';
   $('#login-panel').style.display = 'none';
   $('#setup-panel').style.display = 'flex';
+  $('#teaching-layout').classList.add('hidden');
+  disconnectAgentEvents();
+  if (timerInterval) clearInterval(timerInterval);
+  document.body.style.overflow = 'hidden';
+  document.body.style.height = '100vh';
+
+  // Enable/disable buttons and fetch sessions for selected course
+  const courseId = parseInt($('#course-id')?.value);
+  const startBtn = $('#btn-start-session');
+  const newBtn = $('#btn-new-session');
+  if (startBtn) startBtn.disabled = !courseId;
+  if (newBtn) newBtn.disabled = !courseId;
+  if (courseId) fetchAndRenderSessions(state.studentName, courseId);
+
+  // Highlight selected course card
+  updateCourseCardSelection(courseId);
 }
 
 function handleAuthExpired() {
   AuthManager.clearAuth();
-  showLoginPanel();
+  Router.navigate('/login', { replace: true });
   const el = $('#login-status');
   if (el) {
     el.textContent = 'Session expired. Please sign in again.';
@@ -4981,6 +6027,22 @@ function initLoginForm() {
   const loginBtn = $('#btn-login');
   const statusEl = $('#login-status');
 
+  // ─── Tab switching ─────────────────────────────────────
+  const tabs = $$('.auth-tab');
+  tabs.forEach(tab => {
+    tab.addEventListener('click', () => {
+      const target = tab.dataset.tab;
+      tabs.forEach(t => t.classList.toggle('active', t === tab));
+      $('#auth-signin').style.display = target === 'signin' ? '' : 'none';
+      $('#auth-signup').style.display = target === 'signup' ? '' : 'none';
+      // Clear status messages on tab switch
+      if (statusEl) { statusEl.textContent = ''; statusEl.className = 'setup-status'; }
+      const signupStatus = $('#signup-status');
+      if (signupStatus) { signupStatus.textContent = ''; signupStatus.className = 'setup-status'; }
+    });
+  });
+
+  // ─── Login handler ─────────────────────────────────────
   async function doLogin() {
     const email = emailInput.value.trim();
     const password = passwordInput.value;
@@ -4995,10 +6057,7 @@ function initLoginForm() {
     try {
       await AuthManager.login(email, password);
       statusEl.textContent = '';
-      showSetupPanel();
-      // Trigger session fetch for pre-selected course
-      const courseId = parseInt($('#course-id')?.value);
-      if (courseId) fetchAndRenderSessions(state.studentName, courseId);
+      Router.navigate('/dashboard');
     } catch (e) {
       statusEl.textContent = e.message || 'Login failed';
       statusEl.className = 'setup-status error';
@@ -5010,6 +6069,47 @@ function initLoginForm() {
   loginBtn.addEventListener('click', doLogin);
   passwordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
   emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') passwordInput.focus(); });
+
+  // ─── Signup handler ────────────────────────────────────
+  const signupNameInput = $('#signup-name');
+  const signupEmailInput = $('#signup-email');
+  const signupPasswordInput = $('#signup-password');
+  const signupBtn = $('#btn-signup');
+  const signupStatus = $('#signup-status');
+
+  async function doSignup() {
+    const name = signupNameInput.value.trim();
+    const email = signupEmailInput.value.trim();
+    const password = signupPasswordInput.value;
+    if (!name || !email || !password) {
+      signupStatus.textContent = 'Please fill in all fields.';
+      signupStatus.className = 'setup-status error';
+      return;
+    }
+    if (password.length < 6) {
+      signupStatus.textContent = 'Password must be at least 6 characters.';
+      signupStatus.className = 'setup-status error';
+      return;
+    }
+    signupBtn.disabled = true;
+    signupStatus.textContent = 'Creating account...';
+    signupStatus.className = 'setup-status';
+    try {
+      await AuthManager.signup(name, email, password);
+      signupStatus.textContent = '';
+      Router.navigate('/dashboard');
+    } catch (e) {
+      signupStatus.textContent = e.message || 'Signup failed';
+      signupStatus.className = 'setup-status error';
+    } finally {
+      signupBtn.disabled = false;
+    }
+  }
+
+  if (signupBtn) signupBtn.addEventListener('click', doSignup);
+  if (signupPasswordInput) signupPasswordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSignup(); });
+  if (signupEmailInput) signupEmailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') signupPasswordInput.focus(); });
+  if (signupNameInput) signupNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') signupEmailInput.focus(); });
 }
 
 async function initSetup() {
@@ -5018,7 +6118,7 @@ async function initSetup() {
   const startBtn = $('#btn-start-session');
   const newBtn = $('#btn-new-session');
 
-  state.apiUrl = apiUrlInput?.value?.trim() || 'http://localhost:3001';
+  state.apiUrl = apiUrlInput?.value?.trim() || window.location.origin;
 
   // ─── Login form ────────────────────────────────────────
   initLoginForm();
@@ -5030,15 +6130,24 @@ async function initSetup() {
     state.userEmail = '';
     $('#session-list-panel')?.classList.add('hidden');
     $('#session-first-time')?.classList.add('hidden');
-    showLoginPanel();
+    Router.navigate('/');
   });
 
-  // ─── Auth gate ─────────────────────────────────────────
-  if (AuthManager.isLoggedIn()) {
-    showSetupPanel();
-  } else {
-    showLoginPanel();
-  }
+  // ─── Landing page CTA wiring ─────────────────────────────
+  const lpSignin = $('#lp-signin');
+  const lpGetStarted = $('#lp-getstarted');
+  const lpCtaStart = $('#lp-cta-start');
+  const lpCtaHow = $('#lp-cta-how');
+  const lpCourseCard = $('#lp-course-card');
+
+  if (lpSignin) lpSignin.addEventListener('click', () => Router.navigate('/login'));
+  if (lpGetStarted) lpGetStarted.addEventListener('click', () => Router.navigate('/login'));
+  if (lpCtaStart) lpCtaStart.addEventListener('click', () => Router.navigate('/login'));
+  if (lpCtaHow) lpCtaHow.addEventListener('click', () => {
+    const howSection = document.getElementById('lp-how');
+    if (howSection) howSection.scrollIntoView({ behavior: 'smooth' });
+  });
+  if (lpCourseCard) lpCourseCard.addEventListener('click', () => Router.navigate('/login'));
 
   // ─── Course change → fetch sessions ────────────────────
   function onCourseChange() {
@@ -5072,11 +6181,41 @@ async function initSetup() {
     startNewSession(state.studentName, parseInt(courseIdInput.value), (intentInput?.value || '').trim());
   });
 
+  // ─── Dashboard chips ─────────────────────────────────────
+  document.querySelectorAll('.dash-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const intent = chip.dataset.intent || '';
+      const intentInput = $('#student-intent-first');
+      if (intentInput) intentInput.value = intent;
+      startNewSession(state.studentName, parseInt(courseIdInput.value), intent);
+    });
+  });
+
+  // ─── Dashboard input Enter key ────────────────────────────
+  const dashInput = $('#student-intent-first');
+  if (dashInput) {
+    dashInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        startNewSession(state.studentName, parseInt(courseIdInput.value), dashInput.value.trim());
+      }
+    });
+  }
+
+  // ─── Dashboard course card click ──────────────────────────
+  document.querySelectorAll('.dash-course-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const cid = card.dataset.course;
+      if (!cid || cid === 'byo') return; // BYO is disabled
+      if (courseIdInput) {
+        courseIdInput.value = cid;
+        courseIdInput.dispatchEvent(new Event('change'));
+      }
+      updateCourseCardSelection(parseInt(cid));
+    });
+  });
+
   $('#btn-back')?.addEventListener('click', () => {
-    $('#teaching-layout').classList.add('hidden');
-    $('#setup-panel').style.display = 'flex';
-    if (timerInterval) clearInterval(timerInterval);
-    disconnectAgentEvents();
+    Router.navigate('/dashboard');
   });
 
   // Sidebar toggle
@@ -5109,10 +6248,6 @@ async function initSetup() {
     if (e.key === 'Escape') closeSimFullscreen();
   });
 
-  // Trigger initial check (course may be pre-selected)
-  if (AuthManager.isLoggedIn()) {
-    onCourseChange();
-  }
 }
 
 async function startNewSession(name, courseId, intent) {
@@ -5168,6 +6303,8 @@ async function startNewSession(name, courseId, intent) {
     state.messages = [];
     state.sessionId = generateId();
     state.currentScript = null;
+
+    Router.navigate('/session/' + state.sessionId, { skipHandler: true });
 
     // Connect persistent SSE for agent events
     connectAgentEvents();
@@ -5239,6 +6376,10 @@ window.continueSession = async function(sessionId) {
     state.sessionId = sessionData.sessionId;
     state.studentIntent = (sessionData.intent && sessionData.intent.raw) || '';
 
+    if (location.pathname !== '/session/' + sessionData.sessionId) {
+      Router.navigate('/session/' + sessionData.sessionId, { skipHandler: true });
+    }
+
     // Connect persistent SSE for agent events
     connectAgentEvents();
 
@@ -5271,6 +6412,28 @@ window.continueSession = async function(sessionId) {
     state.lastVisualTurn = tc.lastVisualTurn || 0;
     state.visualAssetCount = tc.visualAssetCount || 0;
     state.lastEngagementTurn = tc.lastEngagementTurn || 0;
+
+    // Restore scribble strokes from MongoDB
+    if (sessionData.scribbleStrokes && sessionData.scribbleStrokes.length > 0) {
+      state.scribble.strokes = sessionData.scribbleStrokes;
+    }
+
+    // Restore assessment state (UI tracking only — backend owns agent routing)
+    if (sessionData.assessment && sessionData.assessment.active) {
+      state.assessment.active = true;
+      state.assessment.sectionTitle = sessionData.assessment.sectionTitle || '';
+      state.assessment.concepts = sessionData.assessment.concepts || [];
+      state.assessment.questionNumber = sessionData.assessment.questionNumber || 0;
+      state.assessment.maxQuestions = sessionData.assessment.maxQuestions || 5;
+      // Reopen assessment spotlight after a brief delay (DOM needs to be ready)
+      setTimeout(() => openAssessmentSpotlight(), 300);
+    }
+    if (sessionData.conceptNotes) {
+      state.assessment.conceptNotes = sessionData.conceptNotes;
+    }
+
+    // Save active spotlight info for restoration after canvas rebuild
+    const savedSpotlight = sessionData.activeSpotlight || null;
 
     // Restore plan from session data
     if (sessionData.plan && sessionData.plan.raw) {
@@ -5314,6 +6477,22 @@ window.continueSession = async function(sessionId) {
       rebuildCanvasFromTranscript(sessionData.transcript);
     }
 
+    // Reopen the spotlight that was active when session was saved
+    if (savedSpotlight && savedSpotlight.active && savedSpotlight.info) {
+      const sInfo = savedSpotlight.info;
+      const matchingEntry = [...(state.spotlightHistory)].reverse().find(
+        e => e.type === sInfo.type && e.title === sInfo.title
+      );
+      if (matchingEntry) {
+        setTimeout(() => reopenSpotlight(matchingEntry.id), 200);
+      }
+    }
+
+    // Redraw scribble strokes after canvas rebuild
+    if (state.scribble.strokes.length > 0) {
+      setTimeout(() => scribbleRedraw(), 300);
+    }
+
     // Populate messages from transcript (gives AI full context)
     state.messages = (sessionData.transcript || []).map(m => ({
       role: m.role,
@@ -5330,11 +6509,13 @@ window.continueSession = async function(sessionId) {
       ? ` The student said: "${state.studentIntent}".`
       : '';
 
+    // Backend handles routing — if assessment was active, it will resume automatically
     const trigger = `[SYSTEM] The student "${state.studentName}" is returning to continue session ${state.checkpoint.sessionCount}. They have completed ${completed} sections. Current position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}.${intentClause} Welcome them back briefly, state where you're picking up, and continue teaching following the current script. Do NOT ask what they want to do — you are the teacher, take charge.`;
 
     await streamADK(trigger, true, true);
   } catch (err) {
     setStatus(`Failed to resume: ${err.message}`, 'error');
+    Router.navigate('/dashboard', { replace: true });
   }
 };
 
@@ -5447,6 +6628,7 @@ function renderHistoricalStudentMessage(text) {
 }
 
 function showTeachingLayout(courseMap) {
+  document.title = courseMap.title + ' — Capacity';
   $('#course-title').textContent = courseMap.title;
   $('#sidebar-section-label').textContent = 'COURSE PROGRESS';
   $('#sidebar-status').textContent = `${state.studentName} - Session ${state.checkpoint.sessionCount}`;
@@ -5466,6 +6648,503 @@ function showTeachingLayout(courseMap) {
       Starting teaching session for ${escapeHtml(state.studentName)}...
     </div>
   `);
+
+  setTimeout(() => { initDragDrop(); }, 100);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Module 22: Scribble Annotations on Canvas Stream
+// ═══════════════════════════════════════════════════════════
+
+function scribbleInit() {
+  const sc = state.scribble;
+  sc.canvas = document.getElementById('scribble-overlay');
+  if (!sc.canvas) return;
+  sc.ctx = sc.canvas.getContext('2d');
+
+  const stream = document.getElementById('canvas-stream');
+  const col = document.getElementById('canvas-column');
+  if (!stream || !col) return;
+
+  function resize() {
+    const rect = stream.getBoundingClientRect();
+    const colRect = col.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    sc.canvas.style.top = (rect.top - colRect.top) + 'px';
+    sc.canvas.style.left = (rect.left - colRect.left) + 'px';
+    sc.canvas.style.width = rect.width + 'px';
+    sc.canvas.style.height = rect.height + 'px';
+    sc.canvas.width = rect.width * dpr;
+    sc.canvas.height = rect.height * dpr;
+    sc.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    scribbleRedraw();
+  }
+
+  resize();
+  window.addEventListener('resize', resize);
+  new ResizeObserver(resize).observe(stream);
+  stream.addEventListener('scroll', () => scribbleRedraw());
+
+  // Drawing handlers
+  let drawing = false;
+  let lastX = 0, lastY = 0;
+
+  function getPos(e) {
+    const rect = sc.canvas.getBoundingClientRect();
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    return {
+      canvasX: clientX - rect.left,
+      canvasY: clientY - rect.top,
+      absY: clientY - rect.top + stream.scrollTop,
+    };
+  }
+
+  sc.canvas.addEventListener('mousedown', (e) => {
+    if (!sc.active) return;
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    lastX = pos.canvasX;
+    lastY = pos.canvasY;
+    sc.currentStroke = {
+      points: [{ x: pos.canvasX, y: pos.absY }],
+      color: sc.color,
+      width: sc.lineWidth,
+      isHighlighter: sc.isHighlighter,
+      scrollBase: stream.scrollTop,
+    };
+    if (!sc.beforeSnapshot && !sc.capturePromise) {
+      scribbleCaptureBeforeSnapshot();
+    }
+  });
+
+  sc.canvas.addEventListener('mousemove', (e) => {
+    if (!drawing || !sc.active) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    const ctx = sc.ctx;
+    ctx.save();
+    if (sc.isHighlighter) {
+      ctx.globalAlpha = 0.3;
+      ctx.strokeStyle = sc.color;
+      ctx.lineWidth = 16;
+    } else if (sc.color === '#1a1d2e') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = 20;
+    } else {
+      ctx.strokeStyle = sc.color;
+      ctx.lineWidth = sc.lineWidth;
+    }
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    ctx.lineTo(pos.canvasX, pos.canvasY);
+    ctx.stroke();
+    ctx.restore();
+    lastX = pos.canvasX;
+    lastY = pos.canvasY;
+    if (sc.currentStroke) {
+      sc.currentStroke.points.push({ x: pos.canvasX, y: pos.absY });
+    }
+  });
+
+  function stopDraw() {
+    if (!drawing) return;
+    drawing = false;
+    if (sc.currentStroke && sc.currentStroke.points.length > 1) {
+      sc.strokes.push(sc.currentStroke);
+      sc.dirty = true;
+      scribblePersist();
+      scribbleSyncDoneBtn();
+    }
+    sc.currentStroke = null;
+  }
+  sc.canvas.addEventListener('mouseup', stopDraw);
+  sc.canvas.addEventListener('mouseleave', stopDraw);
+
+  // Touch support
+  sc.canvas.addEventListener('touchstart', (e) => {
+    if (!sc.active) return;
+    e.preventDefault();
+    drawing = true;
+    const pos = getPos(e);
+    lastX = pos.canvasX;
+    lastY = pos.canvasY;
+    sc.currentStroke = {
+      points: [{ x: pos.canvasX, y: pos.absY }],
+      color: sc.color,
+      width: sc.lineWidth,
+      isHighlighter: sc.isHighlighter,
+      scrollBase: stream.scrollTop,
+    };
+    if (!sc.beforeSnapshot && !sc.capturePromise) scribbleCaptureBeforeSnapshot();
+  }, { passive: false });
+  sc.canvas.addEventListener('touchmove', (e) => {
+    if (!drawing || !sc.active) return;
+    e.preventDefault();
+    const pos = getPos(e);
+    const ctx = sc.ctx;
+    ctx.save();
+    if (sc.isHighlighter) { ctx.globalAlpha = 0.3; ctx.strokeStyle = sc.color; ctx.lineWidth = 16; }
+    else if (sc.color === '#1a1d2e') { ctx.globalCompositeOperation = 'destination-out'; ctx.strokeStyle = 'rgba(0,0,0,1)'; ctx.lineWidth = 20; }
+    else { ctx.strokeStyle = sc.color; ctx.lineWidth = sc.lineWidth; }
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round';
+    ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(pos.canvasX, pos.canvasY); ctx.stroke();
+    ctx.restore();
+    lastX = pos.canvasX; lastY = pos.canvasY;
+    if (sc.currentStroke) sc.currentStroke.points.push({ x: pos.canvasX, y: pos.absY });
+  }, { passive: false });
+  sc.canvas.addEventListener('touchend', stopDraw);
+
+  // Toolbar
+  const toolbar = document.getElementById('scribble-toolbar');
+  if (toolbar) {
+    toolbar.querySelectorAll('.scribble-btn[data-color]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        toolbar.querySelectorAll('.scribble-btn[data-color]').forEach(b => b.classList.remove('active'));
+        btn.classList.add('active');
+        const c = btn.dataset.color;
+        if (c === 'eraser') {
+          sc.color = '#1a1d2e';
+          sc.lineWidth = 20;
+          sc.isHighlighter = false;
+        } else if (btn.dataset.highlight) {
+          sc.color = c;
+          sc.lineWidth = 16;
+          sc.isHighlighter = true;
+        } else {
+          sc.color = c;
+          sc.lineWidth = 3;
+          sc.isHighlighter = false;
+        }
+      });
+    });
+    const clearBtn = document.getElementById('scribble-clear');
+    if (clearBtn) clearBtn.addEventListener('click', scribbleClear);
+    const toggleBtn = document.getElementById('scribble-toggle-vis');
+    if (toggleBtn) toggleBtn.addEventListener('click', scribbleToggleVisibility);
+    const closeBtn = document.getElementById('scribble-close');
+    if (closeBtn) closeBtn.addEventListener('click', () => scribbleSetActive(false));
+  }
+
+  // "Done" button in toolbar → opens review
+  const doneBtn = document.getElementById('scribble-done');
+  if (doneBtn) doneBtn.addEventListener('click', scribbleShowReview);
+
+  // Review overlay bindings
+  const reviewSend = document.getElementById('scribble-review-send');
+  if (reviewSend) reviewSend.addEventListener('click', scribbleSendFromReview);
+  const reviewClose = document.getElementById('scribble-review-close');
+  if (reviewClose) reviewClose.addEventListener('click', () => {
+    document.getElementById('scribble-review')?.classList.add('hidden');
+  });
+
+  scribbleRestore();
+}
+
+function scribbleSetActive(on) {
+  const sc = state.scribble;
+  sc.active = on;
+  if (sc.canvas) sc.canvas.classList.toggle('active', on);
+  const toolbar = document.getElementById('scribble-toolbar');
+  if (toolbar) toolbar.classList.toggle('hidden', !on);
+  if (!on) {
+    sc.beforeSnapshot = null;
+    sc.capturePromise = null;
+    const reviewEl = document.getElementById('scribble-review');
+    if (reviewEl) reviewEl.classList.add('hidden');
+  }
+  // Sync all scribble toggle buttons in input boxes + placeholders
+  document.querySelectorAll('.input-scribble-btn').forEach(b => b.classList.toggle('active', on));
+  document.querySelectorAll('#canvas-stream .text-input').forEach(input => {
+    input.placeholder = on ? 'Draw on canvas, then send...' : 'Type your response...';
+  });
+}
+
+function scribbleRedraw() {
+  const sc = state.scribble;
+  if (!sc.ctx || !sc.canvas) return;
+  const stream = document.getElementById('canvas-stream');
+  if (!stream) return;
+  const scrollTop = stream.scrollTop;
+  const w = parseFloat(sc.canvas.style.width);
+  const h = parseFloat(sc.canvas.style.height);
+  sc.ctx.clearRect(0, 0, w, h);
+  for (const stroke of sc.strokes) {
+    if (stroke.points.length < 2) continue;
+    const ctx = sc.ctx;
+    ctx.save();
+    if (stroke.isHighlighter) { ctx.globalAlpha = 0.3; ctx.lineWidth = 16; }
+    else { ctx.lineWidth = stroke.width || 3; }
+    if (stroke.color === '#1a1d2e') {
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+      ctx.lineWidth = 20;
+    } else {
+      ctx.strokeStyle = stroke.color;
+    }
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    ctx.beginPath();
+    let first = true;
+    for (const pt of stroke.points) {
+      const screenY = pt.y - scrollTop;
+      if (screenY < -50 || screenY > h + 50) { first = true; continue; }
+      if (first) { ctx.moveTo(pt.x, screenY); first = false; }
+      else ctx.lineTo(pt.x, screenY);
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function scribbleSyncDoneBtn() {
+  const btn = document.getElementById('scribble-done');
+  if (btn) btn.classList.toggle('hidden', !state.scribble.dirty);
+}
+
+function scribbleClear() {
+  const sc = state.scribble;
+  sc.strokes = [];
+  sc.dirty = false;
+  sc.beforeSnapshot = null;
+  sc.capturePromise = null;
+  scribbleRedraw();
+  scribblePersist();
+  scribbleSyncDoneBtn();
+}
+
+async function scribbleShowReview() {
+  const sc = state.scribble;
+  if (!sc.dirty) return;
+  if (sc.capturePromise) await sc.capturePromise;
+
+  const afterUrl = await scribbleBuildAfterImage();
+  if (!sc.beforeSnapshot || !afterUrl) return;
+
+  const reviewEl = document.getElementById('scribble-review');
+  const beforeImg = document.getElementById('scribble-thumb-before');
+  const afterImg = document.getElementById('scribble-thumb-after');
+  const promptEl = document.getElementById('scribble-review-prompt');
+
+  beforeImg.src = sc.beforeSnapshot;
+  afterImg.src = afterUrl;
+  if (promptEl) promptEl.value = '';
+  reviewEl.classList.remove('hidden');
+}
+
+async function scribbleSendFromReview() {
+  const sc = state.scribble;
+  if (!sc.dirty || state.isStreaming) return;
+  const parts = await scribbleBuildMessageParts();
+  if (parts.length === 0) return;
+
+  const promptEl = document.getElementById('scribble-review-prompt');
+  const extraNote = promptEl ? promptEl.value.trim() : '';
+  const textPart = extraNote || '[Student sent an annotation on the canvas]';
+
+  renderUserMessage(extraNote || '[Annotation]');
+  streamADK([{ type: 'text', text: textPart }, ...parts]);
+
+  const reviewEl = document.getElementById('scribble-review');
+  if (reviewEl) reviewEl.classList.add('hidden');
+  scribbleClear();
+}
+
+function scribblePersist() {
+  try {
+    const key = 'scribble_' + (state.sessionId || 'default');
+    const data = state.scribble.strokes.map(s => ({
+      points: s.points,
+      color: s.color,
+      width: s.width,
+      isHighlighter: s.isHighlighter,
+    }));
+    sessionStorage.setItem(key, JSON.stringify(data));
+  } catch (e) {}
+}
+
+function scribbleRestore() {
+  try {
+    const key = 'scribble_' + (state.sessionId || 'default');
+    const raw = sessionStorage.getItem(key);
+    if (!raw) return;
+    state.scribble.strokes = JSON.parse(raw);
+    scribbleRedraw();
+  } catch (e) {}
+}
+
+function scribbleToggleVisibility() {
+  const sc = state.scribble;
+  sc.visible = !sc.visible;
+  if (sc.canvas) sc.canvas.classList.toggle('hidden-strokes', !sc.visible);
+  const btn = document.getElementById('scribble-toggle-vis');
+  if (btn) btn.textContent = sc.visible ? '👁' : '👁‍🗨';
+}
+
+function scribbleCaptureBeforeSnapshot() {
+  const sc = state.scribble;
+  const stream = document.getElementById('canvas-stream');
+  if (!stream || typeof html2canvas === 'undefined') return;
+  sc.canvas.style.display = 'none';
+  sc.capturePromise = html2canvas(stream, {
+    backgroundColor: '#0f1117',
+    scale: 1,
+    useCORS: true,
+    logging: false,
+    width: stream.clientWidth,
+    height: stream.clientHeight,
+    scrollX: 0,
+    scrollY: -stream.scrollTop,
+    windowWidth: stream.clientWidth,
+    windowHeight: stream.clientHeight,
+  }).then(canvas => {
+    sc.beforeSnapshot = canvas.toDataURL('image/png');
+    sc.canvas.style.display = '';
+  }).catch(() => {
+    sc.canvas.style.display = '';
+  });
+}
+
+function scribbleBuildAfterImage() {
+  const sc = state.scribble;
+  if (!sc.beforeSnapshot || !sc.canvas) return null;
+  try {
+    const w = parseInt(sc.canvas.style.width);
+    const h = parseInt(sc.canvas.style.height);
+    const offscreen = document.createElement('canvas');
+    offscreen.width = w;
+    offscreen.height = h;
+    const ctx = offscreen.getContext('2d');
+    const img = new Image();
+    return new Promise((resolve) => {
+      img.onload = () => {
+        ctx.drawImage(img, 0, 0, w, h);
+        ctx.drawImage(sc.canvas, 0, 0, sc.canvas.width, sc.canvas.height, 0, 0, w, h);
+        resolve(offscreen.toDataURL('image/png'));
+      };
+      img.onerror = () => resolve(null);
+      img.src = sc.beforeSnapshot;
+    });
+  } catch (e) {
+    return null;
+  }
+}
+
+async function scribbleBuildMessageParts() {
+  const sc = state.scribble;
+  if (!sc.dirty || sc.strokes.length === 0) return [];
+
+  if (sc.capturePromise) await sc.capturePromise;
+
+  const parts = [];
+  if (sc.beforeSnapshot) {
+    const beforeB64 = sc.beforeSnapshot.split(',')[1];
+    parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: beforeB64 } });
+    parts.push({ type: 'text', text: '[IMAGE 1 — BEFORE] The chat canvas as the student was viewing it.' });
+
+    const afterUrl = await scribbleBuildAfterImage();
+    if (afterUrl) {
+      const afterB64 = afterUrl.split(',')[1];
+      parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: afterB64 } });
+      parts.push({ type: 'text', text: '[IMAGE 2 — AFTER] Same view with student annotations (circles, highlights, arrows). Compare with IMAGE 1 to see what the student marked.' });
+    }
+  } else {
+    try {
+      const overlayUrl = sc.canvas.toDataURL('image/png');
+      const overlayB64 = overlayUrl.split(',')[1];
+      parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: overlayB64 } });
+      parts.push({ type: 'text', text: '[Student drew annotations on the chat canvas — circles, highlights, or arrows marking areas of interest on recent content.]' });
+    } catch (e) {}
+  }
+
+  sc.dirty = false;
+  return parts;
+}
+
+// ═══════════════════════════════════════════════════════════
+// Module 22b: Drag & Drop file upload on canvas
+// ═══════════════════════════════════════════════════════════
+
+function initDragDrop() {
+  const col = document.getElementById('canvas-column');
+  if (!col) return;
+  let dragCounter = 0;
+  let overlay = null;
+
+  function showOverlay() {
+    if (overlay) return;
+    overlay = document.createElement('div');
+    overlay.className = 'drop-zone-overlay';
+    overlay.innerHTML = '<span>Drop image here</span>';
+    col.appendChild(overlay);
+  }
+  function hideOverlay() {
+    if (overlay) { overlay.remove(); overlay = null; }
+  }
+
+  col.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    dragCounter++;
+    if (dragCounter === 1) showOverlay();
+  });
+  col.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dragCounter--;
+    if (dragCounter <= 0) { dragCounter = 0; hideOverlay(); }
+  });
+  col.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'copy';
+  });
+  col.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dragCounter = 0;
+    hideOverlay();
+    const files = e.dataTransfer.files;
+    if (!files || files.length === 0) return;
+    const file = files[0];
+    if (!file.type.startsWith('image/') && file.type !== 'application/pdf') return;
+    handleDroppedFile(file);
+  });
+}
+
+function handleDroppedFile(file) {
+  const reader = new FileReader();
+  reader.onload = () => {
+    const dataUrl = reader.result;
+    const mediaType = file.type || 'image/png';
+    const base64 = dataUrl.split(',')[1];
+
+    // Find the most recent active text input
+    const stream = document.getElementById('canvas-stream');
+    if (!stream) return;
+    const activeInput = stream.querySelector(
+      '.canvas-block[data-interactive="true"]:not([data-resolved]) .text-input'
+    );
+    if (activeInput) {
+      const inputId = activeInput.id;
+      _pendingImages[inputId] = { base64, mediaType };
+      const preview = $(`#${inputId}-img-preview`);
+      const thumb = $(`#${inputId}-img-thumb`);
+      if (preview && thumb) {
+        thumb.src = dataUrl;
+        preview.style.display = 'flex';
+      }
+    } else {
+      // No active input — send as standalone image message
+      const parts = [
+        { type: 'image', source: { type: 'base64', media_type: mediaType, data: base64 } },
+        { type: 'text', text: '[Student uploaded an image]' },
+      ];
+      renderUserMessage('[Image]', dataUrl);
+      streamADK(parts);
+    }
+  };
+  reader.readAsDataURL(file);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -5479,6 +7158,7 @@ const BD_COLORS = {
 };
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
+const BD_MIN_FONT_SCALE = 1.4;  // Minimum font scaling to keep text readable
 
 function bdInit(canvasEl, voiceEl) {
   const bd = state.boardDraw;
@@ -5617,7 +7297,10 @@ function bdResizeCanvas() {
   const w = wrap.clientWidth;
   bd.scale = w / BD_VIRTUAL_W;
   const actualW = w;
-  const actualH = bd.currentH * bd.scale;
+  // Fill available container height, but allow growth beyond if content needs it
+  const containerH = wrap.clientHeight;
+  const scaledH = bd.currentH * bd.scale;
+  const actualH = Math.max(scaledH, containerH);
   let oldData = null;
   if (bd.ctx && bd.canvas.width && bd.canvas.height) {
     oldData = bd.ctx.getImageData(0, 0, bd.canvas.width, bd.canvas.height);
@@ -5790,7 +7473,8 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   const bd = state.boardDraw;
   if (bd.cancelFlag) return;
   const s = bd.scale;
-  const fs = (size || 22) * s;
+  const fontScale = Math.max(s, s * BD_MIN_FONT_SCALE);
+  const fs = (size || 22) * fontScale;
   bdExpandIfNeeded(y + (size || 22));
   charDelay = charDelay || 40;
   bdChalkStyle(color, 1);
@@ -5912,7 +7596,8 @@ async function bdAnimLatex(latex, x, y, color, size) {
   if (bd.cancelFlag) return;
   const s = bd.scale;
   const c = BD_COLORS[color] || color || BD_COLORS.white;
-  const fs = (size || 24) * s;
+  const fontScale = Math.max(s, s * BD_MIN_FONT_SCALE);
+  const fs = (size || 24) * fontScale;
   bdExpandIfNeeded(y + (size || 24) * 2);
 
   const text = latexToUnicode(latex);
@@ -5943,7 +7628,8 @@ async function bdAnimMatrix(cmd) {
   if (rows.length === 0) return;
   const nRows = rows.length;
   const nCols = Math.max(...rows.map(r => r.length));
-  const fs = (cmd.size || 22) * s;
+  const fontScale = Math.max(s, s * BD_MIN_FONT_SCALE);
+  const fs = (cmd.size || 22) * fontScale;
   const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
   const font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
   bd.ctx.font = font;
@@ -6221,6 +7907,10 @@ async function bdProcessQueue() {
     await bdRunCommand(bd.commandQueue.shift());
   }
   bd.isProcessing = false;
+  // Board animation finished — glow the last AI message to draw student's attention
+  if (!bd.cancelFlag && bd.complete && state.spotlightActive) {
+    highlightLastChatMessage();
+  }
   // Capture tutor-only snapshot after all commands finish (before student draws)
   if (!bd.cancelFlag && bd.canvas && !bd.tutorSnapshot) {
     try {
@@ -6398,9 +8088,9 @@ function renderWidgetIframe(container, widgetCode, title) {
     const d = ev.data;
     if (!d || !d.type) return;
     if (d.type === 'capacity-sim-ready') {
-      console.log('[Widget] ready:', title);
+      // no-op
     } else if (d.type === 'capacity-sim-state' || d.type === 'capacity-sim-interaction') {
-      console.log('[Widget] event:', d.type, d.payload);
+      // no-op
     }
   };
   window.addEventListener('message', handler);
@@ -6426,6 +8116,7 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
   if (state.spotlightActive) {
     if (state.activeSimulation) { stopSimBridge(); state.activeSimulation = null; state.simulationLiveState = null; }
     if (state.spotlightInfo?.type === 'notebook') {
+      saveNotebookStepsToHistory();
       if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
       state.notebookSteps = [];
     }
@@ -6479,6 +8170,17 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
     const c = document.getElementById('bd-canvas');
     const v = document.getElementById('bd-voice-text');
     if (c) bdInit(c, v);
+
+    // First-time hint on Send button
+    setTimeout(() => {
+      const sendBtn = document.querySelector('.bd-send-btn');
+      if (sendBtn) {
+        UIHints.show('board-send', sendBtn,
+          'Scribble on the board',
+          'Draw, circle, or highlight anything on the board — then hit <b>Send</b> to share your work with Euler. He\'ll see what you drew.',
+          'bottom', { left: -60 });
+      }
+    }, 600);
   }, 30);
 }
 
@@ -6864,8 +8566,24 @@ function buildSpotlightSnapshotParts() {
 // ═══════════════════════════════════════════════════════════
 
 document.addEventListener('DOMContentLoaded', () => {
+  Router.init();
   initSetup();
+  Router.resolve(location.pathname);
 
   // Clean up agent event SSE on page unload
   window.addEventListener('beforeunload', () => disconnectAgentEvents());
+
+  // Stale streaming recovery when tab returns from background
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'visible' && state.isStreaming) {
+      const staleSec = (Date.now() - state._lastSSETimestamp) / 1000;
+      if (staleSec > 60) {
+        console.warn(`[visibility] Streaming stale for ${staleSec.toFixed(0)}s — force-resetting`);
+        state.isStreaming = false;
+        if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+        removeStreamingIndicator();
+        renderAIError('Connection lost while tab was in background. Please resend your message.');
+      }
+    }
+  });
 });

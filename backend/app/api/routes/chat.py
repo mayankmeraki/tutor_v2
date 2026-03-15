@@ -14,12 +14,20 @@ import time
 import traceback
 import uuid
 
-import anthropic
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
-from app.agents.agent_runtime import AgentRuntime, DelegationState
-from app.agents.prompts import SKILL_MAP, build_tutor_prompt
+from app.agents.agent_runtime import AgentRuntime, AssessmentState, DelegationState
+from app.core.llm import (
+    llm_stream,
+    is_retryable,
+    extract_retry_after,
+    LLMBadRequestError,
+    LLMAuthError,
+    LLMRateLimitError,
+    LLMConnectionError,
+)
+from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_assessment_prompt
 from app.agents.prompts.teaching_delegate import build_delegation_prompt
 from app.agents.session import get_or_create_session
 from app.services.knowledge_state import (
@@ -32,9 +40,14 @@ from app.services.session_service import sync_backend_state
 from app.tools import (
     TUTOR_TOOLS,
     DELEGATION_TOOLS,
+    ASSESSMENT_TOOLS,
+    COMPLETE_ASSESSMENT_TOOL,
+    HANDBACK_TO_TUTOR_TOOL,
     RETURN_TO_TUTOR_TOOL,
     execute_tutor_tool,
 )
+
+from app.core.rate_limit import check_rate_limit as _check_rate_limit
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -42,46 +55,6 @@ router = APIRouter(tags=["chat"])
 MAX_ROUNDS = 10
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
-
-_client: anthropic.AsyncAnthropic | None = None
-
-
-def _get_client() -> anthropic.AsyncAnthropic:
-    global _client
-    if _client is None:
-        from app.core.config import settings
-        _client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-    return _client
-
-
-# ── Retry helpers ─────────────────────────────────────────────────────────────
-
-def _is_retryable(error: Exception) -> bool:
-    """Check if an error is transient and worth retrying."""
-    if isinstance(error, anthropic.RateLimitError):
-        return True
-    if isinstance(error, anthropic.APIStatusError) and error.status_code in (429, 529):
-        return True
-    if isinstance(error, (anthropic.APIConnectionError, anthropic.APITimeoutError)):
-        return True
-    if isinstance(error, anthropic.InternalServerError):
-        return True
-    return False
-
-
-def _extract_retry_after(error: Exception) -> float | None:
-    """Extract Retry-After header value from an API error."""
-    headers = getattr(error, "response", None)
-    if headers is not None:
-        headers = getattr(headers, "headers", None)
-    if headers:
-        val = headers.get("retry-after")
-        if val:
-            try:
-                return float(val)
-            except (ValueError, TypeError):
-                pass
-    return None
 
 
 # ── Message validation ────────────────────────────────────────────────────────
@@ -308,6 +281,68 @@ def _format_assets(assets: list[dict]) -> str | None:
     return json.dumps(assets, indent=2)
 
 
+def _build_assessment_summary(ar: dict) -> dict:
+    """Build a persistent assessment summary that survives across turns.
+
+    Unlike assessment_result (consumed on first post-assessment turn),
+    this persists until the next assessment, so tutor and planning agent
+    always know the most recent assessment outcome.
+    """
+    score = ar.get("score", {})
+    weak_concepts = [
+        pc.get("concept", "?")
+        for pc in ar.get("perConcept", [])
+        if pc.get("mastery") in ("weak", "not_demonstrated", "needs_work")
+        or pc.get("correct", 1) == 0
+    ]
+    strong_concepts = [
+        pc.get("concept", "?")
+        for pc in ar.get("perConcept", [])
+        if pc.get("mastery") in ("strong", "mastered")
+        or (pc.get("correct", 0) == pc.get("total", 1) and pc.get("total", 0) > 0)
+    ]
+    return {
+        "section": ar.get("section", ""),
+        "type": ar.get("type", "complete"),
+        "score": score,
+        "overallMastery": ar.get("overallMastery", "unknown"),
+        "weakConcepts": weak_concepts,
+        "strongConcepts": strong_concepts,
+        "recommendation": ar.get("recommendation", ""),
+        "conceptsTested": ar.get("concepts", []),
+    }
+
+
+def _format_pre_assessment_note(note: dict | None) -> str | None:
+    """Format pre-assessment marker for injection into tutor prompt.
+
+    Includes assessment results when available so the tutor always knows
+    what happened in the checkpoint, even on subsequent turns.
+    """
+    if not note:
+        return None
+    lines = []
+    if note.get("sectionTitle"):
+        lines.append(f"Section assessed: {note['sectionTitle']}")
+    if note.get("currentTopicTitle"):
+        lines.append(f"Topic at time of checkpoint: {note['currentTopicTitle']}")
+    if note.get("conceptsTested"):
+        lines.append(f"Concepts tested: {', '.join(note['conceptsTested'])}")
+    # Enriched fields (added when assessment results arrive)
+    score = note.get("assessmentScore")
+    if score:
+        pct = score.get("pct", 0)
+        lines.append(f"Assessment score: {score.get('correct', 0)}/{score.get('total', 0)} ({pct}%)")
+        lines.append(f"Overall mastery: {note.get('overallMastery', '?')}")
+    weak = note.get("weakConcepts")
+    if weak:
+        lines.append(f"WEAK concepts (need re-teaching): {', '.join(weak)}")
+    rec = note.get("recommendation")
+    if rec:
+        lines.append(f"Assessment recommendation: {rec}")
+    return "\n".join(lines) if lines else None
+
+
 def _format_session_scope(session) -> str | None:
     """Format session scope for injection into tutor/planning prompts."""
     if not session.session_objective:
@@ -358,7 +393,7 @@ def _build_tutor_prompt(session, context_data) -> str:
 
 # ── Delegation handler ──────────────────────────────────────────────────────
 
-async def _handle_delegated_teaching(session, claude_messages, context_data, request):
+async def _handle_delegated_teaching(session, session_id, claude_messages, context_data, request):
     """Handle a turn during active teaching delegation."""
     from app.core.config import settings
 
@@ -377,8 +412,6 @@ async def _handle_delegated_teaching(session, claude_messages, context_data, req
         yield _sse({"type": "TEACHING_DELEGATION_END", "reason": "max_turns"})
         yield _sse({"type": "RUN_FINISHED"})
         return
-
-    client = _get_client()
 
     # Build sub-agent tools: content tools + return_to_tutor
     sub_tools = DELEGATION_TOOLS + [RETURN_TO_TUTOR_TOOL]
@@ -401,7 +434,7 @@ async def _handle_delegated_teaching(session, claude_messages, context_data, req
         message = None
         for attempt in range(MAX_RETRIES):
             try:
-                async with client.messages.stream(
+                async with await llm_stream(
                     model=settings.TUTOR_MODEL,
                     max_tokens=4096,
                     system=delegation.system_prompt,
@@ -420,8 +453,8 @@ async def _handle_delegated_teaching(session, claude_messages, context_data, req
                     message = await stream.get_final_message()
                 break  # Success
             except Exception as e:
-                if _is_retryable(e) and attempt < MAX_RETRIES - 1:
-                    delay = _extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
+                if is_retryable(e) and attempt < MAX_RETRIES - 1:
+                    delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
                     log.warning("Delegation API retry %d/%d after %.1fs: %s", attempt + 1, MAX_RETRIES, delay, e)
                     if text_started:
                         yield _sse({"type": "TEXT_MESSAGE_END"})
@@ -519,9 +552,301 @@ async def _handle_delegated_teaching(session, claude_messages, context_data, req
     yield _sse({"type": "RUN_ERROR", "message": "Too many delegation rounds"})
 
 
+# ── Assessment handler ────────────────────────────────────────────────────────
+
+async def _handle_assessment(session, session_id, claude_messages, context_data, request):
+    """Handle a turn during active assessment checkpoint.
+
+    The assessment agent has its own system prompt, tools, and persona.
+    Uses its own message history (assessment.messages) separate from the tutor's.
+    The student's latest message is copied in, but assessment Q&A stays isolated.
+    """
+    from app.core.config import settings
+
+    assessment = session.assessment
+    assessment.turns_used += 1
+
+    # Copy the student's latest message into assessment's own history
+    # (assessment keeps its own message list, separate from tutor)
+    if claude_messages:
+        latest = claude_messages[-1]
+        if latest.get("role") == "user":
+            assessment.messages.append(latest)
+
+    # Hard turn limit
+    if assessment.turns_used > assessment.max_turns:
+        log.info("Assessment turn limit reached (%d/%d)", assessment.turns_used, assessment.max_turns)
+        session.assessment_result = {
+            "type": "handback",
+            "reason": "max_turns",
+            "questionsCompleted": assessment.questions_asked,
+            "score": {"correct": 0, "total": assessment.questions_asked},
+            "stuckOn": "Assessment reached maximum turn limit.",
+            "recommendation": "Resume teaching — assessment was unable to complete in time.",
+            "section": assessment.section_title,
+            "concepts": assessment.concepts_tested,
+        }
+        session.assessment = None
+        yield _sse({
+            "type": "ASSESSMENT_END",
+            "reason": "max_turns",
+            "score": session.assessment_result.get("score"),
+            "section": session.assessment_result.get("section", ""),
+            "concepts": session.assessment_result.get("concepts", []),
+            "recommendation": session.assessment_result.get("recommendation", ""),
+        })
+        yield _sse({"type": "RUN_FINISHED"})
+        return
+
+    rounds = 0
+    while rounds < MAX_ROUNDS:
+        rounds += 1
+        log.info("Assessment round %d/%d (turn %d)", rounds, MAX_ROUNDS, assessment.turns_used)
+
+        if await request.is_disconnected():
+            return
+
+        text_started = False
+        message_id = None
+
+        valid_messages = _validate_messages(assessment.messages)
+
+        # Retry loop
+        message = None
+        for attempt in range(MAX_RETRIES):
+            try:
+                async with await llm_stream(
+                    model=settings.TUTOR_MODEL,
+                    max_tokens=4096,
+                    system=assessment.system_prompt,
+                    messages=valid_messages,
+                    tools=assessment.tools,
+                ) as stream:
+                    async for text in stream.text_stream:
+                        if await request.is_disconnected():
+                            return
+                        if not text_started:
+                            message_id = str(uuid.uuid4())
+                            yield _sse({"type": "TEXT_MESSAGE_START", "messageId": message_id})
+                            text_started = True
+                        yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
+
+                    message = await stream.get_final_message()
+                break
+            except Exception as e:
+                if is_retryable(e) and attempt < MAX_RETRIES - 1:
+                    delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
+                    log.warning("Assessment API retry %d/%d after %.1fs: %s", attempt + 1, MAX_RETRIES, delay, e)
+                    if text_started:
+                        yield _sse({"type": "TEXT_MESSAGE_END"})
+                        text_started = False
+                    await asyncio.sleep(delay)
+                    continue
+                raise
+
+        if message is None:
+            yield _sse({"type": "RUN_ERROR", "message": "Failed to get response after retries"})
+            return
+
+        if await request.is_disconnected():
+            return
+
+        if text_started:
+            yield _sse({"type": "TEXT_MESSAGE_END"})
+
+        if message.stop_reason == "tool_use":
+            tool_blocks = [b for b in message.content if b.type == "tool_use"]
+            tool_results: list[dict] = []
+
+            for block in tool_blocks:
+                log.info("Assessment tool: %s", block.name)
+                yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
+
+                # ── complete_assessment ─────────────────────────
+                if block.name == "complete_assessment":
+                    result_data = {
+                        "type": "complete",
+                        "score": block.input.get("score", {}),
+                        "perConcept": block.input.get("perConcept", []),
+                        "updatedNotes": block.input.get("updatedNotes", {}),
+                        "studentQuestions": block.input.get("studentQuestions", []),
+                        "recommendation": block.input.get("recommendation", ""),
+                        "overallMastery": block.input.get("overallMastery", "developing"),
+                        "section": assessment.section_title,
+                        "concepts": assessment.concepts_tested,
+                    }
+                    session.assessment_result = result_data
+                    session.assessment = None
+
+                    log.info(
+                        "Assessment complete: %d/%d (%s)",
+                        result_data["score"].get("correct", 0),
+                        result_data["score"].get("total", 0),
+                        result_data["overallMastery"],
+                    )
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "Assessment recorded. Control returned to Tutor.",
+                    })
+                    yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
+
+                    # Emit assessment end SSE for frontend UI
+                    yield _sse({
+                        "type": "ASSESSMENT_END",
+                        "reason": "complete",
+                        "score": result_data["score"],
+                        "overallMastery": result_data["overallMastery"],
+                        "perConcept": result_data.get("perConcept", []),
+                        "section": result_data.get("section", ""),
+                        "recommendation": result_data.get("recommendation", ""),
+                    })
+
+                    # Sync session state
+                    try:
+                        from app.services.session_service import sync_backend_state
+                        await sync_backend_state(session_id, session)
+                    except Exception as e:
+                        log.warning("Failed to sync session after assessment: %s", e)
+
+                    yield _sse({"type": "RUN_FINISHED"})
+                    return
+
+                # ── handback_to_tutor ──────────────────────────
+                elif block.name == "handback_to_tutor":
+                    result_data = {
+                        "type": "handback",
+                        "reason": block.input.get("reason", "student_struggling"),
+                        "questionsCompleted": block.input.get("questionsCompleted", 0),
+                        "score": block.input.get("score", {}),
+                        "stuckOn": block.input.get("stuckOn", ""),
+                        "studentQuestions": block.input.get("studentQuestions", []),
+                        "studentState": block.input.get("studentState", ""),
+                        "updatedNotes": block.input.get("updatedNotes", {}),
+                        "recommendation": block.input.get("recommendation", ""),
+                        "section": assessment.section_title,
+                        "concepts": assessment.concepts_tested,
+                    }
+                    session.assessment_result = result_data
+                    session.assessment = None
+
+                    log.info(
+                        "Assessment handback: reason=%s, questions=%d",
+                        result_data["reason"],
+                        result_data["questionsCompleted"],
+                    )
+
+                    tool_results.append({
+                        "type": "tool_result",
+                        "tool_use_id": block.id,
+                        "content": "Assessment ended. Control returned to Tutor.",
+                    })
+                    yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
+
+                    yield _sse({
+                        "type": "ASSESSMENT_END",
+                        "reason": result_data["reason"],
+                        "score": result_data.get("score"),
+                        "stuckOn": result_data.get("stuckOn"),
+                        "section": result_data.get("section", ""),
+                        "concepts": result_data.get("concepts", []),
+                        "recommendation": result_data.get("recommendation", ""),
+                    })
+
+                    try:
+                        from app.services.session_service import sync_backend_state
+                        await sync_backend_state(session_id, session)
+                    except Exception as e:
+                        log.warning("Failed to sync session after assessment handback: %s", e)
+
+                    yield _sse({"type": "RUN_FINISHED"})
+                    return
+
+                # ── update_student_model (assessment can update notes) ──
+                elif block.name == "update_student_model":
+                    notes = block.input.get("notes", [])
+                    if isinstance(notes, str):
+                        try:
+                            notes = json.loads(notes)
+                        except (json.JSONDecodeError, TypeError):
+                            notes = [{"concepts": ["_assessment"], "note": notes}]
+
+                    if not session.student_model:
+                        session.student_model = {"notes": {}}
+                    model_notes = session.student_model.setdefault("notes", {})
+                    for entry in notes:
+                        concepts = entry.get("concepts", [])
+                        primary = concepts[0] if concepts else "_uncategorized"
+                        model_notes[primary] = {
+                            "concepts": concepts,
+                            "note": entry.get("note", ""),
+                        }
+
+                    log.info("Assessment updated student model: %d notes", len(notes))
+
+                    # Persist
+                    _sm_course_id, _ = _extract_student_info(context_data)
+                    _sm_email = _extract_user_email(context_data)
+                    if _sm_course_id and _sm_email:
+                        from app.services.knowledge_state import upsert_concept_note
+                        for entry in notes:
+                            try:
+                                await upsert_concept_note(
+                                    _sm_course_id, _sm_email, session_id,
+                                    concepts=entry.get("concepts", ["_uncategorized"]),
+                                    note_text=entry.get("note", ""),
+                                    lesson=entry.get("lesson"),
+                                )
+                            except Exception as e:
+                                log.warning("Failed to upsert assessment note: %s", e)
+
+                    result = "Student model updated with assessment observations."
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+
+                # ── query_knowledge ─────────────────────────────
+                elif block.name == "query_knowledge":
+                    course_id, _ = _extract_student_info(context_data)
+                    user_email = _extract_user_email(context_data)
+                    if course_id and user_email:
+                        try:
+                            result = await search_notes(course_id, user_email, block.input["query"])
+                        except Exception as e:
+                            result = f"Failed to query knowledge: {str(e)[:200]}"
+                    else:
+                        result = "Cannot query knowledge: missing student info"
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+
+                # ── Normal content tools ────────────────────────
+                else:
+                    try:
+                        result = await execute_tutor_tool(block.name, block.input)
+                    except Exception as e:
+                        log.error("Assessment tool %s failed: %s", block.name, e, exc_info=True)
+                        result = f"Tool error ({block.name}): {str(e)[:200]}"
+                    result_str = result if isinstance(result, str) else json.dumps(result)
+                    if not result_str.strip():
+                        result_str = "(no output)"
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result_str})
+
+                yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
+
+            assessment.messages.append({"role": "assistant", "content": message.content})
+            assessment.messages.append({"role": "user", "content": tool_results})
+            continue
+
+        # No more tool calls — text response to student
+        # Append the assistant response to assessment's own history
+        assessment.messages.append({"role": "assistant", "content": message.content})
+        yield _sse({"type": "RUN_FINISHED"})
+        return
+
+    yield _sse({"type": "RUN_ERROR", "message": "Too many assessment rounds"})
+
+
 # ── Chat Route ───────────────────────────────────────────────────────────────
 
-@router.post("/api/chat")
+@router.post("/api/chat", dependencies=[Depends(_check_rate_limit)])
 async def chat(request: Request):
     body = await request.json()
     messages = body.get("messages")
@@ -584,7 +909,21 @@ async def chat(request: Request):
                 session.agent_runtime = AgentRuntime()
             runtime = session.agent_runtime
 
-            # ── Step 3: Check delegation → route to sub-agent ─────────
+            # ── Step 3a: Check assessment → route to assessment agent ──
+            if session.assessment:
+                log.info(
+                    "Routing to assessment agent (turn %d/%d, section: %s)",
+                    session.assessment.turns_used + 1,
+                    session.assessment.max_turns,
+                    session.assessment.section_title[:40],
+                )
+                async for chunk in _handle_assessment(
+                    session, session_id, claude_messages, context_data, request
+                ):
+                    yield chunk
+                return
+
+            # ── Step 3b: Check delegation → route to sub-agent ────────
             if session.delegation:
                 log.info(
                     "Routing to delegated sub-agent (turn %d/%d, topic: %s)",
@@ -593,7 +932,7 @@ async def chat(request: Request):
                     session.delegation.topic[:40],
                 )
                 async for chunk in _handle_delegated_teaching(
-                    session, claude_messages, context_data, request
+                    session, session_id, claude_messages, context_data, request
                 ):
                     yield chunk
                 return
@@ -645,6 +984,62 @@ async def chat(request: Request):
                 delegation_result_ctx = json.dumps(session.delegation_result, indent=2)
                 session.delegation_result = None
 
+            # Check assessment result from just-ended assessment
+            assessment_result_ctx = None
+            if session.assessment_result:
+                ar = session.assessment_result
+                assessment_result_ctx = (
+                    f"Assessment checkpoint for \"{ar.get('section', '?')}\" just completed.\n"
+                    f"Type: {ar.get('type', 'complete')}\n"
+                )
+                if ar.get("type") == "complete":
+                    score = ar.get("score", {})
+                    assessment_result_ctx += (
+                        f"Score: {score.get('correct', 0)}/{score.get('total', 0)} ({score.get('pct', 0)}%)\n"
+                        f"Overall Mastery: {ar.get('overallMastery', '?')}\n"
+                    )
+                    per_concept = ar.get("perConcept", [])
+                    if per_concept:
+                        assessment_result_ctx += "Per-Concept Results:\n"
+                        for pc in per_concept:
+                            assessment_result_ctx += f"  - {pc.get('concept', '?')}: {pc.get('correct', 0)}/{pc.get('total', 0)} ({pc.get('mastery', '?')})\n"
+                else:
+                    assessment_result_ctx += (
+                        f"Reason: {ar.get('reason', '?')}\n"
+                        f"Questions Completed: {ar.get('questionsCompleted', 0)}\n"
+                        f"Stuck On: {ar.get('stuckOn', 'N/A')}\n"
+                    )
+                if ar.get("updatedNotes"):
+                    assessment_result_ctx += "Updated Concept Notes:\n"
+                    for cname, note in ar["updatedNotes"].items():
+                        assessment_result_ctx += f"  {cname}: {note}\n"
+                if ar.get("studentQuestions"):
+                    assessment_result_ctx += "Student Questions During Checkpoint (follow up on these):\n"
+                    for sq in ar["studentQuestions"]:
+                        assessment_result_ctx += f"  - {sq}\n"
+                if ar.get("studentState"):
+                    assessment_result_ctx += f"Student State: {ar['studentState']}\n"
+                if ar.get("recommendation"):
+                    assessment_result_ctx += f"Assessment Recommendation: {ar['recommendation']}\n"
+
+                # Save persistent summary before clearing one-shot result
+                session.last_assessment_summary = _build_assessment_summary(ar)
+                # Also enrich pre_assessment_note with results
+                if session.pre_assessment_note:
+                    session.pre_assessment_note["assessmentScore"] = ar.get("score", {})
+                    session.pre_assessment_note["overallMastery"] = ar.get("overallMastery", "unknown")
+                    session.pre_assessment_note["weakConcepts"] = [
+                        pc.get("concept", "?")
+                        for pc in ar.get("perConcept", [])
+                        if pc.get("mastery") in ("weak", "not_demonstrated", "needs_work")
+                        or pc.get("correct", 1) == 0
+                    ]
+                    session.pre_assessment_note["recommendation"] = ar.get("recommendation", "")
+
+                session.assessment_result = None
+                # pre_assessment_note stays alive — cleared when tutor calls advance_topic
+                log.info("Injecting assessment results into tutor context")
+
             # ── Step 4b: Load brief knowledge summary for prompt ─────
             try:
                 course_id, _ = _extract_student_info(context_data)
@@ -673,6 +1068,9 @@ async def chat(request: Request):
                 "sessionScope": _format_session_scope(session),
                 "agentResults": agent_results_str,
                 "delegationResult": delegation_result_ctx,
+                "assessmentResult": assessment_result_ctx,
+                "preAssessmentNote": _format_pre_assessment_note(session.pre_assessment_note),
+                "lastAssessmentSummary": session.last_assessment_summary,
                 "preparedAssets": _format_assets(session.available_assets),
                 "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
             })
@@ -680,7 +1078,6 @@ async def chat(request: Request):
             log.info("Tutor prompt: %d chars (~%d tokens)", len(tutor_prompt), len(tutor_prompt) // 4)
 
             # ── Step 6: Tutor agentic loop ────────────────────────────
-            client = _get_client()
             rounds = 0
 
             # Periodic student model update (every 5 turns)
@@ -713,19 +1110,23 @@ async def chat(request: Request):
                     "messages": valid_messages,
                     "tools": TUTOR_TOOLS,
                 }
+                suppress_text = False
                 if force_student_update and rounds == 1:
                     api_kwargs["tool_choice"] = {"type": "tool", "name": "update_student_model"}
                     force_student_update = False
-                    log.info("Forcing update_student_model (turn %d)", session.assistant_turn_count)
+                    suppress_text = True
+                    log.info("Forcing update_student_model (turn %d) — suppressing preamble text", session.assistant_turn_count)
 
                 # Retry loop for transient errors
                 message = None
                 for attempt in range(MAX_RETRIES):
                     try:
-                        async with client.messages.stream(**api_kwargs) as stream:
+                        async with await llm_stream(**api_kwargs) as stream:
                             async for text in stream.text_stream:
                                 if await request.is_disconnected():
                                     return
+                                if suppress_text:
+                                    continue
                                 if not text_started:
                                     message_id = str(uuid.uuid4())
                                     yield _sse({"type": "TEXT_MESSAGE_START", "messageId": message_id})
@@ -736,8 +1137,8 @@ async def chat(request: Request):
                             message = await stream.get_final_message()
                         break  # Success
                     except Exception as e:
-                        if _is_retryable(e) and attempt < MAX_RETRIES - 1:
-                            delay = _extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
+                        if is_retryable(e) and attempt < MAX_RETRIES - 1:
+                            delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
                             log.warning(
                                 "Tutor API retry %d/%d after %.1fs: %s",
                                 attempt + 1, MAX_RETRIES, delay, e,
@@ -799,6 +1200,9 @@ async def chat(request: Request):
                                     **context_data,
                                     "sessionScope": _format_session_scope(session),
                                     "completedTopics": _format_completed(session.completed_topics),
+                                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                                    "lastAssessmentSummary": session.last_assessment_summary,
+                                    "tutorNotes": "\n".join(session.tutor_notes[-5:]) if session.tutor_notes else None,
                                 }
 
                             agent_id = runtime.spawn(
@@ -855,6 +1259,64 @@ async def chat(request: Request):
                                 "completed": check_completed,
                             }, indent=2)
 
+                        # ── handoff_to_assessment ───────────────────────
+                        elif block.name == "handoff_to_assessment":
+                            brief = block.input
+                            section = brief.get("section", {})
+                            concepts = brief.get("conceptsTested", [])
+                            plan = brief.get("plan", {})
+                            qc = plan.get("questionCount", {})
+
+                            # Save lightweight pre-assessment marker (auto-populated from session state)
+                            current_topic = None
+                            if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
+                                current_topic = session.current_topics[session.current_topic_index]
+                            session.pre_assessment_note = {
+                                "sectionTitle": section.get("title", ""),
+                                "sectionIndex": section.get("index"),
+                                "currentTopicTitle": current_topic.get("title", "") if current_topic else "",
+                                "currentTopicIndex": session.current_topic_index,
+                                "conceptsTested": concepts,
+                            }
+
+                            # Build assessment prompt with full brief
+                            assessment_prompt = build_assessment_prompt({
+                                **context_data,
+                                "assessmentBrief": brief,
+                                "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                            })
+
+                            session.assessment = AssessmentState(
+                                system_prompt=assessment_prompt,
+                                tools=ASSESSMENT_TOOLS,
+                                brief=brief,
+                                section_title=section.get("title", "Unknown"),
+                                concepts_tested=concepts,
+                                max_questions=qc.get("max", 5),
+                                min_questions=qc.get("min", 3),
+                            )
+
+                            log.info(
+                                "Assessment handoff: section=%s, concepts=%s, questions=%d-%d",
+                                section.get("title", "?")[:40],
+                                concepts[:3],
+                                qc.get("min", 3),
+                                qc.get("max", 5),
+                            )
+
+                            yield _sse({
+                                "type": "ASSESSMENT_START",
+                                "section": section,
+                                "concepts": concepts,
+                                "maxQuestions": qc.get("max", 5),
+                            })
+
+                            result = (
+                                f"Assessment checkpoint started for section \"{section.get('title', '?')}\". "
+                                f"Testing concepts: {', '.join(concepts)}. "
+                                "The assessment agent will handle the next interactions and return results when complete."
+                            )
+
                         # ── delegate_teaching ─────────────────────────
                         elif block.name == "delegate_teaching":
                             topic = block.input.get("topic", "")
@@ -904,6 +1366,7 @@ async def chat(request: Request):
                             session.current_plan = None
                             session.current_topics = []
                             session.current_topic_index = -1
+                            session.pre_assessment_note = None  # Old checkpoint is obsolete
 
                             # Optionally reset scope
                             if not keep_scope:
@@ -952,6 +1415,14 @@ async def chat(request: Request):
                         elif block.name == "update_student_model":
                             notes = block.input.get("notes", [])
 
+                            # Model sometimes sends notes as a JSON string — parse it
+                            if isinstance(notes, str):
+                                try:
+                                    notes = json.loads(notes)
+                                except (json.JSONDecodeError, TypeError):
+                                    log.warning("update_student_model: notes was a string, could not parse — wrapping")
+                                    notes = [{"concepts": ["_general"], "note": notes}]
+
                             # Backward compat: if old schema (observations field), convert
                             if not notes and block.input.get("observations"):
                                 notes = [{"concepts": ["_profile"], "note": block.input["observations"]}]
@@ -997,6 +1468,8 @@ async def chat(request: Request):
                             session.tutor_notes.append(block.input.get("tutor_notes", ""))
                             if block.input.get("student_model"):
                                 session.student_model = block.input["student_model"]
+                            # Clear pre-assessment note — tutor is past the review phase
+                            session.pre_assessment_note = None
 
                             # Emit TOPIC_COMPLETE for the just-finished topic
                             if (
@@ -1156,6 +1629,16 @@ async def chat(request: Request):
                         })
                         yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
 
+                    # ── Check for agent handoff (assessment/delegation) ──
+                    # If handoff occurred, break tutor loop and start the new agent
+                    # immediately in the same response stream — no dead stop.
+                    if session.assessment:
+                        log.info("Assessment handoff — breaking tutor loop to start assessment agent")
+                        break
+                    if session.delegation:
+                        log.info("Delegation handoff — breaking tutor loop to start delegate agent")
+                        break
+
                     # Continue conversation with tool results
                     claude_messages.append({"role": "assistant", "content": message.content})
                     claude_messages.append({"role": "user", "content": tool_results})
@@ -1173,33 +1656,61 @@ async def chat(request: Request):
                 yield _sse({"type": "RUN_FINISHED"})
                 return
 
+            # ── Post-loop: check for immediate agent handoffs ──────────
+            if session.assessment:
+                # Start assessment agent immediately in same stream
+                assessment_trigger = (
+                    f'[SYSTEM] Assessment checkpoint starting for section '
+                    f'"{session.assessment.section_title}". '
+                    f'Concepts to test: {", ".join(session.assessment.concepts_tested)}. '
+                    f'Begin with a warm transition and ask your first question.'
+                )
+                claude_messages.append({"role": "user", "content": assessment_trigger})
+                async for chunk in _handle_assessment(
+                    session, session_id, claude_messages, context_data, request
+                ):
+                    yield chunk
+                return
+
+            if session.delegation:
+                # Start delegate agent immediately in same stream
+                delegation_trigger = (
+                    f'[SYSTEM] Teaching delegation started. Topic: {session.delegation.topic}. '
+                    f'Begin your first interaction with the student.'
+                )
+                claude_messages.append({"role": "user", "content": delegation_trigger})
+                async for chunk in _handle_delegated_teaching(
+                    session, session_id, claude_messages, context_data, request
+                ):
+                    yield chunk
+                return
+
             # Too many rounds
             log.warning("Too many tool call rounds (%d)", MAX_ROUNDS)
             yield _sse({"type": "RUN_ERROR", "message": "Too many tool call rounds"})
 
-        except anthropic.BadRequestError as e:
+        except LLMBadRequestError as e:
             err_body = getattr(e, "body", {}) or {}
             err_msg = (err_body.get("error", {}).get("message", "") if isinstance(err_body, dict) else str(e))
             if "credit balance" in err_msg.lower() or "billing" in err_msg.lower():
-                log.warning("Anthropic billing error: %s", err_msg)
+                log.warning("LLM billing error: %s", err_msg)
                 yield _sse({"type": "RUN_ERROR", "message": "The AI service is temporarily unavailable — the API credit balance needs to be topped up. Please try again later."})
             else:
-                log.error("Anthropic bad request: %s\nMessages: %d total, last role: %s",
+                log.error("LLM bad request: %s\nMessages: %d total, last role: %s",
                           e, len(claude_messages),
                           claude_messages[-1].get("role", "?") if claude_messages else "none",
                           exc_info=True)
                 yield _sse({"type": "RUN_ERROR", "message": f"AI request error: {err_msg}"})
-        except anthropic.AuthenticationError as e:
-            log.error("Anthropic auth error: %s", e)
+        except LLMAuthError as e:
+            log.error("LLM auth error: %s", e)
             yield _sse({"type": "RUN_ERROR", "message": "The AI service API key is invalid or expired. Please check the configuration."})
-        except anthropic.RateLimitError as e:
-            # If retry loop exhausted, this propagates here
-            retry_after = _extract_retry_after(e)
+        except LLMRateLimitError as e:
+            retry_after = extract_retry_after(e)
             wait_msg = f" Try again in {int(retry_after)}s." if retry_after else ""
-            log.warning("Anthropic rate limit (retries exhausted): %s", e)
+            log.warning("LLM rate limit (retries exhausted): %s", e)
             yield _sse({"type": "RUN_ERROR", "message": f"The AI service is busy right now.{wait_msg} Please wait a moment and try again."})
-        except anthropic.APIConnectionError as e:
-            log.error("Anthropic connection error: %s", e)
+        except LLMConnectionError as e:
+            log.error("LLM connection error: %s", e)
             yield _sse({"type": "RUN_ERROR", "message": "Could not connect to the AI service. Please check your internet connection."})
         except Exception as e:
             log.error("Chat error: %s\n%s", e, traceback.format_exc())

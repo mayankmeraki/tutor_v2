@@ -4,9 +4,8 @@ import json
 import logging
 from datetime import datetime, timezone
 
-import anthropic
-
 from app.core.config import settings
+from app.core.llm import llm_call, LLMBadRequestError
 from app.core.mongodb import get_tutor_db
 
 log = logging.getLogger(__name__)
@@ -113,15 +112,15 @@ async def generate_section_summary(
     )
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
+        response = await llm_call(
             model=settings.SUMMARIZATION_MODEL,
-            max_tokens=1024,
+            system="",
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=1024,
         )
 
         # Extract text from response
-        response_text = message.content[0].text.strip()
+        response_text = response.content[0].text.strip()
 
         # Parse JSON from response (handle markdown code blocks)
         if response_text.startswith("```"):
@@ -180,13 +179,13 @@ async def generate_session_headline(session: dict) -> dict:
     )
 
     try:
-        client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY)
-        message = await client.messages.create(
+        response = await llm_call(
             model=settings.SUMMARIZATION_MODEL,
-            max_tokens=256,
+            system="",
             messages=[{"role": "user", "content": prompt}],
+            max_tokens=256,
         )
-        response_text = message.content[0].text.strip()
+        response_text = response.content[0].text.strip()
         if response_text.startswith("```"):
             response_text = response_text.split("\n", 1)[1].rsplit("```", 1)[0].strip()
         result = json.loads(response_text)
@@ -195,7 +194,7 @@ async def generate_session_headline(session: dict) -> dict:
             "headline": result.get("headline", f"Session {number}"),
             "description": result.get("description", ""),
         }
-    except anthropic.BadRequestError as e:
+    except LLMBadRequestError as e:
         err_body = getattr(e, "body", {}) or {}
         err_msg = err_body.get("error", {}).get("message", "") if isinstance(err_body, dict) else str(e)
         if "credit" in err_msg.lower() or "billing" in err_msg.lower():
@@ -260,23 +259,67 @@ async def sync_backend_state(session_id: str, session) -> None:
     with frontend-managed fields (transcript, sections, metrics, plan, coursePosition).
     `generatedVisuals` is top-level since both frontend and backend need it.
     """
+    backend_state = {
+        "studentModel": session.student_model,
+        "studentIntent": session.student_intent,
+        "tutorNotes": session.tutor_notes,
+        "assistantTurnCount": session.assistant_turn_count,
+        "sessionStatus": session.session_status,
+        "completionReason": session.completion_reason,
+        "currentPlan": session.current_plan,
+        "currentTopics": session.current_topics,
+        "currentTopicIndex": session.current_topic_index,
+        "completedTopics": session.completed_topics,
+        "sessionObjective": session.session_objective,
+        "sessionScope": session.session_scope,
+        "scopeConcepts": session.scope_concepts,
+        "activeScenario": session.active_scenario,
+        "availableAssets": session.available_assets,
+    }
+
+    if session.assessment_result:
+        backend_state["assessmentResult"] = session.assessment_result
+    if session.pre_assessment_note:
+        backend_state["preAssessmentNote"] = session.pre_assessment_note
+    if session.last_assessment_summary:
+        backend_state["lastAssessmentSummary"] = session.last_assessment_summary
+
+    # Persist in-flight delegation state so it survives server restarts
+    if session.delegation:
+        d = session.delegation
+        backend_state["delegation"] = {
+            "agentType": d.agent_type,
+            "systemPrompt": d.system_prompt,
+            "maxTurns": d.max_turns,
+            "turnsUsed": d.turns_used,
+            "topic": d.topic,
+            "instructions": d.instructions,
+        }
+
+    # Persist in-flight assessment agent state
+    if session.assessment:
+        a = session.assessment
+        backend_state["assessmentAgent"] = {
+            "systemPrompt": a.system_prompt,
+            "brief": a.brief,
+            "sectionTitle": a.section_title,
+            "conceptsTested": a.concepts_tested,
+            "questionsAsked": a.questions_asked,
+            "maxQuestions": a.max_questions,
+            "minQuestions": a.min_questions,
+            "turnsUsed": a.turns_used,
+            "maxTurns": a.max_turns,
+            "messages": a.messages,
+        }
+
+    update_doc = {
+        "backendState": backend_state,
+        "generatedVisuals": session.generated_visuals,
+    }
+
     await _sessions().update_one(
         {"sessionId": session_id},
-        {"$set": {
-            "backendState": {
-                "studentModel": session.student_model,
-                "tutorNotes": session.tutor_notes,
-                "currentPlan": session.current_plan,
-                "currentTopics": session.current_topics,
-                "currentTopicIndex": session.current_topic_index,
-                "completedTopics": session.completed_topics,
-                "sessionObjective": session.session_objective,
-                "sessionScope": session.session_scope,
-                "scopeConcepts": session.scope_concepts,
-                "activeScenario": session.active_scenario,
-            },
-            "generatedVisuals": session.generated_visuals,
-        }},
+        {"$set": update_doc},
         upsert=False,
     )
 

@@ -118,16 +118,33 @@ IMAGE — inline in chat (self-closing):
 
 BOARD DRAW — Live tutor drawing on a virtual blackboard (container, opens in spotlight):
   <teaching-board-draw title="Forces on an Inclined Plane">
+  {"cmd":"text","text":"Forces on an Inclined Plane","x":160,"y":30,"color":"yellow","size":28}
   {"cmd":"voice","text":"Let me draw the forces acting on this block..."}
   {"cmd":"line","x1":100,"y1":350,"x2":500,"y2":350,"color":"white","w":2.5}
-  {"cmd":"arrow","x1":300,"y1":300,"x2":300,"y2":150,"color":"yellow","w":2}
-  {"cmd":"text","text":"N","x":310,"y":140,"color":"yellow","size":20}
-  {"cmd":"latex","tex":"F_g = mg","x":100,"y":420,"color":"white","size":24}
+  {"cmd":"line","x1":100,"y1":350,"x2":500,"y2":200,"color":"white","w":2.5}
+  {"cmd":"rect","x":250,"y":220,"w":60,"h":50,"color":"white","lw":2}
+  {"cmd":"text","text":"block","x":255,"y":285,"color":"dim","size":14}
+  {"cmd":"arrow","x1":280,"y1":245,"x2":280,"y2":145,"color":"cyan","w":2}
+  {"cmd":"text","text":"N (normal)","x":290,"y":140,"color":"cyan","size":18}
+  {"cmd":"arrow","x1":280,"y1":270,"x2":280,"y2":380,"color":"yellow","w":2}
+  {"cmd":"latex","tex":"F_g = mg","x":290,"y":395,"color":"yellow","size":20}
+  {"cmd":"pause","ms":500}
+  {"cmd":"text","text":"Legend:","x":560,"y":80,"color":"cyan","size":20}
+  {"cmd":"text","text":"↑ cyan = normal force","x":560,"y":110,"color":"cyan","size":16}
+  {"cmd":"text","text":"↓ yellow = gravity","x":560,"y":135,"color":"yellow","size":16}
   </teaching-board-draw>
 
   Opens a blackboard canvas in the spotlight panel. Content is JSONL — one
   drawing command per line, executed progressively as they stream in.
   The student sees you draw in real-time, like chalk on a blackboard.
+
+  FONT SIZE MINIMUMS — the board scales down on smaller screens, so use
+  generous sizes to keep text readable:
+    Title heading: size 26-30 (yellow)
+    Section headings: size 20-22 (cyan)
+    Labels/annotations: size 18-20 (never below 16)
+    LaTeX equations: size 22-26 (never below 20)
+  NEVER use size < 16 for any text. Small text becomes illegible on the board.
   COLLABORATIVE: After your drawing, the student can draw/annotate on the
   same canvas using their own pen tools (green/red/white). They can click
   "Send" to share the combined board as an image, or you can use

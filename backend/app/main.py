@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import auth, chat, content, events, learning_tools, sessions
@@ -16,6 +17,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 
+log = logging.getLogger(__name__)
+
 RENDERED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rendered")
 FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend")
 
@@ -23,26 +26,78 @@ FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__fi
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     os.makedirs(RENDERED_DIR, exist_ok=True)
+
+    # Ensure MongoDB indexes
+    from app.services.user_service import ensure_indexes
+    try:
+        await ensure_indexes()
+    except Exception as e:
+        log.warning("Failed to ensure user indexes (MongoDB may be unreachable): %s", e)
+
     from app.core.config import settings
-    print(f"\n  Mockup Teaching Agent — Python Backend")
-    print(f"  ─────────────────────────────────────────────────")
-    print(f"  Server:         http://localhost:{settings.PORT}")
-    print(f"  Tutor Model:    {settings.TUTOR_MODEL}")
-    print(f"  Planning Model: {settings.PLANNING_MODEL}")
-    print(f"  Research Model: {settings.RESEARCH_MODEL}")
-    print(f"  API Key:        {'set' if settings.ANTHROPIC_API_KEY else 'MISSING'}")
-    print(f"\n  Logs below\n")
+    log.info("Mockup Teaching Agent — Python Backend")
+    log.info("Server:         http://0.0.0.0:%s", settings.PORT)
+    log.info("Tutor Model:    %s", settings.TUTOR_MODEL)
+    log.info("Planning Model: %s", settings.PLANNING_MODEL)
+    log.info("Research Model: %s", settings.RESEARCH_MODEL)
+    log.info("API Key:        %s", "set" if settings.ANTHROPIC_API_KEY else "MISSING")
     yield
+
+    # ── Shutdown: close DB connections ──
+    log.info("Shutting down — closing database connections…")
+    try:
+        from app.core.mongodb import get_mongo_client
+        get_mongo_client().close()
+    except Exception as e:
+        log.warning("MongoDB close error: %s", e)
+    try:
+        from app.core.database import async_engine
+        await async_engine.dispose()
+    except Exception as e:
+        log.warning("Postgres dispose error: %s", e)
 
 
 app = FastAPI(lifespan=lifespan)
 
+# ─── CORS ──────────────────────────────────────────────────────────
+
+_default_origins = [
+    "http://localhost:3001",
+    "http://localhost:3000",
+    "http://localhost:8000",
+    "http://127.0.0.1:3001",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:8000",
+]
+
+_cors_env = os.environ.get("CORS_ORIGINS", "")
+_extra_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] if _cors_env else []
+_all_origins = _default_origins + _extra_origins
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=_all_origins,
+    allow_methods=["GET", "POST", "PATCH", "OPTIONS"],
+    allow_headers=["Content-Type", "Authorization"],
 )
+
+# ─── Health Check ──────────────────────────────────────────────────
+
+@app.get("/health")
+async def health():
+    """Health check — pings MongoDB and returns status."""
+    mongo_ok = False
+    try:
+        from app.core.mongodb import get_mongo_client
+        result = await get_mongo_client().admin.command("ping")
+        mongo_ok = result.get("ok") == 1.0
+    except Exception as e:
+        log.warning("Health check — MongoDB ping failed: %s", e)
+    return JSONResponse(
+        status_code=200 if mongo_ok else 503,
+        content={"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok},
+    )
+
 
 # API routes
 app.include_router(auth.router)
@@ -54,6 +109,13 @@ app.include_router(chat.router)
 
 # Static files: rendered Manim output
 app.mount("/rendered", StaticFiles(directory=RENDERED_DIR), name="rendered")
+
+# SPA fallback — serve index.html for client-side routes
+@app.get("/login")
+@app.get("/dashboard")
+@app.get("/session/{session_id}")
+async def spa_fallback(session_id: str = ""):
+    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"), media_type="text/html")
 
 # Static files: frontend (must be last — catch-all with html=True)
 if os.path.isdir(FRONTEND_DIR):

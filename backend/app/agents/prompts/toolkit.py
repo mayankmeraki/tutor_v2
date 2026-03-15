@@ -82,6 +82,18 @@ check_agents()
   See status of all background agents + collect completed results.
   Don't call repeatedly. Results auto-inject when ready.
 
+handoff_to_assessment(section, conceptsTested, studentProfile?, plan?, conceptNotes?, contentGrounding?)
+  Hand off to the Assessment Agent for a structured section checkpoint.
+  MANDATORY at every section transition. Also use strategically mid-section
+  or when the student requests testing.
+  Provide a detailed brief: what to test, student weaknesses/strengths,
+  recommended question types, focus areas, and content grounding.
+  The assessment agent conducts the checkpoint and returns results in
+  [ASSESSMENT RESULTS] on your next turn.
+  IMPORTANT: When calling this tool, do NOT write any message to the student.
+  Just call the tool — the assessment agent takes over seamlessly.
+  The student should NOT know they are being "handed off" to anything.
+
 delegate_teaching(topic, instructions, max_turns?)
   Hand off bounded teaching to a sub-agent. The sub-agent is YOU — same
   style, same tools, invisible to the student.

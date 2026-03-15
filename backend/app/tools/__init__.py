@@ -324,6 +324,106 @@ TUTOR_TOOLS = [
         },
     },
     {
+        "name": "handoff_to_assessment",
+        "description": (
+            "Hand off to the Assessment Agent for a section checkpoint. "
+            "Call this when a teaching section is complete and the student should be assessed "
+            "on the concepts just taught. Provide a detailed brief including: what concepts "
+            "to test, student weaknesses/strengths observed during teaching, recommended "
+            "question types and difficulty, and content grounding references. "
+            "The assessment agent will take over, conduct the checkpoint, and return results "
+            "when complete. You will receive the results in [ASSESSMENT RESULTS] on your "
+            "next turn after the assessment ends."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section": {
+                    "type": "object",
+                    "description": "The section being assessed",
+                    "properties": {
+                        "index": {"type": "number", "description": "Section index"},
+                        "title": {"type": "string", "description": "Section title"},
+                    },
+                    "required": ["index", "title"],
+                },
+                "conceptsTested": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Concept names to test in this checkpoint",
+                },
+                "studentProfile": {
+                    "type": "object",
+                    "description": "What you observed about the student during teaching",
+                    "properties": {
+                        "weaknesses": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Concepts or skills the student struggled with",
+                        },
+                        "strengths": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Concepts or skills the student demonstrated well",
+                        },
+                        "engagementStyle": {
+                            "type": "string",
+                            "description": "How the student best engages (visual, textual, etc.)",
+                        },
+                    },
+                },
+                "plan": {
+                    "type": "object",
+                    "description": "Assessment plan — question count, types, difficulty",
+                    "properties": {
+                        "questionCount": {
+                            "type": "object",
+                            "properties": {
+                                "min": {"type": "number", "description": "Minimum questions (default 3)"},
+                                "max": {"type": "number", "description": "Maximum questions (default 5)"},
+                            },
+                        },
+                        "startDifficulty": {
+                            "type": "string",
+                            "enum": ["easy", "medium", "hard"],
+                            "description": "Starting difficulty level (default medium)",
+                        },
+                        "types": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Recommended question types: mcq, numerical, freetext, notebook-derivation, drawing, fillblank",
+                        },
+                        "focusAreas": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Areas to focus assessment on (60% of questions)",
+                        },
+                        "avoid": {
+                            "type": "array",
+                            "items": {"type": "string"},
+                            "description": "Concepts to skip — student already demonstrated mastery",
+                        },
+                    },
+                },
+                "conceptNotes": {
+                    "type": "object",
+                    "description": "Per-concept observations from teaching. Keys are concept names, values are your notes.",
+                },
+                "contentGrounding": {
+                    "type": "object",
+                    "description": "References to course content for question grounding",
+                    "properties": {
+                        "lessonId": {"type": "number"},
+                        "sectionIndices": {"type": "array", "items": {"type": "number"}},
+                        "keyExamples": {"type": "array", "items": {"type": "string"}},
+                        "professorPhrasing": {"type": "string"},
+                    },
+                },
+            },
+            "required": ["section", "conceptsTested"],
+        },
+    },
+    {
         "name": "update_student_model",
         "description": (
             "Your private notebook on this student. Called automatically every ~5 turns. "
@@ -425,6 +525,118 @@ DELEGATION_TOOLS = [
     t for t in TUTOR_TOOLS
     if t["name"] in ("search_images", "web_search", "get_simulation_details", "get_section_content", "control_simulation")
 ]
+
+
+# ── Assessment Agent tools ──────────────────────────────────────────────────
+
+COMPLETE_ASSESSMENT_TOOL = {
+    "name": "complete_assessment",
+    "description": (
+        "End the assessment checkpoint with results. Call when: you've asked the "
+        "maximum number of questions, OR the minimum is met and the student got "
+        "3+ correct in a row. Include the full results JSON with per-concept "
+        "scores and observations. Control returns to the Tutor."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "score": {
+                "type": "object",
+                "properties": {
+                    "correct": {"type": "number"},
+                    "total": {"type": "number"},
+                    "pct": {"type": "number"},
+                },
+                "required": ["correct", "total", "pct"],
+            },
+            "perConcept": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "concept": {"type": "string"},
+                        "correct": {"type": "number"},
+                        "total": {"type": "number"},
+                        "mastery": {"type": "string", "enum": ["strong", "developing", "weak"]},
+                    },
+                },
+            },
+            "updatedNotes": {
+                "type": "object",
+                "description": "Per-concept assessment observations with STUDENT REASONING for wrong answers. Keys are concept names.",
+            },
+            "studentQuestions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Questions the student asked during the checkpoint that the tutor should follow up on.",
+            },
+            "recommendation": {
+                "type": "string",
+                "description": "One sentence for the tutor about what to do next. Be specific about strategy.",
+            },
+            "overallMastery": {
+                "type": "string",
+                "enum": ["strong", "developing", "weak"],
+            },
+        },
+        "required": ["score", "overallMastery"],
+    },
+}
+
+HANDBACK_TO_TUTOR_TOOL = {
+    "name": "handback_to_tutor",
+    "description": (
+        "End the assessment early and return to the Tutor. Call when: "
+        "student got 2+ wrong on the same concept, student says 'I don't know' "
+        "2+ times, student asks to stop, or student gives empty/garbage answers. "
+        "Include partial results and what the student got stuck on."
+    ),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "reason": {
+                "type": "string",
+                "enum": ["student_struggling", "student_declined", "student_needs_help", "student_disengaged"],
+            },
+            "questionsCompleted": {"type": "number"},
+            "score": {
+                "type": "object",
+                "properties": {
+                    "correct": {"type": "number"},
+                    "total": {"type": "number"},
+                },
+            },
+            "stuckOn": {
+                "type": "string",
+                "description": "What the student couldn't do — specific observation. Include their reasoning if available.",
+            },
+            "studentQuestions": {
+                "type": "array",
+                "items": {"type": "string"},
+                "description": "Questions the student asked during the checkpoint that need tutor follow-up. These reveal where curiosity or confusion lives.",
+            },
+            "studentState": {
+                "type": "string",
+                "description": "Student's emotional/engagement state if notable (frustrated, anxious, curious, disengaged, confused). Helps tutor calibrate tone on resume.",
+            },
+            "updatedNotes": {
+                "type": "object",
+                "description": "Per-concept assessment observations with STUDENT REASONING for each wrong answer.",
+            },
+            "recommendation": {
+                "type": "string",
+                "description": "One sentence for the tutor about how to re-approach. Be specific about strategy.",
+            },
+        },
+        "required": ["reason", "questionsCompleted", "recommendation"],
+    },
+}
+
+# Assessment tools: content tools + knowledge tools + completion tools
+ASSESSMENT_TOOLS = [
+    t for t in TUTOR_TOOLS
+    if t["name"] in ("search_images", "web_search", "get_section_content", "query_knowledge", "update_student_model")
+] + [COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL]
 
 
 # ── Dispatchers ──────────────────────────────────────────────────────────────
