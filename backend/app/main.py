@@ -108,6 +108,7 @@ app.include_router(events.router)
 app.include_router(chat.router)
 
 # Static files: rendered Manim output
+os.makedirs(RENDERED_DIR, exist_ok=True)
 app.mount("/rendered", StaticFiles(directory=RENDERED_DIR), name="rendered")
 
 # SPA fallback — serve index.html for client-side routes
