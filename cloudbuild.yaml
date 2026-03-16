@@ -1,16 +1,25 @@
 steps:
+  # Build Docker image
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['build', '-t', 'gcr.io/$PROJECT_ID/tutor-v2:$COMMIT_SHA', '.']
+    args:
+      - 'build'
+      - '-t'
+      - 'gcr.io/$PROJECT_ID/tutor-v2:$COMMIT_SHA'
+      - '.'
 
+  # Push to Container Registry
   - name: 'gcr.io/cloud-builders/docker'
-    args: ['push', 'gcr.io/$PROJECT_ID/tutor-v2:$COMMIT_SHA']
+    args:
+      - 'push'
+      - 'gcr.io/$PROJECT_ID/tutor-v2:$COMMIT_SHA'
 
+  # Deploy to Cloud Run
   - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
     entrypoint: gcloud
     args:
       - 'run'
       - 'deploy'
-      - 'tutor-v2'
+      - 'tutor-v2-stage'
       - '--image=gcr.io/$PROJECT_ID/tutor-v2:$COMMIT_SHA'
       - '--region=us-central1'
       - '--platform=managed'
@@ -20,6 +29,12 @@ steps:
       - '--timeout=300'
       - '--max-instances=5'
       - '--min-instances=0'
+      - '--add-cloudsql-instances=capacity-platform-dev:us-central1:capacity-stage'
+      - '--network=default'
+      - '--subnet=default'
+      - '--vpc-egress=private-ranges-only'
+      - '--set-env-vars=LLM_PROVIDER=anthropic,TUTOR_MODEL=claude-sonnet-4-6,DB_HOST=10.5.32.3,DB_PORT=5432,DB_NAME=capacity,DB_USER=capacity_service_user,CORS_ORIGINS=https://stage.tutor.seekcapacity.ai'
+      - '--set-secrets=ANTHROPIC_API_KEY=anthropic_api_key:latest,DB_PASSWORD=STAGE_DB_PASSWORD:latest,MONGODB_URI=tutor_mongodb_uri:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest'
 
 images:
   - 'gcr.io/$PROJECT_ID/tutor-v2:$COMMIT_SHA'

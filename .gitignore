@@ -15,3 +15,29 @@ node_modules/
 .cursor/
 agent-transcripts/
 *.plan.md
+
+# Temp / mockup HTML files
+onboarding-mockup.html
+wireframe-*.html
+
+# Media / large binary files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.bmp
+*.ico
+*.svg
+*.mp4
+*.mov
+*.webm
+*.avi
+*.mkv
+*.mp3
+*.wav
+*.ogg
+*.pdf
+*.zip
+*.tar.gz
+*.tgz
