@@ -1,9 +1,9 @@
-"""Unified LLM client — dual-provider (Anthropic + OpenRouter), format conversion, logging.
+"""Unified LLM client — dual-provider with automatic failover.
 
-All LLM calls route through llm_call() or llm_stream(). The active provider
+All LLM calls route through llm_call() or llm_stream(). The primary provider
 is selected by settings.LLM_PROVIDER ("anthropic" or "openrouter").
-Both paths return the same LLMResponse / LLMStream interface so callers
-are provider-agnostic.
+On rate-limit (429), overloaded (529), or connection errors, calls automatically
+fall back to the other provider if its API key is configured.
 """
 
 from __future__ import annotations
@@ -85,6 +85,18 @@ class LLMConnectionError(LLMError):
 
 class LLMOverloadedError(LLMError):
     pass
+
+
+_FAILOVER_ERRORS = (LLMRateLimitError, LLMOverloadedError, LLMConnectionError)
+
+
+def _get_fallback_provider(primary: str) -> str | None:
+    """Return the other provider if its API key is set, else None."""
+    if primary == "anthropic" and settings.OPENROUTER_API_KEY:
+        return "openrouter"
+    if primary == "openrouter" and settings.ANTHROPIC_API_KEY:
+        return "anthropic"
+    return None
 
 
 # ── Client singletons ───────────────────────────────────────────────────────
@@ -680,18 +692,16 @@ class OpenRouterLLMStream:
 # ── Public API ───────────────────────────────────────────────────────────────
 
 
-async def llm_call(
+async def _llm_call_single(
+    provider: str,
     model: str,
     system: str,
     messages: list[dict],
-    max_tokens: int = 4096,
-    tools: list[dict] | None = None,
-    tool_choice: dict | None = None,
+    max_tokens: int,
+    tools: list[dict] | None,
+    tool_choice: dict | None,
 ) -> LLMResponse:
-    """Non-streaming LLM call. Routes to configured provider."""
-    provider = settings.LLM_PROVIDER
-    start = time.monotonic()
-
+    """Execute a non-streaming LLM call against a specific provider."""
     if provider == "anthropic":
         client = _get_anthropic_client()
         kwargs: dict = {
@@ -704,7 +714,6 @@ async def llm_call(
             kwargs["tools"] = tools
         if tool_choice:
             kwargs["tool_choice"] = tool_choice
-
         try:
             raw = await client.messages.create(**kwargs)
         except Exception as e:
@@ -712,8 +721,7 @@ async def llm_call(
             if translated is not e:
                 raise translated from e
             raise
-
-        response = _wrap_anthropic_response(raw)
+        return _wrap_anthropic_response(raw)
 
     elif provider == "openrouter":
         client = _get_openrouter_client()
@@ -728,7 +736,6 @@ async def llm_call(
         tc = _convert_tool_choice_openrouter(tool_choice)
         if tc is not None:
             kwargs["tool_choice"] = tc
-
         try:
             raw = await client.chat.completions.create(**kwargs)
         except Exception as e:
@@ -736,11 +743,32 @@ async def llm_call(
             if translated is not e:
                 raise translated from e
             raise
-
-        response = _wrap_openai_response(raw)
+        return _wrap_openai_response(raw)
 
     else:
         raise ValueError(f"Unknown LLM_PROVIDER: {provider}")
+
+
+async def llm_call(
+    model: str,
+    system: str,
+    messages: list[dict],
+    max_tokens: int = 4096,
+    tools: list[dict] | None = None,
+    tool_choice: dict | None = None,
+) -> LLMResponse:
+    """Non-streaming LLM call with automatic failover between providers."""
+    primary = settings.LLM_PROVIDER
+    start = time.monotonic()
+
+    try:
+        response = await _llm_call_single(primary, model, system, messages, max_tokens, tools, tool_choice)
+    except _FAILOVER_ERRORS as e:
+        fallback = _get_fallback_provider(primary)
+        if not fallback:
+            raise
+        log.warning("LLM %s failed (%s: %s), failing over to %s", primary, type(e).__name__, str(e)[:120], fallback)
+        response = await _llm_call_single(fallback, model, system, messages, max_tokens, tools, tool_choice)
 
     elapsed = (time.monotonic() - start) * 1000
     log.info(
@@ -754,17 +782,16 @@ async def llm_call(
     return response
 
 
-async def llm_stream(
+def _build_stream(
+    provider: str,
     model: str,
     system: str,
     messages: list[dict],
-    max_tokens: int = 4096,
-    tools: list[dict] | None = None,
-    tool_choice: dict | None = None,
+    max_tokens: int,
+    tools: list[dict] | None,
+    tool_choice: dict | None,
 ) -> AnthropicLLMStream | OpenRouterLLMStream:
-    """Streaming LLM call. Returns async context manager with .text_stream and .get_final_message()."""
-    provider = settings.LLM_PROVIDER
-
+    """Build a stream object for a specific provider (does not open it)."""
     if provider == "anthropic":
         client = _get_anthropic_client()
         kwargs: dict = {
@@ -777,7 +804,6 @@ async def llm_stream(
             kwargs["tools"] = tools
         if tool_choice:
             kwargs["tool_choice"] = tool_choice
-
         raw = client.messages.stream(**kwargs)
         return AnthropicLLMStream(raw)
 
@@ -793,11 +819,73 @@ async def llm_stream(
         tc = _convert_tool_choice_openrouter(tool_choice)
         if tc is not None:
             kwargs["tool_choice"] = tc
-
         return OpenRouterLLMStream(client, _prefix_model(model), **kwargs)
 
     else:
         raise ValueError(f"Unknown LLM_PROVIDER: {provider}")
+
+
+class FailoverLLMStream:
+    """Wraps a primary stream and falls back to another provider on connect errors."""
+
+    def __init__(self, primary_provider, model, system, messages, max_tokens, tools, tool_choice):
+        self._primary = primary_provider
+        self._model = model
+        self._system = system
+        self._messages = messages
+        self._max_tokens = max_tokens
+        self._tools = tools
+        self._tool_choice = tool_choice
+        self._inner = None
+        self._used_provider = primary_provider
+
+    async def __aenter__(self):
+        stream = _build_stream(self._primary, self._model, self._system, self._messages,
+                               self._max_tokens, self._tools, self._tool_choice)
+        try:
+            self._inner = await stream.__aenter__()
+            self._used_provider = self._primary
+            return self
+        except _FAILOVER_ERRORS as e:
+            fallback = _get_fallback_provider(self._primary)
+            if not fallback:
+                raise
+            log.warning("LLM stream %s connect failed (%s: %s), failing over to %s",
+                        self._primary, type(e).__name__, str(e)[:120], fallback)
+            stream2 = _build_stream(fallback, self._model, self._system, self._messages,
+                                    self._max_tokens, self._tools, self._tool_choice)
+            self._inner = await stream2.__aenter__()
+            self._used_provider = fallback
+            return self
+
+    async def __aexit__(self, *args):
+        if self._inner:
+            await self._inner.__aexit__(*args)
+
+    @property
+    def text_stream(self):
+        return self._inner.text_stream
+
+    async def get_final_message(self) -> LLMResponse:
+        return await self._inner.get_final_message()
+
+
+async def llm_stream(
+    model: str,
+    system: str,
+    messages: list[dict],
+    max_tokens: int = 4096,
+    tools: list[dict] | None = None,
+    tool_choice: dict | None = None,
+) -> FailoverLLMStream | AnthropicLLMStream | OpenRouterLLMStream:
+    """Streaming LLM call with automatic failover on connection/rate-limit errors."""
+    primary = settings.LLM_PROVIDER
+    fallback = _get_fallback_provider(primary)
+
+    if fallback:
+        return FailoverLLMStream(primary, model, system, messages, max_tokens, tools, tool_choice)
+
+    return _build_stream(primary, model, system, messages, max_tokens, tools, tool_choice)
 
 
 # ── Retry helpers ────────────────────────────────────────────────────────────
