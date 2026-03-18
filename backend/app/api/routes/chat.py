@@ -1137,8 +1137,9 @@ async def chat(request: Request):
                 })
                 active_tools = TUTOR_TOOLS
 
+            prompt_size = sum(len(p) for p in tutor_prompt) if isinstance(tutor_prompt, tuple) else len(tutor_prompt)
             log.info("Tutor prompt: %d chars (~%d tokens), mode: %s",
-                     len(tutor_prompt), len(tutor_prompt) // 4, "BYO" if is_byo else "curated")
+                     prompt_size, prompt_size // 4, "BYO" if is_byo else "curated")
 
             # ── Step 6: Tutor agentic loop ────────────────────────────
             rounds = 0

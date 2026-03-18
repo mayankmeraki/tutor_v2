@@ -187,14 +187,28 @@ def _compile_teaching_overrides(context_data: dict) -> str | None:
     return "\n".join(overrides)
 
 
-def build_tutor_prompt(context_data: dict) -> str:
+def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
+    """Build tutor system prompt.
+
+    Returns a tuple (static_prompt, dynamic_context) for prompt caching.
+    The static part is cacheable (instructions + tags). The dynamic part
+    changes every turn (student profile, board state, plan, etc.).
+    """
     # Compile per-student teaching overrides from _profile notes
     teaching_overrides = _compile_teaching_overrides(context_data)
 
-    # Build tutor system prompt with overrides injected before pedagogy
+    # STATIC: tutor instructions + toolkit + tags (cacheable)
     tutor_prompt = build_tutor_system_prompt(teaching_overrides=teaching_overrides)
+    static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
-    parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
+    scenario_skill = context_data.get("scenarioSkill")
+    if scenario_skill:
+        static_parts.append(scenario_skill)
+
+    static_prompt = "\n".join(static_parts)
+
+    # DYNAMIC: context that changes per turn (not cacheable)
+    parts = []
 
     scenario_skill = context_data.get("scenarioSkill")
     if scenario_skill:
@@ -362,7 +376,8 @@ def build_tutor_prompt(context_data: dict) -> str:
     if prepared_assets:
         parts.append(f"\n[PREPARED ASSETS]\n{prepared_assets}\n")
 
-    return "\n".join(parts)
+    dynamic_context = "\n".join(parts)
+    return (static_prompt, dynamic_context)
 
 
 def build_byo_tutor_prompt(context_data: dict) -> str:

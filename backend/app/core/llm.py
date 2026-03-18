@@ -326,22 +326,45 @@ def _prepare_messages_anthropic(messages: list[dict]) -> list[dict]:
 
 
 def _convert_messages_openrouter(
-    system: str, messages: list[dict]
+    system: str | tuple, messages: list[dict]
 ) -> list[dict]:
-    """Convert Anthropic-format messages to OpenAI/OpenRouter format."""
+    """Convert Anthropic-format messages to OpenAI/OpenRouter format.
+
+    system can be:
+      - str: single system message (entire prompt cached as one block)
+      - tuple (static, dynamic): two content blocks — static is cached, dynamic is not
+    """
     result: list[dict] = []
     if system:
-        # Use content blocks with cache_control for Anthropic prompt caching
-        result.append({
-            "role": "system",
-            "content": [
+        if isinstance(system, tuple) and len(system) == 2:
+            # Split prompt: static (cached) + dynamic (not cached)
+            static_part, dynamic_part = system
+            content_blocks = [
                 {
                     "type": "text",
-                    "text": system,
+                    "text": static_part,
                     "cache_control": {"type": "ephemeral"},
                 }
-            ],
-        })
+            ]
+            if dynamic_part and dynamic_part.strip():
+                content_blocks.append({
+                    "type": "text",
+                    "text": dynamic_part,
+                })
+            result.append({"role": "system", "content": content_blocks})
+        else:
+            # Single string — cache the whole thing
+            system_text = system if isinstance(system, str) else str(system)
+            result.append({
+                "role": "system",
+                "content": [
+                    {
+                        "type": "text",
+                        "text": system_text,
+                        "cache_control": {"type": "ephemeral"},
+                    }
+                ],
+            })
 
     for msg in messages:
         role = msg["role"]
@@ -802,7 +825,7 @@ async def _llm_call_single(
         kwargs: dict = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system,
+            "system": "\n\n".join(system) if isinstance(system, tuple) else system,
             "messages": _prepare_messages_anthropic(messages),
         }
         if tools:
@@ -894,7 +917,7 @@ def _build_stream(
         kwargs: dict = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": system,
+            "system": "\n\n".join(system) if isinstance(system, tuple) else system,
             "messages": _prepare_messages_anthropic(messages),
         }
         if tools:
