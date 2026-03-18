@@ -331,7 +331,17 @@ def _convert_messages_openrouter(
     """Convert Anthropic-format messages to OpenAI/OpenRouter format."""
     result: list[dict] = []
     if system:
-        result.append({"role": "system", "content": system})
+        # Use content blocks with cache_control for Anthropic prompt caching
+        result.append({
+            "role": "system",
+            "content": [
+                {
+                    "type": "text",
+                    "text": system,
+                    "cache_control": {"type": "ephemeral"},
+                }
+            ],
+        })
 
     for msg in messages:
         role = msg["role"]
