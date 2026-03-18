@@ -6384,8 +6384,37 @@ async function startNewSession(name, courseId, intent) {
 
     showTeachingLayout(courseMap);
 
-    // Generate session ID and create in MongoDB
+    // Reset ALL session state for fresh start
     state.messages = [];
+    state.plan = [];
+    state.currentPlan = {};
+    state.planCallCount = 0;
+    state.planActiveStep = null;
+    state._pendingFirstHeadings = false;
+    state.totalAssistantTurns = 0;
+    state.responses = 0;
+    state.lastVisualTurn = 0;
+    state.visualAssetCount = 0;
+    state.lastEngagementTurn = 0;
+    state.accumulatedText = '';
+    state.spotlightActive = false;
+    state.spotlightInfo = null;
+    state.spotlightHistory = [];
+    state.activeSimulation = null;
+    state.simulationLiveState = null;
+    state.assessment = { active: false, sectionTitle: '', concepts: [], questionNumber: 0, maxQuestions: 5 };
+    state.pendingSpotlightEvent = null;
+    state.recentlyClosedSim = null;
+
+    // Clear plan UI
+    const planSteps = $('#plan-steps');
+    if (planSteps) planSteps.innerHTML = '';
+    const planProgress = $('#plan-progress');
+    if (planProgress) planProgress.classList.add('hidden');
+    const planObj = $('#plan-objective');
+    if (planObj) planObj.innerHTML = '';
+
+    // Generate session ID and create in MongoDB
     state.sessionId = generateId();
     state.currentScript = null;
 
