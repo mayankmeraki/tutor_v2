@@ -61,6 +61,26 @@ class Session:
     # ── Generated visuals (from visual_gen agents) ──
     generated_visuals: dict = field(default_factory=dict)  # {visual_id: {"html": ..., "title": ...}}
 
+    # ── LLM cost tracking ──
+    llm_cost_cents: float = 0.0         # Accumulated cost in cents
+    llm_total_input_tokens: int = 0     # Total input tokens across all calls
+    llm_total_output_tokens: int = 0    # Total output tokens across all calls
+    llm_call_count: int = 0             # Number of LLM calls made
+
+
+    def track_llm_usage(
+        self, model: str, input_tokens: int, output_tokens: int,
+        provider_cost_usd: float | None = None,
+    ) -> float:
+        """Accumulate LLM cost from a single call. Returns cost in cents for this call."""
+        from app.core.llm import compute_cost_cents
+        cost = compute_cost_cents(model, input_tokens, output_tokens, provider_cost_usd)
+        self.llm_cost_cents += cost
+        self.llm_total_input_tokens += input_tokens
+        self.llm_total_output_tokens += output_tokens
+        self.llm_call_count += 1
+        return cost
+
 
 _sessions: dict[str, Session] = {}
 
@@ -111,6 +131,10 @@ async def _try_restore_session(session_id: str) -> Session | None:
             pre_assessment_note=bs.get("preAssessmentNote"),
             last_assessment_summary=bs.get("lastAssessmentSummary"),
             delegation_result=bs.get("delegationResult"),
+            llm_cost_cents=bs.get("llmCostCents", 0.0),
+            llm_total_input_tokens=bs.get("llmTotalInputTokens", 0),
+            llm_total_output_tokens=bs.get("llmTotalOutputTokens", 0),
+            llm_call_count=bs.get("llmCallCount", 0),
         )
 
         # Restore in-flight delegation state

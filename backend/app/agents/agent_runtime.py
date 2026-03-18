@@ -20,7 +20,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from app.core.config import settings
-from app.core.llm import llm_call, is_retryable, extract_retry_after
+from app.core.llm import llm_call, is_retryable, extract_retry_after, LLMCallMetadata
 from app.tools import execute_tutor_tool
 
 log = logging.getLogger(__name__)
@@ -47,6 +47,16 @@ class AgentTask:
     created_at: float = 0
     completed_at: float | None = None
     _task: asyncio.Task | None = field(default=None, repr=False)
+    # LLM usage tracking for cost computation
+    usage_input_tokens: int = 0
+    usage_output_tokens: int = 0
+    usage_model: str = ""
+
+    def track_usage(self, response) -> None:
+        """Accumulate token usage from an LLM response."""
+        self.usage_input_tokens += response.usage.input_tokens
+        self.usage_output_tokens += response.usage.output_tokens
+        self.usage_model = response.model or self.usage_model
 
 
 @dataclass
@@ -111,10 +121,14 @@ async def _retry_api_call(fn, *, max_retries: int = MAX_RETRIES, label: str = "A
 class AgentRuntime:
     """Manages background agents and collects their results."""
 
-    def __init__(self):
+    def __init__(self, session_id: str | None = None):
         self.agents: dict[str, AgentTask] = {}
         self.completed_queue: list[AgentTask] = []
         self.event_queue: asyncio.Queue = asyncio.Queue(maxsize=100)
+        self.session_id: str | None = session_id
+
+    def _meta(self, caller: str, agent_id: str = "") -> LLMCallMetadata:
+        return LLMCallMetadata(session_id=self.session_id, caller=caller, agent_id=agent_id)
 
     def spawn(
         self,
@@ -190,6 +204,13 @@ class AgentRuntime:
                 entry["error"] = agent.error
                 entry["error_type"] = agent.error_type
                 entry["retries_used"] = agent.retries_used
+            # Include LLM usage for cost tracking
+            if agent.usage_input_tokens or agent.usage_output_tokens:
+                entry["usage"] = {
+                    "input_tokens": agent.usage_input_tokens,
+                    "output_tokens": agent.usage_output_tokens,
+                    "model": agent.usage_model,
+                }
             results.append(entry)
         self.completed_queue.clear()
         return results
@@ -321,6 +342,7 @@ class AgentRuntime:
                 "system": planning_prompt,
                 "messages": messages,
                 "tools": planning_tools,
+                "metadata": self._meta("planning", task.agent_id),
             }
 
             async def _call(params=request_params):
@@ -330,6 +352,7 @@ class AgentRuntime:
                 _call, label=f"Planning[{task.agent_id}] P1R{round_num}"
             )
             task.retries_used = 0
+            task.track_usage(response)
 
             log.info(
                 "Planning P1 round %d — stop: %s, %din/%dout",
@@ -405,6 +428,7 @@ class AgentRuntime:
                 "max_tokens": 4096,
                 "system": planning_prompt,
                 "messages": messages,
+                "metadata": self._meta("planning", task.agent_id),
             }
 
             async def _call2(params=request_params):
@@ -414,6 +438,7 @@ class AgentRuntime:
                 _call2, label=f"Planning[{task.agent_id}] P2R{round_num}"
             )
             task.retries_used = 0
+            task.track_usage(response)
 
             log.info(
                 "Planning P2 round %d — stop: %s, %din/%dout",
@@ -548,11 +573,13 @@ class AgentRuntime:
                 max_tokens=4096,
                 system=system_prompt,
                 messages=[{"role": "user", "content": task.instructions}],
+                metadata=self._meta(task.type, task.agent_id),
             )
 
         response = await _retry_api_call(
             _call, label=f"LLM[{task.agent_id}/{task.type}]"
         )
+        task.track_usage(response)
 
         log.info(
             "LLM agent %s (%s) — %din/%dout",
@@ -673,11 +700,13 @@ class AgentRuntime:
                 max_tokens=8192,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],
+                metadata=self._meta("visual_gen", task.agent_id),
             )
 
         response = await _retry_api_call(
             _call, label=f"VisualGen[{task.agent_id}]"
         )
+        task.track_usage(response)
 
         log.info(
             "VisualGen %s — %din/%dout",

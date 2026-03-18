@@ -92,6 +92,7 @@ Transcript:
 async def generate_section_summary(
     section_transcript: list[dict],
     section_info: dict,
+    session_id: str | None = None,
 ) -> dict:
     """Call Claude Haiku to summarize a section's transcript.
 
@@ -112,11 +113,13 @@ async def generate_section_summary(
     )
 
     try:
+        from app.core.llm import LLMCallMetadata
         response = await llm_call(
             model=settings.SUMMARIZATION_MODEL,
             system="",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
+            metadata=LLMCallMetadata(session_id=session_id, caller="summarization"),
         )
 
         # Extract text from response
@@ -275,6 +278,10 @@ async def sync_backend_state(session_id: str, session) -> None:
         "scopeConcepts": session.scope_concepts,
         "activeScenario": session.active_scenario,
         "availableAssets": session.available_assets,
+        "llmCostCents": session.llm_cost_cents,
+        "llmTotalInputTokens": session.llm_total_input_tokens,
+        "llmTotalOutputTokens": session.llm_total_output_tokens,
+        "llmCallCount": session.llm_call_count,
     }
 
     if session.assessment_result:

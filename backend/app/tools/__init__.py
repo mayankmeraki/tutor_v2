@@ -639,6 +639,192 @@ ASSESSMENT_TOOLS = [
 ] + [COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL]
 
 
+# ── MQL Tool Schemas (BYO Material Query Layer) ─────────────────────────────
+
+MQL_TOOLS = [
+    {
+        "name": "browse_topics",
+        "description": (
+            "List all topics in the student's collection with difficulty and exercise counts. "
+            "Like 'ls' — shows what's available to teach. Start here to plan a session."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "browse_topic",
+        "description": (
+            "Open a specific topic — shows its chunks, concepts, exercises, and assets. "
+            "Like opening a directory. Use to plan how to teach a specific topic."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "string", "description": "The topicId to explore"},
+            },
+            "required": ["topic_id"],
+        },
+    },
+    {
+        "name": "get_flow",
+        "description": (
+            "Read the teaching sequence — chapters with ordered topics and estimated times. "
+            "Like reading a README. Use to understand the recommended learning path."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "read_chunk",
+        "description": (
+            "Read a content chunk — full transcript, key points, formulas, linked visuals. "
+            "Like 'cat' — the actual content to teach from. Use when delivering a lesson."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "chunk_id": {"type": "string", "description": "The chunkId to read"},
+            },
+            "required": ["chunk_id"],
+        },
+    },
+    {
+        "name": "search_content",
+        "description": (
+            "Text search across all chunks in the collection. "
+            "Like 'grep' — find where a concept or topic is discussed."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search text (concept name, formula, keyword)"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "grep_material",
+        "description": (
+            "Search within a specific material's chunks. "
+            "Like 'grep file' — narrower search within one document/video."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "material_id": {"type": "string", "description": "The materialId to search within"},
+                "query": {"type": "string", "description": "Search text"},
+            },
+            "required": ["material_id", "query"],
+        },
+    },
+    {
+        "name": "find_concept",
+        "description": (
+            "Look up a concept by name — definition, prerequisites, formulas, where it appears. "
+            "Use before teaching a concept to see its full context."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "concept_name": {"type": "string", "description": "Concept name or alias to find"},
+            },
+            "required": ["concept_name"],
+        },
+    },
+    {
+        "name": "search_concepts",
+        "description": (
+            "Fuzzy search across all concepts in the collection. "
+            "Use when you're not sure of the exact concept name."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search term"},
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "get_exercises",
+        "description": (
+            "Get practice problems, optionally filtered by topic or difficulty. "
+            "Use for drills, assessments, or checking if exercises exist for a topic."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "string", "description": "Filter by topicId (optional)"},
+                "difficulty": {
+                    "type": "string",
+                    "enum": ["beginner", "intermediate", "advanced"],
+                    "description": "Filter by difficulty (optional)",
+                },
+                "limit": {"type": "number", "description": "Max results (default 5)"},
+            },
+        },
+    },
+    {
+        "name": "get_mastery",
+        "description": (
+            "Get student's mastery state — completed topics, concept levels, observations. "
+            "Use to adapt teaching approach based on what the student knows."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+        },
+    },
+    {
+        "name": "log_observation",
+        "description": (
+            "Log a mastery observation about the student's understanding of a concept. "
+            "Use after interactions that reveal what the student knows or struggles with."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "concept_id": {
+                    "type": "string",
+                    "description": "Concept name or ID",
+                },
+                "observation": {
+                    "type": "string",
+                    "description": (
+                        "Freehand observation. Cover: mastery level, what they can do, "
+                        "what trips them up, what approach worked."
+                    ),
+                },
+            },
+            "required": ["concept_id", "observation"],
+        },
+    },
+    {
+        "name": "get_assets",
+        "description": (
+            "Get teaching assets — diagrams, board captures, video clips — for a topic. "
+            "Use to find visual aids to show the student."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "topic_id": {"type": "string", "description": "Filter by topicId (optional)"},
+                "asset_type": {
+                    "type": "string",
+                    "enum": ["board", "equation", "diagram", "slide", "chart"],
+                    "description": "Filter by type (optional)",
+                },
+                "limit": {"type": "number", "description": "Max results (default 10)"},
+            },
+        },
+    },
+]
+
+
 # ── Dispatchers ──────────────────────────────────────────────────────────────
 
 async def execute_tutor_tool(name: str, tool_input: dict) -> str:
@@ -652,3 +838,66 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
         return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
     else:
         return f"Unknown tool: {name}"
+
+
+async def execute_mql_tool(name: str, tool_input: dict, collection_id: str, user_email: str, session_id: str = "") -> str:
+    """Execute a Material Query Layer tool."""
+    from app.services.mql import (
+        browse_topic,
+        browse_topics,
+        find_concept,
+        get_assets,
+        get_exercises,
+        get_flow,
+        get_mastery,
+        grep_material,
+        log_observation,
+        read_chunk,
+        search_concepts,
+        search_content,
+    )
+
+    if name == "browse_topics":
+        return await browse_topics(collection_id)
+    elif name == "browse_topic":
+        return await browse_topic(collection_id, tool_input["topic_id"])
+    elif name == "get_flow":
+        return await get_flow(collection_id)
+    elif name == "read_chunk":
+        return await read_chunk(collection_id, tool_input["chunk_id"])
+    elif name == "search_content":
+        return await search_content(collection_id, tool_input["query"])
+    elif name == "grep_material":
+        return await grep_material(collection_id, tool_input["material_id"], tool_input["query"])
+    elif name == "find_concept":
+        return await find_concept(collection_id, tool_input["concept_name"])
+    elif name == "search_concepts":
+        return await search_concepts(collection_id, tool_input["query"])
+    elif name == "get_exercises":
+        return await get_exercises(
+            collection_id,
+            topic_id=tool_input.get("topic_id"),
+            difficulty=tool_input.get("difficulty"),
+            limit=int(tool_input.get("limit", 5)),
+        )
+    elif name == "get_mastery":
+        return await get_mastery(collection_id, user_email)
+    elif name == "log_observation":
+        return await log_observation(
+            collection_id, user_email,
+            tool_input["concept_id"], tool_input["observation"],
+            session_id=session_id,
+        )
+    elif name == "get_assets":
+        return await get_assets(
+            collection_id,
+            topic_id=tool_input.get("topic_id"),
+            asset_type=tool_input.get("asset_type"),
+            limit=int(tool_input.get("limit", 10)),
+        )
+    else:
+        return f"Unknown MQL tool: {name}"
+
+
+# Set of MQL tool names for dispatch routing
+MQL_TOOL_NAMES = {t["name"] for t in MQL_TOOLS}

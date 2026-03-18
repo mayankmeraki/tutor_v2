@@ -772,6 +772,7 @@ const state = {
 
   // Pending spotlight close event (included as context in next message)
   pendingSpotlightEvent: null,
+  recentlyClosedSim: null,
   pendingBoardCaptureRequest: false,
   pendingBoardCapture: null,
 
@@ -1399,6 +1400,10 @@ function handleSSEEvent(event) {
       handlePlanFromAgent(event.plan, event.sessionObjective);
       break;
 
+    case 'COST_UPDATE':
+      updateSessionCost(event.costCents);
+      break;
+
     case 'TEACHING_DELEGATION_START':
       break;
 
@@ -1704,6 +1709,9 @@ function buildContext() {
   // Context: Spotlight state (if an asset is pinned in the spotlight panel)
   if (state.spotlightActive && state.spotlightInfo) {
     const turnsOpen = state.totalAssistantTurns - state.spotlightOpenedAtTurn;
+    const isSim = state.spotlightInfo.type === 'simulation';
+    const staleThreshold = isSim ? 5 : 2;
+    const mandatoryThreshold = isSim ? 7 : 3;
     const spotlightCtx = {
       spotlightOpen: true,
       type: state.spotlightInfo.type,
@@ -1717,12 +1725,22 @@ function buildContext() {
         '"Actively discussing" means you are POINTING AT or DESCRIBING specific elements in the spotlight content RIGHT NOW. General topic overlap is NOT enough — if you are asking questions or explaining without referencing the visual, CLOSE IT.',
       ],
     };
-    if (turnsOpen >= 2) {
+
+    // Simulations are interactive and long-lived — relax stale rules
+    if (isSim) {
+      spotlightCtx.rules.push(
+        'SIMULATION IS INTERACTIVE — student may still be exploring. Keep it open while discussion relates to this simulation.',
+        'DO NOT open a board-draw or widget while this simulation is open. Explain in chat text instead, or close the simulation first with <teaching-spotlight-dismiss /> then open the new asset.',
+        'If the student asks about the simulation or you want to reference it, it is ALREADY OPEN — just discuss it. Do NOT emit a new <teaching-simulation> tag for the same sim.'
+      );
+    }
+
+    if (turnsOpen >= staleThreshold) {
       spotlightCtx.rules.push(
         `⚠ STALE SPOTLIGHT: "${state.spotlightInfo.title}" open for ${turnsOpen} turns. Ask yourself: "Am I pointing at something IN the spotlight right now?" If NO → emit <teaching-spotlight-dismiss /> as the FIRST TAG in your response, BEFORE any text. You can always reopen or draw a new one later.`
       );
     }
-    if (turnsOpen >= 3) {
+    if (turnsOpen >= mandatoryThreshold) {
       spotlightCtx.rules.push(
         `🚨 MANDATORY CLOSE: Spotlight open ${turnsOpen} turns — this is too long. Emit <teaching-spotlight-dismiss /> as the VERY FIRST thing in your response. No exceptions. If you still need a visual, close this one and open a fresh one.`
       );
@@ -1773,6 +1791,24 @@ function buildContext() {
       description: 'ACTIVE SPOTLIGHT — asset currently pinned above chat',
       value: JSON.stringify(spotlightCtx),
     });
+  }
+
+  // Context: Recently closed simulation — tutor can reopen if discussing it
+  if (!state.spotlightActive && state.recentlyClosedSim) {
+    const turnsSinceClosed = state.totalAssistantTurns - state.recentlyClosedSim.closedAtTurn;
+    if (turnsSinceClosed <= 3) {
+      items.push({
+        description: 'RECENTLY CLOSED SIMULATION — available to reopen',
+        value: JSON.stringify({
+          simId: state.recentlyClosedSim.id,
+          title: state.recentlyClosedSim.title,
+          turnsSinceClosed,
+          instruction: `The simulation "${state.recentlyClosedSim.title}" was recently closed ${turnsSinceClosed} turn(s) ago. If you want to discuss or reference this simulation, REOPEN IT by emitting <teaching-simulation id="${state.recentlyClosedSim.id}" /> — do NOT talk about a simulation the student cannot see. If the student asks about it or you need to reference it, open it first.`,
+        }),
+      });
+    } else {
+      state.recentlyClosedSim = null; // expired
+    }
   }
 
   // Auto-include board snapshot when board is active and student has drawn
@@ -5523,7 +5559,9 @@ window.hideSpotlight = function(options = {}) {
 
   const wasVideo = state.spotlightInfo?.type === 'video';
   const wasBoardDraw = state.spotlightInfo?.type === 'board-draw';
+  const wasSim = state.spotlightInfo?.type === 'simulation';
   const prevTitle = state.spotlightInfo?.title || '';
+  const prevSimId = state.spotlightInfo?.id || state.activeSimulation?.simId || null;
 
   const panel = $('#spotlight-panel');
   if (panel) panel.classList.remove('stage-active');
@@ -5571,6 +5609,11 @@ window.hideSpotlight = function(options = {}) {
     } else if (wasBoardDraw) {
       state.pendingSpotlightEvent = 'Student viewed the board drawing "' + prevTitle + '"';
     }
+  }
+
+  // Track recently closed simulation so tutor knows it can be reopened
+  if (wasSim && prevSimId) {
+    state.recentlyClosedSim = { id: prevSimId, title: prevTitle, closedAtTurn: state.totalAssistantTurns };
   }
 };
 
@@ -5705,6 +5748,14 @@ function updateTimer() {
   const statEl = $('#stat-time');
   if (timerEl) timerEl.textContent = timeStr;
   if (statEl) statEl.textContent = timeStr;
+}
+
+function updateSessionCost(costCents) {
+  const costEl = $('#session-cost');
+  if (!costEl) return;
+  const dollars = costCents / 100;
+  costEl.textContent = dollars < 0.01 ? '<$0.01' : `$${dollars.toFixed(2)}`;
+  costEl.title = `Estimated LLM cost: $${dollars.toFixed(4)} (${costCents.toFixed(1)}¢)`;
 }
 
 function updateStats() {
@@ -6181,13 +6232,15 @@ async function initSetup() {
     startNewSession(state.studentName, parseInt(courseIdInput.value), (intentInput?.value || '').trim());
   });
 
-  // ─── Dashboard chips ─────────────────────────────────────
+  // ─── Dashboard chips — prefill input, don't auto-start ───
   document.querySelectorAll('.dash-chip').forEach(chip => {
     chip.addEventListener('click', () => {
-      const intent = chip.dataset.intent || '';
+      const intent = chip.dataset.intent || chip.textContent.trim();
       const intentInput = $('#student-intent-first');
-      if (intentInput) intentInput.value = intent;
-      startNewSession(state.studentName, parseInt(courseIdInput.value), intent);
+      if (intentInput) {
+        intentInput.value = intent;
+        intentInput.focus();
+      }
     });
   });
 

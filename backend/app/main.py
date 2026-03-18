@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app.api.routes import auth, chat, content, events, learning_tools, sessions
+from app.api.routes import auth, chat, content, events, ingestion, learning_tools, sessions
 
 logging.basicConfig(
     level=logging.INFO,
@@ -33,6 +33,28 @@ async def lifespan(app: FastAPI):
         await ensure_indexes()
     except Exception as e:
         log.warning("Failed to ensure user indexes (MongoDB may be unreachable): %s", e)
+
+    # Ensure BYO pipeline indexes
+    from app.services.byo_indexes import ensure_byo_indexes
+    try:
+        await ensure_byo_indexes()
+    except Exception as e:
+        log.warning("Failed to ensure BYO indexes (MongoDB may be unreachable): %s", e)
+
+    # Register centralized LLM usage tracking callback
+    from app.core.llm import set_usage_callback, LLMResponse, LLMCallMetadata
+    from app.agents.session import _sessions
+
+    def _on_llm_usage(response: LLMResponse, metadata: LLMCallMetadata) -> None:
+        if metadata.session_id and metadata.session_id in _sessions:
+            _sessions[metadata.session_id].track_llm_usage(
+                model=response.model,
+                input_tokens=response.usage.input_tokens,
+                output_tokens=response.usage.output_tokens,
+                provider_cost_usd=response.usage.cost_usd,
+            )
+
+    set_usage_callback(_on_llm_usage)
 
     from app.core.config import settings
     log.info("Mockup Teaching Agent — Python Backend")
@@ -105,6 +127,7 @@ app.include_router(content.router)
 app.include_router(learning_tools.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
+app.include_router(ingestion.router)
 app.include_router(chat.router)
 
 # Static files: rendered Manim output

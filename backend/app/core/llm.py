@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
 
 from app.core.config import settings
@@ -48,6 +49,15 @@ class ContentBlock:
 class Usage:
     input_tokens: int = 0
     output_tokens: int = 0
+    cost_usd: float | None = None  # Actual cost from provider (OpenRouter returns this)
+
+
+@dataclass
+class LLMCallMetadata:
+    """Metadata passed through LLM calls for tracking purposes."""
+    session_id: str | None = None
+    caller: str = ""          # e.g. "tutor", "planning", "assessment", "delegation", "visual_gen"
+    agent_id: str | None = None
 
 
 @dataclass
@@ -56,6 +66,68 @@ class LLMResponse:
     stop_reason: str  # "end_turn", "tool_use", "max_tokens"
     usage: Usage
     model: str
+
+
+# ── Cost computation ─────────────────────────────────────────────────────────
+
+# Pricing per million tokens (USD) — update when models change
+# Source: https://openrouter.ai/models
+_MODEL_PRICING: dict[str, tuple[float, float]] = {
+    # (input_per_M, output_per_M)
+    "claude-sonnet-4-6": (3.0, 15.0),
+    "anthropic/claude-sonnet-4-6": (3.0, 15.0),
+    "claude-haiku-4-5-20251001": (0.80, 4.0),
+    "anthropic/claude-haiku-4-5-20251001": (0.80, 4.0),
+    # Fallback for unknown models
+}
+
+
+def compute_cost_cents(
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    provider_cost_usd: float | None = None,
+) -> float:
+    """Compute LLM call cost in cents.
+
+    Prefers the provider-reported cost (e.g. OpenRouter's usage.cost field)
+    when available. Falls back to the token-based pricing table estimate.
+    """
+    # Use provider-reported cost if available (OpenRouter returns this)
+    if provider_cost_usd is not None and provider_cost_usd > 0:
+        return provider_cost_usd * 100  # USD to cents
+
+    # Fallback: estimate from token counts + pricing table
+    pricing = _MODEL_PRICING.get(model)
+    if not pricing:
+        base = model.rsplit("/", 1)[-1] if "/" in model else model
+        pricing = _MODEL_PRICING.get(base, (3.0, 15.0))  # default to sonnet pricing
+
+    input_cost = (input_tokens / 1_000_000) * pricing[0]
+    output_cost = (output_tokens / 1_000_000) * pricing[1]
+    return (input_cost + output_cost) * 100  # USD to cents
+
+
+# ── Usage tracking callback ──────────────────────────────────────────────────
+
+# Global callback: called after every LLM response with (response, metadata).
+# Set by the app layer to route usage into session cost tracking.
+_usage_callback: Callable[[LLMResponse, LLMCallMetadata], None] | None = None
+
+
+def set_usage_callback(cb: Callable[[LLMResponse, LLMCallMetadata], None] | None) -> None:
+    """Register a global callback invoked after every LLM response."""
+    global _usage_callback
+    _usage_callback = cb
+
+
+def _notify_usage(response: LLMResponse, metadata: LLMCallMetadata | None) -> None:
+    """Fire the usage callback if registered."""
+    if _usage_callback and metadata:
+        try:
+            _usage_callback(response, metadata)
+        except Exception as e:
+            log.warning("Usage callback error: %s", e)
 
 
 # ── Error classes ────────────────────────────────────────────────────────────
@@ -91,11 +163,12 @@ _FAILOVER_ERRORS = (LLMRateLimitError, LLMOverloadedError, LLMConnectionError)
 
 
 def _get_fallback_provider(primary: str) -> str | None:
-    """Return the other provider if its API key is set, else None."""
-    if primary == "anthropic" and settings.OPENROUTER_API_KEY:
-        return "openrouter"
-    if primary == "openrouter" and settings.ANTHROPIC_API_KEY:
-        return "anthropic"
+    """Return the other provider if its API key is set, else None.
+
+    Currently disabled — using OpenRouter only. To re-enable failover,
+    set both ANTHROPIC_API_KEY and OPENROUTER_API_KEY in .env.
+    """
+    # Failover disabled — single provider mode
     return None
 
 
@@ -190,6 +263,12 @@ def _wrap_openai_response(response) -> LLMResponse:
                 )
             )
 
+    # Extract cost from OpenRouter's usage.cost field (USD)
+    cost_usd = None
+    if response.usage:
+        # OpenRouter returns cost in usage object
+        cost_usd = getattr(response.usage, 'cost', None)
+
     return LLMResponse(
         content=content,
         stop_reason=_convert_finish_reason(choice.finish_reason),
@@ -198,6 +277,7 @@ def _wrap_openai_response(response) -> LLMResponse:
             output_tokens=(
                 response.usage.completion_tokens if response.usage else 0
             ),
+            cost_usd=cost_usd,
         ),
         model=response.model,
     )
@@ -537,6 +617,7 @@ class AnthropicLLMStream:
             elapsed,
             response.stop_reason,
         )
+        _notify_usage(response, getattr(self, '_metadata', None))
         return response
 
 
@@ -663,9 +744,11 @@ class OpenRouterLLMStream:
 
         usage_in = 0
         usage_out = 0
+        cost_usd = None
         if self._usage:
             usage_in = getattr(self._usage, "prompt_tokens", 0) or 0
             usage_out = getattr(self._usage, "completion_tokens", 0) or 0
+            cost_usd = getattr(self._usage, "cost", None)
 
         elapsed = (
             (time.monotonic() - self._start_time) * 1000
@@ -681,12 +764,14 @@ class OpenRouterLLMStream:
             stop_reason,
         )
 
-        return LLMResponse(
+        response = LLMResponse(
             content=content,
             stop_reason=stop_reason,
-            usage=Usage(input_tokens=usage_in, output_tokens=usage_out),
+            usage=Usage(input_tokens=usage_in, output_tokens=usage_out, cost_usd=cost_usd),
             model=self._model,
         )
+        _notify_usage(response, getattr(self, '_metadata', None))
+        return response
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
@@ -756,6 +841,7 @@ async def llm_call(
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
     tool_choice: dict | None = None,
+    metadata: LLMCallMetadata | None = None,
 ) -> LLMResponse:
     """Non-streaming LLM call with automatic failover between providers."""
     primary = settings.LLM_PROVIDER
@@ -779,6 +865,7 @@ async def llm_call(
         elapsed,
         response.stop_reason,
     )
+    _notify_usage(response, metadata)
     return response
 
 
@@ -828,7 +915,8 @@ def _build_stream(
 class FailoverLLMStream:
     """Wraps a primary stream and falls back to another provider on connect errors."""
 
-    def __init__(self, primary_provider, model, system, messages, max_tokens, tools, tool_choice):
+    def __init__(self, primary_provider, model, system, messages, max_tokens, tools, tool_choice,
+                 metadata: LLMCallMetadata | None = None):
         self._primary = primary_provider
         self._model = model
         self._system = system
@@ -838,6 +926,7 @@ class FailoverLLMStream:
         self._tool_choice = tool_choice
         self._inner = None
         self._used_provider = primary_provider
+        self._metadata = metadata
 
     async def __aenter__(self):
         stream = _build_stream(self._primary, self._model, self._system, self._messages,
@@ -867,7 +956,9 @@ class FailoverLLMStream:
         return self._inner.text_stream
 
     async def get_final_message(self) -> LLMResponse:
-        return await self._inner.get_final_message()
+        response = await self._inner.get_final_message()
+        _notify_usage(response, self._metadata)
+        return response
 
 
 async def llm_stream(
@@ -877,15 +968,20 @@ async def llm_stream(
     max_tokens: int = 4096,
     tools: list[dict] | None = None,
     tool_choice: dict | None = None,
+    metadata: LLMCallMetadata | None = None,
 ) -> FailoverLLMStream | AnthropicLLMStream | OpenRouterLLMStream:
     """Streaming LLM call with automatic failover on connection/rate-limit errors."""
     primary = settings.LLM_PROVIDER
     fallback = _get_fallback_provider(primary)
 
     if fallback:
-        return FailoverLLMStream(primary, model, system, messages, max_tokens, tools, tool_choice)
+        return FailoverLLMStream(primary, model, system, messages, max_tokens, tools, tool_choice,
+                                 metadata=metadata)
 
-    return _build_stream(primary, model, system, messages, max_tokens, tools, tool_choice)
+    stream = _build_stream(primary, model, system, messages, max_tokens, tools, tool_choice)
+    # Attach metadata to non-failover streams too
+    stream._metadata = metadata
+    return stream
 
 
 # ── Retry helpers ────────────────────────────────────────────────────────────

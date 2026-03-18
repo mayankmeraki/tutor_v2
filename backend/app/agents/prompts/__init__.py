@@ -1,6 +1,6 @@
-from .tutor import TUTOR_SYSTEM_PROMPT
+from .tutor import TUTOR_SYSTEM_PROMPT, build_tutor_system_prompt
 from .planning import PLANNING_PROMPT
-from .toolkit import TOOLKIT_PROMPT
+from .toolkit import TOOLKIT_PROMPT, MQL_TOOLKIT_PROMPT
 from .tags import TAGS_PROMPT
 from .assessment import ASSESSMENT_SYSTEM_PROMPT
 from .teaching_delegate import build_delegation_prompt
@@ -87,8 +87,114 @@ def _inject_experience_level(parts: list[str], context_data: dict):
         )
 
 
+def _compile_teaching_overrides(context_data: dict) -> str | None:
+    """Compile per-student teaching style overrides from _profile notes.
+
+    Parses the student model for _profile notes and extracts structured
+    teaching preferences. Also considers topic type from the current plan
+    to add topic-specific overrides.
+
+    Returns an override block string, or None if no overrides are found.
+    """
+    import json as _json
+
+    student_model = context_data.get("studentModel", "")
+    if not student_model:
+        return None
+
+    # Parse student model JSON
+    try:
+        model = _json.loads(student_model) if isinstance(student_model, str) else student_model
+    except (ValueError, TypeError):
+        return None
+
+    # Find _profile notes
+    profile_text = ""
+    notes = model.get("notes", [])
+    if isinstance(notes, list):
+        for note in notes:
+            concepts = note.get("concepts", [])
+            if "_profile" in concepts:
+                profile_text += note.get("note", "") + "\n"
+    elif isinstance(notes, dict):
+        # Handle dict-style notes
+        for key, note in notes.items():
+            if "_profile" in key:
+                if isinstance(note, str):
+                    profile_text += note + "\n"
+                elif isinstance(note, dict):
+                    profile_text += note.get("note", "") + "\n"
+
+    if not profile_text.strip():
+        return None
+
+    # Extract current topic type from teaching plan for topic-level overrides
+    topic_type = None
+    current_topic = context_data.get("currentTopic", "")
+    if current_topic:
+        try:
+            topic = _json.loads(current_topic) if isinstance(current_topic, str) else current_topic
+            if isinstance(topic, dict):
+                # Look for delivery_pattern or topic type hints
+                steps = topic.get("steps", [])
+                if steps and isinstance(steps, list):
+                    delivery = steps[0].get("delivery_pattern", "")
+                    guidelines = steps[0].get("tutor_guidelines", "")
+                    if delivery:
+                        topic_type = delivery
+        except (ValueError, TypeError, IndexError, KeyError):
+            pass
+
+    # Build the override block
+    overrides = []
+    overrides.append("═══ TEACHING STYLE OVERRIDES — THIS STUDENT ═══")
+    overrides.append("")
+    overrides.append("The following overrides are compiled from observed teaching")
+    overrides.append("preferences for THIS student. They SUPERSEDE the default")
+    overrides.append("pedagogy rules below. When an override conflicts with a")
+    overrides.append("default, FOLLOW THE OVERRIDE.")
+    overrides.append("")
+    overrides.append("FROM STUDENT _PROFILE:")
+    overrides.append(profile_text.strip())
+    overrides.append("")
+    overrides.append("HOW TO APPLY THESE OVERRIDES:")
+    overrides.append("  - If _profile says 'prefers explain-first': lead with explanation,")
+    overrides.append("    NOT Socratic questions. Ask ONE check question after explaining.")
+    overrides.append("  - If _profile says 'fast mover': skip scaffolding, move quickly,")
+    overrides.append("    one question per concept.")
+    overrides.append("  - If _profile says 'board-draw anchor': use board-draw as the")
+    overrides.append("    primary teaching tool, not video.")
+    overrides.append("  - If _profile mentions specific modality preferences: honor them")
+    overrides.append("    as default, but still vary (3+ same modality gets stale).")
+    overrides.append("  - If _profile says 'avoids Socratic' or 'disengages with questions':")
+    overrides.append("    use explain-then-discuss pattern, minimize cold-call questions.")
+    overrides.append("  - TOPIC-SPECIFIC overrides in _profile take priority over general")
+    overrides.append("    preferences (e.g., 'Socratic works for conceptual but not math').")
+    overrides.append("")
+    overrides.append("These overrides are NOT permanent. Keep testing what works.")
+    overrides.append("If the student engages well with a different approach on a new topic,")
+    overrides.append("note the updated preference via update_student_model.")
+
+    # Add topic-type specific guidance if available
+    if topic_type:
+        overrides.append("")
+        overrides.append(f"CURRENT TOPIC DELIVERY: {topic_type}")
+        overrides.append("  Adapt the overrides above to this delivery pattern.")
+        overrides.append("  If the student's preference conflicts with the delivery pattern,")
+        overrides.append("  PRIORITIZE THE STUDENT'S PREFERENCE — the delivery pattern is")
+        overrides.append("  a suggestion, the student's learning style is observed data.")
+
+    return "\n".join(overrides)
+
+
 def build_tutor_prompt(context_data: dict) -> str:
-    parts = [TUTOR_SYSTEM_PROMPT, TOOLKIT_PROMPT, TAGS_PROMPT]
+    # Compile per-student teaching overrides from _profile notes
+    teaching_overrides = _compile_teaching_overrides(context_data)
+
+    # Build tutor system prompt with overrides injected before pedagogy
+    tutor_prompt = build_tutor_system_prompt(teaching_overrides=teaching_overrides)
+
+    parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
     scenario_skill = context_data.get("scenarioSkill")
     if scenario_skill:
@@ -97,24 +203,32 @@ def build_tutor_prompt(context_data: dict) -> str:
         parts.append("═══════════════════════════════════════════════════\n")
         parts.append(scenario_skill)
 
+    # ─── SECTION 1: COURSE CONTEXT ──────────────────────────────
+    # What this course contains — static per course, not per student.
     parts.append("\n═══════════════════════════════════════════════════")
-    parts.append(" COURSE CONTEXT (pre-loaded — this is your source of truth)")
+    parts.append(" COURSE CONTEXT — the course content (your source of truth)")
     parts.append("═══════════════════════════════════════════════════\n")
 
-    context_fields = [
-        ("studentProfile", "Student Profile"),
+    course_fields = [
         ("courseMap", "Course Map"),
         ("concepts", "Course Concepts"),
         ("simulations", "Available Simulations"),
-        ("sessionMetrics", "Session Metrics"),
-        ("activeSimulation", "Active Simulation State"),
     ]
-    for key, label in context_fields:
+    for key, label in course_fields:
         val = context_data.get(key)
         if val:
             parts.append(f"[{label}]\n{val}\n")
 
-    # ─── Inject Student Experience Level ──────────────────────
+    # ─── SECTION 2: STUDENT CONTEXT ─────────────────────────────
+    # Who this student is and what they know — persists across sessions.
+    parts.append("\n═══════════════════════════════════════════════════")
+    parts.append(" STUDENT CONTEXT — who this student is")
+    parts.append("═══════════════════════════════════════════════════\n")
+
+    student_profile = context_data.get("studentProfile")
+    if student_profile:
+        parts.append(f"[Student Profile]\n{student_profile}\n")
+
     _inject_experience_level(parts, context_data)
 
     knowledge_summary = context_data.get("knowledgeSummary")
@@ -130,19 +244,28 @@ def build_tutor_prompt(context_data: dict) -> str:
     if last_assessment and not context_data.get("assessmentResult"):
         _inject_last_assessment(parts, last_assessment)
 
-    # Teaching plan from planning agent
+    # ─── SECTION 3: SESSION & TEACHING CONTEXT ──────────────────
+    # Current session state — plan, topic, progress, scope.
+    parts.append("\n═══════════════════════════════════════════════════")
+    parts.append(" SESSION CONTEXT — current teaching state")
+    parts.append("═══════════════════════════════════════════════════\n")
+
+    session_metrics = context_data.get("sessionMetrics")
+    if session_metrics:
+        parts.append(f"[Session Metrics]\n{session_metrics}\n")
+
+    active_sim = context_data.get("activeSimulation")
+    if active_sim:
+        parts.append(f"[Active Simulation State]\n{active_sim}\n")
+
     teaching_plan = context_data.get("teachingPlan")
     if teaching_plan:
-        parts.append("═══════════════════════════════════════════════════")
-        parts.append(" TEACHING PLAN — Full outline of all sections and topics")
-        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append("[TEACHING PLAN — Full outline of all sections and topics]\n")
         parts.append(teaching_plan)
 
     current_topic = context_data.get("currentTopic")
     if current_topic:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" CURRENT TOPIC — Execute these steps now")
-        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append("\n[CURRENT TOPIC — Execute these steps now]\n")
         parts.append(current_topic)
 
     completed_topics = context_data.get("completedTopics")
@@ -153,20 +276,25 @@ def build_tutor_prompt(context_data: dict) -> str:
     if session_scope:
         parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
 
-    # Agent results from completed background agents
+    # ─── SECTION 4: EVENT CONTEXT ───────────────────────────────
+    # One-shot events from this turn — agent results, assessments, delegation.
+    has_events = any(context_data.get(k) for k in [
+        "agentResults", "delegationResult", "assessmentResult", "preparedAssets"
+    ])
+
+    if has_events:
+        parts.append("\n═══════════════════════════════════════════════════")
+        parts.append(" EVENT CONTEXT — results from background processes")
+        parts.append("═══════════════════════════════════════════════════\n")
+
     agent_results = context_data.get("agentResults")
     if agent_results:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" AGENT RESULTS — Background agents completed")
-        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append("[AGENT RESULTS — Background agents completed]\n")
         parts.append(agent_results)
 
-    # Delegation result from a just-ended sub-agent
     delegation_result = context_data.get("delegationResult")
     if delegation_result:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" DELEGATION RESULT — Sub-agent just finished")
-        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append("\n[DELEGATION RESULT — Sub-agent just finished]\n")
         parts.append(delegation_result)
 
     # Assessment result from a just-ended assessment checkpoint
@@ -225,6 +353,55 @@ def build_tutor_prompt(context_data: dict) -> str:
     prepared_assets = context_data.get("preparedAssets")
     if prepared_assets:
         parts.append(f"\n[PREPARED ASSETS]\n{prepared_assets}\n")
+
+    return "\n".join(parts)
+
+
+def build_byo_tutor_prompt(context_data: dict) -> str:
+    """Build tutor prompt for BYO (student-uploaded) collections.
+
+    Uses MQL toolkit instead of curated course toolkit. The lean context
+    snapshot replaces the full course map dump.
+    """
+    parts = [TUTOR_SYSTEM_PROMPT, MQL_TOOLKIT_PROMPT, TAGS_PROMPT]
+
+    # Lean context snapshot (replaces full course map, concepts, simulations)
+    lean_context = context_data.get("leanContext")
+    if lean_context:
+        parts.append("\n═══════════════════════════════════════════════════")
+        parts.append(" COLLECTION CONTEXT (lean snapshot — use MQL tools for details)")
+        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append(lean_context)
+
+    # Student profile (if available)
+    student_profile = context_data.get("studentProfile")
+    if student_profile:
+        parts.append(f"\n[Student Profile]\n{student_profile}\n")
+
+    # Session metrics
+    session_metrics = context_data.get("sessionMetrics")
+    if session_metrics:
+        parts.append(f"[Session Metrics]\n{session_metrics}\n")
+
+    # Student model
+    student_model = context_data.get("studentModel")
+    if student_model:
+        parts.append(f"[Student Model]\n{student_model}\n")
+
+    # Agent results, delegation results, assessment results — same as curated
+    agent_results = context_data.get("agentResults")
+    if agent_results:
+        parts.append("\n═══════════════════════════════════════════════════")
+        parts.append(" AGENT RESULTS")
+        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append(agent_results)
+
+    assessment_result = context_data.get("assessmentResult")
+    if assessment_result:
+        parts.append("\n═══════════════════════════════════════════════════")
+        parts.append(" ASSESSMENT RESULTS")
+        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append(assessment_result)
 
     return "\n".join(parts)
 

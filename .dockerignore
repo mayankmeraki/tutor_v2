@@ -1,8 +1,10 @@
 backend/.venv/
 backend/.env
 backend/rendered/
+backend/mockup_backend.egg-info/
 wireframes/
-wireframe-landing.html
+wireframe-*.html
+onboarding-mockup.html
 __pycache__/
 *.pyc
 *.egg-info/
@@ -16,3 +18,19 @@ node_modules/
 .git/
 *.plan.md
 agent-transcripts/
+cloudbuild.yaml
+Dockerfile
+.dockerignore
+.gitignore
+
+# Media / large binary files
+*.png
+*.jpg
+*.jpeg
+*.gif
+*.webp
+*.mp4
+*.mov
+*.webm
+*.pdf
+*.zip

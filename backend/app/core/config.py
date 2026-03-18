@@ -30,6 +30,12 @@ class Settings(BaseSettings):
     # MongoDB
     MONGODB_URI: str = Field(default="")
 
+    # GCS (BYO Materials)
+    MATERIALS_BUCKET: str = Field(default="capacity-materials")
+
+    # External services (BYO Pipeline)
+    DEEPGRAM_API_KEY: str = Field(default="")
+
     # Auth
     MOCKUP_JWT_SECRET: str = Field(default="")
     MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=1440)

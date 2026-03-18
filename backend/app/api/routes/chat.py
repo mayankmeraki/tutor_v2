@@ -26,8 +26,9 @@ from app.core.llm import (
     LLMAuthError,
     LLMRateLimitError,
     LLMConnectionError,
+    LLMCallMetadata,
 )
-from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_assessment_prompt
+from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_byo_tutor_prompt, build_assessment_prompt
 from app.agents.prompts.teaching_delegate import build_delegation_prompt
 from app.agents.session import get_or_create_session
 from app.services.knowledge_state import (
@@ -39,12 +40,15 @@ from app.services.knowledge_state import (
 from app.services.session_service import sync_backend_state
 from app.tools import (
     TUTOR_TOOLS,
+    MQL_TOOLS,
+    MQL_TOOL_NAMES,
     DELEGATION_TOOLS,
     ASSESSMENT_TOOLS,
     COMPLETE_ASSESSMENT_TOOL,
     HANDBACK_TO_TUTOR_TOOL,
     RETURN_TO_TUTOR_TOOL,
     execute_tutor_tool,
+    execute_mql_tool,
 )
 
 from app.core.rate_limit import check_rate_limit as _check_rate_limit
@@ -142,6 +146,18 @@ def _extract_user_email(context_data: dict) -> str | None:
     try:
         profile = json.loads(profile_str)
         return profile.get("userEmail")
+    except (json.JSONDecodeError, TypeError):
+        return None
+
+
+def _extract_collection_id(context_data: dict) -> str | None:
+    """Extract collectionId from student profile (BYO mode indicator)."""
+    profile_str = context_data.get("studentProfile", "")
+    if not profile_str:
+        return None
+    try:
+        profile = json.loads(profile_str)
+        return profile.get("collectionId")
     except (json.JSONDecodeError, TypeError):
         return None
 
@@ -440,6 +456,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                     system=delegation.system_prompt,
                     messages=valid_messages,
                     tools=sub_tools,
+                    metadata=LLMCallMetadata(session_id=session_id, caller="delegation"),
                 ) as stream:
                     async for text in stream.text_stream:
                         if await request.is_disconnected():
@@ -451,6 +468,12 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                         yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
 
                     message = await stream.get_final_message()
+                # Cost tracked by centralized callback — emit SSE update
+                yield _sse({
+                    "type": "COST_UPDATE",
+                    "costCents": round(session.llm_cost_cents, 2),
+                    "callCount": session.llm_call_count,
+                })
                 break  # Success
             except Exception as e:
                 if is_retryable(e) and attempt < MAX_RETRIES - 1:
@@ -621,6 +644,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     system=assessment.system_prompt,
                     messages=valid_messages,
                     tools=assessment.tools,
+                    metadata=LLMCallMetadata(session_id=session_id, caller="assessment"),
                 ) as stream:
                     async for text in stream.text_stream:
                         if await request.is_disconnected():
@@ -632,6 +656,12 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                         yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
 
                     message = await stream.get_final_message()
+                # Cost tracked by centralized callback — emit SSE update
+                yield _sse({
+                    "type": "COST_UPDATE",
+                    "costCents": round(session.llm_cost_cents, 2),
+                    "callCount": session.llm_call_count,
+                })
                 break
             except Exception as e:
                 if is_retryable(e) and attempt < MAX_RETRIES - 1:
@@ -906,7 +936,7 @@ async def chat(request: Request):
 
             # ── Step 2: Initialize agent runtime ──────────────────────
             if not session.agent_runtime:
-                session.agent_runtime = AgentRuntime()
+                session.agent_runtime = AgentRuntime(session_id=session_id)
             runtime = session.agent_runtime
 
             # ── Step 3a: Check assessment → route to assessment agent ──
@@ -940,6 +970,7 @@ async def chat(request: Request):
             # ── Step 4: Promote completed agent results ───────────────
             completed = runtime.pop_completed()
             for agent in completed:
+                # Background agent costs already tracked by centralized callback
                 if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
                     log.info("Promoting planning agent result into session")
                     _promote_plan(session, agent["result"])
@@ -1051,31 +1082,61 @@ async def chat(request: Request):
             except Exception as e:
                 log.warning("Failed to load knowledge summary: %s", e)
 
-            # ── Step 5: Build Tutor prompt ────────────────────────────
-            # Inject agent results and delegation result into prompt
+            # ── Step 5: Detect BYO mode and build appropriate prompt ───
             agent_results_str = _format_agent_results(completed) if completed else None
+            collection_id = _extract_collection_id(context_data)
+            user_email = _extract_user_email(context_data)
+            is_byo = bool(collection_id)
 
-            tutor_prompt = build_tutor_prompt({
-                **context_data,
-                "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
-                "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
-                "currentTopic": (
-                    json.dumps(session.current_topics[session.current_topic_index], indent=2)
-                    if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
-                    else None
-                ),
-                "completedTopics": _format_completed(session.completed_topics),
-                "sessionScope": _format_session_scope(session),
-                "agentResults": agent_results_str,
-                "delegationResult": delegation_result_ctx,
-                "assessmentResult": assessment_result_ctx,
-                "preAssessmentNote": _format_pre_assessment_note(session.pre_assessment_note),
-                "lastAssessmentSummary": session.last_assessment_summary,
-                "preparedAssets": _format_assets(session.available_assets),
-                "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
-            })
+            if is_byo:
+                # BYO mode — build lean context and use MQL tools
+                try:
+                    from app.services.lean_context import build_lean_context
+                    lean_ctx = await build_lean_context(
+                        collection_id, user_email or "anonymous", session_id
+                    )
+                    context_data["leanContext"] = lean_ctx
+                except Exception as e:
+                    log.warning("Failed to build lean context: %s", e)
+                    context_data["leanContext"] = f"[Error loading context for collection {collection_id}]"
 
-            log.info("Tutor prompt: %d chars (~%d tokens)", len(tutor_prompt), len(tutor_prompt) // 4)
+                tutor_prompt = build_byo_tutor_prompt({
+                    **context_data,
+                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                    "agentResults": agent_results_str,
+                    "assessmentResult": assessment_result_ctx,
+                })
+                active_tools = MQL_TOOLS + [t for t in TUTOR_TOOLS if t["name"] in (
+                    "search_images", "web_search", "control_simulation",
+                    "spawn_agent", "check_agents", "update_student_model",
+                    "handoff_to_assessment", "delegate_teaching",
+                    "log_knowledge", "query_knowledge",
+                )]
+                log.info("BYO mode — collection: %s, MQL tools active", collection_id[:8])
+            else:
+                tutor_prompt = build_tutor_prompt({
+                    **context_data,
+                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                    "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
+                    "currentTopic": (
+                        json.dumps(session.current_topics[session.current_topic_index], indent=2)
+                        if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
+                        else None
+                    ),
+                    "completedTopics": _format_completed(session.completed_topics),
+                    "sessionScope": _format_session_scope(session),
+                    "agentResults": agent_results_str,
+                    "delegationResult": delegation_result_ctx,
+                    "assessmentResult": assessment_result_ctx,
+                    "preAssessmentNote": _format_pre_assessment_note(session.pre_assessment_note),
+                    "lastAssessmentSummary": session.last_assessment_summary,
+                    "preparedAssets": _format_assets(session.available_assets),
+                    "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
+                })
+                active_tools = TUTOR_TOOLS
+
+            log.info("Tutor prompt: %d chars (~%d tokens), mode: %s",
+                     len(tutor_prompt), len(tutor_prompt) // 4, "BYO" if is_byo else "curated")
 
             # ── Step 6: Tutor agentic loop ────────────────────────────
             rounds = 0
@@ -1108,7 +1169,7 @@ async def chat(request: Request):
                     "max_tokens": 4096,
                     "system": tutor_prompt,
                     "messages": valid_messages,
-                    "tools": TUTOR_TOOLS,
+                    "tools": active_tools,
                 }
                 suppress_text = False
                 if force_student_update and rounds == 1:
@@ -1121,7 +1182,7 @@ async def chat(request: Request):
                 message = None
                 for attempt in range(MAX_RETRIES):
                     try:
-                        async with await llm_stream(**api_kwargs) as stream:
+                        async with await llm_stream(**api_kwargs, metadata=LLMCallMetadata(session_id=session_id, caller="tutor")) as stream:
                             async for text in stream.text_stream:
                                 if await request.is_disconnected():
                                     return
@@ -1167,6 +1228,13 @@ async def chat(request: Request):
                     message.usage.input_tokens,
                     message.usage.output_tokens,
                 )
+
+                # Cost tracked by centralized callback — emit SSE update
+                yield _sse({
+                    "type": "COST_UPDATE",
+                    "costCents": round(session.llm_cost_cents, 2),
+                    "callCount": session.llm_call_count,
+                })
 
                 # ── Tool calls ────────────────────────────────────────
                 if message.stop_reason == "tool_use":
@@ -1602,6 +1670,19 @@ async def chat(request: Request):
                                     result = f"Failed to query knowledge: {str(e)[:200]}"
                             else:
                                 result = "Cannot query knowledge: missing student info (courseId or userEmail)"
+
+                        # ── MQL tool execution (BYO mode) ────────────
+                        elif is_byo and block.name in MQL_TOOL_NAMES:
+                            try:
+                                result = await execute_mql_tool(
+                                    block.name, block.input,
+                                    collection_id=collection_id,
+                                    user_email=user_email or "anonymous",
+                                    session_id=session_id,
+                                )
+                            except Exception as e:
+                                log.error("MQL tool %s failed: %s", block.name, e, exc_info=True)
+                                result = f"Tool error ({block.name}): {str(e)[:200]}"
 
                         # ── Normal tool execution ─────────────────────
                         else:

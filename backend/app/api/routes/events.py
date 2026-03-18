@@ -34,7 +34,7 @@ async def agent_events(session_id: str, request: Request):
 
     # Ensure the session has an AgentRuntime (may not exist yet if no agents spawned)
     if not session.agent_runtime:
-        session.agent_runtime = AgentRuntime()
+        session.agent_runtime = AgentRuntime(session_id=session_id)
 
     queue = session.agent_runtime.event_queue
     log.info("SSE events connected — session: %s", session_id[:8])

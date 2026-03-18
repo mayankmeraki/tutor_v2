@@ -349,10 +349,10 @@
           </button>
         </div>
 
-        <!-- Suggestion chips -->
+        <!-- Suggestion chips — click to prefill the input -->
         <div class="dash-chips">
-          <div class="dash-chip" data-intent=""><strong>Let's start</strong> from Lecture 1 of Quantum Physics</div>
-          <div class="dash-chip" data-intent="continue"><strong>Continue</strong> where we left off last time</div>
+          <div class="dash-chip" data-intent="Let's start from Lecture 1 of Quantum Physics"><strong>Let's start</strong> from Lecture 1 of Quantum Physics</div>
+          <div class="dash-chip" data-intent="Continue where we left off last time"><strong>Continue</strong> where we left off last time</div>
           <div class="dash-chip" data-intent="Help me understand the Schrodinger equation"><strong>Help me understand</strong> the Schrodinger equation</div>
           <div class="dash-chip" data-intent="Quiz me on what we've covered so far"><strong>Quiz me</strong> on what we've covered</div>
         </div>
@@ -416,6 +416,7 @@
         </div>
         <div class="top-right">
           <span id="session-timer">0:00</span>
+          <span id="session-cost" class="session-cost" title="Estimated LLM cost this session">$0.00</span>
           <button class="icon-btn" id="btn-toggle-sidebar">Sidebar</button>
         </div>
       </header>

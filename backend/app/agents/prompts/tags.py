@@ -153,6 +153,41 @@ BOARD DRAW — Live tutor drawing on a virtual blackboard (container, opens in s
 
   COORDINATE SYSTEM: Virtual 800px wide, height auto-grows. Origin (0,0) top-left.
 
+  SPACING & LAYOUT — PREVENT OVERLAP:
+    Text and math elements occupy space. You MUST leave enough vertical and
+    horizontal gap so nothing overlaps or clips into adjacent elements.
+
+    VERTICAL SPACING RULES:
+      - Title (size 28) → next element: at least 50px gap
+      - Section heading (size 20) → next element: at least 35px gap
+      - Text label (size 18) → next text below: at least 30px gap
+      - LaTeX equation (size 22) → next element below: at least 45px gap
+      - Between sections: at least 60px vertical gap
+      - After a multi-line block (matrix, derivation): add 50-60px
+
+    HORIZONTAL SPACING RULES:
+      - Labels next to arrows/lines: offset at least 15px from the line
+      - Side-by-side text: at least 30px gap between rightmost char and next text
+      - Legend column: start at x=560+ to avoid overlapping main diagram
+
+    OVERLAP CHECKLIST (run mentally before emitting):
+      For each text/latex command, check: will this collide with any
+      element already placed above, below, or beside it? If the y-values
+      are within 30px of another text element at similar x, they WILL
+      overlap. Increase spacing.
+
+    BAD:  {"cmd":"latex","tex":"H|0\\rangle = ...","x":50,"y":200,...}
+          {"cmd":"text","text":"equal superposition!","x":300,"y":205,...}
+          → y=200 and y=205 at overlapping x range — TEXT WILL COLLIDE
+
+    GOOD: {"cmd":"latex","tex":"H|0\\rangle = ...","x":50,"y":200,...}
+          {"cmd":"text","text":"equal superposition!","x":380,"y":205,...}
+          → Annotation placed to the RIGHT of the equation, no overlap
+
+    GOOD: {"cmd":"latex","tex":"H|0\\rangle = ...","x":50,"y":200,...}
+          {"cmd":"text","text":"equal superposition!","x":120,"y":240,...}
+          → Annotation placed BELOW the equation with 40px gap
+
   AVAILABLE COMMANDS (one JSON object per line):
     {"cmd":"line","x1":N,"y1":N,"x2":N,"y2":N,"color":"C","w":N}
     {"cmd":"arrow","x1":N,"y1":N,"x2":N,"y2":N,"color":"C","w":N}
