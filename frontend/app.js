@@ -5512,8 +5512,9 @@ function appendSpotlightReference(type, title, reopenTag) {
   }
   stream.scrollTop = stream.scrollHeight;
 
-  // Also add to board frame strip
+  // Also add to board frame strip and sidebar resource history
   addBoardFrameThumb(refId, type, title);
+  addResourceHistoryItem(refId, type, title);
 }
 
 function addBoardFrameThumb(refId, type, title) {
@@ -5541,6 +5542,31 @@ function addBoardFrameThumb(refId, type, title) {
 
   // Auto-scroll strip to show latest
   strip.scrollLeft = strip.scrollWidth;
+}
+
+function addResourceHistoryItem(refId, type, title) {
+  const list = $('#resource-history-list');
+  if (!list) return;
+
+  const typeIcons = { video: '▶', simulation: '⚗', 'board-draw': '✎', widget: '⚡', image: '🖼', notebook: '📓' };
+  const typeLabels = { video: 'Video', simulation: 'Simulation', 'board-draw': 'Board', widget: 'Widget', image: 'Image', notebook: 'Notebook' };
+
+  const item = document.createElement('div');
+  item.className = 'resource-history-item';
+  item.onclick = () => {
+    // Highlight active
+    list.querySelectorAll('.resource-history-item').forEach(i => i.classList.remove('active'));
+    item.classList.add('active');
+    reopenSpotlight(refId);
+  };
+  item.innerHTML = `
+    <div class="resource-history-icon">${typeIcons[type] || '◆'}</div>
+    <div class="resource-history-info">
+      <div class="resource-history-title">${escapeHtml(title)}</div>
+      <div class="resource-history-type">${typeLabels[type] || type}</div>
+    </div>
+  `;
+  list.appendChild(item);
 }
 
 window.reopenSpotlight = function(refId) {
@@ -6534,6 +6560,8 @@ async function startNewSession(name, courseId, intent) {
     if (boardContent) boardContent.innerHTML = '';
     const frameStrip = $('#board-frame-strip');
     if (frameStrip) frameStrip.innerHTML = '';
+    const resHistory = $('#resource-history-list');
+    if (resHistory) resHistory.innerHTML = '';
     updateBoardEmptyState();
 
     // Generate session ID and create in MongoDB
