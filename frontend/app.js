@@ -2350,6 +2350,12 @@ function handlePlanFromAgent(plan, sessionObjective) {
     state.plan = newSections;
   }
 
+  // Deactivate any previously active sections before activating new one
+  state.plan.forEach(s => {
+    if (s.status === 'active') s.status = 'done';
+    if (s.topics) s.topics.forEach(t => { if (t.status === 'active') t.status = 'done'; });
+  });
+
   // Activate the first pending section + its first topic
   const firstPending = state.plan.find(s => s.status === 'pending');
   if (firstPending) {
