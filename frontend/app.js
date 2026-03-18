@@ -2654,7 +2654,7 @@ function showChatAttentionHopper(fullText) {
     setTimeout(() => hopper.remove(), 300);
   });
 
-  const canvasCol = document.getElementById('canvas-column');
+  const canvasCol = document.getElementById('chat-panel');
   if (canvasCol) canvasCol.appendChild(hopper);
 
   // Auto-dismiss when user scrolls the chat stream
@@ -6904,7 +6904,7 @@ function scribbleInit() {
   sc.ctx = sc.canvas.getContext('2d');
 
   const stream = document.getElementById('canvas-stream');
-  const col = document.getElementById('canvas-column');
+  const col = document.getElementById('chat-panel');
   if (!stream || !col) return;
 
   function resize() {
@@ -7311,7 +7311,7 @@ async function scribbleBuildMessageParts() {
 // ═══════════════════════════════════════════════════════════
 
 function initDragDrop() {
-  const col = document.getElementById('canvas-column');
+  const col = document.getElementById('chat-panel');
   if (!col) return;
   let dragCounter = 0;
   let overlay = null;
