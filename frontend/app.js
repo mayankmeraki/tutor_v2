@@ -5489,8 +5489,8 @@ function initNotebookInteractive(notebookId, mode, promptText) {
 // ── Spotlight reference cards (clickable history in chat stream) ──
 function appendSpotlightReference(type, title, reopenTag) {
   const refId = 'spot-ref-' + generateId().slice(0, 8);
-  const typeIcons = { video: '▶', simulation: '⚗', notebook: '📓', image: '🖼', 'board-draw': '✎', widget: '⚡' };
-  const icon = typeIcons[type] || '◆';
+  var typeIcons = { video: '\u25B6', simulation: '\u2697', notebook: '\u{1F4D3}', image: '\u25A3', 'board-draw': '\u270E', widget: '\u26A1' };
+  var icon = typeIcons[type] || '\u25C6';
 
   const historyEntry = { id: refId, type, title, tag: reopenTag };
   if (type === 'board-draw' && reopenTag._boardDrawContent) {
@@ -5559,13 +5559,11 @@ function addBoardFrameThumb(refId, type, title, thumbDataUrl) {
       <div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:#fff;background:rgba(0,0,0,0.75);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escapeHtml(title)}</div>`;
   } else {
     // Icon fallback
-    const typeIcons = { video: '▶', simulation: '⚗', 'board-draw': '✎', widget: '⚡', image: '🖼' };
-    const icon = typeIcons[type] || '◆';
-    thumb.innerHTML = `
-      <div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:16px;color:var(--text-dim)">${icon}</div>
-      <div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:var(--text-dim);background:rgba(0,0,0,0.7);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escapeHtml(title)}</div>`;
+    const icons = { video: '\u25B6', simulation: '\u2697', 'board-draw': '\u270E', widget: '\u26A1', image: '\u25A3' };
+    const ic = icons[type] || '\u25C6';
+    thumb.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:16px;color:var(--text-dim)">' + ic + '</div>' +
+      '<div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:var(--text-dim);background:rgba(0,0,0,0.7);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">' + escapeHtml(title) + '</div>';
   }
-  `;
   thumb.style.position = 'relative';
   strip.appendChild(thumb);
 
@@ -5825,10 +5823,10 @@ window.handleLost = function() {
 window.quickAction = function(action) {
   if (state.isStreaming) return;
   const topic = state.spotlightInfo?.title || 'current topic';
-  const messages = {
-    got_it: `[✓ Confirms understanding of: ${topic}] Got it, I understand this.`,
-    not_sure: `[? Unsure about: ${topic}] I'm not sure I fully get this. Can you explain differently?`,
-    stuck: `[⚡ Stuck on: ${topic}] I'm stuck. Can we try a different approach or watch a video clip?`,
+  var messages = {
+    got_it: "[Confirms understanding of: " + topic + "] Got it, I understand this.",
+    not_sure: "[Unsure about: " + topic + "] I'm not sure I fully get this. Can you explain differently?",
+    stuck: "[Stuck on: " + topic + "] I'm stuck. Can we try a different approach or watch a video clip?",
   };
   const msg = messages[action];
   if (msg) sendStudentResponse(msg);
