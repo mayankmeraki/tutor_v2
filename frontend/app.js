@@ -5759,6 +5759,92 @@ window.handleLost = function() {
 };
 
 // ═══════════════════════════════════════════════════════════
+// Split View: Quick Actions, Board Fullscreen, Resize Handle
+// ═══════════════════════════════════════════════════════════
+
+// Quick action buttons
+window.quickAction = function(action) {
+  if (state.isStreaming) return;
+  const topic = state.spotlightInfo?.title || 'current topic';
+  const messages = {
+    got_it: `[✓ Confirms understanding of: ${topic}] Got it, I understand this.`,
+    not_sure: `[? Unsure about: ${topic}] I'm not sure I fully get this. Can you explain differently?`,
+    stuck: `[⚡ Stuck on: ${topic}] I'm stuck. Can we try a different approach or watch a video clip?`,
+  };
+  const msg = messages[action];
+  if (msg) sendStudentResponse(msg);
+};
+
+// Board fullscreen toggle
+window.toggleBoardFullscreen = function() {
+  const panel = $('#board-panel');
+  if (!panel) return;
+  panel.classList.toggle('fullscreen');
+  const btn = $('#board-fullscreen');
+  if (btn) btn.textContent = panel.classList.contains('fullscreen') ? '✕' : '⛶';
+};
+
+// Split resize handle
+(function initSplitResize() {
+  const handle = document.getElementById('split-handle');
+  if (!handle) return;
+  let dragging = false;
+  let startX, startChatW, startBoardW;
+
+  handle.addEventListener('mousedown', e => {
+    dragging = true;
+    startX = e.clientX;
+    const chat = document.getElementById('chat-panel');
+    const board = document.getElementById('board-panel');
+    if (chat && board) {
+      startChatW = chat.offsetWidth;
+      startBoardW = board.offsetWidth;
+    }
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    e.preventDefault();
+  });
+
+  document.addEventListener('mousemove', e => {
+    if (!dragging) return;
+    const dx = e.clientX - startX;
+    const chat = document.getElementById('chat-panel');
+    const board = document.getElementById('board-panel');
+    if (chat && board) {
+      const newChatW = Math.max(280, startChatW + dx);
+      const newBoardW = Math.max(300, startBoardW - dx);
+      chat.style.flex = `0 0 ${newChatW}px`;
+      board.style.flex = `0 0 ${newBoardW}px`;
+    }
+  });
+
+  document.addEventListener('mouseup', () => {
+    if (dragging) {
+      dragging = false;
+      document.body.style.cursor = '';
+      document.body.style.userSelect = '';
+    }
+  });
+})();
+
+// Hide/show board empty state based on spotlight content
+function updateBoardEmptyState() {
+  const content = $('#spotlight-content');
+  const empty = $('#board-empty-state');
+  if (!empty) return;
+  empty.style.display = (content && content.innerHTML.trim()) ? 'none' : '';
+}
+
+// Auto-detect when board content changes
+setTimeout(() => {
+  const content = document.getElementById('spotlight-content');
+  if (content) {
+    new MutationObserver(updateBoardEmptyState).observe(content, { childList: true, subtree: true });
+  }
+  updateBoardEmptyState();
+}, 500);
+
+// ═══════════════════════════════════════════════════════════
 // Module 19: Timer & Stats
 // ═══════════════════════════════════════════════════════════
 

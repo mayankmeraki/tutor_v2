@@ -405,7 +405,7 @@
       </div>
     </div>
 
-    <!-- ═══ Teaching Layout ═══ -->
+    <!-- ═══ Teaching Layout — Split View ═══ -->
     <div id="teaching-layout" class="hidden">
 
       <!-- Top Bar -->
@@ -421,30 +421,55 @@
         </div>
       </header>
 
-      <!-- Main Layout -->
+      <!-- Main Layout — Split: Chat Left, Board Right -->
       <main id="main-layout">
-        <div id="canvas-column">
-          <!-- Spotlight Panel — persistent asset viewer above chat -->
-          <div id="spotlight-panel">
-            <div class="spotlight-header">
-              <div class="spotlight-header-left">
-                <span class="spotlight-type-badge" id="spotlight-type-badge"></span>
-                <span id="spotlight-title">Resource</span>
-              </div>
-              <button class="spotlight-fullscreen-btn" id="spotlight-fullscreen" onclick="toggleNotebookFullscreen()" title="Toggle fullscreen">⛶</button>
-              <button class="spotlight-close-btn" id="spotlight-close" onclick="hideSpotlight()">✕ Close</button>
-            </div>
-            <div id="spotlight-content"></div>
-          </div>
-          <!-- Agent progress indicators -->
+
+        <!-- LEFT: Chat Panel -->
+        <div id="chat-panel">
           <div id="agent-indicators"></div>
-          <!-- Canvas Stream — single infinite scroll for all content -->
           <section id="canvas-stream">
-            <!-- All blocks flow here linearly -->
+            <!-- Chat messages flow here -->
           </section>
         </div>
 
-        <!-- Sidebar -->
+        <!-- Resize Handle -->
+        <div id="split-handle" title="Drag to resize"></div>
+
+        <!-- RIGHT: Board Panel (replaces spotlight — always visible) -->
+        <div id="board-panel">
+          <!-- Board panel header (same IDs as old spotlight for JS compatibility) -->
+          <div id="spotlight-panel" class="board-panel-header">
+            <div class="spotlight-header-left">
+              <span class="spotlight-type-badge" id="spotlight-type-badge"></span>
+              <span id="spotlight-title">Board</span>
+            </div>
+            <button class="board-fullscreen-btn" id="board-fullscreen" onclick="toggleBoardFullscreen()" title="Fullscreen">⛶</button>
+            <button class="spotlight-close-btn" id="spotlight-close" onclick="hideSpotlight()">✕</button>
+          </div>
+
+          <!-- Board content (same ID as old spotlight-content for JS compatibility) -->
+          <div id="spotlight-content" class="board-content"></div>
+
+          <!-- Board frame thumbnails -->
+          <div id="board-frame-strip">
+            <!-- Thumbnails of previous boards populate here -->
+          </div>
+
+          <!-- Quick action buttons -->
+          <div id="quick-actions">
+            <button class="quick-action-btn got-it" onclick="quickAction('got_it')">✓ Got it</button>
+            <button class="quick-action-btn not-sure" onclick="quickAction('not_sure')">? Not sure</button>
+            <button class="quick-action-btn stuck" onclick="quickAction('stuck')">⚡ I'm stuck</button>
+          </div>
+
+          <!-- Empty state when no board active -->
+          <div id="board-empty-state" class="board-empty">
+            <div class="board-empty-icon">✎</div>
+            <div class="board-empty-text">Euler will draw here</div>
+          </div>
+        </div>
+
+        <!-- Sidebar (collapsible) -->
         <aside id="knowledge-sidebar">
           <div class="sidebar-header">
             <h3 id="sidebar-section-label">SESSION</h3>
@@ -452,7 +477,6 @@
           </div>
           <div class="sidebar-divider"></div>
 
-          <!-- Teaching Plan -->
           <div id="plan-progress" class="hidden">
             <div id="plan-objective"></div>
             <h4 class="plan-header">TEACHING PLAN</h4>
@@ -467,6 +491,7 @@
             <div id="stat-session">Session 1</div>
           </div>
         </aside>
+
       </main>
     </div>
   </div>
