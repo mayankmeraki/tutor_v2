@@ -1963,12 +1963,16 @@ YOUR TASK THIS TURN: Execute the current topic's steps. When complete, the syste
 // ═══════════════════════════════════════════════════════════
 
 const _thinkingPhrases = [
-  'Thinking...',
-  'Preparing the next step...',
-  'Working on it...',
-  'Putting ideas together...',
-  'Setting things up...',
-  'Almost there...',
+  'Collapsing the wave function...',
+  'Tunneling through the math...',
+  'Checking all possible eigenstates...',
+  'Superposing ideas...',
+  'Entangling some thoughts...',
+  'Applying the Hamiltonian...',
+  'Computing probability amplitudes...',
+  'Normalizing the wave function...',
+  'Solving Schrödinger\'s equation...',
+  'Measuring the right approach...',
 ];
 let _thinkingRotateTimer = null;
 
@@ -1981,7 +1985,8 @@ function showStreamingIndicator() {
   block.className = 'canvas-block board-text-block fade-in';
   block.dataset.type = 'ai';
   block.id = 'streaming-indicator';
-  block.innerHTML = '<div class="board-text" style="color:var(--text-dim);"><span class="loading-spinner"></span> <span class="thinking-text">Thinking...</span></div>';
+  const startPhrase = _thinkingPhrases[Math.floor(Math.random() * _thinkingPhrases.length)];
+  block.innerHTML = `<div class="board-text" style="color:var(--text-dim);"><span class="loading-spinner"></span> <span class="thinking-text">${startPhrase}</span></div>`;
   stream.appendChild(block);
   stream.scrollTop = stream.scrollHeight;
 
