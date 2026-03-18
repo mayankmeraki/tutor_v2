@@ -5537,7 +5537,6 @@ function appendSpotlightReference(type, title, reopenTag) {
 
   // Also add to board frame strip
   addBoardFrameThumb(refId, type, title, thumbDataUrl);
-  addResourceHistoryItem(refId, type, title);
 }
 
 function addBoardFrameThumb(refId, type, title, thumbDataUrl) {
@@ -5572,31 +5571,6 @@ function addBoardFrameThumb(refId, type, title, thumbDataUrl) {
 
   // Auto-scroll strip to show latest
   strip.scrollLeft = strip.scrollWidth;
-}
-
-function addResourceHistoryItem(refId, type, title) {
-  const list = $('#resource-history-list');
-  if (!list) return;
-
-  const typeIcons = { video: '▶', simulation: '⚗', 'board-draw': '✎', widget: '⚡', image: '🖼', notebook: '📓' };
-  const typeLabels = { video: 'Video', simulation: 'Simulation', 'board-draw': 'Board', widget: 'Widget', image: 'Image', notebook: 'Notebook' };
-
-  const item = document.createElement('div');
-  item.className = 'resource-history-item';
-  item.onclick = () => {
-    // Highlight active
-    list.querySelectorAll('.resource-history-item').forEach(i => i.classList.remove('active'));
-    item.classList.add('active');
-    reopenSpotlight(refId);
-  };
-  item.innerHTML = `
-    <div class="resource-history-icon">${typeIcons[type] || '◆'}</div>
-    <div class="resource-history-info">
-      <div class="resource-history-title">${escapeHtml(title)}</div>
-      <div class="resource-history-type">${typeLabels[type] || type}</div>
-    </div>
-  `;
-  list.appendChild(item);
 }
 
 window.reopenSpotlight = function(refId) {
