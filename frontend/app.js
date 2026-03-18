@@ -2424,11 +2424,11 @@ function handleTopicComplete(sectionIndex, topicIndex) {
     const topic = step.topics.find(t => (t.t - 1) === topicIndex || t.t === topicIndex);
     if (topic) {
       topic.status = 'done';
-      // Activate next pending topic in this section
+      // Activate next pending topic — but DON'T insert heading yet
+      // The tutor's next response will naturally introduce the new topic
       const nextTopic = step.topics.find(t => t.status === 'pending');
       if (nextTopic) {
         nextTopic.status = 'active';
-        insertTopicHeading(nextTopic.title, nextTopic.concept, 'topic');
       }
     }
   }
@@ -5518,12 +5518,24 @@ function appendSpotlightReference(type, title, reopenTag) {
   }
   stream.scrollTop = stream.scrollHeight;
 
-  // Also add to board frame strip and sidebar resource history
-  addBoardFrameThumb(refId, type, title);
+  // Capture thumbnail from board content before it gets cleared
+  let thumbDataUrl = null;
+  try {
+    const content = $('#spotlight-content');
+    if (content) {
+      const canvas = content.querySelector('canvas');
+      if (canvas) {
+        thumbDataUrl = canvas.toDataURL('image/png', 0.3);
+      }
+    }
+  } catch (e) {}
+
+  // Also add to board frame strip
+  addBoardFrameThumb(refId, type, title, thumbDataUrl);
   addResourceHistoryItem(refId, type, title);
 }
 
-function addBoardFrameThumb(refId, type, title) {
+function addBoardFrameThumb(refId, type, title, thumbDataUrl) {
   const strip = $('#board-frame-strip');
   if (!strip) return;
 
@@ -5531,17 +5543,24 @@ function addBoardFrameThumb(refId, type, title) {
   thumb.className = 'board-frame-thumb';
   thumb.title = title;
   thumb.onclick = () => {
-    // Remove active from all, add to this
     strip.querySelectorAll('.board-frame-thumb').forEach(t => t.classList.remove('active'));
     thumb.classList.add('active');
     reopenSpotlight(refId);
   };
 
-  const typeIcons = { video: '▶', simulation: '⚗', 'board-draw': '✎', widget: '⚡', image: '🖼' };
-  const icon = typeIcons[type] || '◆';
-  thumb.innerHTML = `
-    <div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:20px;color:var(--text-dim)">${icon}</div>
-    <div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:var(--text-dim);background:rgba(0,0,0,0.7);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escapeHtml(title)}</div>
+  if (thumbDataUrl) {
+    // Real canvas thumbnail
+    thumb.innerHTML = `
+      <img src="${thumbDataUrl}" style="width:100%;height:100%;object-fit:cover" />
+      <div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:#fff;background:rgba(0,0,0,0.75);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escapeHtml(title)}</div>`;
+  } else {
+    // Icon fallback
+    const typeIcons = { video: '▶', simulation: '⚗', 'board-draw': '✎', widget: '⚡', image: '🖼' };
+    const icon = typeIcons[type] || '◆';
+    thumb.innerHTML = `
+      <div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:16px;color:var(--text-dim)">${icon}</div>
+      <div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:var(--text-dim);background:rgba(0,0,0,0.7);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escapeHtml(title)}</div>`;
+  }
   `;
   thumb.style.position = 'relative';
   strip.appendChild(thumb);
