@@ -5578,19 +5578,14 @@ window.reopenSpotlight = function(refId) {
 
 // ── Spotlight fullscreen helpers ──
 function enterSpotlightFullscreen() {
-  const mainLayout = $('#main-layout');
-  if (!mainLayout) return;
-  mainLayout.classList.add('notebook-fullscreen');
-  const fsBtn = $('#spotlight-fullscreen');
-  if (fsBtn) fsBtn.textContent = '⛶';
+  // Split view: board panel is already visible — no fullscreen toggle needed
+  // The old notebook-fullscreen class breaks the split layout, so skip it
 }
 
 function exitSpotlightFullscreen() {
+  // Split view: no-op (see enterSpotlightFullscreen)
   const mainLayout = $('#main-layout');
-  if (!mainLayout) return;
-  mainLayout.classList.remove('notebook-fullscreen');
-  const fsBtn = $('#spotlight-fullscreen');
-  if (fsBtn) fsBtn.textContent = '⛶';
+  if (mainLayout) mainLayout.classList.remove('notebook-fullscreen');
 }
 
 // ── Spotlight fullscreen toggle (side-by-side: spotlight left, chat right) ──

@@ -220,26 +220,29 @@ body {
 
 /* ─── Stage (Spotlight Panel) ──────────────────────────── */
 
-/* In split view, #spotlight-panel IS the board panel header — not collapsible */
+/* In split view, #spotlight-panel IS the board panel header — thin bar, not collapsible */
 #spotlight-panel {
-  max-height: none !important;
+  max-height: 40px !important;
+  height: 40px !important;
   opacity: 1 !important;
-  overflow: visible;
+  overflow: hidden;
   background: var(--bg-elevated);
   display: flex;
+  flex-direction: row !important;
   align-items: center;
   justify-content: space-between;
-  padding: 6px 14px;
+  padding: 0 14px;
   flex-shrink: 0;
+  flex-grow: 0;
   transition: none;
   border-bottom: 1px solid var(--border);
   gap: 8px;
-  min-height: 38px;
 }
 
-/* stage-active no longer needed in split view — board panel is always visible */
+/* stage-active: keep header thin — don't expand */
 #spotlight-panel.stage-active {
-  max-height: none;
+  max-height: 40px !important;
+  height: 40px !important;
   opacity: 1;
 }
 
