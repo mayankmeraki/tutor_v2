@@ -1185,6 +1185,8 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   if (state.isStreaming) return;
   state.isStreaming = true;
   state._lastSSETimestamp = Date.now();
+  // Disable quick actions during streaming
+  document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = true);
 
   // Safety timeout: force-reset after 120s of total streaming
   if (state._streamingTimeout) clearTimeout(state._streamingTimeout);
@@ -1292,6 +1294,8 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
 
   state.isStreaming = false;
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+  // Re-enable quick actions
+  document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = false);
 
   SessionManager.saveSession();
 
@@ -5507,6 +5511,36 @@ function appendSpotlightReference(type, title, reopenTag) {
     stream.appendChild(block);
   }
   stream.scrollTop = stream.scrollHeight;
+
+  // Also add to board frame strip
+  addBoardFrameThumb(refId, type, title);
+}
+
+function addBoardFrameThumb(refId, type, title) {
+  const strip = $('#board-frame-strip');
+  if (!strip) return;
+
+  const thumb = document.createElement('div');
+  thumb.className = 'board-frame-thumb';
+  thumb.title = title;
+  thumb.onclick = () => {
+    // Remove active from all, add to this
+    strip.querySelectorAll('.board-frame-thumb').forEach(t => t.classList.remove('active'));
+    thumb.classList.add('active');
+    reopenSpotlight(refId);
+  };
+
+  const typeIcons = { video: '▶', simulation: '⚗', 'board-draw': '✎', widget: '⚡', image: '🖼' };
+  const icon = typeIcons[type] || '◆';
+  thumb.innerHTML = `
+    <div style="display:flex;align-items:center;justify-content:center;height:100%;font-size:20px;color:var(--text-dim)">${icon}</div>
+    <div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:var(--text-dim);background:rgba(0,0,0,0.7);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">${escapeHtml(title)}</div>
+  `;
+  thumb.style.position = 'relative';
+  strip.appendChild(thumb);
+
+  // Auto-scroll strip to show latest
+  strip.scrollLeft = strip.scrollWidth;
 }
 
 window.reopenSpotlight = function(refId) {
@@ -6499,6 +6533,13 @@ async function startNewSession(name, courseId, intent) {
     if (planProgress) planProgress.classList.add('hidden');
     const planObj = $('#plan-objective');
     if (planObj) planObj.innerHTML = '';
+
+    // Clear board panel
+    const boardContent = $('#spotlight-content');
+    if (boardContent) boardContent.innerHTML = '';
+    const frameStrip = $('#board-frame-strip');
+    if (frameStrip) frameStrip.innerHTML = '';
+    updateBoardEmptyState();
 
     // Generate session ID and create in MongoDB
     state.sessionId = generateId();
