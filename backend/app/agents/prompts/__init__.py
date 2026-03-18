@@ -258,6 +258,14 @@ def build_tutor_prompt(context_data: dict) -> str:
     if active_sim:
         parts.append(f"[Active Simulation State]\n{active_sim}\n")
 
+    active_board = context_data.get("activeBoard")
+    if active_board:
+        parts.append(f"[ACTIVE BOARD — what the student sees on the board right now]\n{active_board}\n")
+
+    previous_boards = context_data.get("previousBoards")
+    if previous_boards:
+        parts.append(f"[PREVIOUS BOARDS — completed board-draws this session]\n{previous_boards}\n")
+
     teaching_plan = context_data.get("teachingPlan")
     if teaching_plan:
         parts.append("[TEACHING PLAN — Full outline of all sections and topics]\n")

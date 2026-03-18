@@ -119,6 +119,8 @@ def extract_context(context_items: list[dict] | None) -> dict:
         "concepts": "concepts",
         "session metrics": "sessionMetrics",
         "active simulation state": "activeSimulation",
+        "active board": "activeBoard",
+        "previous boards": "previousBoards",
     }
     for item in context_items or []:
         desc = (item.get("description") or "").lower()

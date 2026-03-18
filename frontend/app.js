@@ -1680,6 +1680,38 @@ function buildContext() {
     });
   }
 
+  // Context: Active Board — what's currently drawn on board-draw (for continuity)
+  if (state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
+    const bd = state.boardDraw;
+    if (bd.rawContent) {
+      const boardLines = [];
+      let lastY = 0;
+      for (const line of bd.rawContent.split('\n')) {
+        try {
+          const cmd = JSON.parse(line.trim());
+          if (cmd.cmd === 'text' && cmd.text) boardLines.push(`[text] ${cmd.text}`);
+          if (cmd.cmd === 'latex' && cmd.tex) boardLines.push(`[equation] ${cmd.tex}`);
+          if (cmd.cmd === 'voice' && cmd.text) boardLines.push(`[voice] ${cmd.text}`);
+          if (cmd.y) lastY = Math.max(lastY, cmd.y + (cmd.size || 20));
+        } catch {}
+      }
+      if (boardLines.length > 0) {
+        items.push({
+          description: 'ACTIVE BOARD — what is drawn on the board the student sees',
+          value: `Board: "${state.spotlightInfo.title || 'Board'}"\n${boardLines.join('\n')}\nCursor y ≈ ${lastY + 40}`,
+        });
+      }
+    }
+  }
+
+  // Context: Board History — summaries of previous board-draws
+  if (state.spotlightHistory && state.spotlightHistory.length > 0) {
+    const bh = state.spotlightHistory.filter(h => h.type === 'board-draw').map((h, i) => `Board ${i + 1}: "${h.title}"`).join('\n');
+    if (bh) {
+      items.push({ description: 'PREVIOUS BOARDS — completed board-draws', value: bh });
+    }
+  }
+
   // Context: Visual Engagement tracking — only during explanation/discussion mode
   const turnsSinceLastVisual = state.totalAssistantTurns - state.lastVisualTurn;
   const turnsSinceLastEngagement = state.totalAssistantTurns - state.lastEngagementTurn;
