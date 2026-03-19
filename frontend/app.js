@@ -5657,10 +5657,32 @@ window.hideSpotlight = function(options = {}) {
 
   const content = $('#spotlight-content');
 
+  // Capture thumbnail before clearing (for board frame strip)
+  if (content) {
+    try {
+      var captureCanvas = content.querySelector('canvas');
+      if (captureCanvas && state.spotlightHistory.length > 0) {
+        var lastEntry = state.spotlightHistory[state.spotlightHistory.length - 1];
+        var thumbUrl = captureCanvas.toDataURL('image/png', 0.3);
+        // Update the frame strip thumbnail
+        var strip = document.getElementById('board-frame-strip');
+        if (strip && strip.lastElementChild) {
+          var img = strip.lastElementChild.querySelector('img');
+          if (!img) {
+            // Replace icon with real thumbnail
+            strip.lastElementChild.innerHTML = '<img src="' + thumbUrl + '" style="width:100%;height:100%;object-fit:cover" />' +
+              '<div style="position:absolute;bottom:0;left:0;right:0;font-size:7px;color:#fff;background:rgba(0,0,0,0.75);padding:1px 3px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis">' +
+              (lastEntry.title || '') + '</div>';
+          }
+        }
+      }
+    } catch (e) {}
+  }
+
   // Clean up widget iframe bridge listener before clearing content
   if (state.spotlightInfo?.type === 'widget') {
-    const wIframe = content?.querySelector('.widget-iframe');
-    if (wIframe?._bridgeCleanup) wIframe._bridgeCleanup();
+    var wIframe = content ? content.querySelector('.widget-iframe') : null;
+    if (wIframe && wIframe._bridgeCleanup) wIframe._bridgeCleanup();
   }
 
   if (content) content.innerHTML = '';
@@ -5908,6 +5930,7 @@ setTimeout(() => {
 let timerInterval = null;
 
 function startTimer() {
+  if (timerInterval) clearInterval(timerInterval);
   state.sessionStartTime = Date.now();
   timerInterval = setInterval(updateTimer, 1000);
   updateTimer();
