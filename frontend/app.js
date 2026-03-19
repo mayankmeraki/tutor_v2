@@ -5712,6 +5712,7 @@ window.hideSpotlight = function(options = {}) {
   state.spotlightActive = false;
   state.spotlightInfo = null;
   dismissChatHopper();
+  updateBoardEmptyState();
 
   // Store close event as context for the student's next message (no auto-trigger)
   if (!options.agentInitiated) {
@@ -6788,10 +6789,8 @@ window.continueSession = async function(sessionId) {
       content: m.content,
     }));
 
-    // Restore conversation start time offset
-    if (sessionData.durationSec) {
-      state.sessionStartTime = Date.now() - (sessionData.durationSec * 1000);
-    }
+    // Start fresh timer for this session (don't carry over accumulated time)
+    state.sessionStartTime = Date.now();
 
     const completed = state.checkpoint.completedSections.length;
     const intentClause = state.studentIntent
@@ -6919,9 +6918,9 @@ function renderHistoricalStudentMessage(text) {
 function showTeachingLayout(courseMap) {
   document.title = courseMap.title + ' — Capacity';
   $('#course-title').textContent = courseMap.title;
-  $('#sidebar-section-label').textContent = 'COURSE PROGRESS';
-  $('#sidebar-status').textContent = `${state.studentName} - Session ${state.checkpoint.sessionCount}`;
-  $('#stat-session').textContent = `Session ${state.checkpoint.sessionCount}`;
+  $('#sidebar-section-label').textContent = 'PROGRESS';
+  $('#sidebar-status').textContent = state.studentName;
+  $('#stat-session').textContent = '';
 
   $('#setup-panel').style.display = 'none';
   $('#teaching-layout').classList.remove('hidden');

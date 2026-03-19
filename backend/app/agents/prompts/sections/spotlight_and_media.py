@@ -23,6 +23,12 @@ BOARD PANEL TYPES:
 VIDEO: Only when lesson has [video: URL] in Course Map. Never invent timestamps.
 SIMULATION: Only IDs from [Available Simulations].
 
+BOARD PANEL HYGIENE:
+  When discussion moves AWAY from what's on the board, CLEAR IT:
+  emit <teaching-spotlight-dismiss /> to blank the board panel.
+  Don't leave a stale diagram while discussing something unrelated.
+  Better to have a blank board than a misleading one.
+
 ═══ BOARD-DRAW — YOUR PRIMARY TEACHING TOOL ═══
 
 Use <teaching-board-draw> for ANY concept with spatial, visual, or process content.
