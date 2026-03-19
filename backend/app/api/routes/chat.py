@@ -28,6 +28,7 @@ from app.core.llm import (
     LLMConnectionError,
     LLMCallMetadata,
 )
+from app.core.logging_config import SessionLogger
 from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_byo_tutor_prompt, build_assessment_prompt
 from app.agents.prompts.teaching_delegate import build_delegation_prompt
 from app.agents.session import get_or_create_session
@@ -202,6 +203,283 @@ def convert_messages(messages: list[dict] | None) -> list[dict]:
             result.append({"role": m["role"], "content": m["content"]})
     if result and result[0]["role"] != "user":
         result.insert(0, {"role": "user", "content": "[Session started]"})
+    return result
+
+
+def _serialize_content(content) -> str | list[dict]:
+    """Convert LLM ContentBlock objects to JSON-serializable format for MongoDB."""
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        result = []
+        for block in content:
+            if hasattr(block, 'to_dict'):
+                result.append(block.to_dict())
+            elif isinstance(block, dict):
+                result.append(block)
+            else:
+                result.append({"type": "text", "text": str(block)})
+        # If all blocks are text, join into a single string
+        if all(b.get("type") == "text" for b in result):
+            return "\n".join(b.get("text", "") for b in result)
+        return result
+    return str(content)
+
+
+# ── Context management — conversation windowing + Haiku summarization ───────
+
+import re as _re
+
+try:
+    import tiktoken
+    _enc = tiktoken.encoding_for_model("claude-3-haiku-20240307")  # Close enough for Claude tokenizer
+except Exception:
+    _enc = None
+
+RECENT_MESSAGE_COUNT = 10      # Keep last 10 messages (5 turns) in full
+SUMMARY_TRIGGER_INTERVAL = 6   # Run summarization every 6 assistant turns
+MESSAGES_TOKEN_BUDGET = 10000  # Hard budget for messages (system prompt ~14k + dynamic ~4k = ~28k total)
+
+_BOARD_DRAW_RE = _re.compile(
+    r'<teaching-board-draw(?:-resume)?[^>]*?(?:title="([^"]*)")?[^>]*?>'
+    r'([\s\S]*?)</teaching-board-draw(?:-resume)?>',
+)
+_WIDGET_RE = _re.compile(
+    r'<teaching-widget[^>]*?(?:title="([^"]*)")?[^>]*?>'
+    r'([\s\S]*?)</teaching-widget>',
+)
+_SIM_RE = _re.compile(
+    r'<teaching-simulation[^>]*?(?:title="([^"]*)")?[^>]*/?>',
+)
+
+SUMMARY_PROMPT = """\
+Summarize this tutoring conversation for continuity. Be structured and concise:
+- Topics taught + student's level per topic (L1-L5)
+- Student struggles, misconceptions, breakthroughs
+- Board-draws: title + what it showed (preserve asset_ids exactly)
+- Widgets: title + what student explored
+- Simulations used + student observations
+- Teaching decisions made + promises to student
+- Current trajectory + what comes next
+
+{previous_summary_note}
+
+Conversation:
+{conversation}
+
+CRITICAL: Preserve ALL asset_ids (like spot-ref-xxx) exactly. Under 350 words. Bullets only."""
+
+
+def _count_tokens(text: str) -> int:
+    """Count tokens using tiktoken if available, else estimate."""
+    if _enc:
+        try:
+            return len(_enc.encode(text))
+        except Exception:
+            pass
+    return len(text) // 4
+
+
+def _count_messages_tokens(messages: list[dict]) -> int:
+    """Count total tokens across a message array."""
+    total = 0
+    for m in messages:
+        c = m.get("content", "")
+        if isinstance(c, str):
+            total += _count_tokens(c)
+        elif isinstance(c, list):
+            for b in c:
+                if isinstance(b, dict):
+                    if b.get("type") == "text":
+                        total += _count_tokens(b.get("text", ""))
+                    elif b.get("type") == "image_url":
+                        total += 1000  # Images cost ~1k tokens
+        total += 4  # Message overhead
+    return total
+
+
+def _compress_old_messages(messages: list[dict]) -> list[dict]:
+    """Strip board-draw JSONL, widget HTML, and sim tags from older messages."""
+    compressed = []
+    for msg in messages:
+        content = msg.get("content", "")
+        if not isinstance(content, str):
+            compressed.append(msg)
+            continue
+        # Skip old summary messages entirely (they'll be replaced by current summary)
+        if content.startswith("[CONVERSATION SUMMARY"):
+            continue
+        content = _BOARD_DRAW_RE.sub(lambda m: f'[board-draw: "{m.group(1) or "untitled"}"]', content)
+        content = _WIDGET_RE.sub(lambda m: f'[widget: "{m.group(1) or "untitled"}"]', content)
+        content = _SIM_RE.sub(lambda m: f'[simulation: "{m.group(1) or ""}"]', content)
+        # Skip empty messages after stripping
+        if not content.strip() or content.strip() == '.':
+            continue
+        compressed.append({"role": msg["role"], "content": content})
+    return compressed
+
+
+async def _maybe_generate_summary(session, messages: list[dict]) -> None:
+    """Generate/update conversation summary using Haiku.
+
+    Triggers:
+    1. Every SUMMARY_TRIGGER_INTERVAL assistant turns
+    2. When message count exceeds RECENT_MESSAGE_COUNT and no summary exists
+    3. When total message tokens exceed budget (emergency compression)
+    """
+    msg_count = len(messages)
+    has_enough = msg_count > RECENT_MESSAGE_COUNT
+    turn_trigger = (
+        session.assistant_turn_count >= SUMMARY_TRIGGER_INTERVAL
+        and session.assistant_turn_count % SUMMARY_TRIGGER_INTERVAL == 0
+    )
+    # Emergency: if total tokens are way over budget, force summary
+    total_tokens = _count_messages_tokens(messages)
+    emergency = total_tokens > MESSAGES_TOKEN_BUDGET * 2 and not session.conversation_summary
+
+    if not has_enough:
+        return
+    if not turn_trigger and not emergency:
+        return
+
+    old_count = msg_count - RECENT_MESSAGE_COUNT
+    # Skip if summary already covers these messages
+    if session.summary_covers_through >= old_count - 2 and not emergency:
+        return
+
+    old_messages = messages[:old_count]
+
+    # Build conversation text for Haiku (compact, board-draw content stripped)
+    conv_parts = []
+    for msg in old_messages:
+        role = "Tutor" if msg["role"] == "assistant" else "Student"
+        content = msg.get("content", "")
+        if isinstance(content, str):
+            content = _BOARD_DRAW_RE.sub(lambda m: f'[board-draw: "{m.group(1) or "?"}"]', content)
+            content = _WIDGET_RE.sub(lambda m: f'[widget: "{m.group(1) or "?"}"]', content)
+            if content.startswith("[CONVERSATION SUMMARY"):
+                continue
+            conv_parts.append(f"{role}: {content[:250]}")
+        elif isinstance(content, list):
+            text = " ".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+            if text:
+                conv_parts.append(f"{role}: {text[:250]}")
+
+    # Cap to last 30 exchanges to keep Haiku input small
+    conversation_text = "\n".join(conv_parts[-30:])
+
+    prev_note = ""
+    if session.conversation_summary:
+        prev_note = (
+            "A PREVIOUS SUMMARY exists — build on it, don't duplicate:\n"
+            f"{session.conversation_summary}\n\n"
+            "Summarize ONLY the NEW messages below:"
+        )
+
+    prompt = SUMMARY_PROMPT.format(
+        previous_summary_note=prev_note,
+        conversation=conversation_text,
+    )
+
+    try:
+        from app.core.llm import llm_call
+        response = await llm_call(
+            model=settings.SUMMARIZATION_MODEL,
+            system="You are a concise tutoring session summarizer.",
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=500,
+        )
+        new_summary = response.content[0].text.strip()
+
+        # Track internal LLM cost on the session
+        if response.usage:
+            session.track_llm_usage(
+                settings.SUMMARIZATION_MODEL,
+                response.usage.input_tokens,
+                response.usage.output_tokens,
+            )
+
+        if session.conversation_summary:
+            # Merge: keep old summary + append new
+            combined = session.conversation_summary.rstrip() + "\n\n" + new_summary
+            # Hard cap at 2500 chars (~600 tokens)
+            if len(combined) > 2500:
+                combined = combined[-2500:]
+            session.conversation_summary = combined
+        else:
+            session.conversation_summary = new_summary
+
+        session.summary_covers_through = old_count
+        log.info("Summary generated: covers %d msgs, %d chars, trigger=%s",
+                 old_count, len(session.conversation_summary),
+                 "emergency" if emergency else "periodic")
+    except Exception as e:
+        log.warning("Summary generation failed: %s", e)
+
+
+def apply_context_window(session, messages: list[dict]) -> list[dict]:
+    """Apply conversation windowing to fit within token budget.
+
+    Strategy:
+    1. Keep last RECENT_MESSAGE_COUNT messages in full (board-draw content intact)
+    2. Prepend conversation summary (replaces oldest messages)
+    3. Between summary and recent: compressed messages (JSONL stripped) that fit budget
+    4. Hard enforce MESSAGES_TOKEN_BUDGET
+    """
+    if len(messages) <= RECENT_MESSAGE_COUNT:
+        return messages
+
+    recent = messages[-RECENT_MESSAGE_COUNT:]
+    old = messages[:-RECENT_MESSAGE_COUNT]
+    recent_tokens = _count_messages_tokens(recent)
+
+    result = []
+
+    # 1. Summary message
+    if session.conversation_summary:
+        covered = session.summary_covers_through
+        summary_msg = {
+            "role": "user",
+            "content": (
+                f"[CONVERSATION SUMMARY — {covered} earlier messages condensed]\n"
+                f"{session.conversation_summary}\n"
+                f"[END SUMMARY — recent conversation follows]"
+            ),
+        }
+        result.append(summary_msg)
+        # Drop messages covered by summary
+        uncovered_old = old[covered:] if covered < len(old) else []
+    else:
+        uncovered_old = old
+
+    # 2. Compress uncovered old messages
+    if uncovered_old:
+        compressed = _compress_old_messages(uncovered_old)
+        summary_tokens = _count_messages_tokens(result)
+        available = MESSAGES_TOKEN_BUDGET - recent_tokens - summary_tokens
+
+        if available > 500:
+            # Fit as many compressed messages as budget allows (newest first)
+            fitted = []
+            used = 0
+            for msg in reversed(compressed):
+                t = _count_messages_tokens([msg])
+                if used + t > available:
+                    break
+                fitted.insert(0, msg)
+                used += t
+            result.extend(fitted)
+
+    # 3. Recent messages in full
+    result.extend(recent)
+
+    final_tokens = _count_messages_tokens(result)
+    log.info("Context window: %d→%d msgs, ~%d tokens (budget %d)",
+             len(messages), len(result), final_tokens, MESSAGES_TOKEN_BUDGET)
+
     return result
 
 
@@ -885,7 +1163,32 @@ async def chat(request: Request):
 
     context_data = extract_context(context)
     session, session_id = await get_or_create_session(req_session_id)
-    claude_messages = convert_messages(messages)
+
+    # Server-side message history is the source of truth.
+    # Frontend sends the latest user message; we append it to server history.
+    frontend_messages = convert_messages(messages)
+    if session.messages:
+        # Existing session: append only the NEW user message from frontend
+        if frontend_messages:
+            last_msg = frontend_messages[-1]
+            # Only append if it's a new user message (not a duplicate)
+            if last_msg.get("role") == "user":
+                if not session.messages or session.messages[-1].get("content") != last_msg.get("content"):
+                    session.messages.append(last_msg)
+        claude_messages = session.messages
+    else:
+        # First request OR no server history: seed from frontend
+        session.messages = frontend_messages
+        claude_messages = session.messages
+
+    # Context management: summarize old messages + apply window
+    await _maybe_generate_summary(session, claude_messages)
+    windowed_messages = apply_context_window(session, claude_messages)
+    # Use windowed copy for LLM call; keep full history on session
+    claude_messages = windowed_messages
+
+    user_email = _extract_user_email(context_data)
+    slog = SessionLogger(log, session_id=session_id, user=user_email or "")
 
     msg_count = len(claude_messages)
     last_msg = claude_messages[-1] if claude_messages else {}
@@ -897,7 +1200,7 @@ async def chat(request: Request):
         preview = f"[multipart: {', '.join(types)}]"
     else:
         preview = "[complex]"
-    log.info("POST /api/chat — session: %s, %d msgs, last: %s", session_id[:8], msg_count, preview)
+    slog.info("POST /api/chat", extra={"msg_count": msg_count, "preview": preview})
 
     if not claude_messages:
         async def _err():
@@ -940,11 +1243,12 @@ async def chat(request: Request):
 
             # ── Step 3a: Check assessment → route to assessment agent ──
             if session.assessment:
-                log.info(
-                    "Routing to assessment agent (turn %d/%d, section: %s)",
-                    session.assessment.turns_used + 1,
-                    session.assessment.max_turns,
-                    session.assessment.section_title[:40],
+                slog.info(
+                    "Routing to assessment agent",
+                    extra={
+                        "agent": "assessment",
+                        "round": session.assessment.turns_used + 1,
+                    },
                 )
                 async for chunk in _handle_assessment(
                     session, session_id, claude_messages, context_data, request
@@ -954,11 +1258,12 @@ async def chat(request: Request):
 
             # ── Step 3b: Check delegation → route to sub-agent ────────
             if session.delegation:
-                log.info(
-                    "Routing to delegated sub-agent (turn %d/%d, topic: %s)",
-                    session.delegation.turns_used + 1,
-                    session.delegation.max_turns,
-                    session.delegation.topic[:40],
+                slog.info(
+                    "Routing to delegated sub-agent",
+                    extra={
+                        "agent": "delegation",
+                        "round": session.delegation.turns_used + 1,
+                    },
                 )
                 async for chunk in _handle_delegated_teaching(
                     session, session_id, claude_messages, context_data, request
@@ -971,7 +1276,7 @@ async def chat(request: Request):
             for agent in completed:
                 # Background agent costs already tracked by centralized callback
                 if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
-                    log.info("Promoting planning agent result into session")
+                    slog.info("Promoting planning agent result into session", extra={"agent": "planning"})
                     _promote_plan(session, agent["result"])
 
                     # Emit plan update SSE for frontend
@@ -990,7 +1295,7 @@ async def chat(request: Request):
 
                     # Store in session
                     session.generated_visuals[visual_id] = {"html": html, "title": title}
-                    log.info("Visual gen complete: %s — %s (%d bytes)", visual_id, title, len(html))
+                    slog.info("Visual gen complete", extra={"agent": "visual_gen", "tool": visual_id})
 
                     # Emit SSE event for frontend
                     yield _sse({
@@ -1068,7 +1373,7 @@ async def chat(request: Request):
 
                 session.assessment_result = None
                 # pre_assessment_note stays alive — cleared when tutor calls advance_topic
-                log.info("Injecting assessment results into tutor context")
+                slog.info("Injecting assessment results into tutor context")
 
             # ── Step 4b: Load brief knowledge summary for prompt ─────
             try:
@@ -1079,7 +1384,7 @@ async def chat(request: Request):
                     if ks_summary:
                         context_data["knowledgeSummary"] = ks_summary
             except Exception as e:
-                log.warning("Failed to load knowledge summary: %s", e)
+                slog.warning("Failed to load knowledge summary: %s", e)
 
             # ── Step 5: Detect BYO mode and build appropriate prompt ───
             agent_results_str = _format_agent_results(completed) if completed else None
@@ -1096,7 +1401,7 @@ async def chat(request: Request):
                     )
                     context_data["leanContext"] = lean_ctx
                 except Exception as e:
-                    log.warning("Failed to build lean context: %s", e)
+                    slog.warning("Failed to build lean context: %s", e)
                     context_data["leanContext"] = f"[Error loading context for collection {collection_id}]"
 
                 tutor_prompt = build_byo_tutor_prompt({
@@ -1111,7 +1416,7 @@ async def chat(request: Request):
                     "handoff_to_assessment", "delegate_teaching",
                     "log_knowledge", "query_knowledge",
                 )]
-                log.info("BYO mode — collection: %s, MQL tools active", collection_id[:8])
+                slog.info("BYO mode active, MQL tools enabled")
             else:
                 tutor_prompt = build_tutor_prompt({
                     **context_data,
@@ -1135,8 +1440,7 @@ async def chat(request: Request):
                 active_tools = TUTOR_TOOLS
 
             prompt_size = sum(len(p) for p in tutor_prompt) if isinstance(tutor_prompt, tuple) else len(tutor_prompt)
-            log.info("Tutor prompt: %d chars (~%d tokens), mode: %s",
-                     prompt_size, prompt_size // 4, "BYO" if is_byo else "curated")
+            slog.info("Tutor prompt built", extra={"token_count": prompt_size // 4})
 
             # ── Step 6: Tutor agentic loop ────────────────────────────
             rounds = 0
@@ -1150,10 +1454,10 @@ async def chat(request: Request):
 
             while rounds < MAX_ROUNDS:
                 rounds += 1
-                log.info("Tutor API call — round %d/%d, model: %s", rounds, MAX_ROUNDS, settings.TUTOR_MODEL)
+                slog.info("Tutor LLM call", extra={"round": rounds, "model": settings.TUTOR_MODEL})
 
                 if await request.is_disconnected():
-                    log.info("Client disconnected")
+                    slog.info("Client disconnected")
                     return
 
                 text_started = False
@@ -1176,7 +1480,7 @@ async def chat(request: Request):
                     api_kwargs["tool_choice"] = {"type": "tool", "name": "update_student_model"}
                     force_student_update = False
                     suppress_text = True
-                    log.info("Forcing update_student_model (turn %d) — suppressing preamble text", session.assistant_turn_count)
+                    slog.info("Forcing update_student_model — suppressing preamble text")
 
                 # Retry loop for transient errors
                 message = None
@@ -1200,7 +1504,7 @@ async def chat(request: Request):
                     except Exception as e:
                         if is_retryable(e) and attempt < MAX_RETRIES - 1:
                             delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
-                            log.warning(
+                            slog.warning(
                                 "Tutor API retry %d/%d after %.1fs: %s",
                                 attempt + 1, MAX_RETRIES, delay, e,
                             )
@@ -1220,13 +1524,16 @@ async def chat(request: Request):
 
                 if text_started:
                     yield _sse({"type": "TEXT_MESSAGE_END"})
-                    log.info("Text complete — %d chars", text_length)
 
-                log.info(
-                    "Stop reason: %s, Usage: %din/%dout",
-                    message.stop_reason,
-                    message.usage.input_tokens,
-                    message.usage.output_tokens,
+                slog.info(
+                    "Tutor LLM response",
+                    extra={
+                        "model": settings.TUTOR_MODEL,
+                        "tokens_in": message.usage.input_tokens,
+                        "tokens_out": message.usage.output_tokens,
+                        "stop_reason": message.stop_reason,
+                        "round": rounds,
+                    },
                 )
 
                 # Cost tracked by centralized callback — emit SSE update
@@ -1241,7 +1548,7 @@ async def chat(request: Request):
                     tool_blocks = [b for b in message.content if b.type == "tool_use"]
 
                     for block in tool_blocks:
-                        log.info("Tool call: %s(%.100s)", block.name, json.dumps(block.input))
+                        slog.info("Tool call: %s", block.name, extra={"tool": block.name})
                         yield _sse({
                             "type": "TOOL_CALL_START",
                             "toolCallId": block.id,
@@ -1471,12 +1778,25 @@ async def chat(request: Request):
                         # ── request_board_image ────────────────────────
                         elif block.name == "request_board_image":
                             reason = block.input.get("reason", "")
-                            log.info("Tutor requested board image: %s", reason)
+                            slog.info("Tutor requested board image", extra={"tool": "request_board_image"})
                             yield _sse({"type": "BOARD_CAPTURE_REQUEST", "reason": reason})
                             result = (
                                 "Board capture requested. The frontend will capture the current board "
                                 "and send it as the next user message (image). Continue your response — "
                                 "when the image arrives you'll be able to see the combined tutor+student work."
+                            )
+
+                        # ── fetch_asset ───────────────────────────────
+                        elif block.name == "fetch_asset":
+                            asset_id = block.input.get("asset_id", "")
+                            slog.info("Tutor fetching asset", extra={"tool": "fetch_asset"})
+                            # Look up in session's asset_registry first, then send SSE to frontend
+                            yield _sse({"type": "FETCH_ASSET_REQUEST", "assetId": asset_id})
+                            result = (
+                                f"Asset '{asset_id}' retrieval requested. The content will be provided "
+                                f"by the frontend from spotlight history. If the asset is a board-draw, "
+                                f"you'll receive the full JSONL commands. If it's a widget, the full HTML code. "
+                                f"Use this content with <teaching-board-draw-resume> or <teaching-widget-update>."
                             )
 
                         # ── update_student_model ────────────────────────
@@ -1488,7 +1808,7 @@ async def chat(request: Request):
                                 try:
                                     notes = json.loads(notes)
                                 except (json.JSONDecodeError, TypeError):
-                                    log.warning("update_student_model: notes was a string, could not parse — wrapping")
+                                    slog.warning("update_student_model: notes was a string, could not parse — wrapping", extra={"tool": "update_student_model"})
                                     notes = [{"concepts": ["_general"], "note": notes}]
 
                             # Backward compat: if old schema (observations field), convert
@@ -1507,11 +1827,7 @@ async def chat(request: Request):
                                     "note": entry.get("note", ""),
                                 }
 
-                            log.info(
-                                "Student model updated: %d notes, concepts: %s",
-                                len(notes),
-                                [n.get("concepts", [None])[0] for n in notes],
-                            )
+                            slog.info("Student model updated", extra={"tool": "update_student_model"})
 
                             # Persist each note via upsert (fire-and-forget)
                             _sm_course_id, _ = _extract_student_info(context_data)
@@ -1527,7 +1843,7 @@ async def chat(request: Request):
                                             lesson=entry.get("lesson"),
                                         )
                                     except Exception as e:
-                                        log.warning("Failed to upsert student note: %s", e)
+                                        slog.warning("Failed to upsert student note: %s", e)
 
                             result = "Student model updated. Continue teaching — do not mention this update to the student."
 
@@ -1565,14 +1881,13 @@ async def chat(request: Request):
                                             note_text=f"Topic completed: {current.get('title', '')}. {block.input.get('tutor_notes', '')}",
                                         )
                                     except Exception as e:
-                                        log.warning("Failed to upsert knowledge on advance_topic: %s", e)
+                                        slog.warning("Failed to upsert knowledge on advance_topic: %s", e)
 
                             next_topic = _advance_topic(session)
                             if next_topic:
-                                log.info(
-                                    "advance_topic: moving to topic %d — %s",
-                                    session.current_topic_index,
-                                    next_topic.get("title", "?")[:60],
+                                slog.info(
+                                    "advance_topic: moving to next topic",
+                                    extra={"tool": "advance_topic"},
                                 )
 
                                 # Rebuild Tutor prompt with new topic
@@ -1620,7 +1935,7 @@ async def chat(request: Request):
                         # ── control_simulation ────────────────────────
                         elif block.name == "control_simulation":
                             steps = block.input.get("steps", [])
-                            log.info("ControlSimulation: %d step(s)", len(steps))
+                            slog.info("ControlSimulation", extra={"tool": "control_simulation"})
                             yield _sse({"type": "SIM_CONTROL", "steps": steps})
                             step_descs = "; ".join(
                                 f"Set {s.get('name')} = {s.get('value')}" if s.get("action") == "set_parameter"
@@ -1651,7 +1966,7 @@ async def chat(request: Request):
                                     )
                                     result = '{"logged": true}'
                                 except Exception as e:
-                                    log.error("log_knowledge upsert failed: %s", e, exc_info=True)
+                                    slog.error("log_knowledge upsert failed: %s", e, exc_info=True, extra={"tool": "log_knowledge"})
                                     result = f"Failed to log knowledge: {str(e)[:200]}"
                             else:
                                 result = "Cannot log knowledge: missing student info"
@@ -1666,7 +1981,7 @@ async def chat(request: Request):
                                         course_id, user_email, block.input["query"]
                                     )
                                 except Exception as e:
-                                    log.error("query_knowledge failed: %s", e, exc_info=True)
+                                    slog.error("query_knowledge failed: %s", e, exc_info=True, extra={"tool": "query_knowledge"})
                                     result = f"Failed to query knowledge: {str(e)[:200]}"
                             else:
                                 result = "Cannot query knowledge: missing student info (courseId or userEmail)"
@@ -1681,7 +1996,7 @@ async def chat(request: Request):
                                     session_id=session_id,
                                 )
                             except Exception as e:
-                                log.error("MQL tool %s failed: %s", block.name, e, exc_info=True)
+                                slog.error("MQL tool failed: %s", e, exc_info=True, extra={"tool": block.name})
                                 result = f"Tool error ({block.name}): {str(e)[:200]}"
 
                         # ── Normal tool execution ─────────────────────
@@ -1689,7 +2004,7 @@ async def chat(request: Request):
                             try:
                                 result = await execute_tutor_tool(block.name, block.input)
                             except Exception as e:
-                                log.error("Tool %s failed: %s", block.name, e, exc_info=True)
+                                slog.error("Tool failed: %s", e, exc_info=True, extra={"tool": block.name})
                                 result = f"Tool error ({block.name}): {str(e)[:200]}"
 
                         elapsed = time.monotonic() - start_time
@@ -1721,12 +2036,18 @@ async def chat(request: Request):
                         break
 
                     # Continue conversation with tool results
-                    claude_messages.append({"role": "assistant", "content": message.content})
-                    claude_messages.append({"role": "user", "content": tool_results})
+                    asst_msg = {"role": "assistant", "content": message.content}
+                    tool_msg = {"role": "user", "content": tool_results}
+                    claude_messages.append(asst_msg)
+                    claude_messages.append(tool_msg)
+                    # Persist to server-side history (serialize ContentBlocks for MongoDB)
+                    session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
+                    session.messages.append({"role": "user", "content": _serialize_content(tool_results)})
                     continue
 
-                # No more tool calls — done
-                log.info("Request complete — %d round(s)", rounds)
+                # No more tool calls — done. Persist final assistant message.
+                session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
+                log.info("Request complete — %d round(s), history: %d msgs", rounds, len(session.messages))
 
                 # Sync session state to MongoDB
                 try:

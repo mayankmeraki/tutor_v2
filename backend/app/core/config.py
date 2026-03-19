@@ -17,8 +17,8 @@ class Settings(BaseSettings):
     OPENROUTER_API_KEY: str = Field(default="")
     TUTOR_MODEL: str = Field(default="claude-sonnet-4-6")
     PLANNING_MODEL: str = Field(default="claude-sonnet-4-6")
-    RESEARCH_MODEL: str = Field(default="claude-haiku-4-5-20251001")
-    SUMMARIZATION_MODEL: str = Field(default="claude-haiku-4-5-20251001")
+    RESEARCH_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
+    SUMMARIZATION_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
 
     # PostgreSQL
     DB_HOST: str = Field(default="localhost")

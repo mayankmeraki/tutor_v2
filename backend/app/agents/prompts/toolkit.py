@@ -38,6 +38,13 @@ reset_plan(reason, keep_scope?) — scrap plan. Follow with spawn_agent + assess
 advance_topic(tutor_notes, student_model?) — mark complete, get next topic.
 request_board_image(reason?) — snapshot of board canvas. Auto-passed with student messages.
 
+fetch_asset(asset_id)
+  Retrieve full content of a previous board-draw or widget by its asset_id.
+  Returns the complete JSONL commands (board-draw) or HTML code (widget).
+  Use this when you need the original content to build on with
+  <teaching-board-draw-resume> or <teaching-widget-update>.
+  Asset IDs are shown in [Previous Boards] and [Reusable Widgets] context.
+
 update_student_model(notes)
   Private notebook. Forced every ~5 turns. UPSERT by concept tag overlap.
   notes: [{ concepts: [tags], lesson?: "lesson_N", note: "text" }]

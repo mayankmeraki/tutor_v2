@@ -248,39 +248,57 @@ async def generate_session_headline(session: dict) -> dict:
 
 
 async def _enrich_sessions_with_headlines(sessions: list[dict]) -> list[dict]:
-    """Add AI-generated headlines to sessions that need them.
+    """Return sessions immediately with fallback headlines.
 
-    Skips sessions without enough data (new/empty sessions).
-    Re-generates stale "Session N" headlines if the session now has content.
+    Fires background tasks for missing headlines — NEVER blocks the response.
+    On next dashboard load, cached headlines from MongoDB will be used.
     """
+    import asyncio
     import re as _re
+
+    needs_generation = []
 
     for s in sessions:
         existing = s.get("headline", "")
-        is_stale = bool(_re.match(r"^Session \d+$", existing))  # "Session 1", "Session 59", etc.
+        is_stale = bool(_re.match(r"^Session \d+$", existing))
 
         if existing and not is_stale:
-            continue  # Good headline already cached
+            continue  # Good headline cached
 
         if not _has_enough_data_for_headline(s):
-            # Not enough data yet — use fallback, don't waste an LLM call
             if not existing:
-                s["headline"] = f"Session {s.get('number', '?')}"
+                # Use intent as fallback title
+                intent = (s.get("intent", {}) or {}).get("raw", "")
+                s["headline"] = intent or f"Session {s.get('number', '?')}"
                 s["headlineDescription"] = ""
             continue
 
-        # Generate (or re-generate if stale)
-        hl = await generate_session_headline(s)
-        s["headline"] = hl["headline"]
-        s["headlineDescription"] = hl["description"]
-        # Cache to MongoDB
-        try:
-            await _sessions().update_one(
-                {"sessionId": s["sessionId"]},
-                {"$set": {"headline": hl["headline"], "headlineDescription": hl["description"]}},
-            )
-        except Exception as e:
-            log.warning("Failed to cache headline for session %s: %s", s.get("sessionId"), e)
+        # Needs generation — use fallback now, generate in background
+        if not existing or is_stale:
+            intent = (s.get("intent", {}) or {}).get("raw", "")
+            sec = (s.get("sections") or [{}])[0] if s.get("sections") else {}
+            s["headline"] = intent or sec.get("title", "") or f"Session {s.get('number', '?')}"
+            needs_generation.append(s)
+
+    # Fire background tasks for headline generation (non-blocking)
+    if needs_generation:
+        # Limit to 3 concurrent generations to avoid rate limits
+        async def _gen_headline_bg(session_doc):
+            try:
+                hl = await generate_session_headline(session_doc)
+                await _sessions().update_one(
+                    {"sessionId": session_doc["sessionId"]},
+                    {"$set": {"headline": hl["headline"], "headlineDescription": hl["description"]}},
+                )
+                log.info("Background headline cached: %s → %s",
+                         session_doc.get("sessionId", "?")[:8], hl["headline"])
+            except Exception as e:
+                log.warning("Background headline failed: %s", e)
+
+        # Fire and forget — don't await
+        for s in needs_generation[:5]:  # Cap at 5 to avoid spam
+            asyncio.create_task(_gen_headline_bg(s))
+
     return sessions
 
 
@@ -325,6 +343,10 @@ async def sync_backend_state(session_id: str, session) -> None:
         "llmTotalInputTokens": session.llm_total_input_tokens,
         "llmTotalOutputTokens": session.llm_total_output_tokens,
         "llmCallCount": session.llm_call_count,
+        "conversationSummary": session.conversation_summary,
+        "summaryCoverCount": session.summary_covers_through,
+        "assetRegistry": session.asset_registry,
+        "messages": session.messages,
     }
 
     if session.assessment_result:

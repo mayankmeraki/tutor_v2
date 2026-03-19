@@ -1236,8 +1236,11 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
 
   const context = buildContext();
 
+  // Sliding window: send last N messages + summary of older ones
+  const windowedMessages = _windowMessages(state.messages);
+
   const body = {
-    messages: state.messages,
+    messages: windowedMessages,
     context,
     sessionId: state.sessionId,
     isSessionStart,
@@ -1587,6 +1590,20 @@ function handleSSEEvent(event) {
       break;
     }
   }
+}
+
+// ═══════════════════════════════════════════════════════════
+// Module 6b: Message Windowing — limit conversation history sent to LLM
+// ═══════════════════════════════════════════════════════════
+
+// Message windowing is handled by the backend (Haiku summarization + compression).
+// Frontend sends all messages; backend applies smart context window before LLM call.
+// Safety cap: if messages exceed 60, only send the last 60 to avoid huge payloads.
+const MAX_FRONTEND_MESSAGES = 30; // Backend handles windowing; this is a payload size cap
+
+function _windowMessages(messages) {
+  if (messages.length <= MAX_FRONTEND_MESSAGES) return messages;
+  return messages.slice(-MAX_FRONTEND_MESSAGES);
 }
 
 // ═══════════════════════════════════════════════════════════

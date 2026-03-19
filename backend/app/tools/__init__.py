@@ -327,6 +327,27 @@ TUTOR_TOOLS = [
         },
     },
     {
+        "name": "fetch_asset",
+        "description": (
+            "Retrieve the full content of a previous board-draw or widget by its asset_id. "
+            "Returns the complete JSONL drawing commands (for board-draws) or HTML/CSS/JS code "
+            "(for widgets). Use this when you need the original content to resume drawing on "
+            "a previous board via <teaching-board-draw-resume> or to understand a widget's "
+            "code before sending <teaching-widget-update>. Asset IDs are shown in the "
+            "[Previous Boards] and [Reusable Widgets] context sections."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "asset_id": {
+                    "type": "string",
+                    "description": "The asset_id to retrieve (e.g., 'spot-ref-a3b7c1d2')",
+                },
+            },
+            "required": ["asset_id"],
+        },
+    },
+    {
         "name": "handoff_to_assessment",
         "description": (
             "Hand off to the Assessment Agent for a section checkpoint. "

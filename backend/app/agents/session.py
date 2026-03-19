@@ -61,6 +61,12 @@ class Session:
     # ── Generated visuals (from visual_gen agents) ──
     generated_visuals: dict = field(default_factory=dict)  # {visual_id: {"html": ..., "title": ...}}
 
+    # ── Conversation context management ──
+    conversation_summary: str | None = None  # Haiku-generated digest of older messages
+    summary_covers_through: int = 0          # How many messages the summary covers
+    asset_registry: list[dict] = field(default_factory=list)  # [{id, type, title, turn}]
+    messages: list[dict] = field(default_factory=list)  # Server-side source of truth for conversation
+
     # ── LLM cost tracking ──
     llm_cost_cents: float = 0.0         # Accumulated cost in cents
     llm_total_input_tokens: int = 0     # Total input tokens across all calls
@@ -135,6 +141,10 @@ async def _try_restore_session(session_id: str) -> Session | None:
             llm_total_input_tokens=bs.get("llmTotalInputTokens", 0),
             llm_total_output_tokens=bs.get("llmTotalOutputTokens", 0),
             llm_call_count=bs.get("llmCallCount", 0),
+            conversation_summary=bs.get("conversationSummary"),
+            summary_covers_through=bs.get("summaryCoverCount", 0),
+            asset_registry=bs.get("assetRegistry", []),
+            messages=bs.get("messages", []),
         )
 
         # Restore in-flight delegation state

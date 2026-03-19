@@ -4,18 +4,16 @@ import logging
 import os
 from contextlib import asynccontextmanager
 
+from app.core.logging_config import setup_logging
+
+setup_logging()  # Must be called before any other module logs
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from app.api.routes import auth, chat, content, events, ingestion, learning_tools, sessions
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="[%(asctime)s] %(levelname)s %(name)s: %(message)s",
-    datefmt="%H:%M:%S",
-)
 
 log = logging.getLogger(__name__)
 
