@@ -7,6 +7,7 @@ const Router = (() => {
     { path: '/',              title: 'Capacity',               auth: false, handler: handleLanding },
     { path: '/login',         title: 'Sign In — Capacity',     auth: false, handler: handleLogin },
     { path: '/dashboard',     title: 'Dashboard — Capacity',   auth: true,  handler: handleDashboard },
+    { path: '/session',       title: 'Dashboard — Capacity',   auth: true,  handler: handleSessionBare },
     { path: '/session/:id',   title: 'Session — Capacity',     auth: true,  handler: handleSession },
   ];
 
@@ -42,6 +43,11 @@ const Router = (() => {
   function resolve(pathname) {
     if (!pathname) pathname = location.pathname;
 
+    // Normalize trailing slashes (except root)
+    if (pathname !== '/' && pathname.endsWith('/')) {
+      return navigate(pathname.slice(0, -1), { replace: true });
+    }
+
     for (const route of routes) {
       const params = matchPath(route.path, pathname);
       if (params === null) continue;
@@ -59,8 +65,8 @@ const Router = (() => {
       return;
     }
 
-    // No match — redirect to landing
-    navigate('/', { replace: true });
+    // No match — redirect to dashboard if logged in, otherwise landing
+    navigate(AuthManager.isLoggedIn() ? '/dashboard' : '/', { replace: true });
   }
 
   // ─── Route handlers ─────────────────────────────────────
@@ -78,6 +84,10 @@ const Router = (() => {
 
   function handleDashboard() {
     showSetupPanel();
+  }
+
+  function handleSessionBare() {
+    return navigate('/dashboard', { replace: true });
   }
 
   function handleSession(params) {

@@ -4,9 +4,12 @@ Provides the tutor and sub-agents with general web search capability
 for supplementary information not found in course materials.
 """
 
+import logging
 import re
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 _TAG_RE = re.compile(r"<[^>]+>")
 
@@ -19,6 +22,7 @@ async def web_search(query: str, limit: int = 5) -> str:
     Returns a concise summary of top results.
     """
     limit = max(1, min(limit, 8))
+    logger.debug("web_search query=%r limit=%d", query, limit)
 
     results: list[str] = []
 
@@ -50,6 +54,7 @@ async def web_search(query: str, limit: int = 5) -> str:
 
             # If instant answer gave enough, return early
             if len(results) >= 2:
+                logger.info("web_search query=%r fulfilled by instant answer (%d results)", query, len(results))
                 return f"Web search results for \"{query}\":\n\n" + "\n\n".join(results)
 
             # ── Phase 2: DuckDuckGo HTML search fallback ──
@@ -83,9 +88,12 @@ async def web_search(query: str, limit: int = 5) -> str:
                     results.append(f"**{title}**\n{snippet[:300]}\nURL: {url}")
 
     except Exception as e:
+        logger.error("web_search failed query=%r", query, exc_info=True)
         if not results:
             return f"Web search failed: {e}. Try a different query or use course materials."
 
     if results:
+        logger.info("web_search query=%r returned %d results (HTML fallback)", query, len(results))
         return f"Web search results for \"{query}\":\n\n" + "\n\n".join(results)
+    logger.warning("web_search query=%r returned no results", query)
     return f"No web results found for \"{query}\". Try rephrasing or using course materials."

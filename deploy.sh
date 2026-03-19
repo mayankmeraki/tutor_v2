@@ -40,5 +40,6 @@ gcloud builds submit \
 
 echo ""
 echo "  Deployed successfully!"
-echo "  Service URL: https://$SERVICE-813911759662.us-central1.run.app"
+SERVICE_URL=$(gcloud run services describe "$SERVICE" --project="$PROJECT_ID" --region="$REGION" --format='value(status.url)' 2>/dev/null || echo "https://$SERVICE.$REGION.run.app")
+echo "  Service URL: $SERVICE_URL"
 echo ""

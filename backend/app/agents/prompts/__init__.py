@@ -197,8 +197,8 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     # Compile per-student teaching overrides from _profile notes
     teaching_overrides = _compile_teaching_overrides(context_data)
 
-    # STATIC: tutor instructions + toolkit + tags (cacheable)
-    tutor_prompt = build_tutor_system_prompt(teaching_overrides=teaching_overrides)
+    # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students)
+    tutor_prompt = build_tutor_system_prompt()
     static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
     scenario_skill = context_data.get("scenarioSkill")
@@ -210,12 +210,11 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     # DYNAMIC: context that changes per turn (not cacheable)
     parts = []
 
-    scenario_skill = context_data.get("scenarioSkill")
-    if scenario_skill:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" ACTIVE SCENARIO SKILL — Follow this for pacing and assessment")
-        parts.append("═══════════════════════════════════════════════════\n")
-        parts.append(scenario_skill)
+    # ─── SECTION 0: TEACHING OVERRIDES (per-student) ───────────
+    # Injected into dynamic context so static prompt stays cacheable.
+    if teaching_overrides:
+        parts.append(teaching_overrides)
+        parts.append("")
 
     # ─── SECTION 1: COURSE CONTEXT ──────────────────────────────
     # What this course contains — static per course, not per student.
@@ -263,6 +262,11 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     parts.append("\n═══════════════════════════════════════════════════")
     parts.append(" SESSION CONTEXT — current teaching state")
     parts.append("═══════════════════════════════════════════════════\n")
+
+    # Inject current time for natural greetings and time-aware responses
+    from datetime import datetime, timezone
+    _now = datetime.now(timezone.utc)
+    parts.append(f"[Current Time] {_now.strftime('%A, %B %d %Y, %H:%M UTC')}\n")
 
     session_metrics = context_data.get("sessionMetrics")
     if session_metrics:

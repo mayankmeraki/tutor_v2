@@ -50,6 +50,9 @@ update_student_model(notes)
 SPOTLIGHT (one at a time, dismiss when done):
   teaching-video, teaching-simulation, teaching-widget, teaching-board-draw,
   teaching-spotlight (notebook/image), teaching-spotlight-dismiss
+ASSET REUSE (update existing, don't regenerate):
+  teaching-widget-update (send params to existing widget via asset_id)
+  teaching-board-draw-resume (reload previous board + append new commands)
 INLINE: teaching-image, teaching-recap
 ASSESSMENT (max 1/msg): teaching-mcq, teaching-freetext, teaching-confidence,
   teaching-agree-disagree, teaching-fillblank, teaching-spot-error, teaching-teachback

@@ -6,10 +6,13 @@ get_simulation_details, etc.).
 """
 
 import json
+import logging
 
 from .handlers import get_section_content, get_simulation_details
 from .search_images import search_images
 from .web_search import web_search
+
+log = logging.getLogger(__name__)
 
 # ── Tutor Tools ──────────────────────────────────────────────────────────────
 
@@ -828,16 +831,23 @@ MQL_TOOLS = [
 # ── Dispatchers ──────────────────────────────────────────────────────────────
 
 async def execute_tutor_tool(name: str, tool_input: dict) -> str:
-    if name == "search_images":
-        return await search_images(tool_input["query"], tool_input.get("limit", 3))
-    elif name == "web_search":
-        return await web_search(tool_input["query"], tool_input.get("limit", 5))
-    elif name == "get_simulation_details":
-        return await get_simulation_details(tool_input["simulation_id"])
-    elif name == "get_section_content":
-        return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
-    else:
-        return f"Unknown tool: {name}"
+    try:
+        if name == "search_images":
+            return await search_images(tool_input["query"], tool_input.get("limit", 3))
+        elif name == "web_search":
+            return await web_search(tool_input["query"], tool_input.get("limit", 5))
+        elif name == "get_simulation_details":
+            return await get_simulation_details(tool_input["simulation_id"])
+        elif name == "get_section_content":
+            return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
+        else:
+            return f"Unknown tool: {name}"
+    except KeyError as e:
+        log.warning("Tool %s missing required param: %s", name, e)
+        return f"Tool error: missing required parameter {e}"
+    except Exception:
+        log.error("Tool %s failed", name, exc_info=True)
+        return f"Tool {name} encountered an error. Try a different approach."
 
 
 async def execute_mql_tool(name: str, tool_input: dict, collection_id: str, user_email: str, session_id: str = "") -> str:
@@ -857,46 +867,53 @@ async def execute_mql_tool(name: str, tool_input: dict, collection_id: str, user
         search_content,
     )
 
-    if name == "browse_topics":
-        return await browse_topics(collection_id)
-    elif name == "browse_topic":
-        return await browse_topic(collection_id, tool_input["topic_id"])
-    elif name == "get_flow":
-        return await get_flow(collection_id)
-    elif name == "read_chunk":
-        return await read_chunk(collection_id, tool_input["chunk_id"])
-    elif name == "search_content":
-        return await search_content(collection_id, tool_input["query"])
-    elif name == "grep_material":
-        return await grep_material(collection_id, tool_input["material_id"], tool_input["query"])
-    elif name == "find_concept":
-        return await find_concept(collection_id, tool_input["concept_name"])
-    elif name == "search_concepts":
-        return await search_concepts(collection_id, tool_input["query"])
-    elif name == "get_exercises":
-        return await get_exercises(
-            collection_id,
-            topic_id=tool_input.get("topic_id"),
-            difficulty=tool_input.get("difficulty"),
-            limit=int(tool_input.get("limit", 5)),
-        )
-    elif name == "get_mastery":
-        return await get_mastery(collection_id, user_email)
-    elif name == "log_observation":
-        return await log_observation(
-            collection_id, user_email,
-            tool_input["concept_id"], tool_input["observation"],
-            session_id=session_id,
-        )
-    elif name == "get_assets":
-        return await get_assets(
-            collection_id,
-            topic_id=tool_input.get("topic_id"),
-            asset_type=tool_input.get("asset_type"),
-            limit=int(tool_input.get("limit", 10)),
-        )
-    else:
-        return f"Unknown MQL tool: {name}"
+    try:
+        if name == "browse_topics":
+            return await browse_topics(collection_id)
+        elif name == "browse_topic":
+            return await browse_topic(collection_id, tool_input["topic_id"])
+        elif name == "get_flow":
+            return await get_flow(collection_id)
+        elif name == "read_chunk":
+            return await read_chunk(collection_id, tool_input["chunk_id"])
+        elif name == "search_content":
+            return await search_content(collection_id, tool_input["query"])
+        elif name == "grep_material":
+            return await grep_material(collection_id, tool_input["material_id"], tool_input["query"])
+        elif name == "find_concept":
+            return await find_concept(collection_id, tool_input["concept_name"])
+        elif name == "search_concepts":
+            return await search_concepts(collection_id, tool_input["query"])
+        elif name == "get_exercises":
+            return await get_exercises(
+                collection_id,
+                topic_id=tool_input.get("topic_id"),
+                difficulty=tool_input.get("difficulty"),
+                limit=int(tool_input.get("limit", 5)),
+            )
+        elif name == "get_mastery":
+            return await get_mastery(collection_id, user_email)
+        elif name == "log_observation":
+            return await log_observation(
+                collection_id, user_email,
+                tool_input["concept_id"], tool_input["observation"],
+                session_id=session_id,
+            )
+        elif name == "get_assets":
+            return await get_assets(
+                collection_id,
+                topic_id=tool_input.get("topic_id"),
+                asset_type=tool_input.get("asset_type"),
+                limit=int(tool_input.get("limit", 10)),
+            )
+        else:
+            return f"Unknown MQL tool: {name}"
+    except KeyError as e:
+        log.warning("MQL tool %s missing required param: %s", name, e)
+        return f"Tool error: missing required parameter {e}"
+    except Exception:
+        log.error("MQL tool %s failed", name, exc_info=True)
+        return f"Tool {name} encountered an error. Try a different approach."
 
 
 # Set of MQL tool names for dispatch routing

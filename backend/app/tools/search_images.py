@@ -1,6 +1,9 @@
+import logging
 import re
 
 import httpx
+
+logger = logging.getLogger(__name__)
 
 _NON_LATIN_RE = re.compile(r"[^\u0000-\u024F\u1E00-\u1EFF\s.,;:!?()\-\d%°±×÷=<>+\/'\"\$€£#&@^~*]")
 
@@ -8,6 +11,7 @@ _NON_LATIN_RE = re.compile(r"[^\u0000-\u024F\u1E00-\u1EFF\s.,;:!?()\-\d%°±×÷
 async def search_images(query: str, limit: int = 3) -> str:
     limit = max(1, min(limit, 5))
     fetch_limit = min(limit * 3, 15)
+    logger.debug("search_images query=%r limit=%d", query, limit)
 
     params = {
         "action": "query",
@@ -33,6 +37,7 @@ async def search_images(query: str, limit: int = 3) -> str:
 
         pages = (data.get("query") or {}).get("pages") or {}
         if not pages:
+            logger.info("search_images query=%r returned no pages", query)
             return "No images found. Try a different search query."
 
         results: list[str] = []
@@ -58,7 +63,10 @@ async def search_images(query: str, limit: int = 3) -> str:
             )
 
         if results:
+            logger.info("search_images query=%r returned %d image(s)", query, len(results))
             return f"Found {len(results)} image(s):\n" + "\n".join(results)
+        logger.warning("search_images query=%r found pages but no usable images", query)
         return 'No images found. Try a different search query or add "english" to your query.'
     except Exception as e:
+        logger.error("search_images failed query=%r", query, exc_info=True)
         return f"Image search failed: {e}"

@@ -1,9 +1,7 @@
-"""Unified LLM client — dual-provider with automatic failover.
+"""Unified LLM client — single-provider streaming via OpenRouter.
 
-All LLM calls route through llm_call() or llm_stream(). The primary provider
+All LLM calls route through llm_call() or llm_stream(). The provider
 is selected by settings.LLM_PROVIDER ("anthropic" or "openrouter").
-On rate-limit (429), overloaded (529), or connection errors, calls automatically
-fall back to the other provider if its API key is configured.
 """
 
 from __future__ import annotations
@@ -157,19 +155,6 @@ class LLMConnectionError(LLMError):
 
 class LLMOverloadedError(LLMError):
     pass
-
-
-_FAILOVER_ERRORS = (LLMRateLimitError, LLMOverloadedError, LLMConnectionError)
-
-
-def _get_fallback_provider(primary: str) -> str | None:
-    """Return the other provider if its API key is set, else None.
-
-    Currently disabled — using OpenRouter only. To re-enable failover,
-    set both ANTHROPIC_API_KEY and OPENROUTER_API_KEY in .env.
-    """
-    # Failover disabled — single provider mode
-    return None
 
 
 # ── Client singletons ───────────────────────────────────────────────────────
@@ -376,6 +361,7 @@ def _convert_messages_openrouter(
             elif isinstance(content, list):
                 tool_results = []
                 text_parts = []
+                image_parts = []
                 for block in content:
                     if (
                         isinstance(block, dict)
@@ -387,6 +373,24 @@ def _convert_messages_openrouter(
                         and block.get("type") == "text"
                     ):
                         text_parts.append(block.get("text", ""))
+                    elif (
+                        isinstance(block, dict)
+                        and block.get("type") == "image"
+                    ):
+                        # Convert Anthropic image format to OpenAI/OpenRouter format
+                        source = block.get("source", {})
+                        if source.get("type") == "base64":
+                            media = source.get("media_type", "image/png")
+                            data = source.get("data", "")
+                            image_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": f"data:{media};base64,{data}"},
+                            })
+                        elif source.get("type") == "url":
+                            image_parts.append({
+                                "type": "image_url",
+                                "image_url": {"url": source.get("url", "")},
+                            })
                     elif (
                         isinstance(block, ContentBlock)
                         and block.type == "text"
@@ -421,11 +425,26 @@ def _convert_messages_openrouter(
                         result.append(
                             {"role": "user", "content": "\n".join(text_parts)}
                         )
-                elif text_parts:
+
+                # Build multipart content if we have images
+                if image_parts:
+                    multipart = []
+                    for ip in image_parts:
+                        multipart.append(ip)
+                    if text_parts:
+                        multipart.append({"type": "text", "text": "\n".join(text_parts)})
+                    elif not tool_results:
+                        multipart.append({"type": "text", "text": "[Image sent by student]"})
+                    if not tool_results:
+                        result.append({"role": "user", "content": multipart})
+                    else:
+                        # Images after tool results — add as separate user message
+                        result.append({"role": "user", "content": multipart})
+                elif text_parts and not tool_results:
                     result.append(
                         {"role": "user", "content": "\n".join(text_parts)}
                     )
-                else:
+                elif not tool_results:
                     result.append({"role": "user", "content": "."})
             else:
                 result.append(
@@ -876,18 +895,11 @@ async def llm_call(
     tool_choice: dict | None = None,
     metadata: LLMCallMetadata | None = None,
 ) -> LLMResponse:
-    """Non-streaming LLM call with automatic failover between providers."""
-    primary = settings.LLM_PROVIDER
+    """Non-streaming LLM call against the configured provider."""
+    provider = settings.LLM_PROVIDER
     start = time.monotonic()
 
-    try:
-        response = await _llm_call_single(primary, model, system, messages, max_tokens, tools, tool_choice)
-    except _FAILOVER_ERRORS as e:
-        fallback = _get_fallback_provider(primary)
-        if not fallback:
-            raise
-        log.warning("LLM %s failed (%s: %s), failing over to %s", primary, type(e).__name__, str(e)[:120], fallback)
-        response = await _llm_call_single(fallback, model, system, messages, max_tokens, tools, tool_choice)
+    response = await _llm_call_single(provider, model, system, messages, max_tokens, tools, tool_choice)
 
     elapsed = (time.monotonic() - start) * 1000
     log.info(
@@ -945,55 +957,6 @@ def _build_stream(
         raise ValueError(f"Unknown LLM_PROVIDER: {provider}")
 
 
-class FailoverLLMStream:
-    """Wraps a primary stream and falls back to another provider on connect errors."""
-
-    def __init__(self, primary_provider, model, system, messages, max_tokens, tools, tool_choice,
-                 metadata: LLMCallMetadata | None = None):
-        self._primary = primary_provider
-        self._model = model
-        self._system = system
-        self._messages = messages
-        self._max_tokens = max_tokens
-        self._tools = tools
-        self._tool_choice = tool_choice
-        self._inner = None
-        self._used_provider = primary_provider
-        self._metadata = metadata
-
-    async def __aenter__(self):
-        stream = _build_stream(self._primary, self._model, self._system, self._messages,
-                               self._max_tokens, self._tools, self._tool_choice)
-        try:
-            self._inner = await stream.__aenter__()
-            self._used_provider = self._primary
-            return self
-        except _FAILOVER_ERRORS as e:
-            fallback = _get_fallback_provider(self._primary)
-            if not fallback:
-                raise
-            log.warning("LLM stream %s connect failed (%s: %s), failing over to %s",
-                        self._primary, type(e).__name__, str(e)[:120], fallback)
-            stream2 = _build_stream(fallback, self._model, self._system, self._messages,
-                                    self._max_tokens, self._tools, self._tool_choice)
-            self._inner = await stream2.__aenter__()
-            self._used_provider = fallback
-            return self
-
-    async def __aexit__(self, *args):
-        if self._inner:
-            await self._inner.__aexit__(*args)
-
-    @property
-    def text_stream(self):
-        return self._inner.text_stream
-
-    async def get_final_message(self) -> LLMResponse:
-        response = await self._inner.get_final_message()
-        _notify_usage(response, self._metadata)
-        return response
-
-
 async def llm_stream(
     model: str,
     system: str,
@@ -1002,17 +965,10 @@ async def llm_stream(
     tools: list[dict] | None = None,
     tool_choice: dict | None = None,
     metadata: LLMCallMetadata | None = None,
-) -> FailoverLLMStream | AnthropicLLMStream | OpenRouterLLMStream:
-    """Streaming LLM call with automatic failover on connection/rate-limit errors."""
-    primary = settings.LLM_PROVIDER
-    fallback = _get_fallback_provider(primary)
-
-    if fallback:
-        return FailoverLLMStream(primary, model, system, messages, max_tokens, tools, tool_choice,
-                                 metadata=metadata)
-
-    stream = _build_stream(primary, model, system, messages, max_tokens, tools, tool_choice)
-    # Attach metadata to non-failover streams too
+) -> AnthropicLLMStream | OpenRouterLLMStream:
+    """Streaming LLM call against the configured provider."""
+    provider = settings.LLM_PROVIDER
+    stream = _build_stream(provider, model, system, messages, max_tokens, tools, tool_choice)
     stream._metadata = metadata
     return stream
 

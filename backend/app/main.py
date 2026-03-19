@@ -83,18 +83,20 @@ app = FastAPI(lifespan=lifespan)
 
 # ─── CORS ──────────────────────────────────────────────────────────
 
-_default_origins = [
-    "http://localhost:3001",
-    "http://localhost:3000",
-    "http://localhost:8000",
-    "http://127.0.0.1:3001",
-    "http://127.0.0.1:3000",
-    "http://127.0.0.1:8000",
-]
-
 _cors_env = os.environ.get("CORS_ORIGINS", "")
-_extra_origins = [o.strip() for o in _cors_env.split(",") if o.strip()] if _cors_env else []
-_all_origins = _default_origins + _extra_origins
+if _cors_env:
+    # Production: use only configured origins
+    _all_origins = [o.strip() for o in _cors_env.split(",") if o.strip()]
+else:
+    # Local dev: allow localhost
+    _all_origins = [
+        "http://localhost:3001",
+        "http://localhost:3000",
+        "http://localhost:8000",
+        "http://127.0.0.1:3001",
+        "http://127.0.0.1:3000",
+        "http://127.0.0.1:8000",
+    ]
 
 app.add_middleware(
     CORSMiddleware,
@@ -134,13 +136,20 @@ app.include_router(chat.router)
 os.makedirs(RENDERED_DIR, exist_ok=True)
 app.mount("/rendered", StaticFiles(directory=RENDERED_DIR), name="rendered")
 
-# SPA fallback — serve index.html for client-side routes
-@app.get("/login")
-@app.get("/dashboard")
-@app.get("/session/{session_id}")
-async def spa_fallback(session_id: str = ""):
-    return FileResponse(os.path.join(FRONTEND_DIR, "index.html"), media_type="text/html")
+# SPA fallback — serve index.html for known client-side routes.
+# Registered before the static-files mount so they take priority.
+_index_html = os.path.join(FRONTEND_DIR, "index.html")
 
-# Static files: frontend (must be last — catch-all with html=True)
+@app.get("/login")
+@app.get("/login/")
+@app.get("/dashboard")
+@app.get("/dashboard/")
+@app.get("/session/{session_id}")
+@app.get("/session/")
+@app.get("/session")
+async def spa_fallback(session_id: str = ""):
+    return FileResponse(_index_html, media_type="text/html")
+
+# Static files: frontend (must be last — catch-all mount)
 if os.path.isdir(FRONTEND_DIR):
     app.mount("/", StaticFiles(directory=FRONTEND_DIR, html=True), name="frontend")

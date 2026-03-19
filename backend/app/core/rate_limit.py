@@ -1,13 +1,14 @@
 """Simple in-memory per-IP rate limiter."""
 
+import os
 import time
 from collections import defaultdict
 
 from fastapi import HTTPException, Request
 
 _rate_buckets: dict[str, list[float]] = defaultdict(list)
-RATE_LIMIT = 20       # max requests
-RATE_WINDOW = 60.0    # per 60 seconds
+RATE_LIMIT = int(os.getenv("RATE_LIMIT", "20"))
+RATE_WINDOW = float(os.getenv("RATE_WINDOW", "60"))
 
 
 async def check_rate_limit(request: Request):

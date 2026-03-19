@@ -8,7 +8,6 @@ frontend so it can show progress indicators and auto-trigger delivery.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
 
 from fastapi import APIRouter, Request
@@ -16,16 +15,13 @@ from fastapi.responses import StreamingResponse
 
 from app.agents.agent_runtime import AgentRuntime
 from app.agents.session import get_or_create_session
+from app.api.routes import sse as _sse
 
 log = logging.getLogger(__name__)
 
 router = APIRouter()
 
 HEARTBEAT_INTERVAL = 15  # seconds
-
-
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data)}\n\n"
 
 
 @router.get("/api/events/{session_id}")

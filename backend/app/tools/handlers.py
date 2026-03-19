@@ -1,13 +1,18 @@
 """Tool result formatters — call content_service directly (no HTTP)."""
 
+import logging
 import math
+
+logger = logging.getLogger(__name__)
 
 from app.services.content_service import get_learning_tool_by_id, get_section_full
 
 
 async def get_section_content(lesson_id: int, section_index: int) -> str:
+    logger.debug("get_section_content lesson_id=%d section_index=%d", lesson_id, section_index)
     data = await get_section_full(lesson_id, section_index)
     if not data:
+        logger.warning("section not found lesson_id=%d section_index=%d", lesson_id, section_index)
         return f"Section {lesson_id}:{section_index} not found."
 
     lines: list[str] = []
@@ -44,8 +49,10 @@ async def get_section_content(lesson_id: int, section_index: int) -> str:
 
 
 async def get_simulation_details(simulation_id: str) -> str:
+    logger.debug("get_simulation_details simulation_id=%s", simulation_id)
     data = await get_learning_tool_by_id(simulation_id)
     if not data:
+        logger.warning("simulation not found simulation_id=%s", simulation_id)
         return f"Simulation {simulation_id} not found."
 
     lines: list[str] = []

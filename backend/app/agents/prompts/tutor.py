@@ -27,30 +27,25 @@ from .sections import (
 )
 
 
-def build_tutor_system_prompt(teaching_overrides: str | None = None) -> str:
+def build_tutor_system_prompt() -> str:
     """Assemble the full tutor system prompt from sections.
 
-    Args:
-        teaching_overrides: Optional per-student teaching style overrides
-            compiled from _profile notes. Injected BEFORE the pedagogy
-            section so they supersede defaults.
+    All sections here are STATIC (same for every student, every turn).
+    Per-student teaching overrides are injected into the DYNAMIC context
+    block by build_tutor_prompt() to maximize prompt caching.
 
     Returns:
         Complete tutor system prompt string.
     """
-    parts = [SECTION_IDENTITY, SECTION_STUDENT_CALIBRATION]
-
-    # Inject teaching style overrides BEFORE pedagogy defaults
-    if teaching_overrides:
-        parts.append(teaching_overrides)
-
-    parts.extend([
+    parts = [
+        SECTION_IDENTITY,
+        SECTION_STUDENT_CALIBRATION,
         SECTION_PEDAGOGY,
         SECTION_LEARNING_MODEL,
         SECTION_STUDENT_ADAPTATION,
         SECTION_SPOTLIGHT_AND_MEDIA,
         SECTION_EXECUTION,
-    ])
+    ]
 
     return "\n\n".join(parts)
 

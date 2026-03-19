@@ -1,4 +1,5 @@
 from bson import ObjectId
+from bson.errors import InvalidId
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -121,6 +122,6 @@ async def get_learning_tool_by_id(tool_id: str) -> dict | None:
     db = get_mongo_db()
     try:
         doc = await db.learning_tools.find_one({"_id": ObjectId(tool_id)})
-    except Exception:
+    except (InvalidId, TypeError):
         doc = await db.learning_tools.find_one({"id": tool_id})
     return _serialize_mongo(doc) if doc else None

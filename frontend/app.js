@@ -327,6 +327,10 @@ const SessionManager = (() => {
           maxQuestions: state.assessment.maxQuestions,
         } : null,
         conceptNotes: state.assessment.conceptNotes,
+        // Widget interaction state (slider values, etc.) — restored so tutor knows what student changed
+        widgetLiveState: state.widget.liveState || {},
+        // Active board-draw content (in case it was streaming when save occurred)
+        activeBoardDrawContent: state.boardDraw.rawContent || null,
       });
     } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
@@ -383,6 +387,8 @@ const SessionManager = (() => {
           maxQuestions: state.assessment.maxQuestions,
         } : null,
         conceptNotes: state.assessment.conceptNotes,
+        widgetLiveState: state.widget.liveState || {},
+        activeBoardDrawContent: state.boardDraw.rawContent || null,
       });
     } catch (e) { console.warn('Failed to archive session:', e); }
     if (flushInterval) clearInterval(flushInterval);
@@ -422,6 +428,8 @@ const SessionManager = (() => {
             maxQuestions: state.assessment.maxQuestions,
           } : null,
           conceptNotes: state.assessment.conceptNotes,
+          widgetLiveState: state.widget.liveState || {},
+          activeBoardDrawContent: state.boardDraw.rawContent || null,
         }),
         keepalive: true,
       });
@@ -745,9 +753,11 @@ const state = {
     processedLines: 0,
     complete: false,
     dismissed: false,
+    clearBoard: true,
     commandQueue: [],
     isProcessing: false,
     cancelFlag: false,
+    _instantReplayCount: 0,
     currentH: 500,
     canvas: null,
     ctx: null,
@@ -1338,7 +1348,8 @@ function handleSSEEvent(event) {
       state.boardDraw.contentStartIdx = 0;
       state.boardDraw.complete = false;
       state.boardDraw.dismissed = false;
-      state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '' };
+      state.boardDraw._streamingHandled = false;
+      state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '', ready: false, pendingParams: null, liveState: {}, assetId: null };
       removeStreamingIndicator();
       // Safety net: if onboarding overlay is still showing when tutor starts talking, remove it
       const staleOnboard = $('#onboarding-block');
@@ -1708,12 +1719,36 @@ function buildContext() {
     }
   }
 
-  // Context: Board History — summaries of previous board-draws
-  if (state.spotlightHistory && state.spotlightHistory.length > 0) {
-    const bh = state.spotlightHistory.filter(h => h.type === 'board-draw').map((h, i) => `Board ${i + 1}: "${h.title}"`).join('\n');
-    if (bh) {
-      items.push({ description: 'PREVIOUS BOARDS — completed board-draws', value: bh });
-    }
+  // Context: Board History — boards with asset IDs for resuming
+  const boardHistory = state.spotlightHistory.filter(h => h.type === 'board-draw');
+  if (boardHistory.length > 0) {
+    const boardList = boardHistory.map(h =>
+      `"${h.title}" (asset_id="${h.id}")`
+    ).join(', ');
+    items.push({
+      description: 'Previous Boards — resume instead of redrawing',
+      value: 'Available boards: ' + boardList + '\nTo resume: <teaching-board-draw-resume asset="ID" title="New Title">',
+    });
+  }
+
+  // Widget history — reusable widgets with asset IDs
+  const widgetHistory = state.spotlightHistory.filter(h => h.type === 'widget');
+  if (widgetHistory.length > 0) {
+    const widgetList = widgetHistory.map(h =>
+      `"${h.title}" (asset_id="${h.id}")`
+    ).join(', ');
+    items.push({
+      description: 'Reusable Widgets — update instead of regenerating',
+      value: 'Available widgets: ' + widgetList + '\nTo update parameters: <teaching-widget-update asset="ID" params=\'{"key": value}\' />',
+    });
+  }
+
+  // Current widget interaction state
+  if (state.spotlightInfo?.type === 'widget' && state.widget.liveState && Object.keys(state.widget.liveState).length > 0) {
+    items.push({
+      description: 'Widget Interaction State — what the student changed',
+      value: JSON.stringify(state.widget.liveState),
+    });
   }
 
   // Context: Visual Engagement tracking — only during explanation/discussion mode
@@ -1746,8 +1781,10 @@ function buildContext() {
   if (state.spotlightActive && state.spotlightInfo) {
     const turnsOpen = state.totalAssistantTurns - state.spotlightOpenedAtTurn;
     const isSim = state.spotlightInfo.type === 'simulation';
-    const staleThreshold = isSim ? 5 : 2;
-    const mandatoryThreshold = isSim ? 7 : 3;
+    const isBoardOrWidget = state.spotlightInfo.type === 'board-draw' || state.spotlightInfo.type === 'widget';
+    // Board-draws and widgets are primary teaching tools — longer thresholds
+    const staleThreshold = isSim ? 5 : isBoardOrWidget ? 4 : 2;
+    const mandatoryThreshold = isSim ? 7 : isBoardOrWidget ? 6 : 3;
     const spotlightCtx = {
       spotlightOpen: true,
       type: state.spotlightInfo.type,
@@ -1773,12 +1810,12 @@ function buildContext() {
 
     if (turnsOpen >= staleThreshold) {
       spotlightCtx.rules.push(
-        `⚠ STALE SPOTLIGHT: "${state.spotlightInfo.title}" open for ${turnsOpen} turns. Ask yourself: "Am I pointing at something IN the spotlight right now?" If NO → emit <teaching-spotlight-dismiss /> as the FIRST TAG in your response, BEFORE any text. You can always reopen or draw a new one later.`
+        `⚠ STALE SPOTLIGHT: "${state.spotlightInfo.title}" open for ${turnsOpen} turns. If you are NOT referencing this specific visual right now, either: (a) draw a NEW <teaching-board-draw> which auto-clears the old one, or (b) emit <teaching-spotlight-dismiss /> BEFORE any text. Do NOT emit dismiss AND a new board-draw in the same message — the new board-draw handles clearing automatically.`
       );
     }
     if (turnsOpen >= mandatoryThreshold) {
       spotlightCtx.rules.push(
-        `🚨 MANDATORY CLOSE: Spotlight open ${turnsOpen} turns — this is too long. Emit <teaching-spotlight-dismiss /> as the VERY FIRST thing in your response. No exceptions. If you still need a visual, close this one and open a fresh one.`
+        `🚨 STALE — replace with a new visual. Either emit a new <teaching-board-draw> or <teaching-widget> (auto-clears), or dismiss with <teaching-spotlight-dismiss />. Do NOT dismiss then immediately redraw — just emit the new board-draw directly.`
       );
     }
 
@@ -1864,13 +1901,11 @@ function buildContext() {
     state.pendingBoardCapture = null;
   }
 
-  // Directive: Teaching plan
-  if (state.plan.length > 0) {
-    items.push({
-      description: 'Teaching Plan Directive — YOUR CURRENT TASK',
-      value: buildPlanDirective(),
-    });
-  }
+  // Directive: Teaching plan (always send — even when empty, so tutor knows to generate one)
+  items.push({
+    description: 'Teaching Plan Directive — YOUR CURRENT TASK',
+    value: buildPlanDirective(),
+  });
 
   // Session History — completed sections & previous sessions (from SessionManager)
   const sessionCtx = SessionManager.buildContextForAI(4000);
@@ -1915,6 +1950,11 @@ function buildPlanSummary() {
 }
 
 function buildPlanDirective() {
+  // No plan yet — tell tutor to generate one
+  if (state.plan.length === 0) {
+    return 'NO TEACHING PLAN EXISTS YET. You MUST spawn a planning agent NOW: spawn_agent("planning", ...) to generate a <teaching-plan>. Do this in your FIRST response while also teaching.';
+  }
+
   const activeSection = state.plan.find(s => s.status === 'active');
   if (!activeSection) {
     const allDone = state.plan.every(s => s.status === 'done');
@@ -1963,16 +2003,16 @@ YOUR TASK THIS TURN: Execute the current topic's steps. When complete, the syste
 // ═══════════════════════════════════════════════════════════
 
 const _thinkingPhrases = [
-  'Collapsing the wave function...',
-  'Tunneling through the math...',
-  'Checking all possible eigenstates...',
   'Superposing ideas...',
-  'Entangling some thoughts...',
-  'Applying the Hamiltonian...',
-  'Computing probability amplitudes...',
-  'Normalizing the wave function...',
-  'Solving Schrödinger\'s equation...',
-  'Measuring the right approach...',
+  'Connecting the quanta...',
+  'Every photon counts...',
+  'Schrödinger\'s cat says hi...',
+  'E = mc² — always...',
+  'The universe is under no obligation to make sense...',
+  'Entropy only goes one way...',
+  'Nature abhors a vacuum...',
+  'All models are wrong, some are useful...',
+  'Feynman would be proud...',
 ];
 let _thinkingRotateTimer = null;
 
@@ -2492,9 +2532,48 @@ function startAIMessageStream() {
   stream.scrollTop = stream.scrollHeight;
 }
 
+function showBoardLoadingSkeleton(type) {
+  const content = $('#spotlight-content');
+  const empty = $('#board-empty-state');
+  if (!content || content.innerHTML.trim()) return; // board already has content
+  if (empty) empty.style.display = 'none';
+  // Don't duplicate
+  if (document.getElementById('board-loading-skeleton')) return;
+  const label = type === 'widget' ? 'Building interactive...' : 'Drawing...';
+  const skeleton = document.createElement('div');
+  skeleton.id = 'board-loading-skeleton';
+  skeleton.className = 'board-skeleton';
+  skeleton.innerHTML = `
+    <div class="board-skeleton-glow"></div>
+    <div class="board-skeleton-content">
+      <div class="board-skeleton-line w60"></div>
+      <div class="board-skeleton-line w80"></div>
+      <div class="board-skeleton-block"></div>
+      <div class="board-skeleton-line w40"></div>
+      <div class="board-skeleton-line w70"></div>
+    </div>
+    <div class="board-skeleton-label">${label}</div>
+  `;
+  content.appendChild(skeleton);
+}
+
+function hideBoardLoadingSkeleton() {
+  const skel = document.getElementById('board-loading-skeleton');
+  if (skel) skel.remove();
+}
+
 function updateAIMessageStream(text) {
   const el = $('#ai-stream-text');
   if (!el) return;
+
+  // Show board loading skeleton when a visual tag is detected but not yet rendered
+  if (!state.boardDraw.canvas && text.includes('<teaching-board-draw')) {
+    showBoardLoadingSkeleton('board');
+  }
+  if (!state.widget.ready && text.includes('<teaching-widget') && !text.includes('<teaching-widget-update')) {
+    showBoardLoadingSkeleton('widget');
+  }
+
   bdProcessStreaming(text);
   widgetProcessStreaming(text);
 
@@ -2964,13 +3043,43 @@ function renderTeachingTag(tag) {
       break;
     case 'teaching-board-draw': {
       const bdTitle = tag.attrs.title || 'Board';
-      // Store raw commands for replay on reopen
+      const shouldClear = tag.attrs.clear !== 'false';
       if (tag.content) {
         tag._boardDrawContent = tag.content;
       }
-      openBoardDrawSpotlight(bdTitle, tag.content || null);
-      if (!state.boardDraw.active) {
-        // Non-streaming path (e.g. message history) — parse commands from tag content
+
+      if (state.boardDraw._streamingHandled) {
+        // This is the board-draw that streaming already parsed commands for.
+        // Consume the flag so subsequent board-draw tags are treated fresh.
+        state.boardDraw._streamingHandled = false;
+        if (tag.content) state.boardDraw.rawContent = tag.content;
+
+        // Open the board panel if streaming didn't (canvas is null).
+        // Save/restore the queued commands because openBoardDrawSpotlight
+        // may call bdCleanup which wipes them.
+        if (!state.boardDraw.canvas) {
+          const savedQueue = [...state.boardDraw.commandQueue];
+          const savedRaw = state.boardDraw.rawContent;
+          const savedComplete = state.boardDraw.complete;
+          openBoardDrawSpotlight(bdTitle, null, { clear: shouldClear, skipReference: true });
+          state.boardDraw.commandQueue = savedQueue;
+          state.boardDraw.rawContent = savedRaw;
+          state.boardDraw.active = true;
+          state.boardDraw.complete = savedComplete;
+          state.boardDraw.dismissed = false;
+          state.boardDraw.cancelFlag = false;
+        } else {
+          const titleEl = $('#spotlight-title');
+          if (titleEl) titleEl.textContent = bdTitle;
+          if (state.spotlightInfo) state.spotlightInfo.title = bdTitle;
+        }
+        const refTag = { name: 'teaching-board-draw', attrs: { title: bdTitle } };
+        if (state.boardDraw.rawContent) refTag._boardDrawContent = state.boardDraw.rawContent;
+        appendSpotlightReference('board-draw', bdTitle, refTag);
+      } else {
+        // Fresh board-draw: either a second/subsequent board in the same message,
+        // history replay, or non-streaming path. Clear and draw from scratch.
+        openBoardDrawSpotlight(bdTitle, tag.content || null, { clear: shouldClear });
         state.boardDraw.commandQueue = [];
         const bdLines = (tag.content || '').split('\n');
         for (const bdLine of bdLines) {
@@ -2979,8 +3088,15 @@ function renderTeachingTag(tag) {
           try { state.boardDraw.commandQueue.push(JSON.parse(trimmed)); } catch (e) {}
         }
       }
-      // Commands (queued during streaming or parsed above) execute when canvas is ready
       state.boardDraw.active = true;
+      break;
+    }
+    case 'teaching-board-draw-resume': {
+      handleBoardDrawResume(tag);
+      break;
+    }
+    case 'teaching-widget-update': {
+      handleWidgetUpdate(tag);
       break;
     }
     case 'teaching-widget': {
@@ -2988,7 +3104,7 @@ function renderTeachingTag(tag) {
       const wCode = tag.content || state.widget.code || '';
       openWidgetSpotlight(wTitle, wCode, state.replayMode);
       // Reset widget streaming state
-      state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '' };
+      state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '', ready: false, pendingParams: null, liveState: {}, assetId: null };
       break;
     }
     case 'teaching-interactive':
@@ -4504,14 +4620,26 @@ function renderPlanProgress() {
   const stepsEl = $('#plan-steps');
   if (!container || !stepsEl) return;
 
+  // Always show sidebar — even with no plan, show a "preparing" state
+  container.classList.remove('hidden');
+
   if (state.plan.length === 0) {
-    container.classList.add('hidden');
+    stepsEl.innerHTML = `
+      <div class="plan-empty-state">
+        <div class="plan-empty-spinner"></div>
+        <div class="plan-empty-title">Building your plan</div>
+        <div class="plan-empty-text">Euler is analyzing the material and designing a personalized lesson path...</div>
+      </div>
+    `;
     return;
   }
 
-  container.classList.remove('hidden');
+  // Categorize sections: covered / current / upcoming
+  const covered = state.plan.filter(s => s.status === 'done');
+  const current = state.plan.find(s => s.status === 'active');
+  const upcoming = state.plan.filter(s => s.status === 'pending');
 
-  // Count total topics for progress
+  // Count total topics for progress bar
   let totalTopics = 0;
   let doneTopics = 0;
   for (const step of state.plan) {
@@ -4519,7 +4647,6 @@ function renderPlanProgress() {
       totalTopics += step.topics.length;
       doneTopics += step.topics.filter(t => t.status === 'done').length;
     } else {
-      // No topic sub-items — count section itself
       totalTopics += 1;
       if (step.status === 'done') doneTopics += 1;
     }
@@ -4531,50 +4658,63 @@ function renderPlanProgress() {
       <div class="plan-progress-bar">
         <div class="plan-progress-fill" style="width:${pct}%"></div>
       </div>
-      <div class="plan-progress-label">${doneTopics} of ${totalTopics} complete</div>
+      <div class="plan-progress-label">
+        <span>${doneTopics} of ${totalTopics} topics</span>
+        <span>${pct}%</span>
+      </div>
     </div>
   `;
 
-  for (const step of state.plan) {
-    const statusClass = step.status; // 'done', 'active', or 'pending'
+  // Helper to render a section + its topics
+  function renderSection(step) {
+    const statusClass = step.status;
     const icon = step.status === 'done' ? '✓'
-      : step.status === 'active' ? '●'
-      : '○';
-    const title = step.studentLabel || step.title || step.description || `Step ${step.n}`;
-    const tooltip = step.objective || step.learningOutcome
-      ? ` title="${escapeAttr(step.objective || step.learningOutcome || '')}"` : '';
-    const modalityBadge = step.modality
-      ? `<span class="plan-step-modality">${escapeHtml(step.modality.replace(/_/g, ' '))}</span>`
+      : step.status === 'active' ? '▸'
       : '';
+    const title = step.studentLabel || step.title || step.description || 'Step ' + step.n;
+    const tooltip = step.objective || step.learningOutcome
+      ? ' title="' + escapeAttr(step.objective || step.learningOutcome || '') + '"' : '';
 
-    html += `
-      <div class="plan-step ${statusClass}">
-        <div class="plan-step-indicator">${icon}</div>
-        <div class="plan-step-text">
-          <div class="plan-step-title"${tooltip}>${escapeHtml(title)} ${modalityBadge}</div>
-        </div>
-      </div>
-    `;
+    let s = '<div class="plan-step ' + statusClass + '">' +
+      '<div class="plan-step-indicator">' + icon + '</div>' +
+      '<div class="plan-step-text">' +
+      '<div class="plan-step-title"' + tooltip + '>' + escapeHtml(title) + '</div>' +
+      '</div></div>';
 
-    // Render nested topics within this section
     if (step.topics && step.topics.length > 0) {
       for (const topic of step.topics) {
-        const topicStatus = topic.status || 'pending';
-        const topicIcon = topicStatus === 'done' ? '✓'
-          : topicStatus === 'active' ? '›'
-          : '·';
-        const topicTitle = topic.title || `Topic ${topic.t}`;
-
-        html += `
-          <div class="plan-topic ${topicStatus}">
-            <div class="plan-topic-indicator">${topicIcon}</div>
-            <div class="plan-topic-text">
-              <div class="plan-topic-title">${escapeHtml(topicTitle)}</div>
-            </div>
-          </div>
-        `;
+        const ts = topic.status || 'pending';
+        const ti = ts === 'done' ? '✓' : ts === 'active' ? '›' : '·';
+        const tt = topic.title || 'Topic ' + topic.t;
+        s += '<div class="plan-topic ' + ts + '">' +
+          '<div class="plan-topic-indicator">' + ti + '</div>' +
+          '<div class="plan-topic-text"><div class="plan-topic-title">' + escapeHtml(tt) + '</div></div></div>';
       }
     }
+    return s;
+  }
+
+  // Covered sections (collapsed if many)
+  if (covered.length > 0) {
+    html += '<div class="plan-group-label">COVERED</div>';
+    // Show last 2 covered, collapse the rest
+    const showCovered = covered.length > 2 ? covered.slice(-2) : covered;
+    if (covered.length > 2) {
+      html += '<div class="plan-collapsed-hint">' + (covered.length - 2) + ' earlier topics</div>';
+    }
+    for (const step of showCovered) html += renderSection(step);
+  }
+
+  // Current section (highlighted)
+  if (current) {
+    html += '<div class="plan-group-label">NOW</div>';
+    html += renderSection(current);
+  }
+
+  // Upcoming sections
+  if (upcoming.length > 0) {
+    html += '<div class="plan-group-label">UP NEXT</div>';
+    for (const step of upcoming) html += renderSection(step);
   }
 
   stepsEl.innerHTML = html;
@@ -5501,6 +5641,11 @@ function appendSpotlightReference(type, title, reopenTag) {
   }
   state.spotlightHistory.push(historyEntry);
 
+  // Track assetId on current spotlight
+  if (state.spotlightInfo) {
+    state.spotlightInfo.assetId = refId;
+  }
+
   const stream = $('#canvas-stream');
   const cardHtml = `
     <div class="spotlight-ref-card" data-type="${escapeAttr(type)}" onclick="reopenSpotlight('${refId}')">
@@ -5946,7 +6091,11 @@ function updateTimer() {
   const timerEl = $('#session-timer');
   const statEl = $('#stat-time');
   if (timerEl) timerEl.textContent = timeStr;
-  if (statEl) statEl.textContent = timeStr;
+  if (statEl) {
+    const svg = statEl.querySelector('svg');
+    const svgHTML = svg ? svg.outerHTML + ' ' : '';
+    statEl.innerHTML = svgHTML + timeStr;
+  }
 }
 
 function updateSessionCost(costCents) {
@@ -6101,14 +6250,21 @@ async function fetchAndRenderSessions(name, courseId) {
 
     setStatus('');
 
+    // Always show session panel
+    listPanel.classList.remove('hidden');
+    firstTime.classList.add('hidden');
+
+    // Show/hide empty state
+    const emptyMsg = document.getElementById('dash-session-empty');
+
     if (sessions.length === 0) {
-      listPanel.classList.add('hidden');
-      firstTime.classList.remove('hidden');
+      if (emptyMsg) emptyMsg.style.display = '';
+      const activeContainer = document.getElementById('session-list-active');
+      if (activeContainer) activeContainer.innerHTML = '';
       return;
     }
 
-    firstTime.classList.add('hidden');
-    listPanel.classList.remove('hidden');
+    if (emptyMsg) emptyMsg.style.display = 'none';
 
     const active = sessions.filter(s => s.status === 'active');
     const completed = sessions.filter(s => s.status === 'complete');
@@ -6116,65 +6272,172 @@ async function fetchAndRenderSessions(name, courseId) {
   } catch (e) {
     console.warn('Failed to fetch sessions:', e);
     setStatus('');
-    // Fall back to first-time view
-    listPanel.classList.add('hidden');
-    firstTime.classList.remove('hidden');
+    // Still show session panel with empty state
+    listPanel.classList.remove('hidden');
+    firstTime.classList.add('hidden');
+    const emptyMsg = document.getElementById('dash-session-empty');
+    if (emptyMsg) emptyMsg.style.display = '';
+    const activeContainer = document.getElementById('session-list-active');
+    if (activeContainer) activeContainer.innerHTML = '';
   }
 }
 
+const SESSIONS_PER_PAGE = 4;
+let _allSessions = { active: [], completed: [] };
+
 function renderSessionCards(active, completed) {
   const activeContainer = $('#session-list-active');
-  const completedContainer = $('#session-list-completed');
-  if (!activeContainer || !completedContainer) return;
+  const completedItemsContainer = $('#session-list-completed-items');
+  const completedToggle = $('#btn-show-completed');
+  if (!activeContainer) return;
 
-  function timeAgo(dateStr) {
-    if (!dateStr) return '';
-    const diff = Date.now() - new Date(dateStr).getTime();
-    const mins = Math.floor(diff / 60000);
-    if (mins < 60) return `${mins}m ago`;
-    const hrs = Math.floor(mins / 60);
-    if (hrs < 24) return `${hrs}h ago`;
-    const days = Math.floor(hrs / 24);
-    return days === 1 ? 'Yesterday' : `${days}d ago`;
+  _allSessions.active = active.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+  _allSessions.completed = completed.sort((a, b) => new Date(b.startedAt) - new Date(a.startedAt));
+
+  const emptyMsg = document.getElementById('dash-session-empty');
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  activeContainer.innerHTML = '';
+
+  // Search box — rendered above the grid, inside session-list-panel
+  const existingSearch = document.getElementById('dash-session-search');
+  if (existingSearch) existingSearch.remove();
+  if (active.length + completed.length > 4) {
+    const searchEl = document.createElement('input');
+    searchEl.type = 'text';
+    searchEl.className = 'dash-session-search';
+    searchEl.id = 'dash-session-search';
+    searchEl.placeholder = 'Search sessions...';
+    activeContainer.parentElement.insertBefore(searchEl, activeContainer);
   }
 
-  let activeHtml = '';
-  for (const s of active) {
-    const headline = escapeHtml(s.headline || `Session ${s.number || '?'}`);
-    const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
-    const ago = timeAgo(s.startedAt);
-    const meta = [dur, ago].filter(Boolean).join(' · ');
-    activeHtml += `
-      <div class="dash-session-row" onclick="Router.navigate('/session/${escapeAttr(s.sessionId)}')">
-        <div class="dash-session-dot active"></div>
-        <div class="dash-session-info">
-          <div class="dash-session-title">${headline}</div>
-          <div class="dash-session-meta">${meta}</div>
-        </div>
-        <span class="dash-session-arrow">&rsaquo;</span>
-      </div>
-    `;
-  }
-  activeContainer.innerHTML = activeHtml;
+  _renderSessionBatch(activeContainer, _allSessions.active, true, SESSIONS_PER_PAGE);
 
-  let completedHtml = '';
-  for (const s of completed) {
-    const headline = escapeHtml(s.headline || `Session ${s.number || '?'}`);
-    const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
-    const ago = timeAgo(s.startedAt);
-    const meta = [dur, ago].filter(Boolean).join(' · ');
-    completedHtml += `
-      <div class="dash-session-row">
-        <div class="dash-session-dot done"></div>
-        <div class="dash-session-info">
-          <div class="dash-session-title">${headline}</div>
-          <div class="dash-session-meta">${meta}</div>
-        </div>
-        <span class="dash-session-arrow">&rsaquo;</span>
-      </div>
-    `;
+  if (completedItemsContainer && completedToggle) {
+    if (completed.length > 0) {
+      completedToggle.classList.remove('hidden');
+      completedItemsContainer.innerHTML = '';
+      _renderSessionBatch(completedItemsContainer, _allSessions.completed, false, SESSIONS_PER_PAGE);
+      completedToggle.onclick = () => {
+        completedItemsContainer.classList.toggle('hidden');
+        completedToggle.classList.toggle('expanded', !completedItemsContainer.classList.contains('hidden'));
+      };
+    } else {
+      completedToggle.classList.add('hidden');
+      completedItemsContainer.innerHTML = '';
+    }
   }
-  completedContainer.innerHTML = completedHtml;
+
+  // Wire search
+  const searchInput = document.getElementById('dash-session-search');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      const q = searchInput.value.toLowerCase().trim();
+      const fActive = _allSessions.active.filter(s => _sessionMatchesQuery(s, q));
+      const fCompleted = _allSessions.completed.filter(s => _sessionMatchesQuery(s, q));
+      // Clear and re-render
+      activeContainer.querySelectorAll('.dash-sessions-grid-inner, .dash-show-more').forEach(el => el.remove());
+      _renderSessionBatch(activeContainer, fActive, true, q ? 100 : SESSIONS_PER_PAGE);
+      if (completedItemsContainer) {
+        completedItemsContainer.innerHTML = '';
+        _renderSessionBatch(completedItemsContainer, fCompleted, false, q ? 100 : SESSIONS_PER_PAGE);
+      }
+    });
+  }
+}
+
+function _sessionMatchesQuery(s, q) {
+  if (!q) return true;
+  return [s.headline, s.headlineDescription, s.intent?.raw, ...(s.sections || []).map(x => x.title)]
+    .filter(Boolean).join(' ').toLowerCase().includes(q);
+}
+
+function _renderSessionBatch(container, sessions, isActive, limit) {
+  const shown = sessions.slice(0, limit);
+  const grid = document.createElement('div');
+  grid.className = 'dash-sessions-grid-inner';
+  grid.innerHTML = shown.map(s => _buildCard(s, isActive)).join('');
+  container.appendChild(grid);
+
+  if (sessions.length > limit) {
+    const btn = document.createElement('button');
+    btn.className = 'dash-show-more';
+    btn.textContent = `Show more (${sessions.length - limit} remaining)`;
+    btn.onclick = () => {
+      const count = container.querySelectorAll('.dash-session-card').length;
+      const next = sessions.slice(count, count + SESSIONS_PER_PAGE);
+      next.forEach(s => grid.insertAdjacentHTML('beforeend', _buildCard(s, isActive)));
+      const rem = sessions.length - container.querySelectorAll('.dash-session-card').length;
+      if (rem > 0) { btn.textContent = `Show more (${rem} remaining)`; }
+      else btn.remove();
+    };
+    container.appendChild(btn);
+  }
+}
+
+function _buildCard(s, isActive) {
+  let title = s.headline || '';
+  if (!title || /^Session \d+$/.test(title)) {
+    title = (s.intent && s.intent.raw) || '';
+  }
+  if (!title) {
+    // Use first section title as fallback
+    const sec = (s.sections || [])[0];
+    title = sec ? sec.title : 'Untitled session';
+  }
+  title = escapeHtml(title);
+  const desc = escapeHtml(s.headlineDescription || '');
+  const ago = _timeAgo(s.startedAt);
+  const dur = _fmtDur(s.durationSec);
+  const cls = isActive ? 'active' : 'done';
+  const click = s.sessionId ? ` onclick="Router.navigate('/session/${escapeAttr(s.sessionId)}')"` : '';
+
+  // Tooltip
+  const sections = s.sections || [];
+  let tip = '';
+  if (sections.length > 0) {
+    tip = '<div class="dash-session-tooltip"><div class="dash-tooltip-topics">';
+    sections.slice(0, 5).forEach(sec => {
+      const ic = sec.status === 'done' ? '\u2713' : sec.status === 'active' ? '\u25CF' : '\u25CB';
+      const c2 = sec.status === 'done' ? 'done' : sec.status === 'active' ? 'active' : '';
+      tip += '<div class="dash-tooltip-topic ' + c2 + '"><span>' + ic + '</span> ' + escapeHtml(sec.title || '') + '</div>';
+    });
+    if (sections.length > 5) tip += '<div class="dash-tooltip-more">+' + (sections.length - 5) + ' more</div>';
+    tip += '</div></div>';
+  }
+
+  return `<div class="dash-session-card dash-session-${cls}"${click}>
+    <div class="dash-session-card-top">
+      <span class="dash-session-ago">${ago}</span>
+      ${dur ? `<span class="dash-session-dur-inline">${dur}</span>` : ''}
+    </div>
+    <div class="dash-session-headline">${title}</div>
+    ${desc ? `<div class="dash-session-desc">${desc}</div>` : ''}
+    <div class="dash-session-resume">${isActive ? 'Continue' : 'Review'} <span>&rarr;</span></div>
+    ${tip}
+  </div>`;
+}
+
+function _timeAgo(d) {
+  if (!d) return '';
+  const ms = Date.now() - new Date(d).getTime();
+  const m = Math.floor(ms / 60000);
+  if (m < 1) return 'Just now';
+  if (m < 60) return m + 'm ago';
+  const h = Math.floor(m / 60);
+  if (h < 24) return h + 'h ago';
+  const dy = Math.floor(h / 24);
+  if (dy === 1) return 'Yesterday';
+  if (dy < 7) return dy + 'd ago';
+  return new Date(d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function _fmtDur(sec) {
+  if (!sec) return '';
+  const m = Math.round(sec / 60);
+  if (m < 60) return m + 'm';
+  const h = Math.floor(m / 60), r = m % 60;
+  return r > 0 ? h + 'h ' + r + 'm' : h + 'h';
 }
 
 function deriveCheckpointFromSession(session) {
@@ -6194,6 +6457,7 @@ function deriveCheckpointFromSession(session) {
 
 function showLandingPanel() {
   UIHints.removeAll();
+  if (typeof DashBg !== 'undefined') DashBg.start();
   const lp = $('#landing-panel');
   if (lp) lp.style.display = 'block';
   $('#login-panel').style.display = 'none';
@@ -6205,6 +6469,7 @@ function showLandingPanel() {
 
 function showLoginPanel() {
   UIHints.removeAll();
+  if (typeof DashBg !== 'undefined') DashBg.start();
   const lp = $('#landing-panel');
   if (lp) lp.style.display = 'none';
   $('#login-panel').style.display = 'flex';
@@ -6219,10 +6484,28 @@ function updateCourseCardSelection(courseId) {
     const cid = card.dataset.course;
     card.classList.toggle('selected', cid === String(courseId));
   });
+  // Also update course pills
+  document.querySelectorAll('.dash-course-pill').forEach(pill => {
+    const cid = pill.dataset.course;
+    pill.classList.toggle('selected', cid === String(courseId));
+  });
 }
 
 function showSetupPanel() {
   UIHints.removeAll();
+
+  // Reset session-start and resume loading states (may be stuck from previous navigation)
+  state._startingSession = false;
+  state._resumingSession = false;
+  const _startBtn = $('#btn-start-session');
+  const _dashInput = $('#student-intent-first');
+  if (_startBtn) {
+    _startBtn.disabled = false;
+    if (_startBtn.dataset.origHtml) { _startBtn.innerHTML = _startBtn.dataset.origHtml; delete _startBtn.dataset.origHtml; }
+  }
+  if (_dashInput) _dashInput.disabled = false;
+  document.querySelectorAll('.dash-chip').forEach(c => c.style.pointerEvents = '');
+
   const user = AuthManager.getUser();
   if (!user) return Router.navigate('/', { replace: true });
 
@@ -6232,6 +6515,12 @@ function showSetupPanel() {
   const firstName = user.name.split(' ')[0];
   const greeting = $('#setup-greeting');
   if (greeting) greeting.textContent = `Hey ${firstName}`;
+  const subline = $('#dash-subline');
+  if (subline) {
+    const hour = new Date().getHours();
+    const timeGreet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+    subline.textContent = `${timeGreet} — what are we learning today?`;
+  }
 
   // Update nav user pill
   const avatar = $('#dash-avatar');
@@ -6248,6 +6537,9 @@ function showSetupPanel() {
   if (timerInterval) clearInterval(timerInterval);
   document.body.style.overflow = 'hidden';
   document.body.style.height = '100vh';
+
+  // Start animated background
+  if (typeof DashBg !== 'undefined') DashBg.start();
 
   // Enable/disable buttons and fetch sessions for selected course
   const courseId = parseInt($('#course-id')?.value);
@@ -6466,6 +6758,19 @@ async function initSetup() {
     });
   });
 
+  // ─── Dashboard course pill click ──────────────────────────
+  document.querySelectorAll('.dash-course-pill').forEach(pill => {
+    pill.addEventListener('click', () => {
+      const cid = pill.dataset.course;
+      if (!cid || cid === 'byo') return;
+      if (courseIdInput) {
+        courseIdInput.value = cid;
+        courseIdInput.dispatchEvent(new Event('change'));
+      }
+      updateCourseCardSelection(parseInt(cid));
+    });
+  });
+
   $('#btn-back')?.addEventListener('click', () => {
     Router.navigate('/dashboard');
   });
@@ -6504,6 +6809,23 @@ async function initSetup() {
 
 async function startNewSession(name, courseId, intent) {
   if (!name || !courseId) return;
+
+  // Block multiple clicks
+  if (state._startingSession) return;
+  state._startingSession = true;
+
+  // Show loading state on button
+  const startBtn = $('#btn-start-session');
+  const dashInput = $('#student-intent-first');
+  if (startBtn) {
+    startBtn.disabled = true;
+    startBtn.dataset.origHtml = startBtn.innerHTML;
+    startBtn.innerHTML = '<span class="dash-send-spinner"></span>';
+  }
+  if (dashInput) dashInput.disabled = true;
+
+  // Disable chips
+  document.querySelectorAll('.dash-chip').forEach(c => c.style.pointerEvents = 'none');
 
   state.studentName = name;
   state.studentIntent = intent;
@@ -6573,11 +6895,8 @@ async function startNewSession(name, courseId, intent) {
     state.pendingSpotlightEvent = null;
     state.recentlyClosedSim = null;
 
-    // Clear plan UI
-    const planSteps = $('#plan-steps');
-    if (planSteps) planSteps.innerHTML = '';
-    const planProgress = $('#plan-progress');
-    if (planProgress) planProgress.classList.add('hidden');
+    // Reset plan UI — show "preparing" state
+    renderPlanProgress();
     const planObj = $('#plan-objective');
     if (planObj) planObj.innerHTML = '';
 
@@ -6631,27 +6950,92 @@ async function startNewSession(name, courseId, intent) {
     const hasProgress = state.checkpoint.completedSections.length > 0;
     const completed = state.checkpoint.completedSections.length;
 
+    // Build time context for natural greeting
+    const now = new Date();
+    const hour = now.getHours();
+    const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
+    const timeCtx = `Current time: ${dayName} ${timeOfDay}.`;
+
     let trigger;
     if (state.studentIntent) {
-      // Student provided specific intent — skip probing, go straight to planning
       const progressNote = hasProgress
         ? ` They have completed ${completed} sections so far (session ${state.checkpoint.sessionCount}).`
         : '';
-      trigger = `[SYSTEM] Student "${state.studentName}" has joined.${progressNote} The student pre-stated their intent: "${state.studentIntent}". IMPORTANT: The student has already told you what they want. Do NOT ask diagnostic or probing questions — skip the probing phase entirely. Greet them with ONE short sentence acknowledging their goal, then IMMEDIATELY call spawn_agent("planning", ...) with their stated intent as the starting point, and give them a warm-up assessment in the same message. The student's intent IS your probe result.`;
+      trigger = `[SYSTEM] ${timeCtx} Student "${state.studentName}" has joined.${progressNote} The student said: "${state.studentIntent}".
+
+OPENING INSTRUCTIONS:
+- Greet warmly (1 short sentence, use their name, acknowledge what they want).
+- DO NOT give an MCQ or quiz. No cold assessment on the opening message.
+- If returning: check [Student Notes] for what they covered. Reference it naturally ("Last time you had a great insight about..."). Ask ONE casual probing question in conversation (not an MCQ) to verify they remember.
+- Spawn planning agent in the background based on their intent.
+- Start TEACHING with a board-draw or widget in this same message. The board should NOT be empty after your first response.
+- Keep chat brief (2-3 sentences). The visual does the teaching.`;
     } else if (hasProgress) {
-      trigger = `[SYSTEM] The student "${state.studentName}" is returning for session ${state.checkpoint.sessionCount}. They have completed ${completed} sections. Current position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}. Welcome them back briefly, state where you're picking up, and continue teaching following the current script. Do NOT ask what they want to do — you are the teacher, take charge.`;
+      trigger = `[SYSTEM] ${timeCtx} Returning student "${state.studentName}" — session ${state.checkpoint.sessionCount}. Completed ${completed} sections. Position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}.
+
+OPENING INSTRUCTIONS:
+- Greet warmly using their name. Reference what you covered last time from [Student Notes] — use their own words/metaphors if available.
+- DO NOT give an MCQ or quiz. No cold assessment.
+- DO NOT mention lesson numbers or section numbers. The course is invisible.
+- Ask ONE natural conversational question to check if prior concepts are still solid ("Last time we explored how [X] works — does that still feel clear, or should we revisit?").
+- Based on their response, either revisit briefly or continue forward.
+- Start TEACHING with a visual (board-draw or widget) in this message. Board should not be empty.
+- Spawn planning agent in the background.`;
     } else {
-      trigger = `[SYSTEM] New student "${state.studentName}" has joined for their first session. Greet them with one warm sentence, state the objective, and start teaching immediately following the current script. Do NOT ask what they want to learn — you are the teacher, take charge.`;
+      trigger = `[SYSTEM] ${timeCtx} New student "${state.studentName}" — first session.
+
+OPENING INSTRUCTIONS:
+- Greet warmly using their name. Make them feel welcome, not like they're starting software.
+- DO NOT give an MCQ or quiz. No assessment on the first message ever.
+- DO NOT mention lessons, sections, or course structure. You're a tutor, not courseware.
+- Briefly set the stage: what you'll explore today and why it's interesting (1-2 sentences, no jargon).
+- Start TEACHING with a board-draw or widget immediately. The board should NOT be empty.
+- Spawn planning agent in the background.
+- Gauge their level THROUGH teaching ("Does this connect to anything you've seen before?"), not through quizzing.`;
     }
 
     await streamADK(trigger, true, true);
   } catch (err) {
     setStatus(`Failed: ${err.message}`, 'error');
+    // Reset loading state so user can retry
+    state._startingSession = false;
+    const _startBtn = $('#btn-start-session');
+    const _dashInput = $('#student-intent-first');
+    if (_startBtn) { _startBtn.disabled = false; if (_startBtn.dataset.origHtml) _startBtn.innerHTML = _startBtn.dataset.origHtml; }
+    if (_dashInput) _dashInput.disabled = false;
+    document.querySelectorAll('.dash-chip').forEach(c => c.style.pointerEvents = '');
   }
 }
 
 window.continueSession = async function(sessionId) {
-  setStatus('Resuming session...');
+  // Block duplicate calls (double-click, etc.)
+  if (state._resumingSession) return;
+  state._resumingSession = true;
+
+  // Show a loading state immediately — don't leave the page blank
+  const setupPanel = $('#setup-panel');
+  const teachingLayout = $('#teaching-layout');
+  const loginPanel = $('#login-panel');
+  const landingPanel = $('#landing-panel');
+  if (setupPanel) setupPanel.style.display = 'none';
+  if (loginPanel) loginPanel.style.display = 'none';
+  if (typeof DashBg !== 'undefined') DashBg.stop();
+  if (landingPanel) landingPanel.style.display = 'none';
+  // Show full-screen loading overlay while session loads
+  if (!document.getElementById('session-resume-overlay')) {
+    const overlay = document.createElement('div');
+    overlay.id = 'session-resume-overlay';
+    overlay.className = 'session-resume-overlay';
+    overlay.innerHTML = `
+      <div class="session-resume-card">
+        <div class="session-resume-spinner"></div>
+        <div class="session-resume-text">Restoring your session...</div>
+        <div class="session-resume-sub">Loading conversation, boards, and progress</div>
+      </div>
+    `;
+    document.getElementById('app').appendChild(overlay);
+  }
 
   try {
     // Fetch the full session
@@ -6720,6 +7104,16 @@ window.continueSession = async function(sessionId) {
     }
     if (sessionData.conceptNotes) {
       state.assessment.conceptNotes = sessionData.conceptNotes;
+    }
+
+    // Restore widget interaction state
+    if (sessionData.widgetLiveState && Object.keys(sessionData.widgetLiveState).length > 0) {
+      state.widget.liveState = sessionData.widgetLiveState;
+    }
+
+    // Restore active board-draw content (for context builder)
+    if (sessionData.activeBoardDrawContent) {
+      state.boardDraw.rawContent = sessionData.activeBoardDrawContent;
     }
 
     // Save active spotlight info for restoration after canvas rebuild
@@ -6792,16 +7186,36 @@ window.continueSession = async function(sessionId) {
     // Start fresh timer for this session (don't carry over accumulated time)
     state.sessionStartTime = Date.now();
 
+    // Fade out and remove the loading overlay
+    const resumeOverlay = document.getElementById('session-resume-overlay');
+    if (resumeOverlay) {
+      resumeOverlay.style.opacity = '0';
+      setTimeout(() => resumeOverlay.remove(), 400);
+    }
+
     const completed = state.checkpoint.completedSections.length;
-    const intentClause = state.studentIntent
-      ? ` The student said: "${state.studentIntent}".`
-      : '';
+    const now = new Date();
+    const hour = now.getHours();
+    const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
+    const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
 
-    // Backend handles routing — if assessment was active, it will resume automatically
-    const trigger = `[SYSTEM] The student "${state.studentName}" is returning to continue session ${state.checkpoint.sessionCount}. They have completed ${completed} sections. Current position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}.${intentClause} Welcome them back briefly, state where you're picking up, and continue teaching following the current script. Do NOT ask what they want to do — you are the teacher, take charge.`;
+    const trigger = `[SYSTEM] Current time: ${dayName} ${timeOfDay}. Returning student "${state.studentName}" — continuing session ${state.checkpoint.sessionCount}. Completed ${completed} sections. Position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}.
 
+OPENING INSTRUCTIONS:
+- Greet warmly using their name. Reference what you covered from [Student Notes].
+- DO NOT give an MCQ or quiz. No cold assessment.
+- DO NOT mention lesson numbers or section numbers.
+- The student's prior board-draws and chat are already restored above — don't repeat what was said.
+- If the transcript shows you were mid-topic, pick up where you left off naturally.
+- Start with a visual (board-draw or widget) in this message.
+- Keep chat brief. The board does the teaching.`;
+
+    state._resumingSession = false;
     await streamADK(trigger, true, true);
   } catch (err) {
+    state._resumingSession = false;
+    const _overlay = document.getElementById('session-resume-overlay');
+    if (_overlay) _overlay.remove();
     setStatus(`Failed to resume: ${err.message}`, 'error');
     Router.navigate('/dashboard', { replace: true });
   }
@@ -6918,12 +7332,15 @@ function renderHistoricalStudentMessage(text) {
 function showTeachingLayout(courseMap) {
   document.title = courseMap.title + ' — Capacity';
   $('#course-title').textContent = courseMap.title;
-  $('#sidebar-section-label').textContent = 'PROGRESS';
+  $('#sidebar-section-label').textContent = 'SESSION';
   $('#sidebar-status').textContent = state.studentName;
-  $('#stat-session').textContent = '';
+  const sessionNum = (SessionManager.session && SessionManager.session.number) || '';
+  const statSess = $('#stat-session');
+  if (statSess) statSess.textContent = sessionNum ? `Session ${sessionNum}` : 'Session';
 
   $('#setup-panel').style.display = 'none';
   $('#teaching-layout').classList.remove('hidden');
+  if (typeof DashBg !== 'undefined') DashBg.stop();
 
   renderCourseProgress();
   startTimer();
@@ -7446,9 +7863,13 @@ const BD_COLORS = {
 };
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
-const BD_MIN_FONT_SCALE = 1.4;  // Minimum font scaling to keep text readable
+const BD_MIN_FONT_SCALE = 1.4;
+
+// Active p5 animation instances on the board overlay
+const bdActiveAnimations = [];
 
 function bdInit(canvasEl, voiceEl) {
+  hideBoardLoadingSkeleton();
   const bd = state.boardDraw;
   bd.canvas = canvasEl;
   bd.ctx = canvasEl.getContext('2d', { willReadFrequently: true });
@@ -7607,6 +8028,7 @@ function bdResizeCanvas() {
     bd.ctx.putImageData(oldData, 0, 0);
     bd.ctx.restore();
   }
+  bdSyncAnimLayer();
 }
 
 function bdExpandIfNeeded(maxY) {
@@ -7617,6 +8039,14 @@ function bdExpandIfNeeded(maxY) {
     bdDrawGrid();
     const wrap = document.getElementById('bd-canvas-wrap');
     if (wrap) wrap.scrollTop = wrap.scrollHeight;
+  }
+}
+
+function bdSyncAnimLayer() {
+  const layer = document.getElementById('bd-anim-layer');
+  const canvas = document.getElementById('bd-canvas');
+  if (layer && canvas) {
+    layer.style.height = canvas.style.height || (canvas.clientHeight + 'px');
   }
 }
 
@@ -7816,8 +8246,13 @@ function latexToUnicode(tex) {
   s = s.replace(/\\textbf\{([^}]*)\}/g, '$1');
   s = s.replace(/\\mathbf\{([^}]*)\}/g, '$1');
   s = s.replace(/\\operatorname\{([^}]*)\}/g, '$1');
-  // \frac{a}{b} → a/b
-  s = s.replace(/\\frac\{([^}]*)\}\{([^}]*)\}/g, '($1)/($2)');
+  // \frac{a}{b} and \dfrac{a}{b} → a/b (clean, no parens for short fracs)
+  s = s.replace(/\\d?frac\{([^}]*)\}\{([^}]*)\}/g, (_, num, den) => {
+    // Short numerator/denominator (single symbol) → no parens
+    const n = num.trim(), d = den.trim();
+    if (n.length <= 3 && d.length <= 3) return n + '/' + d;
+    return '(' + n + ')/(' + d + ')';
+  });
   // \sqrt{x} → √(x), \sqrt[n]{x} → ⁿ√(x)
   s = s.replace(/\\sqrt\[([^\]]*)\]\{([^}]*)\}/g, (_, n, body) => (_LATEX_SUP[n] || n) + '√(' + body + ')');
   s = s.replace(/\\sqrt\{([^}]*)\}/g, '√($1)');
@@ -8152,6 +8587,7 @@ function bdClearBoard() {
   const bd = state.boardDraw;
   if (!bd.ctx) return;
   bd.currentH = BD_INITIAL_H;
+  bdClearAllAnimations();
   bdResizeCanvas();
   bd.ctx.fillStyle = '#1a1d2e';
   bd.ctx.fillRect(0, 0, BD_VIRTUAL_W * bd.scale, bd.currentH * bd.scale);
@@ -8161,7 +8597,7 @@ function bdClearBoard() {
 
 async function bdRunCommand(cmd) {
   const bd = state.boardDraw;
-  if (bd.cancelFlag) return;
+  if (bd.cancelFlag || !bd.canvas || !bd.ctx) return;
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
     case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
@@ -8177,6 +8613,7 @@ async function bdRunCommand(cmd) {
     case 'brace': await bdAnimBrace(cmd); break;
     case 'fillrect': await bdAnimFillRect(cmd); break;
     case 'curvedarrow': await bdAnimCurvedArrow(cmd); break;
+    case 'animation': await bdRunAnimation(cmd); break;
     case 'voice':
       bdShowVoice(cmd.text);
       if (cmd.dur) { await bdSleep(cmd.dur); bdHideVoice(); }
@@ -8186,25 +8623,357 @@ async function bdRunCommand(cmd) {
   }
 }
 
+// ── p5.js Animation Engine ──
+
+function bdRecoverMissedAnimations(bd) {
+  // Check if any animation commands are already in the queue
+  const hasAnim = bd.commandQueue.some(c => c.cmd === 'animation');
+  if (hasAnim) return; // already got them
+
+  // Scan raw content for animation commands using bracket-matching
+  // This handles the case where the AI put newlines inside the "code" JSON string
+  const raw = bd.rawContent || '';
+  const marker = '"cmd":"animation"';
+  const marker2 = '"cmd": "animation"';
+  let searchFrom = 0;
+
+  while (searchFrom < raw.length) {
+    let idx = raw.indexOf(marker, searchFrom);
+    if (idx < 0) idx = raw.indexOf(marker2, searchFrom);
+    if (idx < 0) break;
+
+    // Walk backwards to find the opening { of this JSON object
+    let objStart = raw.lastIndexOf('{', idx);
+    if (objStart < 0) { searchFrom = idx + 10; continue; }
+
+    // Walk forward with bracket matching to find the closing }
+    let depth = 0;
+    let inStr = false;
+    let escaped = false;
+    let objEnd = -1;
+
+    for (let i = objStart; i < raw.length; i++) {
+      const ch = raw[i];
+      if (escaped) { escaped = false; continue; }
+      if (ch === '\\') { escaped = true; continue; }
+      if (ch === '"') { inStr = !inStr; continue; }
+      if (inStr) continue;
+      if (ch === '{') depth++;
+      if (ch === '}') { depth--; if (depth === 0) { objEnd = i; break; } }
+    }
+
+    if (objEnd < 0) { searchFrom = idx + 10; continue; }
+
+    const jsonStr = raw.slice(objStart, objEnd + 1);
+    try {
+      const parsed = JSON.parse(jsonStr);
+      if (parsed.cmd === 'animation' && parsed.code) {
+        // Insert animation at the right position in the queue (after existing commands)
+        bd.commandQueue.push(parsed);
+        // recovered animation command from raw content
+      }
+    } catch (e) {
+      // Try to fix: the code field might have unescaped newlines
+      // Replace literal newlines inside string values with spaces
+      const fixed = jsonStr.replace(/\n/g, ' ');
+      try {
+        const parsed = JSON.parse(fixed);
+        if (parsed.cmd === 'animation' && parsed.code) {
+          bd.commandQueue.push(parsed);
+          // recovered animation command (fixed newlines)
+        }
+      } catch (e2) {
+        console.warn('Board: could not recover animation command:', e2.message);
+      }
+    }
+    searchFrom = objEnd + 1;
+  }
+  bd._pendingAnimLines = null;
+}
+
+function bdSanitizeAnimCode(code) {
+  // Replace smart/curly quotes with straight quotes
+  code = code.replace(/[\u2018\u2019\u201A\u2032]/g, "'");
+  code = code.replace(/[\u201C\u201D\u201E\u2033]/g, '"');
+  // Replace en/em dashes with minus
+  code = code.replace(/[\u2013\u2014]/g, '-');
+  // Remove zero-width characters
+  code = code.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  // Replace non-breaking spaces with regular spaces
+  code = code.replace(/\u00A0/g, ' ');
+  // Strip markdown code fence wrappers if AI accidentally included them
+  code = code.replace(/^```(?:javascript|js)?\s*/i, '').replace(/\s*```\s*$/, '');
+
+  // Balance brackets: track the stack and append missing closers
+  const stack = [];
+  let inSingle = false, inDouble = false, inTemplate = false, esc = false;
+  for (let i = 0; i < code.length; i++) {
+    const ch = code[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (inSingle) { if (ch === "'") inSingle = false; continue; }
+    if (inDouble) { if (ch === '"') inDouble = false; continue; }
+    if (inTemplate) { if (ch === '`') inTemplate = false; continue; }
+    if (ch === "'") { inSingle = true; continue; }
+    if (ch === '"') { inDouble = true; continue; }
+    if (ch === '`') { inTemplate = true; continue; }
+    if (ch === '{') stack.push('}');
+    else if (ch === '(') stack.push(')');
+    else if (ch === '[') stack.push(']');
+    else if (ch === '}' || ch === ')' || ch === ']') stack.pop();
+  }
+  if (stack.length > 0) {
+    code += stack.reverse().join('');
+  }
+  return code;
+}
+
+async function bdRunAnimation(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag || !bd.canvas) return;
+  const layer = document.getElementById('bd-anim-layer');
+  if (!layer) return;
+
+  const s = bd.scale;
+  const x = (cmd.x || 0) * s;
+  const y = (cmd.y || 0) * s;
+  const w = (cmd.w || 300) * s;
+  const h = (cmd.h || 200) * s;
+  const duration = cmd.duration || 6000;
+
+  bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 200));
+
+  if (!cmd.code) {
+    console.warn('Board animation: no "code" field provided');
+    return;
+  }
+
+  let code = bdSanitizeAnimCode(cmd.code);
+  let sketchFn;
+  try {
+    sketchFn = new Function('p', 'W', 'H', code);
+  } catch (e) {
+    console.warn('Board animation compile error:', e.message, '\nCode (first 500):', code.slice(0, 500));
+    if (!bd._animErrors) bd._animErrors = [];
+    bd._animErrors.push({ cmd: { ...cmd, code }, error: e.message });
+    return;
+  }
+
+  const container = document.createElement('div');
+  container.className = 'bd-anim-box';
+  container.style.left = x + 'px';
+  container.style.top = y + 'px';
+  container.style.width = Math.round(w) + 'px';
+  container.style.height = Math.round(h) + 'px';
+  container.style.opacity = '0';
+  container.style.transition = 'opacity 0.4s';
+  layer.appendChild(container);
+
+  const pw = Math.round(w);
+  const ph = Math.round(h);
+
+  const BOARD_FONT = "'Caveat', cursive";
+
+  let inst;
+  try {
+    inst = new p5(p => {
+      const _origSetup = null;
+      sketchFn(p, pw, ph);
+      const userSetup = p.setup;
+      p.setup = function() {
+        if (userSetup) userSetup.call(p);
+        p.textFont('Caveat');
+      };
+    }, container);
+  } catch (e) {
+    console.warn('Board animation: runtime error, queuing for silent retry', e.message);
+    if (!bd._animErrors) bd._animErrors = [];
+    bd._animErrors.push({ cmd, error: e.message });
+    container.remove();
+    return;
+  }
+
+  requestAnimationFrame(() => { container.style.opacity = '1'; });
+
+  const entry = {
+    container, inst,
+    vx: cmd.x || 0, vy: cmd.y || 0,
+    vw: cmd.w || 300, vh: cmd.h || 200,
+  };
+  bdActiveAnimations.push(entry);
+
+  if (duration > 0) {
+    await new Promise(resolve => {
+      const timer = setTimeout(() => {
+        bdRasterizeAnimation(entry);
+        resolve();
+      }, duration);
+      entry._timer = timer;
+    });
+  }
+}
+
+async function bdSilentAnimRetry(errors) {
+  const bd = state.boardDraw;
+  if (!bd.canvas || bd.cancelFlag) return;
+  if (bd._retryInFlight) return;
+  bd._retryInFlight = true;
+
+  const errorDescs = errors.map((e, i) => {
+    const c = e.cmd;
+    return `Animation ${i + 1} at (x:${c.x},y:${c.y},w:${c.w},h:${c.h}):\n` +
+      `  Error: ${e.error}\n  Code: ${(c.code || '').slice(0, 600)}`;
+  }).join('\n\n');
+
+  const repairPrompt =
+    `[SYSTEM — HIDDEN FROM STUDENT]\n` +
+    `Your board animation code had JavaScript errors and failed to run.\n` +
+    `Fix ONLY the broken animation commands and return them as JSONL lines ` +
+    `(one {"cmd":"animation",...} per line). Return NOTHING else — no text, no XML tags, ` +
+    `just the corrected JSONL animation commands.\n\n` +
+    `ERRORS:\n${errorDescs}`;
+
+  try {
+    const res = await fetch(`${state.apiUrl}/api/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Accept: 'text/event-stream',
+        ...AuthManager.authHeaders(),
+      },
+      body: JSON.stringify({
+        messages: [
+          ...state.messages,
+          { id: generateId(), role: 'user', content: repairPrompt },
+        ],
+        context: buildContext(),
+        sessionId: state.sessionId,
+      }),
+    });
+
+    if (!res.ok) { bd._retryInFlight = false; return; }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let fullText = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = decoder.decode(value, { stream: true });
+      for (const line of chunk.split('\n')) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const evt = JSON.parse(line.slice(6).trim());
+          if (evt.type === 'TEXT_MESSAGE_CONTENT' && evt.delta) fullText += evt.delta;
+          else if (evt.type === 'TEXT_DELTA' && evt.text) fullText += evt.text;
+        } catch (e) {}
+      }
+    }
+
+    const corrected = [];
+    for (const ln of fullText.split('\n')) {
+      const trimmed = ln.trim();
+      if (!trimmed || !trimmed.startsWith('{')) continue;
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (parsed.cmd === 'animation' && parsed.code) corrected.push(parsed);
+      } catch (e) {}
+    }
+
+    bd._animErrors = null; // clear so retried failures don't re-trigger
+    for (const cmd of corrected) {
+      if (bd.cancelFlag || !bd.canvas) break;
+      await bdRunAnimation(cmd);
+    }
+  } catch (e) {
+    console.warn('Silent animation retry failed:', e.message);
+  }
+  bd._retryInFlight = false;
+}
+
+function bdRasterizeAnimation(entry) {
+  const bd = state.boardDraw;
+  if (!bd.canvas || !bd.ctx) { bdRemoveAnimation(entry); return; }
+
+  const p5Canvas = entry.container.querySelector('canvas');
+  if (p5Canvas) {
+    const s = bd.scale;
+    bd.ctx.save();
+    bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+    bd.ctx.drawImage(p5Canvas, entry.vx * s, entry.vy * s, entry.vw * s, entry.vh * s);
+    bd.ctx.restore();
+  }
+  bdRemoveAnimation(entry);
+}
+
+function bdRemoveAnimation(entry) {
+  try { entry.inst.remove(); } catch (e) {}
+  try { entry.container.remove(); } catch (e) {}
+  if (entry._timer) clearTimeout(entry._timer);
+  const idx = bdActiveAnimations.indexOf(entry);
+  if (idx !== -1) bdActiveAnimations.splice(idx, 1);
+}
+
+function bdRasterizeAllAnimations() {
+  [...bdActiveAnimations].forEach(entry => bdRasterizeAnimation(entry));
+}
+
+function bdClearAllAnimations() {
+  [...bdActiveAnimations].forEach(entry => bdRemoveAnimation(entry));
+}
+
 async function bdProcessQueue() {
   const bd = state.boardDraw;
   if (bd.isProcessing) return;
   bd.isProcessing = true;
+
+  // If _instantReplayCount is set, replay those commands instantly (no animation)
+  if (bd._instantReplayCount > 0 && bd.commandQueue.length > 0) {
+    const count = Math.min(bd._instantReplayCount, bd.commandQueue.length);
+    const instantCmds = bd.commandQueue.splice(0, count);
+    bd._instantReplayCount = Math.max(0, bd._instantReplayCount - count);
+    bdReplayCommandsInstant(instantCmds);
+  }
+  bd._instantReplayCount = 0;
+
+  // Process remaining commands with normal animation
   while (bd.commandQueue.length > 0) {
     if (bd.cancelFlag) break;
     await bdRunCommand(bd.commandQueue.shift());
   }
   bd.isProcessing = false;
+
+  // Resume if new commands arrived during animation (streaming added more)
+  if (bd.commandQueue.length > 0 && !bd.cancelFlag) {
+    bdProcessQueue();
+    return;
+  }
+
+  // Silent retry: if any animation commands had syntax/runtime errors, ask AI to fix
+  if (!bd.cancelFlag && bd.complete && bd._animErrors && bd._animErrors.length > 0) {
+    const errors = bd._animErrors.splice(0);
+    bdSilentAnimRetry(errors);
+  }
+
   // Board animation finished — glow the last AI message to draw student's attention
   if (!bd.cancelFlag && bd.complete && state.spotlightActive) {
     highlightLastChatMessage();
   }
   // Capture tutor-only snapshot after all commands finish (before student draws)
   if (!bd.cancelFlag && bd.canvas && !bd.tutorSnapshot) {
-    try {
-      bd.tutorSnapshot = bd.canvas.toDataURL('image/png');
-    } catch (e) {
-      console.warn('Could not capture tutor snapshot:', e);
+    if (bdActiveAnimations.length > 0) {
+      // Animations still running — defer until they rasterize
+      setTimeout(() => {
+        bdRasterizeAllAnimations();
+        try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
+      }, 500);
+    } else {
+      try {
+        bd.tutorSnapshot = bd.canvas.toDataURL('image/png');
+      } catch (e) {
+        console.warn('Could not capture tutor snapshot:', e);
+      }
     }
   }
 }
@@ -8218,10 +8987,27 @@ function bdProcessStreaming(fullText) {
   const bd = state.boardDraw;
   if (bd.dismissed) return;
   if (!bd.active) {
-    const m = fullText.match(/<teaching-board-draw([^>]*)>/);
+    const m = fullText.match(/<teaching-board-draw(?:-resume)?([^>]*)>/);
     if (!m) return;
+    // Parse clear attribute (defaults to true)
+    const attrStr = m[1] || '';
+    const clearMatch = attrStr.match(/clear\s*=\s*["']?(false|true)["']?/);
+    bd.clearBoard = clearMatch ? clearMatch[1] !== 'false' : true;
+
+    // If a canvas already exists from a previous board-draw and we should clear,
+    // wipe it NOW so new commands don't draw on top of old content
+    if (bd.canvas && bd.ctx && bd.clearBoard) {
+      bd.cancelFlag = true; // stop any in-progress queue
+      bd.commandQueue = [];
+      bd.isProcessing = false;
+      bd.cancelFlag = false;
+      bdClearBoard(); // clear canvas pixels, redraw grid
+      bd.tutorSnapshot = null;
+    }
+
     // Parse commands during streaming but defer spotlight opening to finalizeAIMessage
     bd.active = true;
+    bd._streamingHandled = true;
     bd.contentStartIdx = m.index + m[0].length;
     bd.processedLines = 0;
     bd.complete = false;
@@ -8229,19 +9015,37 @@ function bdProcessStreaming(fullText) {
     bd.isProcessing = false;
     bd.cancelFlag = false;
   }
-  const closeIdx = fullText.indexOf('</teaching-board-draw>', bd.contentStartIdx);
+  // Match both </teaching-board-draw> and </teaching-board-draw-resume>
+  let closeIdx = fullText.indexOf('</teaching-board-draw>', bd.contentStartIdx);
+  const closeIdx2 = fullText.indexOf('</teaching-board-draw-resume>', bd.contentStartIdx);
+  if (closeIdx < 0 || (closeIdx2 >= 0 && closeIdx2 < closeIdx)) closeIdx = closeIdx2;
   const end = closeIdx >= 0 ? closeIdx : fullText.length;
   const lines = fullText.slice(bd.contentStartIdx, end).split('\n');
   const count = closeIdx >= 0 ? lines.length : Math.max(0, lines.length - 1);
   for (let i = bd.processedLines; i < count; i++) {
     const ln = lines[i].trim();
     if (!ln) continue;
-    try { bd.commandQueue.push(JSON.parse(ln)); } catch (e) {}
+    try {
+      bd.commandQueue.push(JSON.parse(ln));
+    } catch (e) {
+      if (ln.includes('"animation"') || ln.includes('"cmd":"animation"')) {
+        console.warn('Board: failed to parse animation JSONL, will retry on completion.\nLine:', ln.slice(0, 300), '\nError:', e.message);
+        if (!bd._pendingAnimLines) bd._pendingAnimLines = [];
+        bd._pendingAnimLines.push(ln);
+      }
+    }
   }
   bd.processedLines = count;
+  // If canvas already exists (e.g. clear=false append), start processing queued commands
+  if (bd.canvas && bd.commandQueue.length > 0 && !bd.isProcessing) {
+    bdProcessQueue();
+  }
   if (closeIdx >= 0) {
     bd.complete = true;
     bd.rawContent = fullText.slice(bd.contentStartIdx, closeIdx);
+    // Re-parse: find animation commands that may have been split across lines
+    // (AI sometimes puts newlines inside the "code" field, breaking line-by-line parse)
+    bdRecoverMissedAnimations(bd);
   }
 }
 
@@ -8349,7 +9153,11 @@ function openWidgetSpotlight(title, widgetCode, isReplay, options = {}) {
 
   panel.classList.add('stage-active');
   state.spotlightActive = true;
-  state.spotlightInfo = { type: 'widget', title, widgetCode };
+  state.spotlightInfo = { type: 'widget', title, widgetCode, assetId: options.assetId || null };
+
+  // Reset widget bridge state for new iframe
+  state.widget.ready = false;
+  state.widget.liveState = {};
 
   if (!options.skipReference) {
     const refTag = { name: 'teaching-widget', attrs: { title }, _widgetCode: widgetCode };
@@ -8358,8 +9166,24 @@ function openWidgetSpotlight(title, widgetCode, isReplay, options = {}) {
 }
 
 function renderWidgetIframe(container, widgetCode, title) {
-  const fullDoc = widgetCode.includes('<html') ? widgetCode :
-    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${widgetCode}</body></html>`;
+  hideBoardLoadingSkeleton();
+  // Inject Capacity Widget Bridge into every widget
+  const bridgeScript = `<script>
+// Capacity Widget Bridge
+window.addEventListener('message', function(ev) {
+  if (ev.data && ev.data.type === 'capacity-widget-params') {
+    if (typeof onParamUpdate === 'function') onParamUpdate(ev.data.payload);
+  }
+});
+window._capacityReport = function(key, value) {
+  parent.postMessage({ type: 'capacity-widget-state', payload: { key: key, value: value } }, '*');
+};
+parent.postMessage({ type: 'capacity-widget-ready' }, '*');
+<\/script>`;
+
+  const injectedCode = bridgeScript + widgetCode;
+  const fullDoc = injectedCode.includes('<html') ? injectedCode :
+    `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"></head><body>${injectedCode}</body></html>`;
 
   const iframe = document.createElement('iframe');
   iframe.className = 'widget-iframe';
@@ -8379,13 +9203,100 @@ function renderWidgetIframe(container, widgetCode, title) {
       // no-op
     } else if (d.type === 'capacity-sim-state' || d.type === 'capacity-sim-interaction') {
       // no-op
+    } else if (d.type === 'capacity-widget-ready') {
+      state.widget.ready = true;
+      // Flush any pending params
+      if (state.widget.pendingParams) {
+        const pending = state.widget.pendingParams;
+        state.widget.pendingParams = null;
+        sendWidgetParams(pending);
+      }
+    } else if (d.type === 'capacity-widget-state') {
+      if (d.payload && d.payload.key !== undefined) {
+        if (!state.widget.liveState) state.widget.liveState = {};
+        state.widget.liveState[d.payload.key] = d.payload.value;
+      }
     }
   };
   window.addEventListener('message', handler);
   iframe._bridgeCleanup = () => window.removeEventListener('message', handler);
 }
 
+function handleWidgetUpdate(tag) {
+  const assetId = tag.attrs.asset;
+  const paramsStr = tag.attrs.params || '{}';
+  let params;
+  try { params = JSON.parse(paramsStr); } catch { return; }
+
+  // If this widget is currently open, send params directly
+  if (state.spotlightInfo?.assetId === assetId) {
+    sendWidgetParams(params);
+    return;
+  }
+
+  // Otherwise, find in history and reopen it
+  const entry = state.spotlightHistory.find(h => h.id === assetId && h.type === 'widget');
+  if (!entry) return; // asset not found
+
+  // Reopen the widget from history, then send params
+  state.widget.pendingParams = params;
+  openWidgetSpotlight(entry.title, entry.widgetCode, false, { assetId: assetId });
+}
+
+function sendWidgetParams(params) {
+  const iframe = document.querySelector('#spotlight-content iframe');
+  if (!iframe) return;
+  if (state.widget.ready) {
+    iframe.contentWindow.postMessage({ type: 'capacity-widget-params', payload: params }, '*');
+  } else {
+    state.widget.pendingParams = params;
+  }
+}
+
+function handleBoardDrawResume(tag) {
+  const assetId = tag.attrs.asset;
+  const title = tag.attrs.title || 'Board';
+  const newContent = (tag.content || '').trim();
+
+  const entry = state.spotlightHistory.find(h => h.id === assetId && h.type === 'board-draw');
+  if (!entry || !entry.boardDrawContent) {
+    // Fallback: regular board-draw
+    openBoardDrawSpotlight(title, newContent || null, { clear: true });
+    if (newContent) {
+      state.boardDraw.commandQueue = [];
+      for (const ln of newContent.split('\n')) {
+        const t = ln.trim();
+        if (t) try { state.boardDraw.commandQueue.push(JSON.parse(t)); } catch {}
+      }
+    }
+    state.boardDraw.active = true;
+    return;
+  }
+
+  const originalCmds = [];
+  for (const ln of entry.boardDrawContent.split('\n')) {
+    const t = ln.trim();
+    if (t) try { originalCmds.push(JSON.parse(t)); } catch {}
+  }
+  const newCmds = [];
+  for (const ln of newContent.split('\n')) {
+    const t = ln.trim();
+    if (t) try { newCmds.push(JSON.parse(t)); } catch {}
+  }
+
+  const combinedContent = entry.boardDrawContent + (newContent ? '\n' + newContent : '');
+  openBoardDrawSpotlight(title, combinedContent, { clear: true });
+
+  state.boardDraw.commandQueue = [];
+  state.boardDraw._instantReplayCount = originalCmds.length;
+  for (const cmd of originalCmds) state.boardDraw.commandQueue.push(cmd);
+  for (const cmd of newCmds) state.boardDraw.commandQueue.push(cmd);
+  state.boardDraw.active = true;
+}
+
 function openBoardDrawSpotlight(title, rawContent, options = {}) {
+  const shouldClear = options.clear !== false; // default: true
+
   // In replay mode, only render the reference card
   if (state.replayMode) {
     if (rawContent) state.boardDraw.rawContent = rawContent;
@@ -8401,6 +9312,22 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
   const typeBadge = $('#spotlight-type-badge');
   if (!panel || !content) return;
 
+  // If clear=false and we already have a board-draw open, keep the canvas and just update title
+  if (!shouldClear && state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
+    if (titleEl) titleEl.textContent = title;
+    state.spotlightInfo.title = title;
+    // Store raw content (appended)
+    if (rawContent) {
+      state.boardDraw.rawContent = (state.boardDraw.rawContent || '') + '\n' + rawContent;
+    }
+    if (!options.skipReference) {
+      const refTag = { name: 'teaching-board-draw', attrs: { title } };
+      if (state.boardDraw.rawContent) refTag._boardDrawContent = state.boardDraw.rawContent;
+      appendSpotlightReference('board-draw', title, refTag);
+    }
+    return; // Keep existing canvas — new commands will be appended via streaming/queue
+  }
+
   if (state.spotlightActive) {
     if (state.activeSimulation) { stopSimBridge(); state.activeSimulation = null; state.simulationLiveState = null; }
     if (state.spotlightInfo?.type === 'notebook') {
@@ -8414,6 +9341,8 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
 
   // Store raw JSONL content AFTER cleanup (bdCleanup wipes rawContent)
   if (rawContent) state.boardDraw.rawContent = rawContent;
+  // Reset dismissed flag so next streaming can activate (bdCleanup sets it true)
+  state.boardDraw.dismissed = false;
 
   if (titleEl) titleEl.textContent = title;
   if (typeBadge) { typeBadge.textContent = 'Board'; typeBadge.setAttribute('data-type', 'board-draw'); typeBadge.style.display = ''; }
@@ -8437,6 +9366,7 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
       </div>
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
         <canvas id="bd-canvas"></canvas>
+        <div id="bd-anim-layer"></div>
       </div>
       <div class="bd-voice" id="bd-voice">
         <span class="bd-voice-text" id="bd-voice-text"></span>
@@ -8477,8 +9407,10 @@ function bdCleanup() {
   bd.cancelFlag = true;
   bd.active = false;
   bd.dismissed = true;
+  bd._streamingHandled = false;
   bd.commandQueue = [];
   bd.isProcessing = false;
+  bdClearAllAnimations();
   bd.canvas = null;
   bd.ctx = null;
   bd.voiceEl = null;
@@ -8489,6 +9421,9 @@ function bdCleanup() {
   bd.studentDrawing = false;
   bd.rawContent = null;
   bd.tutorSnapshot = null;
+  bd._animErrors = null;
+  bd._retryInFlight = false;
+  bd._pendingAnimLines = null;
 }
 
 function bdReplayCommandsInstant(cmds) {
@@ -8497,7 +9432,8 @@ function bdReplayCommandsInstant(cmds) {
   const s = bd.scale;
   const ctx = bd.ctx;
   for (const cmd of cmds) {
-    if (cmd.cmd === 'voice') continue;
+    if (bd.cancelFlag) return;
+    if (cmd.cmd === 'voice' || cmd.cmd === 'animation') continue;
     ctx.save();
     ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
     const c = cmd.color || 'white';
@@ -8649,6 +9585,76 @@ function bdReplayCommandsInstant(cmds) {
       ctx.lineTo((cmd.x2||0)*s-hl*Math.cos(angle-0.4), (cmd.y2||0)*s-hl*Math.sin(angle-0.4)); ctx.stroke();
       ctx.beginPath(); ctx.moveTo((cmd.x2||0)*s, (cmd.y2||0)*s);
       ctx.lineTo((cmd.x2||0)*s-hl*Math.cos(angle+0.4), (cmd.y2||0)*s-hl*Math.sin(angle+0.4)); ctx.stroke();
+    } else if (cmd.cmd === 'path' && cmd.points) {
+      // Smooth path through points using quadratic curves
+      const pts = cmd.points; // [[x,y], [x,y], ...]
+      if (pts.length >= 2) {
+        ctx.beginPath();
+        ctx.moveTo(pts[0][0] * s, pts[0][1] * s);
+        if (pts.length === 2) {
+          ctx.lineTo(pts[1][0] * s, pts[1][1] * s);
+        } else if (cmd.smooth !== false) {
+          // Smooth curve: use midpoints as control points
+          for (let i = 0; i < pts.length - 1; i++) {
+            const xm = (pts[i][0] + pts[i+1][0]) / 2;
+            const ym = (pts[i][1] + pts[i+1][1]) / 2;
+            if (i === 0) {
+              ctx.lineTo(xm * s, ym * s);
+            } else if (i === pts.length - 2) {
+              ctx.quadraticCurveTo(pts[i][0] * s, pts[i][1] * s, pts[i+1][0] * s, pts[i+1][1] * s);
+            } else {
+              ctx.quadraticCurveTo(pts[i][0] * s, pts[i][1] * s, xm * s, ym * s);
+            }
+          }
+        } else {
+          // Straight line segments
+          for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * s, pts[i][1] * s);
+        }
+        if (cmd.closed) ctx.closePath();
+        if (cmd.fill) { ctx.fillStyle = cmd.fill; ctx.fill(); }
+        ctx.stroke();
+      }
+    } else if (cmd.cmd === 'graph') {
+      // Draw axes + function curve for physics graphs
+      const gx = (cmd.x || 50) * s, gy = (cmd.y || 200) * s;
+      const gw = (cmd.w || 300) * s, gh = (cmd.h || 150) * s;
+      const axisColor = cmd.axisColor || 'rgba(255,255,255,0.4)';
+      // Draw axes
+      ctx.strokeStyle = axisColor; ctx.lineWidth = 1.5 * s;
+      ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx + gw, gy); ctx.stroke(); // x-axis
+      ctx.beginPath(); ctx.moveTo(gx, gy); ctx.lineTo(gx, gy - gh); ctx.stroke(); // y-axis
+      // Arrowheads
+      const ah = 6 * s;
+      ctx.beginPath(); ctx.moveTo(gx + gw, gy); ctx.lineTo(gx + gw - ah, gy - ah/2); ctx.lineTo(gx + gw - ah, gy + ah/2); ctx.closePath(); ctx.fillStyle = axisColor; ctx.fill();
+      ctx.beginPath(); ctx.moveTo(gx, gy - gh); ctx.lineTo(gx - ah/2, gy - gh + ah); ctx.lineTo(gx + ah/2, gy - gh + ah); ctx.closePath(); ctx.fill();
+      // Axis labels
+      if (cmd.xlabel) { ctx.fillStyle = cmd.labelColor || 'rgba(255,255,255,0.6)'; ctx.font = (14 * s) + 'px Inter, sans-serif'; ctx.textAlign = 'center'; ctx.fillText(cmd.xlabel, gx + gw/2, gy + 22*s); }
+      if (cmd.ylabel) { ctx.save(); ctx.fillStyle = cmd.labelColor || 'rgba(255,255,255,0.6)'; ctx.font = (14 * s) + 'px Inter, sans-serif'; ctx.translate(gx - 18*s, gy - gh/2); ctx.rotate(-Math.PI/2); ctx.textAlign = 'center'; ctx.fillText(cmd.ylabel, 0, 0); ctx.restore(); }
+      // Plot curves
+      const curves = cmd.curves || (cmd.points ? [{ points: cmd.points, color: cmd.color }] : []);
+      for (const curve of curves) {
+        const cpts = curve.points || [];
+        if (cpts.length < 2) continue;
+        ctx.strokeStyle = curve.color || c;
+        ctx.lineWidth = (curve.w || cmd.w_line || 2.5) * s;
+        bdChalkStyle(curve.color || c, ctx.lineWidth / s);
+        ctx.beginPath();
+        // Map normalized [0-1] coords to graph area
+        const mapX = v => gx + v * gw;
+        const mapY = v => gy - v * gh;
+        ctx.moveTo(mapX(cpts[0][0]), mapY(cpts[0][1]));
+        for (let i = 0; i < cpts.length - 1; i++) {
+          const xm = (cpts[i][0] + cpts[i+1][0]) / 2;
+          const ym = (cpts[i][1] + cpts[i+1][1]) / 2;
+          if (i === cpts.length - 2) {
+            ctx.quadraticCurveTo(mapX(cpts[i][0]), mapY(cpts[i][1]), mapX(cpts[i+1][0]), mapY(cpts[i+1][1]));
+          } else {
+            ctx.quadraticCurveTo(mapX(cpts[i][0]), mapY(cpts[i][1]), mapX(xm), mapY(ym));
+          }
+        }
+        ctx.stroke();
+        bdClearShadow();
+      }
     }
     ctx.restore();
   }
@@ -8657,6 +9663,7 @@ function bdReplayCommandsInstant(cmds) {
 function bdCaptureBoard() {
   const bd = state.boardDraw;
   if (!bd.canvas) return null;
+  bdRasterizeAllAnimations();
   const ctx = bd.ctx;
   const w = bd.canvas.width;
   const h = bd.canvas.height;
@@ -8726,7 +9733,7 @@ function bdCaptureAndSend() {
   const combinedUrl = bdCaptureBoard();
   if (!combinedUrl) return;
   const combinedBase64 = combinedUrl.split(',')[1];
-  renderUserMessage('[Board drawing sent to tutor]', combinedUrl);
+  renderUserMessage('[Board drawing sent to tutor]');
 
   const bd = state.boardDraw;
   const parts = [];

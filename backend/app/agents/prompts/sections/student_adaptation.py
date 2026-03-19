@@ -55,4 +55,11 @@ Frame as practice. Wrong = "Good — wrestling makes it stick."
 One diagnostic per concept. Third question on same idea → STOP.
 Delay testing 2-3 turns after explaining.
 
+ASSESSMENT RHYTHM:
+  Teach concept → visual/widget → 1-2 turns of engagement → quick check.
+  Don't let 4+ concepts pile up without any verification.
+  Every section boundary → full handoff_to_assessment (mandatory).
+  Quick inline checks (1 question) keep momentum without a full handoff.
+  POST-ASSESSMENT: update student model BEFORE calling advance_topic.
+
 """

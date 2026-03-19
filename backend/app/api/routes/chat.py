@@ -52,6 +52,7 @@ from app.tools import (
 )
 
 from app.core.rate_limit import check_rate_limit as _check_rate_limit
+from app.api.routes import sse as _sse
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -202,10 +203,6 @@ def convert_messages(messages: list[dict] | None) -> list[dict]:
     if result and result[0]["role"] != "user":
         result.insert(0, {"role": "user", "content": "[Session started]"})
     return result
-
-
-def _sse(data: dict) -> str:
-    return f"data: {json.dumps(data)}\n\n"
 
 
 # ── Plan promotion helpers ──────────────────────────────────────────────────

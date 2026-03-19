@@ -22,6 +22,8 @@ cloudbuild.yaml
 Dockerfile
 .dockerignore
 .gitignore
+deploy.sh
+*.md
 
 # Media / large binary files
 *.png

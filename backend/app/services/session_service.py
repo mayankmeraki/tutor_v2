@@ -150,27 +150,63 @@ async def generate_section_summary(
 
 HEADLINE_PROMPT = """\
 Generate a short headline and description for this tutoring session. Return ONLY valid JSON:
-{{"headline": "3-4 word headline", "description": "One sentence describing what happened"}}
+{{"headline": "3-5 word headline describing the topic", "description": "One sentence describing what happened"}}
 
 Session info:
-- Session #{number}
 - Student intent: {intent}
 - Objective: {objective}
 - Sections covered: {sections}
 - Duration: {duration} minutes
-- Performance: {performance}"""
+- Performance: {performance}
+- Conversation preview: {transcript_preview}"""
+
+
+def _has_enough_data_for_headline(session: dict) -> bool:
+    """Check if a session has enough content to generate a meaningful headline."""
+    transcript = session.get("transcript", [])
+    sections = session.get("sections", [])
+    intent = (session.get("intent", {}) or {}).get("raw", "")
+    # Need at least: some transcript OR sections OR a specific intent
+    return len(transcript) >= 2 or len(sections) > 0 or bool(intent)
+
+
+def _extract_transcript_preview(session: dict, max_chars: int = 500) -> str:
+    """Extract a brief preview of the conversation for headline generation."""
+    transcript = session.get("transcript", [])
+    if not transcript:
+        return "N/A"
+    preview_parts = []
+    chars = 0
+    for msg in transcript[:10]:  # First 10 messages max
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        if isinstance(content, list):
+            content = " ".join(
+                b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"
+            )
+        # Strip teaching tags for brevity
+        import re
+        content = re.sub(r'<teaching-[^>]*>[\s\S]*?</teaching-[^>]*>', '[visual]', content)
+        content = re.sub(r'<teaching-[^/]*?/>', '', content)
+        line = f"{role}: {content[:100]}"
+        if chars + len(line) > max_chars:
+            break
+        preview_parts.append(line)
+        chars += len(line)
+    return "\n".join(preview_parts) if preview_parts else "N/A"
 
 
 async def generate_session_headline(session: dict) -> dict:
     """Call Claude Haiku to generate a short headline for a session."""
     number = session.get("number", 1)
-    intent = session.get("intent", {}).get("raw", "") or "follow course"
+    intent = (session.get("intent", {}) or {}).get("raw", "") or "follow course"
     objective = session.get("plan", {}).get("sessionObjective", "") or "N/A"
     section_titles = [s.get("title", "") for s in session.get("sections", [])]
     sections_str = ", ".join(section_titles) if section_titles else "N/A"
     duration = round(session.get("durationSec", 0) / 60)
     score = session.get("metrics", {}).get("assessmentScore", {})
     performance = f"{score.get('pct', 0)}% ({score.get('correct', 0)}/{score.get('total', 0)})" if score.get("total") else "N/A"
+    transcript_preview = _extract_transcript_preview(session)
 
     prompt = HEADLINE_PROMPT.format(
         number=number,
@@ -179,6 +215,7 @@ async def generate_session_headline(session: dict) -> dict:
         sections=sections_str,
         duration=duration,
         performance=performance,
+        transcript_preview=transcript_preview,
     )
 
     try:
@@ -210,20 +247,33 @@ async def generate_session_headline(session: dict) -> dict:
         return {"headline": f"Session {number}", "description": ""}
 
 
-async def get_sessions_with_headlines(course_id: int, student_name: str) -> list[dict]:
-    """Return all sessions for a student+course with AI-generated headlines.
+async def _enrich_sessions_with_headlines(sessions: list[dict]) -> list[dict]:
+    """Add AI-generated headlines to sessions that need them.
 
-    If a session has no cached headline, generate one and store it.
+    Skips sessions without enough data (new/empty sessions).
+    Re-generates stale "Session N" headlines if the session now has content.
     """
-    sessions = await get_sessions_for_student(course_id, student_name)
+    import re as _re
+
     for s in sessions:
-        if s.get("headline"):
+        existing = s.get("headline", "")
+        is_stale = bool(_re.match(r"^Session \d+$", existing))  # "Session 1", "Session 59", etc.
+
+        if existing and not is_stale:
+            continue  # Good headline already cached
+
+        if not _has_enough_data_for_headline(s):
+            # Not enough data yet — use fallback, don't waste an LLM call
+            if not existing:
+                s["headline"] = f"Session {s.get('number', '?')}"
+                s["headlineDescription"] = ""
             continue
-        # Generate and cache
+
+        # Generate (or re-generate if stale)
         hl = await generate_session_headline(s)
         s["headline"] = hl["headline"]
         s["headlineDescription"] = hl["description"]
-        # Persist to MongoDB so we don't regenerate next time
+        # Cache to MongoDB
         try:
             await _sessions().update_one(
                 {"sessionId": s["sessionId"]},
@@ -232,25 +282,18 @@ async def get_sessions_with_headlines(course_id: int, student_name: str) -> list
         except Exception as e:
             log.warning("Failed to cache headline for session %s: %s", s.get("sessionId"), e)
     return sessions
+
+
+async def get_sessions_with_headlines(course_id: int, student_name: str) -> list[dict]:
+    """Return all sessions for a student+course with AI-generated headlines."""
+    sessions = await get_sessions_for_student(course_id, student_name)
+    return await _enrich_sessions_with_headlines(sessions)
 
 
 async def get_sessions_with_headlines_by_email(course_id: int, user_email: str) -> list[dict]:
     """Return all sessions for a user (by email) + course with AI-generated headlines."""
     sessions = await get_sessions_for_user(course_id, user_email)
-    for s in sessions:
-        if s.get("headline"):
-            continue
-        hl = await generate_session_headline(s)
-        s["headline"] = hl["headline"]
-        s["headlineDescription"] = hl["description"]
-        try:
-            await _sessions().update_one(
-                {"sessionId": s["sessionId"]},
-                {"$set": {"headline": hl["headline"], "headlineDescription": hl["description"]}},
-            )
-        except Exception as e:
-            log.warning("Failed to cache headline for session %s: %s", s.get("sessionId"), e)
-    return sessions
+    return await _enrich_sessions_with_headlines(sessions)
 
 
 # ─── Backend State Sync ──────────────────────────────────────
