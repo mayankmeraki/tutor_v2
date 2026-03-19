@@ -44,7 +44,7 @@ steps:
       - '--subnet=default'
       - '--vpc-egress=private-ranges-only'
       - '--set-env-vars=LLM_PROVIDER=openrouter,TUTOR_MODEL=anthropic/claude-opus-4-6,DB_HOST=10.5.32.3,DB_PORT=5432,DB_NAME=capacity,DB_USER=capacity_service_user,CORS_ORIGINS=https://stage.tutor.seekcapacity.ai,MATERIALS_BUCKET=capacity-materials'
-      - '--set-secrets=ANTHROPIC_API_KEY=tutor_anthropic_api_key:latest,OPENROUTER_API_KEY=openrouter_api_key:latest,DB_PASSWORD=STAGE_DB_PASSWORD:latest,MONGODB_URI=tutor_mongodb_uri:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest,DEEPGRAM_API_KEY=deepgram_api_key:latest'
+      - '--set-secrets=ANTHROPIC_API_KEY=tutor_anthropic_api_key:latest,OPENROUTER_API_KEY=openrouter_api_key:latest,DB_PASSWORD=STAGE_DB_PASSWORD:latest,MONGODB_URI=tutor_mongodb_uri:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest'
 
 images:
   - '${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}'
