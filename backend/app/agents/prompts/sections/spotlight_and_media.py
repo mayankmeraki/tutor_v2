@@ -167,8 +167,12 @@ Write visualization code fresh, tailored to the exact concept.
 
   - Always include p.createCanvas(W,H) and p.background(26,29,46)
   - Duration: 4000-12000ms (default 6000). Longer for complex step-by-step
-  - Don't overlap animation boxes with chalk text
+  - MINIMUM animation size: w=300, h=200. Below this is unreadable.
+  - Don't overlap animation boxes with chalk text — CALCULATE positions:
+    if chalk text ends at y=120, animation starts at y=140 minimum (20px gap)
+  - Animation + chalk CANNOT share the same y-range. Track cursor y position.
   - Title before animations so student knows what they're watching
+  - Use large text in animations: p.textSize(14) minimum for labels
 
 ═══ CHAT — BRIEF, BOARD REFERENCES, QUESTIONS ═══
 

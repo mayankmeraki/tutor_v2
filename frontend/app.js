@@ -9022,9 +9022,18 @@ function bdProcessStreaming(fullText) {
       bd.tutorSnapshot = null;
     }
 
-    // Parse commands during streaming but defer spotlight opening to finalizeAIMessage
+    // Open the board panel immediately during streaming (don't wait for finalizeAIMessage)
+    // This ensures the board is visible as soon as the tag is detected
+    if (!bd.canvas) {
+      const titleMatch = attrStr.match(/title\s*=\s*["']([^"']*)["']/);
+      const streamTitle = titleMatch ? titleMatch[1] : 'Board';
+      // openBoardDrawSpotlight calls bdCleanup which resets state — save/restore
+      openBoardDrawSpotlight(streamTitle, null, { clear: true, skipReference: true });
+      // bdInit runs in 30ms setTimeout, will set bd.canvas and start queue
+    }
     bd.active = true;
     bd._streamingHandled = true;
+    bd.dismissed = false;
     bd.contentStartIdx = m.index + m[0].length;
     bd.processedLines = 0;
     bd.complete = false;
