@@ -413,9 +413,7 @@ async def _maybe_generate_summary(session, messages: list[dict]) -> None:
             session.conversation_summary = new_summary
 
         session.summary_covers_through = old_count
-        log.info("Summary generated: covers %d msgs, %d chars, trigger=%s",
-                 old_count, len(session.conversation_summary),
-                 "emergency" if emergency else "periodic")
+        log.info("Summary generated", extra={"msg_count": old_count})
     except Exception as e:
         log.warning("Summary generation failed: %s", e)
 
@@ -477,8 +475,13 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     result.extend(recent)
 
     final_tokens = _count_messages_tokens(result)
-    log.info("Context window: %d→%d msgs, ~%d tokens (budget %d)",
-             len(messages), len(result), final_tokens, MESSAGES_TOKEN_BUDGET)
+    log.info(
+        "Context window applied",
+        extra={
+            "msg_count": len(result),
+            "token_count": final_tokens,
+        },
+    )
 
     return result
 
@@ -500,11 +503,7 @@ def _promote_plan(session, plan_data: dict) -> None:
     if topics:
         session.current_topics = topics
         session.current_topic_index = 0
-        log.info(
-            "Plan promoted: %s (%d topics)",
-            plan_data.get("session_objective", "?")[:60],
-            len(topics),
-        )
+        log.info("Plan promoted", extra={"agent": "planning"})
     else:
         # If topics are inline in sections, extract them
         for sec in plan_data.get("sections", []):
@@ -512,11 +511,7 @@ def _promote_plan(session, plan_data: dict) -> None:
                 session.current_topics.append(topic_outline)
         if session.current_topics and session.current_topic_index < 0:
             session.current_topic_index = 0
-        log.info(
-            "Plan promoted (inline topics): %s (%d topic outlines)",
-            plan_data.get("session_objective", "?")[:60],
-            len(session.current_topics),
-        )
+        log.info("Plan promoted (inline topics)", extra={"agent": "planning"})
 
     # Set scenario if present
     if plan_data.get("scenario"):
@@ -686,16 +681,19 @@ def _build_tutor_prompt(session, context_data) -> str:
 
 # ── Delegation handler ──────────────────────────────────────────────────────
 
-async def _handle_delegated_teaching(session, session_id, claude_messages, context_data, request):
+async def _handle_delegated_teaching(session, session_id, claude_messages, context_data, request, slog=None):
     """Handle a turn during active teaching delegation."""
     from app.core.config import settings
+
+    if slog is None:
+        slog = SessionLogger(log, session_id=session_id)
 
     delegation = session.delegation
     delegation.turns_used += 1
 
     # Hard turn limit
     if delegation.turns_used > delegation.max_turns:
-        log.info("Delegation turn limit reached (%d/%d)", delegation.turns_used, delegation.max_turns)
+        slog.info("Delegation turn limit reached", extra={"agent": "delegation", "round": delegation.turns_used})
         session.delegation_result = {
             "reason": "max_turns",
             "summary": f"Sub-agent reached {delegation.max_turns}-turn limit.",
@@ -712,7 +710,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
     rounds = 0
     while rounds < MAX_ROUNDS:
         rounds += 1
-        log.info("Delegation round %d/%d", rounds, MAX_ROUNDS)
+        slog.info("Delegation round", extra={"agent": "delegation", "round": rounds})
 
         if await request.is_disconnected():
             return
@@ -755,7 +753,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
             except Exception as e:
                 if is_retryable(e) and attempt < MAX_RETRIES - 1:
                     delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
-                    log.warning("Delegation API retry %d/%d after %.1fs: %s", attempt + 1, MAX_RETRIES, delay, e)
+                    slog.warning("Delegation API retry %d/%d after %.1fs: %s", attempt + 1, MAX_RETRIES, delay, e, extra={"agent": "delegation"})
                     if text_started:
                         yield _sse({"type": "TEXT_MESSAGE_END"})
                         text_started = False
@@ -778,7 +776,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
             tool_results: list[dict] = []
 
             for block in tool_blocks:
-                log.info("Delegation tool: %s", block.name)
+                slog.info("Delegation tool call", extra={"agent": "delegation", "tool": block.name})
                 yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
 
                 if block.name == "return_to_tutor":
@@ -791,11 +789,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                         "topic": delegation.topic,
                     }
                     session.delegation = None
-                    log.info(
-                        "Delegation ended: reason=%s, turns=%d",
-                        session.delegation_result["reason"],
-                        session.delegation_result["turns_used"],
-                    )
+                    slog.info("Delegation ended", extra={"agent": "delegation", "round": session.delegation_result["turns_used"]})
 
                     tool_results.append({
                         "type": "tool_result",
@@ -809,7 +803,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                     try:
                         await sync_backend_state(session_id, session)
                     except Exception as e:
-                        log.warning("Failed to sync session state after delegation: %s", e)
+                        slog.warning("Failed to sync session state after delegation: %s", e)
 
                     yield _sse({"type": "RUN_FINISHED"})
                     return
@@ -828,7 +822,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                     try:
                         result = await execute_tutor_tool(block.name, block.input)
                     except Exception as e:
-                        log.error("Delegation tool %s failed: %s", block.name, e, exc_info=True)
+                        slog.error("Delegation tool failed: %s", e, exc_info=True, extra={"agent": "delegation", "tool": block.name})
                         result = f"Tool error ({block.name}): {str(e)[:200]}"
                     result_str = result if isinstance(result, str) else json.dumps(result)
                     if not result_str.strip():
@@ -854,7 +848,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
 
 # ── Assessment handler ────────────────────────────────────────────────────────
 
-async def _handle_assessment(session, session_id, claude_messages, context_data, request):
+async def _handle_assessment(session, session_id, claude_messages, context_data, request, slog=None):
     """Handle a turn during active assessment checkpoint.
 
     The assessment agent has its own system prompt, tools, and persona.
@@ -862,6 +856,9 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
     The student's latest message is copied in, but assessment Q&A stays isolated.
     """
     from app.core.config import settings
+
+    if slog is None:
+        slog = SessionLogger(log, session_id=session_id)
 
     assessment = session.assessment
     assessment.turns_used += 1
@@ -875,7 +872,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
 
     # Hard turn limit
     if assessment.turns_used > assessment.max_turns:
-        log.info("Assessment turn limit reached (%d/%d)", assessment.turns_used, assessment.max_turns)
+        slog.info("Assessment turn limit reached", extra={"agent": "assessment", "round": assessment.turns_used})
         session.assessment_result = {
             "type": "handback",
             "reason": "max_turns",
@@ -901,7 +898,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
     rounds = 0
     while rounds < MAX_ROUNDS:
         rounds += 1
-        log.info("Assessment round %d/%d (turn %d)", rounds, MAX_ROUNDS, assessment.turns_used)
+        slog.info("Assessment round", extra={"agent": "assessment", "round": rounds})
 
         if await request.is_disconnected():
             return
@@ -943,7 +940,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
             except Exception as e:
                 if is_retryable(e) and attempt < MAX_RETRIES - 1:
                     delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
-                    log.warning("Assessment API retry %d/%d after %.1fs: %s", attempt + 1, MAX_RETRIES, delay, e)
+                    slog.warning("Assessment API retry %d/%d after %.1fs: %s", attempt + 1, MAX_RETRIES, delay, e, extra={"agent": "assessment"})
                     if text_started:
                         yield _sse({"type": "TEXT_MESSAGE_END"})
                         text_started = False
@@ -966,7 +963,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
             tool_results: list[dict] = []
 
             for block in tool_blocks:
-                log.info("Assessment tool: %s", block.name)
+                slog.info("Assessment tool call", extra={"agent": "assessment", "tool": block.name})
                 yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
 
                 # ── complete_assessment ─────────────────────────
@@ -985,12 +982,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     session.assessment_result = result_data
                     session.assessment = None
 
-                    log.info(
-                        "Assessment complete: %d/%d (%s)",
-                        result_data["score"].get("correct", 0),
-                        result_data["score"].get("total", 0),
-                        result_data["overallMastery"],
-                    )
+                    slog.info("Assessment complete", extra={"agent": "assessment"})
 
                     tool_results.append({
                         "type": "tool_result",
@@ -1015,7 +1007,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                         from app.services.session_service import sync_backend_state
                         await sync_backend_state(session_id, session)
                     except Exception as e:
-                        log.warning("Failed to sync session after assessment: %s", e)
+                        slog.warning("Failed to sync session after assessment: %s", e)
 
                     yield _sse({"type": "RUN_FINISHED"})
                     return
@@ -1038,11 +1030,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     session.assessment_result = result_data
                     session.assessment = None
 
-                    log.info(
-                        "Assessment handback: reason=%s, questions=%d",
-                        result_data["reason"],
-                        result_data["questionsCompleted"],
-                    )
+                    slog.info("Assessment handback", extra={"agent": "assessment"})
 
                     tool_results.append({
                         "type": "tool_result",
@@ -1065,7 +1053,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                         from app.services.session_service import sync_backend_state
                         await sync_backend_state(session_id, session)
                     except Exception as e:
-                        log.warning("Failed to sync session after assessment handback: %s", e)
+                        slog.warning("Failed to sync session after assessment handback: %s", e)
 
                     yield _sse({"type": "RUN_FINISHED"})
                     return
@@ -1090,7 +1078,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                             "note": entry.get("note", ""),
                         }
 
-                    log.info("Assessment updated student model: %d notes", len(notes))
+                    slog.info("Assessment updated student model", extra={"agent": "assessment", "tool": "update_student_model"})
 
                     # Persist
                     _sm_course_id, _ = _extract_student_info(context_data)
@@ -1106,7 +1094,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                                     lesson=entry.get("lesson"),
                                 )
                             except Exception as e:
-                                log.warning("Failed to upsert assessment note: %s", e)
+                                slog.warning("Failed to upsert assessment note: %s", e)
 
                     result = "Student model updated with assessment observations."
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
@@ -1129,7 +1117,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     try:
                         result = await execute_tutor_tool(block.name, block.input)
                     except Exception as e:
-                        log.error("Assessment tool %s failed: %s", block.name, e, exc_info=True)
+                        slog.error("Assessment tool failed: %s", e, exc_info=True, extra={"agent": "assessment", "tool": block.name})
                         result = f"Tool error ({block.name}): {str(e)[:200]}"
                     result_str = result if isinstance(result, str) else json.dumps(result)
                     if not result_str.strip():
@@ -1251,7 +1239,7 @@ async def chat(request: Request):
                     },
                 )
                 async for chunk in _handle_assessment(
-                    session, session_id, claude_messages, context_data, request
+                    session, session_id, claude_messages, context_data, request, slog=slog
                 ):
                     yield chunk
                 return
@@ -1266,7 +1254,7 @@ async def chat(request: Request):
                     },
                 )
                 async for chunk in _handle_delegated_teaching(
-                    session, session_id, claude_messages, context_data, request
+                    session, session_id, claude_messages, context_data, request, slog=slog
                 ):
                     yield chunk
                 return
@@ -1522,7 +1510,14 @@ async def chat(request: Request):
                 if await request.is_disconnected():
                     return
 
-                if text_started:
+                # Determine if this round has tool calls (will continue to next round)
+                tool_blocks = [b for b in message.content if b.type == "tool_use"]
+                has_tool_calls = len(tool_blocks) > 0
+
+                # Only close the text message if there are NO tool calls (final round).
+                # If there ARE tool calls, the next round may produce more text —
+                # we keep the message open so the frontend sees one continuous response.
+                if text_started and not has_tool_calls:
                     yield _sse({"type": "TEXT_MESSAGE_END"})
 
                 slog.info(
@@ -1544,9 +1539,7 @@ async def chat(request: Request):
                 })
 
                 # ── Tool calls ────────────────────────────────────────
-                if message.stop_reason == "tool_use":
-                    tool_blocks = [b for b in message.content if b.type == "tool_use"]
-
+                if has_tool_calls:
                     for block in tool_blocks:
                         slog.info("Tool call: %s", block.name, extra={"tool": block.name})
                         yield _sse({
@@ -1671,13 +1664,7 @@ async def chat(request: Request):
                                 min_questions=qc.get("min", 3),
                             )
 
-                            log.info(
-                                "Assessment handoff: section=%s, concepts=%s, questions=%d-%d",
-                                section.get("title", "?")[:40],
-                                concepts[:3],
-                                qc.get("min", 3),
-                                qc.get("max", 5),
-                            )
+                            slog.info("Assessment handoff", extra={"tool": "handoff_to_assessment", "agent": "assessment"})
 
                             yield _sse({
                                 "type": "ASSESSMENT_START",
@@ -1710,10 +1697,7 @@ async def chat(request: Request):
                                 topic=topic,
                                 instructions=instructions,
                             )
-                            log.info(
-                                "Teaching delegated: type=%s, topic=%s, max_turns=%d",
-                                agent_type, topic[:40], max_turns,
-                            )
+                            slog.info("Teaching delegated", extra={"tool": "delegate_teaching", "agent": agent_type})
                             yield _sse({
                                 "type": "TEACHING_DELEGATION_START",
                                 "topic": topic,
@@ -1730,12 +1714,7 @@ async def chat(request: Request):
                             reason = block.input.get("reason", "direction change")
                             keep_scope = block.input.get("keep_scope", False)
 
-                            log.info(
-                                "reset_plan: reason=%s, keep_scope=%s, had %d topics (%d completed)",
-                                reason, keep_scope,
-                                len(session.current_topics),
-                                len(session.completed_topics),
-                            )
+                            slog.info("reset_plan", extra={"tool": "reset_plan"})
 
                             # Clear plan state
                             session.current_plan = None
@@ -2016,7 +1995,7 @@ async def chat(request: Request):
                         if not result_str.strip():
                             result_str = "(no output)"
 
-                        log.info("Tool %s done (%.1fs): %s...", block.name, elapsed, result_str[:150])
+                        slog.info("Tool done", extra={"tool": block.name, "duration_ms": round(elapsed * 1000)})
 
                         tool_results.append({
                             "type": "tool_result",
@@ -2029,10 +2008,16 @@ async def chat(request: Request):
                     # If handoff occurred, break tutor loop and start the new agent
                     # immediately in the same response stream — no dead stop.
                     if session.assessment:
-                        log.info("Assessment handoff — breaking tutor loop to start assessment agent")
+                        slog.info("Assessment handoff — breaking tutor loop", extra={"agent": "assessment"})
+                        if text_started:
+                            yield _sse({"type": "TEXT_MESSAGE_END"})
+                            text_started = False
                         break
                     if session.delegation:
-                        log.info("Delegation handoff — breaking tutor loop to start delegate agent")
+                        slog.info("Delegation handoff — breaking tutor loop", extra={"agent": "delegation"})
+                        if text_started:
+                            yield _sse({"type": "TEXT_MESSAGE_END"})
+                            text_started = False
                         break
 
                     # Continue conversation with tool results
@@ -2047,13 +2032,13 @@ async def chat(request: Request):
 
                 # No more tool calls — done. Persist final assistant message.
                 session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
-                log.info("Request complete — %d round(s), history: %d msgs", rounds, len(session.messages))
+                slog.info("Request complete", extra={"round": rounds, "msg_count": len(session.messages)})
 
                 # Sync session state to MongoDB
                 try:
                     await sync_backend_state(session_id, session)
                 except Exception as e:
-                    log.warning("Failed to sync session state: %s", e)
+                    slog.warning("Failed to sync session state: %s", e)
 
                 yield _sse({"type": "RUN_FINISHED"})
                 return
@@ -2069,7 +2054,7 @@ async def chat(request: Request):
                 )
                 claude_messages.append({"role": "user", "content": assessment_trigger})
                 async for chunk in _handle_assessment(
-                    session, session_id, claude_messages, context_data, request
+                    session, session_id, claude_messages, context_data, request, slog=slog
                 ):
                     yield chunk
                 return
@@ -2082,40 +2067,37 @@ async def chat(request: Request):
                 )
                 claude_messages.append({"role": "user", "content": delegation_trigger})
                 async for chunk in _handle_delegated_teaching(
-                    session, session_id, claude_messages, context_data, request
+                    session, session_id, claude_messages, context_data, request, slog=slog
                 ):
                     yield chunk
                 return
 
             # Too many rounds
-            log.warning("Too many tool call rounds (%d)", MAX_ROUNDS)
+            slog.warning("Too many tool call rounds", extra={"round": MAX_ROUNDS})
             yield _sse({"type": "RUN_ERROR", "message": "Too many tool call rounds"})
 
         except LLMBadRequestError as e:
             err_body = getattr(e, "body", {}) or {}
             err_msg = (err_body.get("error", {}).get("message", "") if isinstance(err_body, dict) else str(e))
             if "credit balance" in err_msg.lower() or "billing" in err_msg.lower():
-                log.warning("LLM billing error: %s", err_msg)
+                slog.warning("LLM billing error: %s", err_msg)
                 yield _sse({"type": "RUN_ERROR", "message": "The AI service is temporarily unavailable — the API credit balance needs to be topped up. Please try again later."})
             else:
-                log.error("LLM bad request: %s\nMessages: %d total, last role: %s",
-                          e, len(claude_messages),
-                          claude_messages[-1].get("role", "?") if claude_messages else "none",
-                          exc_info=True)
+                slog.error("LLM bad request: %s", e, exc_info=True, extra={"msg_count": len(claude_messages)})
                 yield _sse({"type": "RUN_ERROR", "message": f"AI request error: {err_msg}"})
         except LLMAuthError as e:
-            log.error("LLM auth error: %s", e)
+            slog.error("LLM auth error: %s", e)
             yield _sse({"type": "RUN_ERROR", "message": "The AI service API key is invalid or expired. Please check the configuration."})
         except LLMRateLimitError as e:
             retry_after = extract_retry_after(e)
             wait_msg = f" Try again in {int(retry_after)}s." if retry_after else ""
-            log.warning("LLM rate limit (retries exhausted): %s", e)
+            slog.warning("LLM rate limit (retries exhausted): %s", e)
             yield _sse({"type": "RUN_ERROR", "message": f"The AI service is busy right now.{wait_msg} Please wait a moment and try again."})
         except LLMConnectionError as e:
-            log.error("LLM connection error: %s", e)
+            slog.error("LLM connection error: %s", e)
             yield _sse({"type": "RUN_ERROR", "message": "Could not connect to the AI service. Please check your internet connection."})
         except Exception as e:
-            log.error("Chat error: %s\n%s", e, traceback.format_exc())
+            slog.error("Chat error: %s", e, exc_info=True)
             yield _sse({"type": "RUN_ERROR", "message": "Something went wrong. Please try again."})
 
     return StreamingResponse(
