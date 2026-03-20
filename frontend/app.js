@@ -2594,17 +2594,47 @@ function updateAIMessageStream(text) {
   bdProcessStreaming(text);
   widgetProcessStreaming(text);
 
-  let displayHtml = renderMarkdownBasic(stripTeachingTags(text));
+  // Determine if the board is actively drawing right now
+  const boardIsDrawing = state.boardDraw.active && state.boardDraw.isProcessing;
+  const widgetIsLoading = state.widget.active && !state.widget.complete;
+
+  let displayHtml = '';
+
+  if (boardIsDrawing || widgetIsLoading) {
+    // Board is drawing — show "watch the board" indicator, dim chat text
+    const stripped = stripTeachingTags(text);
+    // Show text BEFORE the board-draw tag (pre-board intro like "Watch this:")
+    const tagStart = text.indexOf('<teaching-board-draw');
+    const widgetStart = text.indexOf('<teaching-widget');
+    const splitAt = Math.min(
+      tagStart >= 0 ? tagStart : Infinity,
+      widgetStart >= 0 ? widgetStart : Infinity
+    );
+    if (splitAt < Infinity && splitAt > 0) {
+      const preBoardText = stripTeachingTags(text.slice(0, splitAt));
+      if (preBoardText.trim()) {
+        displayHtml += renderMarkdownBasic(preBoardText);
+      }
+    }
+    // Show "watching board" indicator
+    displayHtml += `<div class="board-focus-indicator">
+      <div class="board-focus-arrow">\u2192</div>
+      <div class="board-focus-text">${widgetIsLoading ? 'Building interactive...' : 'Drawing on the board...'}</div>
+    </div>`;
+  } else {
+    // Board not drawing — show full text normally
+    displayHtml = renderMarkdownBasic(stripTeachingTags(text));
+  }
 
   // Show generating indicator when widget is streaming
-  if (state.widget.active && !state.widget.complete) {
+  if (widgetIsLoading) {
     const wTitle = state.widget.title || 'Interactive Widget';
     const codeLen = state.widget.code?.length || 0;
     const progress = codeLen < 500 ? 'Setting up structure...'
       : codeLen < 2000 ? 'Adding styles...'
       : 'Writing simulation logic...';
     displayHtml += `<div class="widget-gen-indicator">
-      <div class="widget-gen-icon">⚡</div>
+      <div class="widget-gen-icon">\u26A1</div>
       <div class="widget-gen-info">
         <div class="widget-gen-title">Generating: ${escapeHtml(wTitle)}</div>
         <div class="widget-gen-progress">${progress}</div>

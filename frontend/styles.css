@@ -474,6 +474,30 @@ body {
 }
 
 /* ── Widget generating indicator (inline in chat stream) ── */
+/* Board focus indicator — shown in chat while board is drawing */
+.board-focus-indicator {
+  display: flex; align-items: center; gap: 10px;
+  padding: 14px 18px; margin: 12px 0; border-radius: 10px;
+  background: linear-gradient(135deg, rgba(108,140,255,0.06), rgba(108,140,255,0.02));
+  border: 1px solid rgba(108,140,255,0.15);
+  animation: board-focus-pulse 2s ease-in-out infinite;
+}
+.board-focus-arrow {
+  font-size: 20px; color: var(--accent);
+  animation: board-focus-bounce 1.5s ease-in-out infinite;
+}
+@keyframes board-focus-bounce {
+  0%, 100% { transform: translateX(0); }
+  50% { transform: translateX(6px); }
+}
+@keyframes board-focus-pulse {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+.board-focus-text {
+  font-size: 13px; color: var(--accent); font-style: italic;
+}
+
 .widget-gen-indicator {
   display: flex;
   align-items: center;
