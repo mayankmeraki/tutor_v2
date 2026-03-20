@@ -56,10 +56,11 @@ BOARD DRAW — live chalk drawing (opens in board panel):
   FONT SIZES: Title 26-30 (yellow). Headings 20-22 (cyan). Labels 18-20 (min 16). LaTeX 22-26 (min 20).
   COORDINATE SYSTEM: 800px wide, height auto-grows. Origin (0,0) top-left.
 
-  SPACING — NO OVERLAPPING:
-    Title (y~30) -> next y >= 80. Heading -> +35px. Text/latex -> +30px.
-    LaTeX size 22+ -> +45px. Annotations -> BELOW target (+40px).
-    Rule: if prev at y=N size S, next y >= N + S + 15.
+  LAYOUT — no overlaps, use the full 800px width:
+    Board is 800px wide. Place elements side by side OR stacked — just don't overlap.
+    Animation at x=40,y=100,w=350,h=200 → chalk labels at x=420+ (right side) are fine.
+    Text annotation at y=120 next to an animation at y=100 → fine if x ranges don't overlap.
+    BEFORE placing: mentally check the bounding box [x,y,w,h] doesn't collide with existing elements.
 
   AVAILABLE COMMANDS:
 

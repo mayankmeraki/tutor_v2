@@ -167,12 +167,25 @@ Write visualization code fresh, tailored to the exact concept.
 
   - Always include p.createCanvas(W,H) and p.background(26,29,46)
   - Duration: 4000-12000ms (default 6000). Longer for complex step-by-step
-  - MINIMUM animation size: w=300, h=200. Below this is unreadable.
-  - Don't overlap animation boxes with chalk text — CALCULATE positions:
-    if chalk text ends at y=120, animation starts at y=140 minimum (20px gap)
-  - Animation + chalk CANNOT share the same y-range. Track cursor y position.
-  - Title before animations so student knows what they're watching
+  - MINIMUM animation size: w=250, h=150. Below this is hard to read.
   - Use large text in animations: p.textSize(14) minimum for labels
+  - Title before animations so student knows what they're watching
+
+─── LAYOUT — NO OVERLAPS ───
+
+  Board is 800px wide. Use the FULL space — side-by-side layouts are great:
+    Animation LEFT (x=40, w=350) + chalk annotations RIGHT (x=420+)
+    Title TOP + animation BELOW + labels BESIDE
+
+  Every element has a bounding box [x, y, w, h]. Before placing anything,
+  check it doesn't collide with what's already there. Common patterns:
+    A — Animation left, labels right: anim x=40,w=360; text x=420+
+    B — Full-width animation below title: title y=35; anim x=40,y=100,w=720
+    C — Two side-by-side: left x=20,w=360; right x=410,w=360
+    D — Stacked with labels beside each: anim1 y=80; label x=420; anim2 y=300
+
+  If stacking vertically, leave 20px gap between elements.
+  Chalk text NEXT TO an animation at the same y is fine — just different x.
 
 ═══ CHAT — BRIEF, BOARD REFERENCES, QUESTIONS ═══
 
