@@ -2531,6 +2531,23 @@ function handleSectionComplete(index) {
 function startAIMessageStream() {
   removeStreamingIndicator();
   removeAssessmentTransition();
+  // Safety: clean up any stale streaming block from a prior turn that wasn't finalized
+  // (e.g. multi-round agentic loop, or error before TEXT_MESSAGE_END).
+  // Without this, a duplicate #ai-stream-text causes querySelector to find the OLD one
+  // and new text streams into the wrong position (top of chat instead of bottom).
+  const staleStream = $('#ai-stream-msg');
+  if (staleStream) {
+    // Finalize the orphaned content so it isn't lost
+    const orphanedText = staleStream.querySelector('#ai-stream-text');
+    if (orphanedText && orphanedText.textContent.trim()) {
+      // Convert to a finalized block (strip the streaming cursor)
+      orphanedText.classList.remove('streaming-cursor');
+      staleStream.removeAttribute('id');
+      staleStream.querySelector('#ai-stream-text')?.removeAttribute('id');
+    } else {
+      staleStream.remove();
+    }
+  }
   // Safety: insert any deferred headings before tutor starts writing
   if (state._pendingFirstHeadings && state.plan.length > 0) {
     insertTopicHeading(state.plan[0].title, null, 'section');
@@ -2580,7 +2597,9 @@ function hideBoardLoadingSkeleton() {
 }
 
 function updateAIMessageStream(text) {
-  const el = $('#ai-stream-text');
+  // Always target the element INSIDE #ai-stream-msg to avoid stale orphaned elements
+  const container = $('#ai-stream-msg');
+  const el = container?.querySelector('#ai-stream-text') || $('#ai-stream-text');
   if (!el) return;
 
   // Show board loading skeleton when a visual tag is detected but not yet rendered
@@ -2594,40 +2613,26 @@ function updateAIMessageStream(text) {
   bdProcessStreaming(text);
   widgetProcessStreaming(text);
 
-  // Determine if the board is actively drawing right now
-  const boardIsDrawing = state.boardDraw.active && state.boardDraw.isProcessing;
-  const widgetIsLoading = state.widget.active && !state.widget.complete;
+  // Check if board/widget is actively being built
+  const boardActive = state.boardDraw.active && !state.boardDraw.complete;
+  const widgetLoading = state.widget.active && !state.widget.complete;
 
-  let displayHtml = '';
+  let displayHtml = renderMarkdownBasic(stripTeachingTags(text));
 
-  if (boardIsDrawing || widgetIsLoading) {
-    // Board is drawing — show "watch the board" indicator, dim chat text
-    const stripped = stripTeachingTags(text);
-    // Show text BEFORE the board-draw tag (pre-board intro like "Watch this:")
-    const tagStart = text.indexOf('<teaching-board-draw');
-    const widgetStart = text.indexOf('<teaching-widget');
-    const splitAt = Math.min(
-      tagStart >= 0 ? tagStart : Infinity,
-      widgetStart >= 0 ? widgetStart : Infinity
-    );
-    if (splitAt < Infinity && splitAt > 0) {
-      const preBoardText = stripTeachingTags(text.slice(0, splitAt));
-      if (preBoardText.trim()) {
-        displayHtml += renderMarkdownBasic(preBoardText);
-      }
+  // Add focus indicator when board is drawing (appended, not replacing)
+  if (boardActive || widgetLoading) {
+    const label = widgetLoading ? 'Building interactive...' : 'Drawing on the board...';
+    // Only show if not already in the HTML
+    if (!displayHtml.includes('board-focus-indicator')) {
+      displayHtml += `<div class="board-focus-indicator">
+        <div class="board-focus-arrow">\u2192</div>
+        <div class="board-focus-text">${label}</div>
+      </div>`;
     }
-    // Show "watching board" indicator
-    displayHtml += `<div class="board-focus-indicator">
-      <div class="board-focus-arrow">\u2192</div>
-      <div class="board-focus-text">${widgetIsLoading ? 'Building interactive...' : 'Drawing on the board...'}</div>
-    </div>`;
-  } else {
-    // Board not drawing — show full text normally
-    displayHtml = renderMarkdownBasic(stripTeachingTags(text));
   }
 
   // Show generating indicator when widget is streaming
-  if (widgetIsLoading) {
+  if (widgetLoading) {
     const wTitle = state.widget.title || 'Interactive Widget';
     const codeLen = state.widget.code?.length || 0;
     const progress = codeLen < 500 ? 'Setting up structure...'

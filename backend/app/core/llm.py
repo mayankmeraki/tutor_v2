@@ -663,12 +663,15 @@ class AnthropicLLMStream:
             else 0
         )
         log.info(
-            "LLM %s stream — %din/%dout, %.0fms, stop=%s",
-            response.model,
-            response.usage.input_tokens,
-            response.usage.output_tokens,
-            elapsed,
-            response.stop_reason,
+            "LLM stream complete",
+            extra={
+                "model": response.model,
+                "tokens_in": response.usage.input_tokens,
+                "tokens_out": response.usage.output_tokens,
+                "duration_ms": round(elapsed),
+                "stop_reason": response.stop_reason,
+                "provider": "anthropic",
+            },
         )
         _notify_usage(response, getattr(self, '_metadata', None))
         return response
@@ -809,12 +812,15 @@ class OpenRouterLLMStream:
             else 0
         )
         log.info(
-            "LLM %s stream — %din/%dout, %.0fms, stop=%s",
-            self._model,
-            usage_in,
-            usage_out,
-            elapsed,
-            stop_reason,
+            "LLM stream complete",
+            extra={
+                "model": self._model,
+                "tokens_in": usage_in,
+                "tokens_out": usage_out,
+                "duration_ms": round(elapsed),
+                "stop_reason": stop_reason,
+                "provider": "openrouter",
+            },
         )
 
         response = LLMResponse(
@@ -904,12 +910,15 @@ async def llm_call(
 
     elapsed = (time.monotonic() - start) * 1000
     log.info(
-        "LLM %s call — %din/%dout, %.0fms, stop=%s",
-        response.model,
-        response.usage.input_tokens,
-        response.usage.output_tokens,
-        elapsed,
-        response.stop_reason,
+        "LLM call complete",
+        extra={
+            "model": response.model,
+            "tokens_in": response.usage.input_tokens,
+            "tokens_out": response.usage.output_tokens,
+            "duration_ms": round(elapsed),
+            "stop_reason": response.stop_reason,
+            "provider": provider,
+        },
     )
     _notify_usage(response, metadata)
     return response

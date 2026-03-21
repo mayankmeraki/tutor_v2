@@ -42,6 +42,7 @@ class JSONFormatter(logging.Formatter):
             "provider",
             "stop_reason",
             "caller",
+            "preview",
         ):
             val = getattr(record, key, None)
             if val is not None:
