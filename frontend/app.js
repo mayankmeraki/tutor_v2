@@ -3035,7 +3035,7 @@ function stripTeachingTags(text) {
 
 function renderTeachingTag(tag) {
   // Record visual assets in session (exclude structural/navigation tags)
-  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss', 'teaching-notebook-step', 'teaching-notebook-comment']);
+  const structuralTags = new Set(['teaching-plan', 'teaching-plan-update', 'teaching-checkpoint', 'teaching-spotlight-dismiss', 'teaching-notebook-step', 'teaching-notebook-comment', 'teaching-voice-scene']);
 
   // Don't record images that fail URL validation — they shouldn't become tutor assets
   let skipAssetRecord = false;
@@ -3188,6 +3188,13 @@ function renderTeachingTag(tag) {
       break;
     case 'teaching-spotlight':
       showSpotlight(tag);
+      break;
+    case 'teaching-voice-scene':
+      if (state.teachingMode === 'voice') {
+        state._voiceSceneActive = true;
+        executeVoiceScene(tag).finally(() => { state._voiceSceneActive = false; });
+      }
+      // In text mode, voice scenes are ignored — tutor shouldn't generate them
       break;
     case 'teaching-spotlight-dismiss':
       hideSpotlight({ agentInitiated: true });
@@ -10265,8 +10272,17 @@ function voiceShowBoardQuestion(questionText) {
 
   // If it's a generic prompt, hide the question text area
   const isGeneric = questionText === 'Type your response...';
-  textEl.innerHTML = isGeneric ? '' : questionText;
-  textEl.style.display = isGeneric ? 'none' : 'block';
+  if (isGeneric) {
+    textEl.innerHTML = '';
+    textEl.style.display = 'none';
+  } else {
+    // Render LaTeX and markdown in question text
+    let rendered = questionText;
+    if (typeof renderLatex === 'function') rendered = renderLatex(rendered);
+    rendered = rendered.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>');
+    textEl.innerHTML = rendered;
+    textEl.style.display = 'block';
+  }
 
   container.classList.remove('hidden');
   requestAnimationFrame(() => container.classList.add('visible'));
@@ -10349,97 +10365,252 @@ document.addEventListener('click', (e) => {
   }
 });
 
-// ── Hook into board draw commands for hand cursor ───────────
+// ── Voice Scene Parser & Executor ───────────────────────────
+// Parses <teaching-voice-scene> tag into beats, executes them sequentially.
 
-const _origBdRunCommand = typeof bdRunCommand === 'function' ? bdRunCommand : null;
+function parseVoiceBeats(sceneContent) {
+  const beats = [];
+  // Match <vb ... /> self-closing tags
+  const vbRegex = /<vb\s+([\s\S]*?)\/>/g;
+  let match;
+  while ((match = vbRegex.exec(sceneContent)) !== null) {
+    const attrStr = match[1];
+    const beat = {};
 
-// Wrap bdRunCommand to sync hand cursor
-if (_origBdRunCommand) {
-  // We can't reassign a function declaration, so we hook via the queue processor
-  // Instead, patch bdProcessQueue to move hand before each command
+    // Parse say attribute (can contain quotes, so use careful extraction)
+    const sayMatch = attrStr.match(/say='([^']*)'|say="([^"]*)"/);
+    if (sayMatch) beat.say = sayMatch[1] || sayMatch[2] || '';
+
+    // Parse draw attribute (JSON string)
+    const drawMatch = attrStr.match(/draw='([^']*)'|draw="([^"]*)"/);
+    if (drawMatch) {
+      const drawStr = (drawMatch[1] || drawMatch[2] || '').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+      try {
+        // Could be single command or newline-separated commands
+        const cmds = drawStr.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
+        beat.draw = cmds;
+      } catch {
+        try { beat.draw = [JSON.parse(drawStr)]; } catch { beat.draw = null; }
+      }
+    }
+
+    // Parse cursor attribute
+    const cursorMatch = attrStr.match(/cursor='([^']*)'|cursor="([^"]*)"/);
+    if (cursorMatch) beat.cursor = cursorMatch[1] || cursorMatch[2] || 'rest';
+
+    // Parse pause
+    const pauseMatch = attrStr.match(/pause='([^']*)'|pause="([^"]*)"/);
+    if (pauseMatch) beat.pause = parseFloat(pauseMatch[1] || pauseMatch[2]) || 0;
+
+    // Parse question flag
+    if (attrStr.includes('question="true"') || attrStr.includes("question='true'")) {
+      beat.question = true;
+    }
+
+    // Parse widget
+    const widgetTitleMatch = attrStr.match(/widget-title='([^']*)'|widget-title="([^"]*)"/);
+    if (widgetTitleMatch) beat.widgetTitle = widgetTitleMatch[1] || widgetTitleMatch[2];
+    const widgetCodeMatch = attrStr.match(/widget-code='([^']*)'|widget-code="([^"]*)"/);
+    if (widgetCodeMatch) beat.widgetCode = widgetCodeMatch[1] || widgetCodeMatch[2];
+
+    // Parse simulation
+    const simMatch = attrStr.match(/simulation='([^']*)'|simulation="([^"]*)"/);
+    if (simMatch) beat.simulation = simMatch[1] || simMatch[2];
+
+    // Parse video
+    const videoLessonMatch = attrStr.match(/video-lesson='([^']*)'|video-lesson="([^"]*)"/);
+    if (videoLessonMatch) beat.videoLesson = videoLessonMatch[1] || videoLessonMatch[2];
+    const videoStartMatch = attrStr.match(/video-start='([^']*)'|video-start="([^"]*)"/);
+    if (videoStartMatch) beat.videoStart = videoStartMatch[1] || videoStartMatch[2];
+    const videoEndMatch = attrStr.match(/video-end='([^']*)'|video-end="([^"]*)"/);
+    if (videoEndMatch) beat.videoEnd = videoEndMatch[1] || videoEndMatch[2];
+
+    // Parse image
+    const imgSrcMatch = attrStr.match(/image-src='([^']*)'|image-src="([^"]*)"/);
+    if (imgSrcMatch) beat.imageSrc = imgSrcMatch[1] || imgSrcMatch[2];
+    const imgCapMatch = attrStr.match(/image-caption='([^']*)'|image-caption="([^"]*)"/);
+    if (imgCapMatch) beat.imageCaption = imgCapMatch[1] || imgCapMatch[2];
+
+    beats.push(beat);
+  }
+  return beats;
 }
 
-// Hook: called after each board draw command to position hand
-function voiceHandFollowCommand(cmd) {
-  if (state.teachingMode !== 'voice') return;
-  if (!cmd) return;
+// Execute a voice scene — the main orchestration loop
+async function executeVoiceScene(sceneTag) {
+  const title = sceneTag.attrs?.title || 'Teaching';
+  const beats = parseVoiceBeats(sceneTag.content || '');
 
-  // Extract coordinates from draw command
-  let x, y;
-  switch (cmd.cmd) {
-    case 'text': case 'latex':
-      x = cmd.x; y = cmd.y;
-      voiceMoveHand(x, y, true);
-      break;
-    case 'line': case 'arrow': case 'dashed':
-      x = cmd.x2 || cmd.x1; y = cmd.y2 || cmd.y1;
-      voiceMoveHand(x, y, true);
-      break;
-    case 'rect': case 'fillrect':
-      x = cmd.x + (cmd.w || 0) / 2; y = cmd.y + (cmd.h || 0) / 2;
-      voiceMoveHand(x, y, true);
-      break;
-    case 'circle': case 'arc':
-      x = cmd.cx; y = cmd.cy;
-      voiceMoveHand(x, y, true);
-      break;
-    case 'freehand':
-      if (cmd.pts && cmd.pts.length > 0) {
-        const last = cmd.pts[cmd.pts.length - 1];
-        voiceMoveHand(last.x || last[0], last.y || last[1], true);
-      }
-      break;
-    case 'dot':
-      voiceTapAt(cmd.x, cmd.y);
-      break;
-    case 'pause':
-      // During pauses, hand rests
+  if (beats.length === 0) return;
+
+  console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats`);
+
+  // Open board if not already open
+  if (!state.boardDraw.canvas) {
+    openBoardDrawSpotlight(title, null, { clear: true });
+  } else {
+    const titleEl = $('#spotlight-title');
+    if (titleEl) titleEl.textContent = title;
+  }
+
+  // Execute beats sequentially
+  for (let i = 0; i < beats.length; i++) {
+    const beat = beats[i];
+    console.log(`[VoiceScene] Beat ${i+1}/${beats.length}:`, beat.say?.slice(0, 50) || '(draw only)');
+
+    // 1. Position cursor
+    executeCursor(beat.cursor, beat.draw);
+
+    // 2. Start draw + say in parallel
+    const drawPromise = executeDraw(beat.draw);
+    const sayPromise = executeSay(beat.say);
+
+    // Wait for both to complete
+    await Promise.all([drawPromise, sayPromise]);
+
+    // 3. Pause after beat
+    if (beat.pause && beat.pause > 0) {
+      await voiceSleep(beat.pause * 1000);
+    }
+
+    // 4. If question, show input and stop
+    if (beat.question) {
       voiceHideHand();
-      break;
-    case 'voice':
-      // Board voice commands — in voice mode, speak them
-      if (cmd.text && state.teachingMode === 'voice') {
-        voiceSpeak(cmd.text);
-      }
-      break;
+      const questionText = beat.say || 'What do you think?';
+      // Render LaTeX in question text
+      const rendered = typeof renderLatex === 'function' ? renderLatex(questionText) : questionText;
+      voiceShowBoardQuestion(rendered);
+      return; // Stop scene — student responds
+    }
+  }
+
+  // Scene finished without a question — show generic input
+  voiceHideHand();
+  voiceHideSubtitle();
+}
+
+// Execute draw commands from a beat
+async function executeDraw(drawCmds) {
+  if (!drawCmds || drawCmds.length === 0) return;
+
+  // Ensure board canvas exists
+  if (!state.boardDraw.canvas) {
+    openBoardDrawSpotlight('Board', null, { clear: true });
+    // Wait a tick for canvas initialization
+    await new Promise(r => setTimeout(r, 100));
+  }
+
+  // Execute each draw command through the existing board-draw engine
+  for (const cmd of drawCmds) {
+    if (!cmd || !cmd.cmd) continue;
+    // Enqueue and process
+    state.boardDraw.commandQueue.push(cmd);
+  }
+
+  // Process the queue
+  if (state.boardDraw.canvas && !state.boardDraw.isProcessing) {
+    await bdProcessQueue();
+  }
+
+  // Auto-scroll board to show new content
+  const boardContent = $('#spotlight-content');
+  if (boardContent && state.boardDraw.canvas) {
+    const canvas = state.boardDraw.canvas;
+    const canvasBottom = canvas.height / state.boardDraw.DPR;
+    if (canvasBottom > boardContent.clientHeight) {
+      boardContent.scrollTop = canvasBottom - boardContent.clientHeight;
+    }
   }
 }
 
-// ── Hook into finalizeAIMessage for voice mode TTS ──────────
+// Execute say — TTS + subtitle
+async function executeSay(text) {
+  if (!text || !text.trim()) return;
+  voiceShowSubtitle(text);
+  voiceShowIndicator('speaking');
+  await voiceSpeak(text);
+  voiceHideIndicator();
+}
 
-// In voice mode, when a message is finalized, speak the text content
-// instead of (or in addition to) showing it in chat.
-// The text is already displayed via appendBoardText; we overlay TTS.
+// Execute cursor positioning
+function executeCursor(cursorStr, drawCmds) {
+  if (!cursorStr || cursorStr === 'rest') {
+    voiceHideHand();
+    return;
+  }
+
+  // cursor="write" — follow the draw command coordinates
+  if (cursorStr === 'write' && drawCmds && drawCmds.length > 0) {
+    const cmd = drawCmds[0];
+    const pos = getCommandPosition(cmd);
+    if (pos) voiceMoveHand(pos.x, pos.y, true);
+    return;
+  }
+
+  // cursor="tap:x,y" or cursor="point:x,y"
+  const tapMatch = cursorStr.match(/^tap:(\d+),(\d+)$/);
+  if (tapMatch) {
+    voiceTapAt(parseInt(tapMatch[1]), parseInt(tapMatch[2]));
+    return;
+  }
+
+  const pointMatch = cursorStr.match(/^point:(\d+),(\d+)$/);
+  if (pointMatch) {
+    voiceMoveHand(parseInt(pointMatch[1]), parseInt(pointMatch[2]), false);
+    return;
+  }
+}
+
+// Extract position from a draw command
+function getCommandPosition(cmd) {
+  if (!cmd) return null;
+  switch (cmd.cmd) {
+    case 'text': case 'latex': return { x: cmd.x, y: cmd.y };
+    case 'line': case 'arrow': case 'dashed': return { x: cmd.x1, y: cmd.y1 };
+    case 'rect': case 'fillrect': return { x: cmd.x, y: cmd.y };
+    case 'circle': case 'arc': return { x: cmd.cx, y: cmd.cy };
+    default: return null;
+  }
+}
+
+// Hook: called after each board draw command to position hand (for non-scene draws)
+function voiceHandFollowCommand(cmd) {
+  if (state.teachingMode !== 'voice') return;
+  if (!cmd) return;
+  // Only follow if NOT inside a voice scene (scene handles its own cursor)
+  if (state._voiceSceneActive) return;
+
+  const pos = getCommandPosition(cmd);
+  if (pos) voiceMoveHand(pos.x, pos.y, true);
+
+  if (cmd.cmd === 'pause') voiceHideHand();
+  if (cmd.cmd === 'dot') voiceTapAt(cmd.x, cmd.y);
+}
+
+// ── Hook into finalizeAIMessage for voice mode ──────────────
 
 function voiceHandleFinalizedText(text) {
   if (state.teachingMode !== 'voice') return;
   if (!text || !text.trim()) return;
 
-  // Strip teaching tags — only speak the plain text
+  // Check if the text contains a voice scene — if so, the scene executor handles everything
+  if (text.includes('<teaching-voice-scene')) return;
+
+  // Fallback: if tutor didn't use a voice scene, speak the plain text
   const stripped = stripTeachingTags(text)
     .replace(/<[^>]+>/g, '')
     .replace(/\s+/g, ' ')
     .trim();
 
-  if (stripped.length < 5) return; // too short to speak
+  if (stripped.length < 5) return;
 
-  // Always show subtitle immediately (don't wait for TTS)
   voiceShowSubtitle(stripped);
-
-  // Speak it (fire-and-forget, errors caught)
-  // Do NOT show question input here — it blocks the agentic loop.
-  // Question input is shown only when the entire run finishes (RUN_FINISHED).
   voiceSpeak(stripped)
-    .then(() => {
-      setTimeout(() => voiceHideSubtitle(), 2000);
-    })
-    .catch(e => {
-      console.warn('Voice TTS error:', e);
-      setTimeout(() => voiceHideSubtitle(), 5000);
-    });
+    .then(() => setTimeout(() => voiceHideSubtitle(), 2000))
+    .catch(() => setTimeout(() => voiceHideSubtitle(), 5000));
 }
 
-// Called when the entire agentic run finishes — show board input for student response
+// Called when the entire agentic run finishes
 function voiceHandleRunFinished() {
   if (state.teachingMode !== 'voice') return;
 
@@ -10447,16 +10618,18 @@ function voiceHandleRunFinished() {
   if (!lastMsg) return;
   const text = typeof lastMsg.content === 'string' ? lastMsg.content : '';
 
-  // Don't show input if there's an interactive tag — those render their own controls
+  // Don't show input if voice scene already showed a question
+  const boardInput = $('#board-question-input');
+  if (boardInput && boardInput.classList.contains('visible')) return;
+
+  // Don't show input if there's an interactive tag
   const hasInteractiveTag = /<teaching-(mcq|freetext|agree-disagree|fillblank|spot-error|confidence|canvas|teachback)/i.test(text);
   if (hasInteractiveTag) return;
 
-  // Extract question if present
+  // Always show board input after run finishes
   const stripped = stripTeachingTags(text).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
   const sentences = stripped.split(/(?<=[.!?])\s+/);
   const lastQ = sentences.filter(s => s.endsWith('?')).pop();
-
-  // Always show board input after run finishes — with question text if there was one
   voiceShowBoardQuestion(lastQ || 'Type your response...');
 }
 

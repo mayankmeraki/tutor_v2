@@ -302,24 +302,57 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if session_scope:
         parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
 
-    # Voice mode instructions — changes how the tutor teaches
+    # Voice mode instructions — completely different output format
     teaching_mode = context_data.get("teachingMode", "text")
     if teaching_mode == "voice":
-        parts.append("""
+        parts.append(r"""
 [VOICE MODE — ACTIVE]
-The student is in VOICE MODE. Your text will be spoken aloud via TTS and shown as subtitles.
-The board takes full screen — there is NO chat pane visible.
+The student is in VOICE MODE. There is NO chat pane — only a full-screen board with subtitles.
+Your spoken words are delivered via TTS. The board is the only visual.
 
-CRITICAL RULES FOR VOICE MODE:
-- Write SHORT sentences (under 20 words). TTS reads them aloud — long sentences sound robotic.
-- ALWAYS draw on the board BEFORE referencing it. Never say "as you can see" without a board-draw in this message.
-- Keep the board visible with content. The student sees ONLY the board + subtitles.
-- Pause naturally: use board-draw "pause" commands ({"cmd":"pause","ms":800}) between concepts.
-- Use board-draw "voice" commands ({"cmd":"voice","text":"...","dur":3}) to narrate while drawing.
-- Do NOT reference "left side" / "right side" of the screen — there is only the board.
-- Do NOT write long paragraphs. Break into 1-2 sentence blocks with board draws between them.
-- Questions should be direct and simple. The student types or speaks a short response.
-- Every response MUST include a board-draw. Text-only responses are invisible to the student.
+═══ OUTPUT FORMAT: <teaching-voice-scene> ═══
+
+Instead of text + <teaching-board-draw>, output a <teaching-voice-scene> tag.
+Inside it: a sequence of <vb /> (voice beat) tags executed sequentially.
+
+EXAMPLE:
+<teaching-voice-scene title="The Schrödinger Equation">
+<vb say="Let me show you the most important equation in quantum mechanics." cursor="rest" pause="0.3" />
+<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","x":150,"y":100,"color":"#fbbf24","size":40}' say="Here it is. The Schrödinger equation." cursor="write" pause="0.5" />
+<vb say="The left side tells you how psi changes in time." cursor="tap:200,100" pause="0.8" />
+<vb say="The right side — the Hamiltonian — encodes all the physics." cursor="tap:450,100" pause="1.0" />
+<vb draw='{"cmd":"circle","cx":300,"cy":110,"r":60,"color":"#34d399"}' say="This single equation drives everything." cursor="tap:300,110" pause="1.5" />
+<vb say="What does the left side represent physically?" cursor="rest" question="true" />
+</teaching-voice-scene>
+
+═══ <vb> ATTRIBUTES ═══
+
+say="..."       — Text to speak (TTS). Short sentences (under 20 words). Empty = silent beat.
+draw='...'      — Board draw JSON command (same format as board-draw JSONL). Single command per beat.
+                  Use single quotes around the JSON: draw='{"cmd":"text",...}'
+cursor="..."    — Hand cursor: "write" (follows draw), "tap:x,y" (point+pulse), "point:x,y" (hover), "rest" (hidden)
+pause="N"       — Seconds to wait after voice+draw complete. Use for breathing room.
+question="true" — Final beat. Shows input bar after speaking. Scene stops here.
+
+═══ ASSET BEATS ═══
+
+Widgets:    <vb widget-title="..." widget-code="<div>...</div>" say="Try this interactive." cursor="rest" />
+Simulations: <vb simulation="sim-id" say="Let me open a simulation." cursor="rest" />
+Videos:     <vb video-lesson="6" video-start="245" video-end="280" say="Watch this clip." cursor="rest" />
+Images:     <vb image-src="url" image-caption="..." say="Look at this." cursor="rest" />
+
+═══ ORCHESTRATION RULES ═══
+
+1. ALWAYS draw before talking about it. Never say "as you can see" without a prior draw beat.
+2. Short say text — under 20 words per beat. TTS sounds robotic with long sentences.
+3. Alternate draw and say beats for natural rhythm: draw → say → draw → say.
+4. After writing something important, add a tap + pause beat to let it land.
+5. Use pause="0.5" to "1.5" generously. Pauses are where learning happens.
+6. End with question="true" when you want the student to respond.
+7. The cursor is the student's focus point. Always move it to what you're discussing.
+8. Multiple draw commands? Use separate <vb> tags for each — one draw per beat.
+9. Do NOT write any text outside the <teaching-voice-scene> tag. Everything goes inside beats.
+10. You can still call tools (spawn_agent, advance_topic, etc.) BEFORE the scene tag.
 """)
 
     # Plan accountability — injected every turn so the tutor knows exactly where it is
