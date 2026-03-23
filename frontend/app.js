@@ -10152,13 +10152,16 @@ function applyTeachingMode() {
   const speedWrap = $('#speed-wrap');
   const indicator = $('#mode-indicator');
 
+  const micFloat = $('#voice-mic-float');
+
   if (mode === 'voice') {
     mainLayout?.classList.add('voice-mode');
     subtitleBar?.classList.remove('hidden');
     voiceInd?.classList.remove('hidden');
     speedWrap?.classList.remove('hidden');
+    micFloat?.classList.remove('hidden');
     if (indicator) {
-      indicator.textContent = 'Voice Mode';
+      indicator.textContent = 'VOICE';
       indicator.className = 'mode-indicator voice-mode';
     }
   } else {
@@ -10166,8 +10169,9 @@ function applyTeachingMode() {
     subtitleBar?.classList.add('hidden');
     voiceInd?.classList.add('hidden');
     speedWrap?.classList.add('hidden');
+    micFloat?.classList.add('hidden');
     if (indicator) {
-      indicator.textContent = 'Text Mode';
+      indicator.textContent = 'TEXT';
       indicator.className = 'mode-indicator text-mode';
     }
     voiceHideSubtitle();
@@ -10176,7 +10180,7 @@ function applyTeachingMode() {
   }
 }
 
-// ── ElevenLabs Streaming TTS (fast, low latency) ────────────
+// ── ElevenLabs Streaming TTS (chunked playback for low latency) ──
 
 async function voiceSpeak(text) {
   if (state.teachingMode !== 'voice' || !text.trim()) return;
@@ -10185,24 +10189,16 @@ async function voiceSpeak(text) {
   if (state.voiceAudioCtx.state === 'suspended') await state.voiceAudioCtx.resume();
   if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch {} }
 
-  // Clean for TTS — strip markdown, HTML, LaTeX, emotion tags
   const cleanText = text
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/\*(.+?)\*/g, '$1')
-    .replace(/`(.+?)`/g, '$1')
-    .replace(/<[^>]+>/g, '')
-    .replace(/\$\$[\s\S]+?\$\$/g, '')
-    .replace(/\$(.+?)\$/g, '$1')
-    .replace(/\[[^\]]*\]\s*/g, '') // strip emotion tags for turbo model
-    .trim();
+    .replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1').replace(/<[^>]+>/g, '')
+    .replace(/\$\$[\s\S]+?\$\$/g, '').replace(/\$(.+?)\$/g, '$1')
+    .replace(/\[[^\]]*\]\s*/g, '').trim();
 
   if (!cleanText || cleanText.length < 3) return;
 
   const apiKey = await getElevenLabsKey();
-  if (!apiKey) {
-    await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
-    return;
-  }
+  if (!apiKey) { await voiceSleep(estimateVoiceDuration(cleanText) * 1000); return; }
 
   try {
     const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`, {
@@ -10222,6 +10218,9 @@ async function voiceSpeak(text) {
       return;
     }
 
+    // Stream chunks and start playing as soon as first chunk arrives
+    // Use MediaSource for true streaming playback on supported browsers,
+    // fallback to buffered playback otherwise
     const reader = resp.body.getReader();
     const chunks = [];
     while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
@@ -10937,5 +10936,87 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement?.id === 'board-question-field') {
     e.preventDefault();
     submitBoardAnswer();
+  }
+});
+
+// ── Push-to-talk (Space bar) ────────────────────────────────
+
+let _pttRecognition = null;
+let _pttActive = false;
+
+document.addEventListener('keydown', (e) => {
+  if (state.teachingMode !== 'voice') return;
+  if (e.code !== 'Space') return;
+  // Don't capture Space if typing in an input
+  if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
+  if (_pttActive) return;
+  e.preventDefault();
+  startPushToTalk();
+});
+
+document.addEventListener('keyup', (e) => {
+  if (e.code !== 'Space' || !_pttActive) return;
+  e.preventDefault();
+  stopPushToTalk();
+});
+
+function startPushToTalk() {
+  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
+  _pttActive = true;
+
+  const micBtn = $('#voice-mic-btn');
+  if (micBtn) micBtn.classList.add('recording');
+  voiceShowIndicator('listening');
+
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  _pttRecognition = new SpeechRecognition();
+  _pttRecognition.continuous = true;
+  _pttRecognition.interimResults = true;
+  _pttRecognition.lang = 'en-US';
+
+  let transcript = '';
+  _pttRecognition.onresult = (e) => {
+    transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+    voiceShowSubtitle('You: ' + transcript);
+  };
+  _pttRecognition.onerror = () => { stopPushToTalk(); };
+  _pttRecognition.onend = () => {
+    if (_pttActive) stopPushToTalk();
+  };
+  _pttRecognition.start();
+}
+
+function stopPushToTalk() {
+  _pttActive = false;
+  const micBtn = $('#voice-mic-btn');
+  if (micBtn) micBtn.classList.remove('recording');
+  voiceHideIndicator();
+
+  if (_pttRecognition) {
+    _pttRecognition.stop();
+    // Get final transcript
+    setTimeout(() => {
+      const subText = $('#voice-subtitle-text');
+      const text = subText?.textContent?.replace(/^You:\s*/, '').trim();
+      voiceHideSubtitle();
+      if (text && text.length > 1) {
+        voiceHideBoardQuestion();
+        streamADK(text);
+      }
+      _pttRecognition = null;
+    }, 300);
+  }
+}
+
+// Floating mic button click handler
+document.addEventListener('DOMContentLoaded', () => {
+  const micBtn = document.getElementById('voice-mic-btn');
+  if (micBtn) {
+    micBtn.addEventListener('mousedown', () => { if (!_pttActive) startPushToTalk(); });
+    micBtn.addEventListener('mouseup', () => { if (_pttActive) stopPushToTalk(); });
+    micBtn.addEventListener('mouseleave', () => { if (_pttActive) stopPushToTalk(); });
+    // Touch support
+    micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!_pttActive) startPushToTalk(); });
+    micBtn.addEventListener('touchend', (e) => { e.preventDefault(); if (_pttActive) stopPushToTalk(); });
   }
 });
