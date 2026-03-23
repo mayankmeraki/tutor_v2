@@ -394,11 +394,11 @@ Use sparingly — 1-2 per scene. Overuse sounds theatrical.
   (saves snapshot before clearing so student can scroll back in frame strip)
 - Go back: <vb scroll-to="id:eq-newton" say="Remember this?" cursor="tap:id:eq-newton" />
 
-CRITICAL FONT SIZES (virtual coords 0-800 — scaled ~1.75x on screen):
-  Titles: size=16-18 (renders ~28-32px). NEVER use size > 20 for titles.
-  Equations: size=14-18 (renders ~24-32px). NEVER use size > 20 for equations.
-  Labels: size=10-14 (renders ~18-24px).
-  NEVER use size > 22 for anything. size=30 renders as 52px which is absurdly large.
+FONT SIZES (virtual coords 0-800, rendered with ~2.5x scale on wide screens):
+  Titles: size=18-22
+  Equations: size=16-20
+  Labels/annotations: size=12-16
+  Readable range: 12-24. Below 12 is too small. Above 24 is too large.
 
 Layout patterns (same as text mode board — structured like lecture notes):
   Pattern A — Animation LEFT, text RIGHT:

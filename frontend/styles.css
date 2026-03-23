@@ -4379,6 +4379,25 @@ body {
   #canvas-stream { padding: 12px 16px; }
 }
 
+/* ─── Voice Mode Responsive ─────────────────────────────── */
+@media (max-width: 768px) {
+  /* Mobile: voice mode adjustments */
+  #main-layout.voice-mode #board-panel { min-width: 100vw; }
+  .voice-subtitle-text { font-size: 14px; max-width: 90%; }
+  .voice-subtitle-bar { padding: 20px 4% 12px; }
+  .board-question-input { padding: 8px 12px; }
+  .board-question-text { font-size: 16px; }
+  .board-question-field { font-size: 14px; padding: 8px 10px; }
+  .voice-indicator { top: 50px; left: 8px; padding: 4px 10px; }
+  .plan-heading-bar .plan-hb-content { font-size: 11px; padding: 6px 10px; }
+}
+@media (max-width: 480px) {
+  .voice-subtitle-text { font-size: 13px; }
+  .voice-subtitle-bar { padding: 16px 3% 10px; min-height: 60px; }
+  .plan-heading-bar .plan-hb-content { gap: 4px; font-size: 10px; }
+  .speed-toggle-btn { font-size: 10px; padding: 3px 6px; }
+}
+
 /* ─── Assessment Checkpoint Dividers ────────────────────── */
 .assessment-divider { text-align: center; margin: 1rem 0; }
 .assessment-badge {

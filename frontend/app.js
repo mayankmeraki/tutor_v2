@@ -7986,11 +7986,9 @@ const BD_COLORS = {
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
 const BD_MIN_FONT_SCALE = 1.4;
-// In voice mode, board is full-width so fonts are already large — reduce minimum
 function bdGetFontScale() {
   const s = state.boardDraw.scale;
-  const minScale = state.teachingMode === 'voice' ? 1.0 : BD_MIN_FONT_SCALE;
-  return Math.max(s, s * minScale);
+  return Math.max(s, s * BD_MIN_FONT_SCALE);
 }
 
 // Active p5 animation instances on the board overlay
