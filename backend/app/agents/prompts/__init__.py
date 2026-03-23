@@ -423,13 +423,52 @@ Use annotations to direct attention. They fade automatically — like gesturing.
 
 ═══ ANIMATION CONTROL ═══
 
-- Control active animation: anim-control='{"param":"value"}'
-- Animation code reads _controlParams: if (_controlParams.bumpX) x = _controlParams.bumpX;
-- Glow parts: annotate="glow:id:anim-wave"
-- Example:
-  <vb draw='{"cmd":"animation","id":"wave-anim","w":400,"h":200,"x":40,"y":200,"code":"..."}' say="Watch this." />
-  <vb anim-control='{"speed":2}' say="Speeding it up." cursor="point:id:wave-anim" />
-  <vb anim-control='{"bumpX":0.7}' say="See the bump shift?" cursor="tap:id:wave-anim" annotate="glow:id:wave-anim" />
+Control active animation parameters and highlight individual elements:
+
+  anim-control='{"param":"value"}'       — change animation variables
+  anim-control='{"_highlight":"curve1"}' — glow/pulse a named element inside the animation
+  anim-control='{"_unhighlight":true}'   — remove all highlights
+
+Animation code MUST define named elements for highlighting:
+  var _elements = {};  // registry of drawable elements
+  _elements["psi-curve"] = { draw: function() { /* draw the curve */ }, color: "#5eead4" };
+  _elements["x-psi-curve"] = { draw: function() { /* draw x*psi */ }, color: "#fbbf24" };
+
+The bridge auto-handles highlighting: when _controlParams._highlight is set,
+the named element draws with a glow effect (thicker stroke + shadow).
+
+Example animation code pattern:
+  var _elements = {};
+  _elements["psi"] = { color: "#5eead4" };
+  _elements["result"] = { color: "#fbbf24" };
+
+  p.draw = function() {
+    p.background(26, 29, 46);
+    // Draw each element — check if highlighted
+    var hl = _controlParams._highlight;
+    drawCurve("psi", p, hl === "psi");
+    drawCurve("result", p, hl === "result");
+  };
+
+  function drawCurve(name, p, highlighted) {
+    var el = _elements[name];
+    if (highlighted) {
+      p.strokeWeight(4);
+      p.drawingContext.shadowColor = el.color;
+      p.drawingContext.shadowBlur = 15;
+    } else {
+      p.strokeWeight(2);
+      p.drawingContext.shadowBlur = 0;
+    }
+    p.stroke(el.color);
+    // ... draw the curve
+  }
+
+Example beat flow:
+  <vb draw='{"cmd":"animation","id":"wave","w":500,"h":200,"x":40,"y":150,"code":"..."}' say="Two curves here." />
+  <vb anim-control='{"_highlight":"psi"}' say="This cyan one is the input wave function." pause="1.5" />
+  <vb anim-control='{"_highlight":"result"}' say="And this yellow one is what comes out after the operator." pause="1.5" />
+  <vb anim-control='{"_unhighlight":true}' say="See how they are different shapes?" pause="1.0" />
 
 ═══ BOARD CONTEXT ═══
 

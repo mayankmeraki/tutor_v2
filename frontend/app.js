@@ -8949,8 +8949,23 @@ async function bdRunAnimation(cmd) {
   // Inject onControl bridge so tutor can change animation parameters at runtime
   const controlBridge = `
     var _controlParams = {};
-    function onControl(params) { Object.assign(_controlParams, params); }
+    var _elements = {};
+    function onControl(params) {
+      if (params._unhighlight) { _controlParams._highlight = null; }
+      Object.assign(_controlParams, params);
+    }
     p._onControl = function(params) { onControl(params); };
+    // Helper: apply highlight glow to drawing context
+    function applyHighlight(p, color, isHighlighted) {
+      if (isHighlighted) {
+        p.strokeWeight(4);
+        p.drawingContext.shadowColor = color || '#34d399';
+        p.drawingContext.shadowBlur = 18;
+      } else {
+        p.strokeWeight(2);
+        p.drawingContext.shadowBlur = 0;
+      }
+    }
   `;
   code = controlBridge + '\n' + code;
   let sketchFn;
