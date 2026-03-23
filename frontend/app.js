@@ -7986,6 +7986,12 @@ const BD_COLORS = {
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
 const BD_MIN_FONT_SCALE = 1.4;
+// In voice mode, board is full-width so fonts are already large — reduce minimum
+function bdGetFontScale() {
+  const s = state.boardDraw.scale;
+  const minScale = state.teachingMode === 'voice' ? 1.0 : BD_MIN_FONT_SCALE;
+  return Math.max(s, s * minScale);
+}
 
 // Active p5 animation instances on the board overlay
 const bdActiveAnimations = [];
@@ -8371,7 +8377,7 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   const bd = state.boardDraw;
   if (bd.cancelFlag) return;
   const s = bd.scale;
-  const fontScale = Math.max(s, s * BD_MIN_FONT_SCALE);
+  const fontScale = bdGetFontScale();
   const fs = (size || 22) * fontScale;
   bdExpandIfNeeded(y + (size || 22));
   charDelay = charDelay || 40;
@@ -8499,7 +8505,7 @@ async function bdAnimLatex(latex, x, y, color, size) {
   if (bd.cancelFlag) return;
   const s = bd.scale;
   const c = BD_COLORS[color] || color || BD_COLORS.white;
-  const fontScale = Math.max(s, s * BD_MIN_FONT_SCALE);
+  const fontScale = bdGetFontScale();
   const fs = (size || 24) * fontScale;
   bdExpandIfNeeded(y + (size || 24) * 2);
 
@@ -8531,7 +8537,7 @@ async function bdAnimMatrix(cmd) {
   if (rows.length === 0) return;
   const nRows = rows.length;
   const nCols = Math.max(...rows.map(r => r.length));
-  const fontScale = Math.max(s, s * BD_MIN_FONT_SCALE);
+  const fontScale = bdGetFontScale();
   const fs = (cmd.size || 22) * fontScale;
   const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
   const font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
@@ -10124,7 +10130,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Module 23: Voice Mode — TTS, Hand Cursor, Board Interaction
 // ═══════════════════════════════════════════════════════════
 
-const ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
+const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
 const ELEVENLABS_MODEL = 'eleven_turbo_v2_5';
 
 // ── Mode selection (at session start, not switchable mid-session) ────

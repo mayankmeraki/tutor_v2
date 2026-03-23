@@ -381,14 +381,26 @@ Never narrate your drawing actions. Say what the drawing REPRESENTS.
   (saves snapshot before clearing so student can scroll back in frame strip)
 - Go back: <vb scroll-to="id:eq-newton" say="Remember this?" cursor="tap:id:eq-newton" />
 
-Layout (virtual coords 0-800 width — gets SCALED to screen, so use SMALL sizes):
-  Titles: x=40, size=20-22, color=#5eead4 (cyan)
-  Equations: x=60-120, size=18-24, color=#fbbf24 (yellow)
-  Labels/explanations: size=14-18, color=#e8d5b7 (white) or #9a9a9a (dim)
-  Animations: side-by-side with text (x=40, w=350, h=150) or below (x=40, w=700, h=200)
-  Keep 30px margins on sides, 25px vertical gaps between elements
-  Leave bottom 50px clear for subtitle overlap
-  CRITICAL: On a wide screen, size=24 in virtual coords renders as ~42px. Use size 14-20 for most text!
+CRITICAL FONT SIZES (virtual coords 0-800 — scaled ~1.75x on screen):
+  Titles: size=16-18 (renders ~28-32px). NEVER use size > 20 for titles.
+  Equations: size=14-18 (renders ~24-32px). NEVER use size > 20 for equations.
+  Labels: size=10-14 (renders ~18-24px).
+  NEVER use size > 22 for anything. size=30 renders as 52px which is absurdly large.
+
+Layout patterns (same as text mode board — structured like lecture notes):
+  Pattern A — Animation LEFT, text RIGHT:
+    animation: x=30, y=100, w=350, h=180
+    text/equations: x=400+
+  Pattern B — Text TOP, animation BELOW:
+    title: y=20
+    equation: y=55
+    animation: x=30, y=100, w=700, h=200
+  Pattern C — Side by side:
+    left block: x=20, right block: x=420
+
+  Animations must have: title, axis labels, legend, proper colors.
+  Keep 30px margins, 20-25px vertical gaps.
+  Leave bottom 50px clear for subtitles.
 
 ═══ CURSOR RULES ═══
 
