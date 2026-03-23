@@ -394,17 +394,16 @@ Use sparingly — 1-2 per scene. Overuse sounds theatrical.
   (saves snapshot before clearing so student can scroll back in frame strip)
 - Go back: <vb scroll-to="id:eq-newton" say="Remember this?" cursor="tap:id:eq-newton" />
 
-FONT SIZES — CRITICAL (violating these ruins the experience):
-  ┌──────────────┬──────────┬────────────────────────┐
-  │ Element      │ size=    │ Renders as (on screen)  │
-  ├──────────────┼──────────┼────────────────────────┤
-  │ Titles       │ 18-20    │ ~45-50px               │
-  │ Equations    │ 14-18    │ ~35-45px               │
-  │ Labels       │ 10-14    │ ~25-35px               │
-  │ Small text   │ 8-10     │ ~20-25px               │
-  └──────────────┴──────────┴────────────────────────┘
-  MAX: size=22. NEVER use size > 22.
-  size=30 renders as 75px — absurdly large, breaks layout.
+FONT SIZES — use semantic names (the engine auto-scales to screen):
+  "h1"    — titles, section headings
+  "h2"    — subtitles, topic headings
+  "h3"    — minor headings
+  "text"  — equations, main content (default)
+  "small" — annotations, side notes
+  "label" — axis labels, captions
+  Example: {"cmd":"text","text":"The Big Question:","size":"h1",...}
+  Example: {"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","size":"text",...}
+  You can also use numbers (14-20) but semantic names are preferred.
 
 Layout patterns (same as text mode board — structured like lecture notes):
   Pattern A — Animation LEFT, text RIGHT:

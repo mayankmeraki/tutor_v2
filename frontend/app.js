@@ -8405,13 +8405,24 @@ async function bdAnimArc(cx, cy, r, sa, ea, color, lw, duration) {
   bdClearShadow();
 }
 
+// Semantic size mapping — LLM can use "h1", "h2", "text", "small", "label" or numbers
+const BD_SEMANTIC_SIZES = { h1: 20, h2: 17, h3: 15, text: 14, body: 14, small: 11, label: 10, caption: 9 };
+
+function bdResolveSize(size) {
+  if (typeof size === 'string' && BD_SEMANTIC_SIZES[size.toLowerCase()]) {
+    return BD_SEMANTIC_SIZES[size.toLowerCase()];
+  }
+  return typeof size === 'number' ? size : 14;
+}
+
 async function bdAnimText(text, x, y, color, size, charDelay) {
   const bd = state.boardDraw;
   if (bd.cancelFlag) return;
   const s = bd.scale;
+  size = bdResolveSize(size);
   const fontScale = bdGetFontScale();
-  const fs = (size || 22) * fontScale;
-  bdExpandIfNeeded(y + (size || 22));
+  const fs = size * fontScale;
+  bdExpandIfNeeded(y + size);
   charDelay = charDelay || 40;
   bdChalkStyle(color, 1);
   bd.ctx.font = `${fs}px 'Caveat', cursive`;
@@ -8537,8 +8548,9 @@ async function bdAnimLatex(latex, x, y, color, size) {
   if (bd.cancelFlag) return;
   const s = bd.scale;
   const c = BD_COLORS[color] || color || BD_COLORS.white;
+  size = bdResolveSize(size || 16);
   const fontScale = bdGetFontScale();
-  const fs = (size || 24) * fontScale;
+  const fs = size * fontScale;
   bdExpandIfNeeded(y + (size || 24) * 2);
 
   const text = latexToUnicode(latex);
@@ -10987,10 +10999,17 @@ function voiceHandleFinalizedText(text) {
   if (state.teachingMode !== 'voice') return;
   if (!text || !text.trim()) return;
 
-  // Check if the text contains a voice scene — if so, the scene executor handles everything
+  // If a voice scene exists in this message, the scene executor handles ALL audio.
+  // Do NOT also speak the text — that causes double voice.
   if (text.includes('<teaching-voice-scene')) return;
 
-  // Fallback: if tutor didn't use a voice scene, speak the plain text
+  // If a voice scene is currently executing, don't speak
+  if (state._voiceSceneActive) return;
+
+  // If there's a board-draw, the board voice commands handle narration
+  if (text.includes('<teaching-board-draw')) return;
+
+  // Fallback: tutor sent plain text without voice scene or board-draw
   const stripped = stripTeachingTags(text)
     .replace(/<[^>]+>/g, '')
     .replace(/\s+/g, ' ')
