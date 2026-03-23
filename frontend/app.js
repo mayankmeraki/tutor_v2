@@ -8984,13 +8984,22 @@ async function bdRunAnimation(cmd) {
   if (!layer) return;
 
   const s = bd.scale;
-  const x = (cmd.x || 0) * s;
+  // Auto-size: animations take a reasonable portion of the board, not LLM-specified
+  // Default: 60% of board width, 40% of board height, positioned with margins
+  const wrap = document.getElementById('bd-canvas-wrap');
+  const boardW = wrap ? wrap.clientWidth : 600;
+  const boardH = wrap ? wrap.clientHeight : 400;
+
+  // Use LLM coords for position but clamp size to reasonable bounds
+  const maxW = Math.min(boardW * 0.7, 800);
+  const maxH = Math.min(boardH * 0.45, 400);
+  const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
-  const w = (cmd.w || 300) * s;
-  const h = (cmd.h || 200) * s;
+  const w = cmd.w ? Math.min(cmd.w * s, maxW) : Math.min(boardW * 0.6, maxW);
+  const h = cmd.h ? Math.min(cmd.h * s, maxH) : Math.min(boardH * 0.35, maxH);
   const duration = cmd.duration || 6000;
 
-  bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 200));
+  bdExpandIfNeeded((cmd.y || 0) + (h / s));
 
   if (!cmd.code) {
     console.warn('Board animation: no "code" field provided');
