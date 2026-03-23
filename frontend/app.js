@@ -8984,22 +8984,22 @@ async function bdRunAnimation(cmd) {
   if (!layer) return;
 
   const s = bd.scale;
-  // Auto-size: animations take a reasonable portion of the board, not LLM-specified
-  // Default: 60% of board width, 40% of board height, positioned with margins
+  // Position uses virtual coords * scale (same as text/line commands)
+  const x = (cmd.x || 20) * s;
+  const y = (cmd.y || 0) * s;
+  // Size: use virtual coords * scale but cap to prevent overflow
   const wrap = document.getElementById('bd-canvas-wrap');
   const boardW = wrap ? wrap.clientWidth : 600;
   const boardH = wrap ? wrap.clientHeight : 400;
+  const rawW = (cmd.w || 350) * s;
+  const rawH = (cmd.h || 200) * s;
+  // Clamp: don't exceed board width minus position, and cap at 65% of board
+  const w = Math.min(rawW, boardW - x - 10, boardW * 0.65);
+  const h = Math.min(rawH, boardH * 0.45, 350);
+  // Duration: 0 means keep alive indefinitely (for live animations)
+  const duration = cmd.duration === 0 ? 0 : (cmd.duration || 0); // default to 0 = live
 
-  // Use LLM coords for position but clamp size to reasonable bounds
-  const maxW = Math.min(boardW * 0.7, 800);
-  const maxH = Math.min(boardH * 0.45, 400);
-  const x = (cmd.x || 20) * s;
-  const y = (cmd.y || 0) * s;
-  const w = cmd.w ? Math.min(cmd.w * s, maxW) : Math.min(boardW * 0.6, maxW);
-  const h = cmd.h ? Math.min(cmd.h * s, maxH) : Math.min(boardH * 0.35, maxH);
-  const duration = cmd.duration || 6000;
-
-  bdExpandIfNeeded((cmd.y || 0) + (h / s));
+  bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 200));
 
   if (!cmd.code) {
     console.warn('Board animation: no "code" field provided');
