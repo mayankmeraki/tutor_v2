@@ -405,6 +405,29 @@
           <span class="course-title" id="course-title">Teaching Session</span>
         </div>
         <div class="top-right">
+          <!-- Teaching Mode Toggle -->
+          <div class="mode-toggle" id="mode-toggle">
+            <button class="mode-btn active" id="mode-text-btn" onclick="setTeachingMode('text')">
+              <span class="mode-ico">&#9998;</span> Text
+            </button>
+            <button class="mode-btn" id="mode-voice-btn" onclick="setTeachingMode('voice')">
+              <span class="mode-ico">&#9835;</span> Voice
+            </button>
+          </div>
+          <!-- Speed Control (voice mode) -->
+          <div class="speed-wrap hidden" id="speed-wrap">
+            <button class="speed-toggle-btn" id="speed-toggle-btn" onclick="toggleSpeedMenu()">
+              <span class="speed-label">Speed</span>
+              <span class="speed-val" id="speed-val">1.5x</span>
+            </button>
+            <div class="speed-menu hidden" id="speed-menu">
+              <button onclick="pickSpeed(0.75)">0.75x</button>
+              <button onclick="pickSpeed(1)">1x</button>
+              <button class="active" onclick="pickSpeed(1.5)">1.5x</button>
+              <button onclick="pickSpeed(2)">2x</button>
+              <button onclick="pickSpeed(3)">3x</button>
+            </div>
+          </div>
           <span id="session-timer">0:00</span>
           <span id="session-cost" class="session-cost" title="Estimated LLM cost this session">$0.00</span>
         </div>
@@ -477,6 +500,39 @@
         </div>
 
       </main>
+
+      <!-- Voice Mode Overlays (outside main layout, fixed positioned) -->
+
+      <!-- Subtitle bar — bottom of screen, shows what tutor is saying -->
+      <div id="voice-subtitle-bar" class="voice-subtitle-bar hidden">
+        <div class="voice-subtitle-text" id="voice-subtitle-text"></div>
+      </div>
+
+      <!-- Voice indicator — top left, shows speaking/listening state -->
+      <div id="voice-indicator" class="voice-indicator hidden">
+        <div class="voice-indicator-bars">
+          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
+          <div class="vbar"></div><div class="vbar"></div>
+        </div>
+        <span class="voice-indicator-label" id="voice-indicator-label">Euler is speaking</span>
+      </div>
+
+      <!-- Hand cursor — overlays on board, follows drawing commands -->
+      <div id="voice-hand-cursor" class="voice-hand hidden">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 4L11 20L13.5 13.5L20 11L4 4Z" fill="white" stroke="white" stroke-width="0.5"/></svg>
+      </div>
+
+      <!-- Board question input — slides up from bottom of board in voice mode -->
+      <div id="board-question-input" class="board-question-input hidden">
+        <div class="board-question-text" id="board-question-text"></div>
+        <div class="board-question-controls">
+          <input type="text" class="board-question-field" id="board-question-field"
+                 placeholder="Type your answer..." autocomplete="off">
+          <button class="board-question-mic" id="board-question-mic" onclick="toggleVoiceInput()" title="Voice input">&#127908;</button>
+          <button class="board-question-send" id="board-question-send" onclick="submitBoardAnswer()">&#8593;</button>
+        </div>
+      </div>
+
     </div>
   </div>
 

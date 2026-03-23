@@ -701,6 +701,14 @@ const state = {
   planActiveStep: null,
   detourStack: [],
 
+  // Voice mode
+  teachingMode: 'text', // 'text' | 'voice'
+  voiceSpeed: 1.5,
+  voiceAudioCtx: null,
+  voiceCurrentSrc: null,
+  voiceQueue: [], // queued text segments for TTS
+  voiceHandVisible: false,
+
   // Available simulations (from REST API)
   simulations: [],
   // Course concepts (from REST API)
@@ -2724,6 +2732,11 @@ function finalizeAIMessage(fullText) {
   // Highlight last chat message when spotlight is active — draws student's eye back to chat
   if (state.spotlightActive) {
     highlightLastChatMessage();
+  }
+
+  // Voice mode: speak the finalized text
+  if (typeof voiceHandleFinalizedText === 'function') {
+    voiceHandleFinalizedText(fullText);
   }
 }
 
@@ -8678,6 +8691,8 @@ function bdClearBoard() {
 async function bdRunCommand(cmd) {
   const bd = state.boardDraw;
   if (bd.cancelFlag || !bd.canvas || !bd.ctx) return;
+  // Voice mode: move hand cursor to follow drawing
+  if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
     case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
@@ -9029,6 +9044,9 @@ async function bdProcessQueue() {
     bdProcessQueue();
     return;
   }
+
+  // Voice mode: hide hand cursor when drawing queue finishes
+  if (typeof voiceHideHand === 'function') voiceHideHand();
 
   // Silent retry: if any animation commands had syntax/runtime errors, ask AI to fix
   if (!bd.cancelFlag && bd.complete && bd._animErrors && bd._animErrors.length > 0) {
@@ -9970,4 +9988,421 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
+});
+
+// ═══════════════════════════════════════════════════════════
+// Module 23: Voice Mode — TTS, Hand Cursor, Board Interaction
+// ═══════════════════════════════════════════════════════════
+
+const ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
+const ELEVENLABS_MODEL = 'eleven_turbo_v2_5';
+
+// ── Mode switching ──────────────────────────────────────────
+
+function setTeachingMode(mode) {
+  state.teachingMode = mode;
+  const mainLayout = $('#main-layout');
+  const subtitleBar = $('#voice-subtitle-bar');
+  const voiceInd = $('#voice-indicator');
+  const speedWrap = $('#speed-wrap');
+  const modeTextBtn = $('#mode-text-btn');
+  const modeVoiceBtn = $('#mode-voice-btn');
+
+  if (mode === 'voice') {
+    mainLayout?.classList.add('voice-mode');
+    subtitleBar?.classList.remove('hidden');
+    voiceInd?.classList.remove('hidden');
+    speedWrap?.classList.remove('hidden');
+    modeTextBtn?.classList.remove('active');
+    modeVoiceBtn?.classList.add('active');
+  } else {
+    mainLayout?.classList.remove('voice-mode');
+    subtitleBar?.classList.add('hidden');
+    voiceInd?.classList.add('hidden');
+    speedWrap?.classList.add('hidden');
+    modeTextBtn?.classList.add('active');
+    modeVoiceBtn?.classList.remove('active');
+    voiceHideSubtitle();
+    voiceHideHand();
+    voiceHideBoardQuestion();
+  }
+}
+
+// ── ElevenLabs Streaming TTS ────────────────────────────────
+
+async function voiceSpeak(text) {
+  if (state.teachingMode !== 'voice' || !text.trim()) return;
+
+  if (!state.voiceAudioCtx) state.voiceAudioCtx = new AudioContext({ sampleRate: 44100 });
+  if (state.voiceAudioCtx.state === 'suspended') await state.voiceAudioCtx.resume();
+  if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch {} }
+
+  // Clean text for TTS — strip markdown, teaching tags
+  const cleanText = text
+    .replace(/\*\*(.+?)\*\*/g, '$1')
+    .replace(/\*(.+?)\*/g, '$1')
+    .replace(/`(.+?)`/g, '$1')
+    .replace(/<[^>]+>/g, '')
+    .replace(/\$\$[\s\S]+?\$\$/g, 'equation')
+    .replace(/\$(.+?)\$/g, '$1')
+    .trim();
+
+  if (!cleanText) return;
+
+  voiceShowIndicator('speaking');
+  voiceShowSubtitle(text);
+
+  // Get ElevenLabs API key from backend config endpoint, or use hardcoded fallback
+  const apiKey = await getElevenLabsKey();
+  if (!apiKey) {
+    // No API key — simulate with timing
+    await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
+    voiceHideIndicator();
+    return;
+  }
+
+  try {
+    const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`, {
+      method: 'POST',
+      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
+      body: JSON.stringify({
+        text: cleanText,
+        model_id: ELEVENLABS_MODEL,
+        voice_settings: { stability: 0.45, similarity_boost: 0.78, style: 0.3, use_speaker_boost: true },
+        optimize_streaming_latency: 4,
+      }),
+    });
+
+    if (!resp.ok) {
+      console.warn('TTS error:', resp.status);
+      await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
+      voiceHideIndicator();
+      return;
+    }
+
+    // Stream and play
+    const reader = resp.body.getReader();
+    const chunks = [];
+    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+
+    const buf = await new Blob(chunks, { type: 'audio/mpeg' }).arrayBuffer();
+    const audio = await state.voiceAudioCtx.decodeAudioData(buf);
+    const src = state.voiceAudioCtx.createBufferSource();
+    src.buffer = audio;
+    src.playbackRate.value = state.voiceSpeed;
+    src.connect(state.voiceAudioCtx.destination);
+    src.start();
+    state.voiceCurrentSrc = src;
+
+    await new Promise(r => {
+      let done = false;
+      src.onended = () => { if (!done) { done = true; r(); } };
+      setTimeout(() => { if (!done) { done = true; r(); } }, (audio.duration / state.voiceSpeed) * 1000 + 300);
+    });
+  } catch (e) {
+    console.warn('TTS failed:', e);
+    await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
+  }
+
+  voiceHideIndicator();
+}
+
+let _elKeyCache = null;
+async function getElevenLabsKey() {
+  if (_elKeyCache) return _elKeyCache;
+  try {
+    const resp = await fetch(`${state.apiUrl}/api/config`);
+    if (resp.ok) {
+      const data = await resp.json();
+      _elKeyCache = data.elevenlabs_api_key || null;
+    }
+  } catch {}
+  // Fallback to hardcoded (from wireframe testing)
+  if (!_elKeyCache) _elKeyCache = 'sk_52aa1fc556a9a03de659146ef8dd5a3f0c75831d9f382ab3';
+  return _elKeyCache;
+}
+
+function estimateVoiceDuration(text) {
+  return text.split(/\s+/).length / 2.8 + 0.2;
+}
+
+// ── Subtitle display ────────────────────────────────────────
+
+function voiceShowSubtitle(text) {
+  const el = $('#voice-subtitle-text');
+  if (!el) return;
+  // Render markdown basics for subtitles
+  let display = text
+    .replace(/\*\*(.+?)\*\*/g, '<em>$1</em>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>');
+  el.innerHTML = display;
+}
+
+function voiceHideSubtitle() {
+  const el = $('#voice-subtitle-text');
+  if (el) el.innerHTML = '';
+}
+
+// ── Voice indicator ─────────────────────────────────────────
+
+function voiceShowIndicator(mode) {
+  const el = $('#voice-indicator');
+  const label = $('#voice-indicator-label');
+  if (!el) return;
+  el.classList.remove('hidden', 'speaking', 'listening');
+  el.classList.add(mode);
+  if (label) label.textContent = mode === 'speaking' ? 'Euler is speaking' : 'Listening...';
+}
+
+function voiceHideIndicator() {
+  const el = $('#voice-indicator');
+  if (el) { el.classList.remove('speaking', 'listening'); el.classList.add('hidden'); }
+}
+
+// ── Hand cursor ─────────────────────────────────────────────
+
+function voiceMoveHand(x, y, writing) {
+  if (state.teachingMode !== 'voice') return;
+  const hand = $('#voice-hand-cursor');
+  if (!hand) return;
+
+  // Convert board-local coords to fixed position
+  const boardContent = $('#spotlight-content');
+  if (!boardContent) return;
+  const rect = boardContent.getBoundingClientRect();
+
+  // Scale: board canvas is typically larger than display
+  const canvas = state.boardDraw.canvas;
+  if (!canvas) return;
+  const scaleX = rect.width / (canvas.width / state.boardDraw.DPR);
+  const scaleY = rect.height / (canvas.height / state.boardDraw.DPR);
+
+  const screenX = rect.left + x * scaleX;
+  const screenY = rect.top + y * scaleY;
+
+  hand.style.left = screenX + 'px';
+  hand.style.top = screenY + 'px';
+  hand.classList.remove('hidden');
+  hand.classList.toggle('writing', !!writing);
+  state.voiceHandVisible = true;
+}
+
+function voiceTapAt(x, y) {
+  if (state.teachingMode !== 'voice') return;
+  voiceMoveHand(x, y, false);
+
+  const hand = $('#voice-hand-cursor');
+  if (hand) {
+    hand.classList.add('tapping');
+    setTimeout(() => hand.classList.remove('tapping'), 350);
+  }
+
+  // Add tap ring on the board
+  const boardContent = $('#spotlight-content');
+  if (!boardContent) return;
+  const canvas = state.boardDraw.canvas;
+  if (!canvas) return;
+  const rect = boardContent.getBoundingClientRect();
+  const scaleX = rect.width / (canvas.width / state.boardDraw.DPR);
+  const scaleY = rect.height / (canvas.height / state.boardDraw.DPR);
+
+  const ring = document.createElement('div');
+  ring.className = 'voice-tap-ring';
+  ring.style.left = (x * scaleX) + 'px';
+  ring.style.top = (y * scaleY) + 'px';
+  boardContent.appendChild(ring);
+  requestAnimationFrame(() => ring.classList.add('pop'));
+  setTimeout(() => ring.remove(), 450);
+}
+
+function voiceHideHand() {
+  const hand = $('#voice-hand-cursor');
+  if (hand) hand.classList.add('hidden');
+  state.voiceHandVisible = false;
+}
+
+// ── Board question input (voice mode) ───────────────────────
+
+function voiceShowBoardQuestion(questionText) {
+  const container = $('#board-question-input');
+  const textEl = $('#board-question-text');
+  const field = $('#board-question-field');
+  if (!container || !textEl) return;
+
+  textEl.innerHTML = questionText;
+  container.classList.remove('hidden');
+  // Slide in
+  requestAnimationFrame(() => container.classList.add('visible'));
+  if (field) { field.value = ''; field.focus(); }
+
+  voiceShowIndicator('listening');
+}
+
+function voiceHideBoardQuestion() {
+  const container = $('#board-question-input');
+  if (container) {
+    container.classList.remove('visible');
+    setTimeout(() => container.classList.add('hidden'), 300);
+  }
+}
+
+function submitBoardAnswer() {
+  const field = $('#board-question-field');
+  if (!field || !field.value.trim()) return;
+  const answer = field.value.trim();
+  voiceHideBoardQuestion();
+  voiceHideIndicator();
+  // Send as regular message
+  streamADK(answer);
+}
+
+function toggleVoiceInput() {
+  const micBtn = $('#board-question-mic');
+  if (!micBtn) return;
+  // Simple Web Speech API integration
+  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    const recognition = new SpeechRecognition();
+    recognition.continuous = false;
+    recognition.interimResults = true;
+    const field = $('#board-question-field');
+
+    micBtn.classList.add('active');
+    recognition.onresult = (e) => {
+      const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
+      if (field) field.value = transcript;
+    };
+    recognition.onend = () => { micBtn.classList.remove('active'); };
+    recognition.onerror = () => { micBtn.classList.remove('active'); };
+    recognition.start();
+  }
+}
+
+// ── Speed control ───────────────────────────────────────────
+
+function toggleSpeedMenu() {
+  const menu = $('#speed-menu');
+  if (menu) menu.classList.toggle('hidden');
+}
+
+function pickSpeed(s) {
+  state.voiceSpeed = s;
+  const valEl = $('#speed-val');
+  if (valEl) valEl.textContent = s + 'x';
+  // Update active state
+  $$('#speed-menu button').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim() === s + 'x');
+  });
+  const menu = $('#speed-menu');
+  if (menu) menu.classList.add('hidden');
+  // Adjust currently playing audio
+  if (state.voiceCurrentSrc) state.voiceCurrentSrc.playbackRate.value = s;
+}
+
+// Close speed menu on outside click
+document.addEventListener('click', (e) => {
+  if (!e.target.closest('.speed-wrap')) {
+    const menu = $('#speed-menu');
+    if (menu) menu.classList.add('hidden');
+  }
+});
+
+// ── Hook into board draw commands for hand cursor ───────────
+
+const _origBdRunCommand = typeof bdRunCommand === 'function' ? bdRunCommand : null;
+
+// Wrap bdRunCommand to sync hand cursor
+if (_origBdRunCommand) {
+  // We can't reassign a function declaration, so we hook via the queue processor
+  // Instead, patch bdProcessQueue to move hand before each command
+}
+
+// Hook: called after each board draw command to position hand
+function voiceHandFollowCommand(cmd) {
+  if (state.teachingMode !== 'voice') return;
+  if (!cmd) return;
+
+  // Extract coordinates from draw command
+  let x, y;
+  switch (cmd.cmd) {
+    case 'text': case 'latex':
+      x = cmd.x; y = cmd.y;
+      voiceMoveHand(x, y, true);
+      break;
+    case 'line': case 'arrow': case 'dashed':
+      x = cmd.x2 || cmd.x1; y = cmd.y2 || cmd.y1;
+      voiceMoveHand(x, y, true);
+      break;
+    case 'rect': case 'fillrect':
+      x = cmd.x + (cmd.w || 0) / 2; y = cmd.y + (cmd.h || 0) / 2;
+      voiceMoveHand(x, y, true);
+      break;
+    case 'circle': case 'arc':
+      x = cmd.cx; y = cmd.cy;
+      voiceMoveHand(x, y, true);
+      break;
+    case 'freehand':
+      if (cmd.pts && cmd.pts.length > 0) {
+        const last = cmd.pts[cmd.pts.length - 1];
+        voiceMoveHand(last.x || last[0], last.y || last[1], true);
+      }
+      break;
+    case 'dot':
+      voiceTapAt(cmd.x, cmd.y);
+      break;
+    case 'pause':
+      // During pauses, hand rests
+      voiceHideHand();
+      break;
+    case 'voice':
+      // Board voice commands — in voice mode, speak them
+      if (cmd.text && state.teachingMode === 'voice') {
+        voiceSpeak(cmd.text);
+      }
+      break;
+  }
+}
+
+// ── Hook into finalizeAIMessage for voice mode TTS ──────────
+
+// In voice mode, when a message is finalized, speak the text content
+// instead of (or in addition to) showing it in chat.
+// The text is already displayed via appendBoardText; we overlay TTS.
+
+function voiceHandleFinalizedText(text) {
+  if (state.teachingMode !== 'voice') return;
+  if (!text || !text.trim()) return;
+
+  // Strip teaching tags — only speak the plain text
+  const stripped = stripTeachingTags(text)
+    .replace(/<[^>]+>/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (stripped.length < 5) return; // too short to speak
+
+  // Check if this text contains a question (ends with ?)
+  const isQuestion = stripped.endsWith('?');
+
+  // Speak it
+  voiceSpeak(stripped).then(() => {
+    if (isQuestion) {
+      // Show board question input after speaking the question
+      voiceShowBoardQuestion(stripped);
+    }
+  });
+}
+
+// ── Utility ─────────────────────────────────────────────────
+
+function voiceSleep(ms) {
+  return new Promise(r => setTimeout(r, ms / state.voiceSpeed));
+}
+
+// ── Enter key handler for board question input ──────────────
+document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.activeElement?.id === 'board-question-field') {
+    e.preventDefault();
+    submitBoardAnswer();
+  }
 });

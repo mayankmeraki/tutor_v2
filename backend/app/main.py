@@ -13,6 +13,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
+from app.core.config import settings
+
 from app.api.routes import auth, chat, content, events, ingestion, learning_tools, sessions
 
 log = logging.getLogger(__name__)
@@ -119,6 +121,14 @@ async def health():
         status_code=200 if mongo_ok else 503,
         content={"status": "ok" if mongo_ok else "degraded", "mongo": mongo_ok},
     )
+
+
+@app.get("/api/config")
+async def get_config():
+    """Return frontend-safe config values."""
+    return {
+        "elevenlabs_api_key": settings.ELEVENLABS_API_KEY or None,
+    }
 
 
 # API routes

@@ -20,6 +20,9 @@ class Settings(BaseSettings):
     RESEARCH_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
     SUMMARIZATION_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
 
+    # ElevenLabs TTS
+    ELEVENLABS_API_KEY: str = Field(default="")
+
     # PostgreSQL
     DB_HOST: str = Field(default="localhost")
     DB_PORT: int = Field(default=5433)
