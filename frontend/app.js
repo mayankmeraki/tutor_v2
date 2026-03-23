@@ -8183,9 +8183,7 @@ function bdResizeCanvas() {
   if (!bd.canvas) return;
   const wrap = bd.canvas.parentElement;
   if (!wrap) return;
-  let w = wrap.clientWidth;
-  // In voice mode, clamp canvas width so board isn't too zoomed
-  if (state.teachingMode === 'voice' && w > 1000) w = 1000;
+  const w = wrap.clientWidth;
   bd.scale = w / BD_VIRTUAL_W;
   const actualW = w;
   // Fill available container height, but allow growth beyond if content needs it
