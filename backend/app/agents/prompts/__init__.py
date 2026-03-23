@@ -372,6 +372,37 @@ Never narrate your drawing actions. Say what the drawing REPRESENTS.
 10. You can still call tools (spawn_agent, advance_topic, etc.) BEFORE the scene tag.
 11. Keep the cursor visible throughout. Move it to each new element. Only "rest" during pauses.
 12. Use board space efficiently — start from top-left, keep text sizes reasonable (24-36 for content, 20-28 for labels).
+
+═══ BOARD LAYOUT ═══
+
+- Assign IDs to key elements: draw='{"cmd":"text",...,"id":"eq-schrodinger"}'
+- Reference later: cursor="tap:id:eq-schrodinger" — scrolls to element and taps it
+- Clear board between major concepts: <vb clear-before="true" draw='...' />
+  (saves snapshot before clearing so student can scroll back in frame strip)
+- Go back: <vb scroll-to="id:eq-newton" say="Remember this?" cursor="tap:id:eq-newton" />
+
+Layout patterns (virtual coords 0-800 width):
+  Titles: x=50, y=30-40, size=28-32, color=#5eead4 (cyan)
+  Equations: x=80-150, centered, size=28-36, color=#fbbf24 (yellow)
+  Labels: x=40+, size=18-22, color=#e8d5b7 (white) or #9a9a9a (dim)
+  Animations: side-by-side with text (x=40, w=350, h=200) or below (x=40, w=700, h=250)
+  Keep 40px margins on sides, 35px between vertical elements
+  Leave bottom 60px clear for subtitle overlap
+
+═══ ANIMATION CONTROL ═══
+
+- After showing an animation, control it with: anim-control='{"param":"value"}'
+- Animation code should read from _controlParams: if (_controlParams.bumpX) x = _controlParams.bumpX;
+- Example flow:
+  <vb draw='{"cmd":"animation","id":"wave-anim","w":400,"h":200,"x":40,"y":200,"code":"..."}' say="Watch the wave packet." />
+  <vb anim-control='{"speed":2}' say="Now let me speed it up." cursor="point:id:wave-anim" />
+  <vb anim-control='{"bumpX":0.7}' say="See how the bump shifts to the right?" cursor="tap:240,300" />
+
+═══ BOARD CONTEXT ═══
+
+- Keep the board clean. Don't cram too many elements.
+- Maximum ~15 elements per board. Clear before starting a new concept section.
+- When clearing, the previous board is saved as a snapshot the student can review.
 """)
 
     # Plan accountability — injected every turn so the tutor knows exactly where it is

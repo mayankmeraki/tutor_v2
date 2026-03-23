@@ -7990,6 +7990,64 @@ const BD_MIN_FONT_SCALE = 1.4;
 // Active p5 animation instances on the board overlay
 const bdActiveAnimations = [];
 
+// Element registry — tracks drawn elements by ID for referencing/scrolling
+const bdElementRegistry = {}; // { id: { cmd, x, y, w, h } }
+
+function bdRegisterElement(cmd) {
+  if (!cmd || !cmd.id) return;
+  const entry = { cmd: cmd.cmd, x: cmd.x || 0, y: cmd.y || 0 };
+  // Estimate dimensions based on command type
+  if (cmd.cmd === 'text' || cmd.cmd === 'latex') {
+    const fontSize = cmd.size || 24;
+    entry.w = (cmd.text || '').length * fontSize * 0.55;
+    entry.h = fontSize * 1.3;
+  } else if (cmd.cmd === 'rect' || cmd.cmd === 'fillrect') {
+    entry.w = cmd.w || 100; entry.h = cmd.h || 50;
+  } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
+    entry.x = (cmd.cx || 0) - (cmd.r || 30);
+    entry.y = (cmd.cy || 0) - (cmd.r || 30);
+    entry.w = (cmd.r || 30) * 2; entry.h = (cmd.r || 30) * 2;
+  } else if (cmd.cmd === 'animation') {
+    entry.w = cmd.w || 300; entry.h = cmd.h || 200;
+  } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow') {
+    entry.x = cmd.x1 || 0; entry.y = cmd.y1 || 0;
+    entry.w = Math.abs((cmd.x2||0) - (cmd.x1||0));
+    entry.h = Math.abs((cmd.y2||0) - (cmd.y1||0));
+  }
+  bdElementRegistry[cmd.id] = entry;
+}
+
+function bdControlAnimation(params) {
+  // Send control params to the most recent active animation
+  if (bdActiveAnimations.length === 0) return;
+  const entry = bdActiveAnimations[bdActiveAnimations.length - 1];
+  if (entry.p5Instance && typeof entry.p5Instance._onControl === 'function') {
+    entry.p5Instance._onControl(params);
+  }
+}
+
+function bdClearElementRegistry() {
+  Object.keys(bdElementRegistry).forEach(k => delete bdElementRegistry[k]);
+}
+
+function bdScrollToElement(id) {
+  const entry = bdElementRegistry[id];
+  if (!entry) return;
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap) return;
+  const bd = state.boardDraw;
+  const targetY = entry.y * bd.scale - 40; // 40px margin above
+  wrap.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+}
+
+function bdScrollToY(virtualY) {
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap) return;
+  const bd = state.boardDraw;
+  const targetY = virtualY * bd.scale - 40;
+  wrap.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+}
+
 function bdInit(canvasEl, voiceEl) {
   hideBoardLoadingSkeleton();
   const bd = state.boardDraw;
@@ -8125,7 +8183,9 @@ function bdResizeCanvas() {
   if (!bd.canvas) return;
   const wrap = bd.canvas.parentElement;
   if (!wrap) return;
-  const w = wrap.clientWidth;
+  let w = wrap.clientWidth;
+  // In voice mode, clamp canvas width so board isn't too zoomed
+  if (state.teachingMode === 'voice' && w > 1000) w = 1000;
   bd.scale = w / BD_VIRTUAL_W;
   const actualW = w;
   // Fill available container height, but allow growth beyond if content needs it
@@ -8709,6 +8769,7 @@ function bdClearBoard() {
   const bd = state.boardDraw;
   if (!bd.ctx) return;
   bd.currentH = BD_INITIAL_H;
+  bdClearElementRegistry();
   bdClearAllAnimations();
   bdResizeCanvas();
   bd.ctx.fillStyle = '#1a1d2e';
@@ -8720,8 +8781,13 @@ function bdClearBoard() {
 async function bdRunCommand(cmd) {
   const bd = state.boardDraw;
   if (bd.cancelFlag || !bd.canvas || !bd.ctx) return;
+  // Register element by ID for referencing/scrolling
+  if (cmd.id) bdRegisterElement(cmd);
   // Voice mode: move hand cursor to follow drawing
   if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
+  // Auto-scroll to new content in voice mode
+  if (state.teachingMode === 'voice' && cmd.y) bdScrollToY(cmd.y);
+  else if (state.teachingMode === 'voice' && cmd.cy) bdScrollToY(cmd.cy);
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
     case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
@@ -8873,6 +8939,13 @@ async function bdRunAnimation(cmd) {
   }
 
   let code = bdSanitizeAnimCode(cmd.code);
+  // Inject onControl bridge so tutor can change animation parameters at runtime
+  const controlBridge = `
+    var _controlParams = {};
+    function onControl(params) { Object.assign(_controlParams, params); }
+    p._onControl = function(params) { onControl(params); };
+  `;
+  code = controlBridge + '\n' + code;
   let sketchFn;
   try {
     sketchFn = new Function('p', 'W', 'H', code);
@@ -8919,11 +8992,17 @@ async function bdRunAnimation(cmd) {
 
   requestAnimationFrame(() => { container.style.opacity = '1'; });
 
+  // Store p5 instance reference for runtime control
   const entry = {
     container, inst,
     vx: cmd.x || 0, vy: cmd.y || 0,
     vw: cmd.w || 300, vh: cmd.h || 200,
+    p5Instance: inst,
   };
+  // Register animation element if it has an ID
+  if (cmd.id) {
+    bdElementRegistry[cmd.id] = { cmd: 'animation', x: cmd.x||0, y: cmd.y||0, w: cmd.w||300, h: cmd.h||200, animEntry: entry };
+  }
   bdActiveAnimations.push(entry);
 
   if (duration > 0) {
@@ -10436,6 +10515,21 @@ function parseVoiceBeats(sceneContent) {
     const imgCapMatch = attrStr.match(/image-caption='([^']*)'|image-caption="([^"]*)"/);
     if (imgCapMatch) beat.imageCaption = imgCapMatch[1] || imgCapMatch[2];
 
+    // Parse anim-control
+    const animCtrlMatch = attrStr.match(/anim-control='([^']*)'|anim-control="([^"]*)"/);
+    if (animCtrlMatch) {
+      try { beat.animControl = JSON.parse(animCtrlMatch[1] || animCtrlMatch[2]); } catch {}
+    }
+
+    // Parse clear-before
+    if (attrStr.includes('clear-before="true"') || attrStr.includes("clear-before='true'")) {
+      beat.clearBefore = true;
+    }
+
+    // Parse scroll-to
+    const scrollMatch = attrStr.match(/scroll-to='([^']*)'|scroll-to="([^"]*)"/);
+    if (scrollMatch) beat.scrollTo = scrollMatch[1] || scrollMatch[2];
+
     beats.push(beat);
   }
   return beats;
@@ -10463,26 +10557,48 @@ async function executeVoiceScene(sceneTag) {
     const beat = beats[i];
     console.log(`[VoiceScene] Beat ${i+1}/${beats.length}:`, beat.say?.slice(0, 50) || '(draw only)');
 
-    // 1. Position cursor
+    // 0. Clear board if requested (saves snapshot first)
+    if (beat.clearBefore && state.boardDraw.canvas) {
+      // Save snapshot to frame strip before clearing
+      try {
+        const snapshot = state.boardDraw.canvas.toDataURL('image/png');
+        appendSpotlightReference('board-draw', title, { _snapshot: snapshot });
+      } catch {}
+      bdClearBoard();
+      bdDrawGrid();
+    }
+
+    // 0b. Scroll to referenced element
+    if (beat.scrollTo) {
+      const idRef = beat.scrollTo.replace(/^id:/, '');
+      bdScrollToElement(idRef);
+      await voiceSleep(300); // let scroll settle
+    }
+
+    // 1. Position cursor (supports id: references)
     executeCursor(beat.cursor, beat.draw);
 
-    // 2. Start draw + say in parallel
+    // 2. Animation control — change params on active animation
+    if (beat.animControl) {
+      bdControlAnimation(beat.animControl);
+    }
+
+    // 3. Start draw + say in parallel
     const drawPromise = executeDraw(beat.draw);
     const sayPromise = executeSay(beat.say);
 
     // Wait for both to complete
     await Promise.all([drawPromise, sayPromise]);
 
-    // 3. Pause after beat
+    // 4. Pause after beat
     if (beat.pause && beat.pause > 0) {
       await voiceSleep(beat.pause * 1000);
     }
 
-    // 4. If question, show input and stop
+    // 5. If question, show input and stop
     if (beat.question) {
       voiceHideHand();
       const questionText = beat.say || 'What do you think?';
-      // Render LaTeX in question text
       const rendered = typeof renderLatex === 'function' ? renderLatex(questionText) : questionText;
       voiceShowBoardQuestion(rendered);
       return; // Stop scene — student responds
@@ -10568,6 +10684,27 @@ function executeCursor(cursorStr, drawCmds) {
   const pointMatch = cursorStr.match(/^point:(\d+),(\d+)$/);
   if (pointMatch) {
     voiceMoveHand(parseInt(pointMatch[1]), parseInt(pointMatch[2]), false);
+    return;
+  }
+
+  // cursor="tap:id:elementId" or cursor="point:id:elementId" — reference by element ID
+  const idTapMatch = cursorStr.match(/^tap:id:(.+)$/);
+  if (idTapMatch) {
+    const el = bdElementRegistry[idTapMatch[1]];
+    if (el) {
+      voiceTapAt(el.x + (el.w || 0) / 2, el.y + (el.h || 0) / 2);
+      bdScrollToElement(idTapMatch[1]);
+    }
+    return;
+  }
+
+  const idPointMatch = cursorStr.match(/^point:id:(.+)$/);
+  if (idPointMatch) {
+    const el = bdElementRegistry[idPointMatch[1]];
+    if (el) {
+      voiceMoveHand(el.x + (el.w || 0) / 2, el.y + (el.h || 0) / 2, false);
+      bdScrollToElement(idPointMatch[1]);
+    }
     return;
   }
 }

@@ -32,6 +32,7 @@ class Session:
     session_status: str = "active"
     completion_reason: str | None = None
     pause_note: str | None = None
+    teaching_mode: str = "text"  # "text" or "voice"
 
     # ── Sub-agent architecture ──
     agent_runtime: AgentRuntime | None = None
@@ -121,6 +122,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
             assistant_turn_count=bs.get("assistantTurnCount", 0),
             session_status=bs.get("sessionStatus", "active"),
             completion_reason=bs.get("completionReason"),
+            teaching_mode=bs.get("teachingMode", "text"),
             current_plan=bs.get("currentPlan"),
             current_topics=bs.get("currentTopics", []),
             current_topic_index=bs.get("currentTopicIndex", -1),

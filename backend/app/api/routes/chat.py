@@ -1431,6 +1431,7 @@ async def chat(request: Request):
             collection_id = _extract_collection_id(context_data)
             user_email = _extract_user_email(context_data)
             teaching_mode = _extract_teaching_mode(context_data)
+            session.teaching_mode = teaching_mode  # Persist for session restore
             is_byo = bool(collection_id)
 
             if is_byo:

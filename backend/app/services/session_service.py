@@ -330,6 +330,7 @@ async def sync_backend_state(session_id: str, session) -> None:
         "assistantTurnCount": session.assistant_turn_count,
         "sessionStatus": session.session_status,
         "completionReason": session.completion_reason,
+        "teachingMode": session.teaching_mode,
         "currentPlan": session.current_plan,
         "currentTopics": session.current_topics,
         "currentTopicIndex": session.current_topic_index,
