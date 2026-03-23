@@ -2734,9 +2734,9 @@ function finalizeAIMessage(fullText) {
     highlightLastChatMessage();
   }
 
-  // Voice mode: speak the finalized text
+  // Voice mode: speak the finalized text (non-blocking — don't await)
   if (typeof voiceHandleFinalizedText === 'function') {
-    voiceHandleFinalizedText(fullText);
+    try { voiceHandleFinalizedText(fullText); } catch {}
   }
 }
 
@@ -10166,19 +10166,19 @@ function voiceMoveHand(x, y, writing) {
   const hand = $('#voice-hand-cursor');
   if (!hand) return;
 
-  // Convert board-local coords to fixed position
+  // Board draw commands use virtual coordinates (0-800 for x, dynamic height for y).
+  // The canvas is displayed in #spotlight-content. Map virtual → screen.
   const boardContent = $('#spotlight-content');
   if (!boardContent) return;
   const rect = boardContent.getBoundingClientRect();
+  const bd = state.boardDraw;
+  if (!bd.canvas) return;
 
-  // Scale: board canvas is typically larger than display
-  const canvas = state.boardDraw.canvas;
-  if (!canvas) return;
-  const scaleX = rect.width / (canvas.width / state.boardDraw.DPR);
-  const scaleY = rect.height / (canvas.height / state.boardDraw.DPR);
-
-  const screenX = rect.left + x * scaleX;
-  const screenY = rect.top + y * scaleY;
+  // Virtual → screen: the canvas CSS size maps BD_VIRTUAL_W to rect.width
+  const virtualW = 800; // BD_VIRTUAL_W
+  const virtualH = bd.currentH || 500;
+  const screenX = rect.left + (x / virtualW) * rect.width;
+  const screenY = rect.top + (y / virtualH) * rect.height;
 
   hand.style.left = screenX + 'px';
   hand.style.top = screenY + 'px';
@@ -10197,19 +10197,18 @@ function voiceTapAt(x, y) {
     setTimeout(() => hand.classList.remove('tapping'), 350);
   }
 
-  // Add tap ring on the board
+  // Add tap ring on the board (using virtual coord → percentage of content area)
   const boardContent = $('#spotlight-content');
   if (!boardContent) return;
-  const canvas = state.boardDraw.canvas;
-  if (!canvas) return;
-  const rect = boardContent.getBoundingClientRect();
-  const scaleX = rect.width / (canvas.width / state.boardDraw.DPR);
-  const scaleY = rect.height / (canvas.height / state.boardDraw.DPR);
+  const bd = state.boardDraw;
+  const virtualW = 800;
+  const virtualH = bd.currentH || 500;
 
   const ring = document.createElement('div');
   ring.className = 'voice-tap-ring';
-  ring.style.left = (x * scaleX) + 'px';
-  ring.style.top = (y * scaleY) + 'px';
+  ring.style.left = ((x / virtualW) * 100) + '%';
+  ring.style.top = ((y / virtualH) * 100) + '%';
+  boardContent.style.position = 'relative';
   boardContent.appendChild(ring);
   requestAnimationFrame(() => ring.classList.add('pop'));
   setTimeout(() => ring.remove(), 450);
@@ -10381,16 +10380,25 @@ function voiceHandleFinalizedText(text) {
 
   if (stripped.length < 5) return; // too short to speak
 
+  // Always show subtitle immediately (don't wait for TTS)
+  voiceShowSubtitle(stripped);
+
   // Check if this text contains a question (ends with ?)
   const isQuestion = stripped.endsWith('?');
 
-  // Speak it
-  voiceSpeak(stripped).then(() => {
-    if (isQuestion) {
-      // Show board question input after speaking the question
-      voiceShowBoardQuestion(stripped);
-    }
-  });
+  // Speak it (fire-and-forget, errors caught)
+  voiceSpeak(stripped)
+    .then(() => {
+      if (isQuestion) voiceShowBoardQuestion(stripped);
+      // Clear subtitle after speech ends (with a short delay for readability)
+      setTimeout(() => voiceHideSubtitle(), 2000);
+    })
+    .catch(e => {
+      console.warn('Voice TTS error:', e);
+      // Even if TTS fails, subtitle is visible and question input still works
+      if (isQuestion) voiceShowBoardQuestion(stripped);
+      setTimeout(() => voiceHideSubtitle(), 5000);
+    });
 }
 
 // ── Utility ─────────────────────────────────────────────────
