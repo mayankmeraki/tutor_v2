@@ -1319,6 +1319,20 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   // Re-enable quick actions
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = false);
 
+  // Voice mode safety net: always show board input after streaming ends
+  // (RUN_FINISHED handler may have failed or not fired)
+  if (state.teachingMode === 'voice') {
+    setTimeout(() => {
+      const boardInput = $('#board-question-input');
+      if (boardInput && !boardInput.classList.contains('visible')) {
+        try { voiceHandleRunFinished(); } catch (e) {
+          console.warn('voiceHandleRunFinished failed, showing generic input:', e);
+          voiceShowBoardQuestion('Type your response...');
+        }
+      }
+    }, 500);
+  }
+
   SessionManager.saveSession();
 
   // Handle deferred board capture request from tutor tool
