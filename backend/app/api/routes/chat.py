@@ -2173,13 +2173,10 @@ async def chat(request: Request):
                         break
 
                     # Continue conversation with tool results
-                    asst_msg = {"role": "assistant", "content": message.content}
-                    tool_msg = {"role": "user", "content": tool_results}
-                    claude_messages.append(asst_msg)
-                    claude_messages.append(tool_msg)
-                    # Persist to server-side history (serialize ContentBlocks for MongoDB)
-                    session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
-                    session.messages.append({"role": "user", "content": _serialize_content(tool_results)})
+                    # claude_messages IS session.messages (same reference), so only append once
+                    # and always serialize ContentBlocks for MongoDB compatibility
+                    claude_messages.append({"role": "assistant", "content": _serialize_content(message.content)})
+                    claude_messages.append({"role": "user", "content": _serialize_content(tool_results)})
                     continue
 
                 # No more tool calls — done. Persist final assistant message.

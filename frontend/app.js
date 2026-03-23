@@ -2775,6 +2775,8 @@ function finalizeAIMessage(fullText) {
 }
 
 function ensureFallbackInput() {
+  // Voice mode: don't create text fallback — mic + board question handle input
+  if (state.teachingMode === 'voice') return;
   // After RUN_FINISHED, ensure there's an active input for the student.
   // If the 120ms timer from finalizeAIMessage is still pending, let it handle it.
   if (state.pendingFallbackTimer) return;

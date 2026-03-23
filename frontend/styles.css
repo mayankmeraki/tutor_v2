@@ -4265,9 +4265,11 @@ body {
 }
 #main-layout.voice-mode #split-handle { display: none; }
 #main-layout.voice-mode #board-panel { flex: 1 !important; }
-/* Hide text-mode chat input bar in voice mode */
+/* Hide ALL text-mode inputs in voice mode */
 #main-layout.voice-mode #chat-panel .chat-input-area,
-#main-layout.voice-mode #chat-panel #chat-input-area { display: none !important; }
+#main-layout.voice-mode #chat-panel #chat-input-area,
+#main-layout.voice-mode .text-input-area,
+#main-layout.voice-mode .text-input { display: none !important; }
 
 /* Voice mode interactive — chat pane slides in for MCQ/freetext/video */
 #main-layout.voice-mode-interactive #chat-panel {
