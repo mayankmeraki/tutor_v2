@@ -2736,7 +2736,10 @@ function finalizeAIMessage(fullText) {
 
   const fallbackId = 'fallback-' + generateId().slice(0, 8);
 
-  if (lastInteractiveTag) {
+  // Voice mode: don't create text input fallbacks — voice mic + board question handles input
+  if (state.teachingMode === 'voice') {
+    // Skip all fallback input creation
+  } else if (lastInteractiveTag) {
     // Interactive tag already rendered its own controls — done
   } else if (hasVideo) {
     state.pendingFallbackTimer = setTimeout(() => {
@@ -10682,6 +10685,47 @@ async function executeVoiceScene(sceneTag) {
           duration: beat.annotateDuration || 2000,
         });
       }
+    }
+
+    // 2c. Video — render via teaching-video tag, slide chat pane in
+    if (beat.videoLesson) {
+      const videoTag = {
+        name: 'teaching-video',
+        attrs: { lesson: beat.videoLesson, start: beat.videoStart || '0', end: beat.videoEnd || '' },
+        content: '',
+      };
+      renderTeachingTag(videoTag);
+      // Say the intro, then pause for video duration
+      if (beat.say) await executeSay(beat.say);
+      // Wait — student watches video. Scene continues on next beat.
+      if (beat.pause) await voiceSleep(beat.pause * 1000);
+      continue; // skip draw/say below
+    }
+
+    // 2d. Simulation — render via teaching-simulation tag
+    if (beat.simulation) {
+      const simTag = {
+        name: 'teaching-simulation',
+        attrs: { id: beat.simulation },
+        content: '',
+      };
+      renderTeachingTag(simTag);
+      if (beat.say) await executeSay(beat.say);
+      if (beat.pause) await voiceSleep(beat.pause * 1000);
+      continue;
+    }
+
+    // 2e. Widget — render via teaching-widget tag
+    if (beat.widgetTitle && beat.widgetCode) {
+      const widgetTag = {
+        name: 'teaching-widget',
+        attrs: { title: beat.widgetTitle },
+        content: beat.widgetCode,
+      };
+      renderTeachingTag(widgetTag);
+      if (beat.say) await executeSay(beat.say);
+      if (beat.pause) await voiceSleep(beat.pause * 1000);
+      continue;
     }
 
     // 3. Start draw + say in parallel
