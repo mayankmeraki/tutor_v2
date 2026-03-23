@@ -11033,11 +11033,52 @@ function voiceSleep(ms) {
   return new Promise(r => setTimeout(r, ms / state.voiceSpeed));
 }
 
-// ── Enter key handler for board question input ──────────────
+// ── Voice text input toggle ─────────────────────────────────
+
+function toggleVoiceTextInput() {
+  const row = $('#voice-text-input-row');
+  const compact = $('#voice-bottom-compact');
+  const hint = $('#voice-mic-hint');
+  if (!row) return;
+
+  const isOpen = !row.classList.contains('hidden');
+  if (isOpen) {
+    // Close text input, show compact
+    row.classList.add('hidden');
+    if (compact) compact.style.display = '';
+    if (hint) hint.style.display = '';
+  } else {
+    // Open text input, hide compact bar
+    row.classList.remove('hidden');
+    if (compact) compact.style.display = 'none';
+    if (hint) hint.style.display = 'none';
+    const field = $('#voice-text-field');
+    if (field) { field.value = ''; field.focus(); }
+  }
+}
+
+function submitVoiceTextInput() {
+  const field = $('#voice-text-field');
+  if (!field || !field.value.trim()) return;
+  const text = field.value.trim();
+  toggleVoiceTextInput(); // close input
+  voiceHideBoardQuestion();
+  streamADK(text);
+}
+
+// ── Enter key handlers ──────────────────────────────────────
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement?.id === 'board-question-field') {
     e.preventDefault();
     submitBoardAnswer();
+  }
+  if (e.key === 'Enter' && document.activeElement?.id === 'voice-text-field') {
+    e.preventDefault();
+    submitVoiceTextInput();
+  }
+  // Escape closes text input
+  if (e.key === 'Escape' && document.activeElement?.id === 'voice-text-field') {
+    toggleVoiceTextInput();
   }
 });
 

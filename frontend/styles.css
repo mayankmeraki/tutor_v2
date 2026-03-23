@@ -4437,12 +4437,51 @@ body {
   border: 1px solid rgba(52,211,153,0.12); margin-right: 2px;
 }
 
-/* Input row (appears when question active) */
-.voice-input-row {
-  display: flex; align-items: center; gap: 8px;
-  margin-top: 8px; pointer-events: auto; width: 100%; max-width: 600px; padding: 0 20px;
+/* Text toggle button (keyboard icon) */
+.voice-text-toggle {
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(25,28,26,0.8); border: 1px solid var(--border);
+  color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.2s; margin-left: 8px;
 }
-.voice-input-row.hidden { display: none; }
+.voice-text-toggle:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-active); }
+
+/* Expanded text input row */
+.voice-text-input-row {
+  display: flex; align-items: center; gap: 8px;
+  pointer-events: auto; width: 100%; max-width: 600px; padding: 0 16px;
+  margin-top: 8px;
+  animation: text-row-in 0.25s ease;
+}
+.voice-text-input-row.hidden { display: none; }
+@keyframes text-row-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
+
+.voice-text-field {
+  flex: 1; background: rgba(25,28,26,0.9); border: 1px solid var(--border-active);
+  border-radius: 24px; padding: 10px 18px; color: var(--text);
+  font-family: var(--font-sans); font-size: 14px; outline: none;
+  backdrop-filter: blur(8px);
+  transition: border-color 0.2s;
+}
+.voice-text-field:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(52,211,153,0.08); }
+.voice-text-field::placeholder { color: var(--text-dim); }
+
+.voice-text-send {
+  width: 38px; height: 38px; border-radius: 50%; border: none;
+  background: var(--accent); color: var(--bg); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.voice-text-send:hover { background: var(--accent-bright); transform: scale(1.05); }
+
+.voice-text-close {
+  width: 30px; height: 30px; border-radius: 50%; border: none;
+  background: transparent; color: var(--text-dim); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; flex-shrink: 0;
+}
+.voice-text-close:hover { color: var(--text); }
 
 /* ─── Board Question Input (slide-up panel) ──────────────── */
 .board-question-input {
