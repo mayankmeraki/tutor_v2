@@ -49,14 +49,12 @@ class Session:
     current_topics: list[dict] = field(default_factory=list)
     current_topic_index: int = -1              # Which topic is active (-1 = none)
     completed_topics: list[dict] = field(default_factory=list)
+    detour_stack: list[dict] = field(default_factory=list)  # [{saved_topic_index, saved_topics, reason}]
 
     # ── Session scope ──
     session_objective: str | None = None
     session_scope: str | None = None
     scope_concepts: list[str] = field(default_factory=list)
-
-    # ── Assets (from asset agents) ──
-    available_assets: list[dict] = field(default_factory=list)
 
     # ── Generated visuals (from visual_gen agents) ──
     generated_visuals: dict = field(default_factory=dict)  # {visual_id: {"html": ..., "title": ...}}
@@ -127,11 +125,11 @@ async def _try_restore_session(session_id: str) -> Session | None:
             current_topics=bs.get("currentTopics", []),
             current_topic_index=bs.get("currentTopicIndex", -1),
             completed_topics=bs.get("completedTopics", []),
+            detour_stack=bs.get("detourStack", []),
             session_objective=bs.get("sessionObjective"),
             session_scope=bs.get("sessionScope"),
             scope_concepts=bs.get("scopeConcepts", []),
             active_scenario=bs.get("activeScenario"),
-            available_assets=bs.get("availableAssets", []),
             generated_visuals=doc.get("generatedVisuals", {}),
             assessment_result=bs.get("assessmentResult"),
             pre_assessment_note=bs.get("preAssessmentNote"),

@@ -16,7 +16,7 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str = Field(default="")
     OPENROUTER_API_KEY: str = Field(default="")
     TUTOR_MODEL: str = Field(default="claude-sonnet-4-6")
-    PLANNING_MODEL: str = Field(default="claude-sonnet-4-6")
+    PLANNING_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
     RESEARCH_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
     SUMMARIZATION_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
 

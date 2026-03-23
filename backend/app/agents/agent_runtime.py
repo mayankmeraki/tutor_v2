@@ -162,8 +162,6 @@ class AgentRuntime:
         # Pick the right runner — open-ended, not restricted
         if agent_type == "planning":
             coro = self._run_planning_agent(task, context)
-        elif agent_type == "asset":
-            coro = self._run_asset_agent(task, context)
         elif agent_type == "visual_gen":
             coro = self._run_visual_gen_agent(task, context)
         else:
@@ -309,234 +307,156 @@ class AgentRuntime:
     # ── Planning agent ────────────────────────────────────────────────────
 
     async def _run_planning_agent(self, task: AgentTask, context: dict) -> dict:
-        """Run a planning agent with Sonnet using a two-phase approach.
+        """Run a planning agent with a fast single-pass approach.
 
-        Phase 1 (Tool Gathering): Up to MAX_PLANNING_TOOL_ROUNDS rounds with tools.
-            Strips narrative text from assistant messages (keeps only tool_use blocks).
-            Exits when: total tool calls >= 4, model stops using tools, or valid JSONL.
-        Phase 2 (Output): Up to MAX_PLANNING_OUTPUT_ROUNDS rounds without tools.
-            Round 1: Nudge message asking for JSONL output.
-            Round 2: Assistant prefill + harder nudge if Round 1 failed.
+        Round 1: LLM call with tools → gather all tool results in parallel.
+        Round 2: LLM call without tools → parse JSONL output.
+        If parse fails, one retry with assistant prefill, then raise.
+        Total: 2-3 LLM calls max (down from 5).
         """
         from app.agents.prompts import build_planning_prompt
 
         planning_prompt = build_planning_prompt(context)
         planning_tools = _get_planning_tools()
 
-        # Wrap instructions with phase guidance
         wrapped_instructions = (
             f"<task>\n{task.instructions}\n</task>\n\n"
-            "Phase 1: Call get_section_content (max 3) and search_images (max 1).\n"
-            "Phase 2: Output the complete JSONL plan.\n"
-            "Do NOT output narrative text — only tool calls and JSONL."
+            "Step 1: Call tools to gather course content (get_section_content, search_images).\n"
+            "Step 2: Output the complete JSONL plan.\n"
+            "Do NOT output narrative text — only tool calls, then JSONL."
         )
         messages: list[dict] = [{"role": "user", "content": wrapped_instructions}]
 
-        total_tool_calls = 0
+        # ── Round 1: Tool gathering (single round) ──────────────────────
+        request_params: dict[str, Any] = {
+            "model": settings.PLANNING_MODEL,
+            "max_tokens": 4096,
+            "system": planning_prompt,
+            "messages": messages,
+            "tools": planning_tools,
+            "metadata": self._meta("planning", task.agent_id),
+        }
 
-        # ── Phase 1: Tool gathering ──────────────────────────────────────
-        for round_num in range(1, MAX_PLANNING_TOOL_ROUNDS + 1):
-            request_params: dict[str, Any] = {
-                "model": settings.PLANNING_MODEL,
-                "max_tokens": 4096,
-                "system": planning_prompt,
-                "messages": messages,
-                "tools": planning_tools,
-                "metadata": self._meta("planning", task.agent_id),
-            }
+        async def _call_r1(params=request_params):
+            return await llm_call(**params)
 
-            async def _call(params=request_params):
-                return await llm_call(**params)
+        response = await _retry_api_call(
+            _call_r1, label=f"Planning[{task.agent_id}] R1"
+        )
+        task.retries_used = 0
+        task.track_usage(response)
 
-            response = await _retry_api_call(
-                _call, label=f"Planning[{task.agent_id}] P1R{round_num}"
-            )
-            task.retries_used = 0
-            task.track_usage(response)
-
-            log.info(
-                "Planning P1 round %d — stop: %s, %din/%dout",
-                round_num, response.stop_reason,
-                response.usage.input_tokens, response.usage.output_tokens,
-            )
-
-            # Check for valid JSONL in any text blocks
-            plan_data = None
-            for block in response.content:
-                if block.type == "text" and block.text and block.text.strip():
-                    try:
-                        plan_data = _parse_planning_jsonl(block.text)
-                    except (ValueError, json.JSONDecodeError) as e:
-                        log.warning(
-                            "Planning JSONL parse failed (P1R%d): %s — raw: %s",
-                            round_num, e, block.text[:200],
-                        )
-
-            if plan_data:
-                return plan_data
-
-            # Handle tool calls
-            if response.stop_reason == "tool_use":
-                tool_blocks = [b for b in response.content if b.type == "tool_use"]
-                total_tool_calls += len(tool_blocks)
-
-                tool_results = []
-                for block in tool_blocks:
-                    log.info("Planning tool: %s(%s)", block.name, json.dumps(block.input)[:80])
-                    try:
-                        result = await execute_tutor_tool(block.name, block.input)
-                    except Exception as e:
-                        log.warning("Planning tool %s failed: %s", block.name, e)
-                        result = f"Tool error: {type(e).__name__}: {str(e)[:200]}"
-                    tool_results.append({
-                        "type": "tool_result",
-                        "tool_use_id": block.id,
-                        "content": result if isinstance(result, str) else json.dumps(result),
-                    })
-
-                # Strip narrative text — keep only tool_use blocks in assistant message
-                tool_only_content = [b for b in response.content if b.type == "tool_use"]
-                messages.append({"role": "assistant", "content": tool_only_content})
-                messages.append({"role": "user", "content": tool_results})
-
-                # Break to Phase 2 if enough tools called
-                if total_tool_calls >= 4:
-                    log.info("Planning: %d tool calls reached, moving to Phase 2", total_tool_calls)
-                    break
-                continue
-
-            # Model stopped using tools without producing JSONL — move to Phase 2
-            log.info("Planning: model stopped using tools at P1R%d, moving to Phase 2", round_num)
-            # Add the response to messages so Phase 2 has context
-            messages.append({"role": "assistant", "content": response.content})
-            break
-
-        # ── Nudge between phases ─────────────────────────────────────────
-        messages.append({
-            "role": "user",
-            "content": (
-                "You have gathered enough content. Now output the complete JSONL plan. "
-                'Output ONLY valid JSONL — no prose. Start with the {"type":"plan",...} line.'
-            ),
-        })
-
-        # ── Phase 2: Output (no tools) ───────────────────────────────────
-        prefill = ""
-        for round_num in range(1, MAX_PLANNING_OUTPUT_ROUNDS + 1):
-            request_params = {
-                "model": settings.PLANNING_MODEL,
-                "max_tokens": 4096,
-                "system": planning_prompt,
-                "messages": messages,
-                "metadata": self._meta("planning", task.agent_id),
-            }
-
-            async def _call2(params=request_params):
-                return await llm_call(**params)
-
-            response = await _retry_api_call(
-                _call2, label=f"Planning[{task.agent_id}] P2R{round_num}"
-            )
-            task.retries_used = 0
-            task.track_usage(response)
-
-            log.info(
-                "Planning P2 round %d — stop: %s, %din/%dout",
-                round_num, response.stop_reason,
-                response.usage.input_tokens, response.usage.output_tokens,
-            )
-
-            # Try parsing with any prefill prepended
-            for block in response.content:
-                if block.type == "text" and block.text and block.text.strip():
-                    text_to_parse = prefill + block.text if prefill else block.text
-                    try:
-                        return _parse_planning_jsonl(text_to_parse)
-                    except (ValueError, json.JSONDecodeError) as e:
-                        log.warning(
-                            "Planning JSONL parse failed (P2R%d): %s — raw: %s",
-                            round_num, e, block.text[:200],
-                        )
-
-            # Round 1 failed — set up prefill + harder nudge for Round 2
-            if round_num == 1:
-                messages.append({"role": "assistant", "content": response.content})
-                messages.append({
-                    "role": "user",
-                    "content": (
-                        "That was not valid JSONL. Output ONLY JSON lines. "
-                        "No markdown, no explanation, no prose. "
-                        "Line 1: {\"type\":\"plan\",...}. "
-                        "Line 2+: {\"type\":\"topic\",...}. "
-                        "Last line: {\"type\":\"done\",\"status\":\"active\"}."
-                    ),
-                })
-                # Use assistant prefill to force JSON start
-                prefill = '{"type":"plan"'
-                messages.append({
-                    "role": "assistant",
-                    "content": [{"type": "text", "text": prefill}],
-                })
-
-        raise RuntimeError(
-            f"Planning agent failed to produce valid plan after "
-            f"{MAX_PLANNING_TOOL_ROUNDS} tool rounds + {MAX_PLANNING_OUTPUT_ROUNDS} output rounds"
+        log.info(
+            "Planning R1 — stop: %s, %din/%dout",
+            response.stop_reason,
+            response.usage.input_tokens, response.usage.output_tokens,
         )
 
-    # ── Asset agent ───────────────────────────────────────────────────────
-
-    async def _run_asset_agent(self, task: AgentTask, context: dict) -> list[dict]:
-        """Run parallel asset fetches (images, section content). No LLM needed."""
-        instructions = task.instructions
-        try:
-            specs = json.loads(instructions)
-        except (json.JSONDecodeError, TypeError):
-            specs = [{"type": "search_images", "query": instructions}]
-
-        if not isinstance(specs, list):
-            specs = [specs]
-
-        async def _fetch_one(spec: dict) -> dict:
-            spec_type = spec.get("type", "search_images")
-            for attempt in range(MAX_RETRIES + 1):
+        # Check if model produced JSONL directly (no tools needed)
+        for block in response.content:
+            if block.type == "text" and block.text and block.text.strip():
                 try:
-                    if spec_type == "search_images":
-                        result = await execute_tutor_tool("search_images", {
-                            "query": spec.get("query", "physics"),
-                            "limit": spec.get("limit", 3),
-                        })
-                        return {"type": "images", "query": spec.get("query"), "result": result}
-                    elif spec_type == "get_section_content":
-                        result = await execute_tutor_tool("get_section_content", {
-                            "lesson_id": spec["lesson_id"],
-                            "section_index": spec["section_index"],
-                        })
-                        return {"type": "section_content", "result": result}
-                    elif spec_type == "get_simulation_details":
-                        result = await execute_tutor_tool("get_simulation_details", {
-                            "simulation_id": spec["simulation_id"],
-                        })
-                        return {"type": "simulation_details", "result": result}
-                    elif spec_type == "web_search":
-                        result = await execute_tutor_tool("web_search", {
-                            "query": spec.get("query", "physics"),
-                            "limit": spec.get("limit", 5),
-                        })
-                        return {"type": "web_search", "query": spec.get("query"), "result": result}
-                    else:
-                        return {"type": spec_type, "error": f"Unknown asset type: {spec_type}"}
-                except Exception as e:
-                    if is_retryable(e) and attempt < MAX_RETRIES:
-                        delay = RETRY_BASE_DELAY * (2 ** attempt)
-                        log.warning("Asset fetch retry %d: %s", attempt + 1, str(e)[:100])
-                        await asyncio.sleep(delay)
-                        task.retries_used += 1
-                        continue
-                    return {"type": spec_type, "error": f"{type(e).__name__}: {str(e)[:200]}"}
-            return {"type": spec_type, "error": "Max retries exceeded"}
+                    return _parse_planning_jsonl(block.text)
+                except (ValueError, json.JSONDecodeError):
+                    pass
 
-        results = await asyncio.gather(*(_fetch_one(s) for s in specs))
-        return list(results)
+        # Handle tool calls — run ALL in parallel
+        if response.stop_reason == "tool_use":
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+
+            async def _exec_tool(block):
+                log.info("Planning tool: %s(%s)", block.name, json.dumps(block.input)[:80])
+                try:
+                    result = await execute_tutor_tool(block.name, block.input)
+                except Exception as e:
+                    log.warning("Planning tool %s failed: %s", block.name, e)
+                    result = f"Tool error: {type(e).__name__}: {str(e)[:200]}"
+                return {
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
+                    "content": result if isinstance(result, str) else json.dumps(result),
+                }
+
+            # Parallel execution
+            tool_results = await asyncio.gather(*(_exec_tool(b) for b in tool_blocks))
+            tool_results = list(tool_results)
+
+            # Strip narrative — keep only tool_use blocks
+            tool_only_content = [b for b in response.content if b.type == "tool_use"]
+            messages.append({"role": "assistant", "content": tool_only_content})
+            messages.append({"role": "user", "content": tool_results})
+
+        # ── Round 2: Output JSONL (no tools) ─────────────────────────────
+        # Add nudge if no tools were called; otherwise tool results already prompt output
+        if response.stop_reason != "tool_use":
+            messages.append({
+                "role": "user",
+                "content": (
+                    "You have gathered the content. Now output the complete JSONL plan. "
+                    'Output ONLY valid JSONL — no prose. Start with {"type":"plan",...}.'
+                ),
+            })
+
+        request_params_r2: dict[str, Any] = {
+            "model": settings.PLANNING_MODEL,
+            "max_tokens": 4096,
+            "system": planning_prompt,
+            "messages": messages,
+            "metadata": self._meta("planning", task.agent_id),
+        }
+
+        async def _call_r2(params=request_params_r2):
+            return await llm_call(**params)
+
+        response = await _retry_api_call(
+            _call_r2, label=f"Planning[{task.agent_id}] R2"
+        )
+        task.retries_used = 0
+        task.track_usage(response)
+
+        log.info(
+            "Planning R2 — stop: %s, %din/%dout",
+            response.stop_reason,
+            response.usage.input_tokens, response.usage.output_tokens,
+        )
+
+        # Try parsing JSONL
+        for block in response.content:
+            if block.type == "text" and block.text and block.text.strip():
+                try:
+                    return _parse_planning_jsonl(block.text)
+                except (ValueError, json.JSONDecodeError) as e:
+                    log.warning("Planning JSONL parse failed (R2): %s — raw: %s", e, block.text[:200])
+
+        # ── Retry with prefill ───────────────────────────────────────────
+        log.warning("Planning R2 failed, retrying with prefill")
+        messages.append({"role": "assistant", "content": response.content})
+        messages.append({
+            "role": "user",
+            "content": "Output ONLY valid JSONL lines. No markdown, no prose.",
+        })
+        prefill = '{"type":"plan"'
+        messages.append({
+            "role": "assistant",
+            "content": [{"type": "text", "text": prefill}],
+        })
+
+        async def _call_r3(params={**request_params_r2, "messages": messages}):
+            return await llm_call(**params)
+
+        response = await _retry_api_call(
+            _call_r3, label=f"Planning[{task.agent_id}] R3-retry"
+        )
+        task.track_usage(response)
+
+        for block in response.content:
+            if block.type == "text" and block.text and block.text.strip():
+                try:
+                    return _parse_planning_jsonl(prefill + block.text)
+                except (ValueError, json.JSONDecodeError) as e:
+                    log.error("Planning JSONL final parse failed: %s — raw: %s", e, block.text[:300])
+
+        raise RuntimeError("Planning agent failed to produce valid JSONL plan after 3 rounds")
 
     # ── Generic LLM agent ─────────────────────────────────────────────────
 

@@ -699,6 +699,7 @@ const state = {
   // Teaching plan
   plan: [],
   planActiveStep: null,
+  detourStack: [],
 
   // Available simulations (from REST API)
   simulations: [],
@@ -1415,7 +1416,9 @@ function handleSSEEvent(event) {
       break;
 
     case 'PLAN_UPDATE':
+      console.log('[PLAN_UPDATE] received, plan:', event.plan);
       handlePlanFromAgent(event.plan, event.sessionObjective);
+      console.log('[PLAN_UPDATE] state.plan after:', state.plan.length, 'sections');
       break;
 
     case 'COST_UPDATE':
@@ -1438,6 +1441,20 @@ function handleSSEEvent(event) {
 
     case 'PLAN_RESET':
       handlePlanReset(event.reason, event.keep_scope);
+      break;
+
+    case 'PLAN_DETOUR_START':
+      state.detourStack.push({
+        prereqTopics: event.prereq_topics,
+        reason: event.reason,
+        returnTopic: event.return_topic,
+      });
+      updateHeadingBar();
+      break;
+
+    case 'PLAN_DETOUR_END':
+      state.detourStack.pop();
+      updateHeadingBar();
       break;
 
     case 'SIM_CONTROL':
@@ -2436,42 +2453,16 @@ function handlePlanFromAgent(plan, sessionObjective) {
     }
   }
 
-  // Show session objective
-  const objEl = $('#plan-objective');
-  const sessionObj = sessionObjective || plan.session_objective || plan.section_title;
-  if (objEl && sessionObj) {
-    objEl.innerHTML = `<div class="plan-objective-text">${escapeHtml(sessionObj)}</div>`;
-  }
-
   SessionManager.setPlan(plan);
-  renderPlanProgress();
+  updateHeadingBar();
   state.planCallCount++;
 }
 
 function handlePlanReset(reason, keepScope) {
-  // Clear plan state
   state.plan = [];
   state.planActiveStep = null;
   state.currentPlan = {};
-
-  // Show "replanning" indicator in sidebar
-  const stepsEl = $('#plan-steps');
-  const container = $('#plan-progress');
-  if (stepsEl && container) {
-    container.classList.remove('hidden');
-    stepsEl.innerHTML = `
-      <div class="plan-replanning">
-        <div class="plan-replanning-spinner"></div>
-        <div class="plan-replanning-text">Replanning...</div>
-      </div>
-    `;
-  }
-
-  // Clear objective if scope is also being reset
-  if (!keepScope) {
-    const objEl = $('#plan-objective');
-    if (objEl) objEl.innerHTML = '';
-  }
+  updateHeadingBar();
 }
 
 function handleTopicComplete(sectionIndex, topicIndex) {
@@ -2494,9 +2485,8 @@ function handleTopicComplete(sectionIndex, topicIndex) {
       }
     }
   }
-  // Record in session DB (fire-and-forget)
   SessionManager.completeTopic(sectionIndex, topicIndex);
-  renderPlanProgress();
+  updateHeadingBar();
 }
 
 function handleSectionComplete(index) {
@@ -2523,9 +2513,8 @@ function handleSectionComplete(index) {
   } else {
     console.warn(`[Section Complete] No step found for index ${index} (n=${index + 1})`);
   }
-  // Record section completion in session (async, fire-and-forget)
   SessionManager.completeSection(index);
-  renderPlanProgress();
+  updateHeadingBar();
 }
 
 function startAIMessageStream() {
@@ -4603,7 +4592,7 @@ function handleTeachingPlan(tag) {
     });
   }
 
-  renderPlanProgress();
+  updateHeadingBar();
 }
 
 function handlePlanUpdateTag(tag) {
@@ -4664,38 +4653,35 @@ function handlePlanUpdateTag(tag) {
   const active = state.plan.find(s => s.status === 'active');
   state.planActiveStep = active ? active.n : null;
 
-  renderPlanProgress();
+  updateHeadingBar();
 }
 
-function renderPlanProgress() {
-  const container = $('#plan-progress');
-  const stepsEl = $('#plan-steps');
-  if (!container || !stepsEl) return;
-
-  // Always show sidebar — even with no plan, show a "preparing" state
-  container.classList.remove('hidden');
+function updateHeadingBar() {
+  const bar = $('#plan-heading-bar');
+  if (!bar) { console.warn('[HeadingBar] #plan-heading-bar not found'); return; }
 
   if (state.plan.length === 0) {
-    stepsEl.innerHTML = `
-      <div class="plan-empty-state">
-        <div class="plan-empty-spinner"></div>
-        <div class="plan-empty-title">Building your plan</div>
-        <div class="plan-empty-text">Euler is analyzing the material and designing a personalized lesson path...</div>
-      </div>
-    `;
+    console.log('[HeadingBar] no plan, hiding');
+    bar.classList.add('hidden');
     return;
   }
+  console.log('[HeadingBar] showing, plan sections:', state.plan.length);
+  bar.classList.remove('hidden');
 
-  // Categorize sections: covered / current / upcoming
-  const covered = state.plan.filter(s => s.status === 'done');
   const current = state.plan.find(s => s.status === 'active');
-  const upcoming = state.plan.filter(s => s.status === 'pending');
+  const currentTopic = current?.topics?.find(t => t.status === 'active');
+  const isDetour = state.detourStack && state.detourStack.length > 0;
 
-  // Count total topics for progress bar
-  let totalTopics = 0;
-  let doneTopics = 0;
+  // Section + topic breadcrumb
+  const sectionEl = $('#plan-hb-section');
+  const topicEl = $('#plan-hb-topic');
+  if (sectionEl) sectionEl.textContent = current?.title || '';
+  if (topicEl) topicEl.textContent = currentTopic?.title || '';
+
+  // Progress
+  let totalTopics = 0, doneTopics = 0;
   for (const step of state.plan) {
-    if (step.topics && step.topics.length > 0) {
+    if (step.topics?.length > 0) {
       totalTopics += step.topics.length;
       doneTopics += step.topics.filter(t => t.status === 'done').length;
     } else {
@@ -4705,71 +4691,114 @@ function renderPlanProgress() {
   }
   const pct = totalTopics > 0 ? Math.round((doneTopics / totalTopics) * 100) : 0;
 
-  let html = `
-    <div class="plan-progress-bar-container">
-      <div class="plan-progress-bar">
-        <div class="plan-progress-fill" style="width:${pct}%"></div>
-      </div>
-      <div class="plan-progress-label">
-        <span>${doneTopics} of ${totalTopics} topics</span>
-        <span>${pct}%</span>
-      </div>
-    </div>
-  `;
+  const metaEl = $('#plan-hb-meta');
+  if (metaEl) metaEl.textContent = `${doneTopics}/${totalTopics} topics`;
+  const fillEl = $('#plan-hb-fill');
+  if (fillEl) fillEl.style.width = pct + '%';
 
-  // Helper to render a section + its topics
-  function renderSection(step) {
-    const statusClass = step.status;
-    const icon = step.status === 'done' ? '✓'
-      : step.status === 'active' ? '▸'
-      : '';
-    const title = step.studentLabel || step.title || step.description || 'Step ' + step.n;
-    const tooltip = step.objective || step.learningOutcome
-      ? ' title="' + escapeAttr(step.objective || step.learningOutcome || '') + '"' : '';
+  // Detour state
+  const detourBadge = $('#plan-hb-detour');
+  if (detourBadge) {
+    if (isDetour) {
+      detourBadge.classList.remove('hidden');
+      bar.classList.add('detour');
+    } else {
+      detourBadge.classList.add('hidden');
+      bar.classList.remove('detour');
+    }
+  }
+}
 
-    let s = '<div class="plan-step ' + statusClass + '">' +
-      '<div class="plan-step-indicator">' + icon + '</div>' +
-      '<div class="plan-step-text">' +
-      '<div class="plan-step-title"' + tooltip + '>' + escapeHtml(title) + '</div>' +
-      '</div></div>';
+function togglePlanPanel() {
+  const overlay = $('#plan-panel-overlay');
+  if (!overlay) return;
+  const isOpen = !overlay.classList.contains('hidden');
+  if (isOpen) {
+    overlay.classList.add('hidden');
+  } else {
+    renderPlanProgress();
+    overlay.classList.remove('hidden');
+  }
+}
 
-    if (step.topics && step.topics.length > 0) {
+function renderPlanProgress() {
+  const body = $('#plan-panel-body');
+  if (!body) return;
+
+  if (state.plan.length === 0) {
+    body.innerHTML = '<div style="text-align:center;padding:24px;color:var(--text-dim);font-size:12px;">No plan yet</div>';
+    return;
+  }
+
+  // Count topics
+  let totalTopics = 0, doneTopics = 0;
+  for (const step of state.plan) {
+    if (step.topics?.length > 0) {
+      totalTopics += step.topics.length;
+      doneTopics += step.topics.filter(t => t.status === 'done').length;
+    } else {
+      totalTopics += 1;
+      if (step.status === 'done') doneTopics += 1;
+    }
+  }
+  const pct = totalTopics > 0 ? Math.round((doneTopics / totalTopics) * 100) : 0;
+
+  // Objective
+  const objective = state.currentPlan?.session_objective || state.currentPlan?.section_title || '';
+  let html = '';
+  if (objective) {
+    html += `<div class="pp-objective">${escapeHtml(objective)}</div>`;
+  }
+
+  // Progress bar
+  html += `<div class="pp-progress">
+    <span>${doneTopics} of ${totalTopics} topics</span>
+    <div class="pp-progress-bar"><div class="fill" style="width:${pct}%"></div></div>
+    <span>${pct}%</span>
+  </div>`;
+
+  // Sections
+  const covered = state.plan.filter(s => s.status === 'done');
+  const current = state.plan.find(s => s.status === 'active');
+  const upcoming = state.plan.filter(s => s.status === 'pending');
+
+  function renderSection(step, badge, badgeClass, headerClass) {
+    const icon = step.status === 'done' ? '✓' : step.status === 'active' ? '▸' : '○';
+    const title = step.studentLabel || step.title || 'Section ' + step.n;
+    let s = `<div class="pp-section">
+      <div class="pp-section-header ${headerClass}">
+        <span class="icon">${icon}</span>
+        <span>${escapeHtml(title)}</span>
+        <span class="pp-badge ${badgeClass}">${badge}</span>
+      </div>`;
+    if (step.topics?.length > 0) {
+      s += '<div class="pp-topics">';
       for (const topic of step.topics) {
         const ts = topic.status || 'pending';
-        const ti = ts === 'done' ? '✓' : ts === 'active' ? '›' : '·';
-        const tt = topic.title || 'Topic ' + topic.t;
-        s += '<div class="plan-topic ' + ts + '">' +
-          '<div class="plan-topic-indicator">' + ti + '</div>' +
-          '<div class="plan-topic-text"><div class="plan-topic-title">' + escapeHtml(tt) + '</div></div></div>';
+        const ti = ts === 'done' ? '✓' : ts === 'active' ? '›' : '○';
+        s += `<div class="pp-topic ${ts}"><span class="icon">${ti}</span> ${escapeHtml(topic.title || '')}</div>`;
       }
+      s += '</div>';
     }
+    // Detour reason
+    if (step._detourReason) {
+      s += `<div class="pp-detour-reason">${escapeHtml(step._detourReason)}</div>`;
+    }
+    s += '</div>';
     return s;
   }
 
-  // Covered sections (collapsed if many)
   if (covered.length > 0) {
-    html += '<div class="plan-group-label">COVERED</div>';
-    // Show last 2 covered, collapse the rest
-    const showCovered = covered.length > 2 ? covered.slice(-2) : covered;
-    if (covered.length > 2) {
-      html += '<div class="plan-collapsed-hint">' + (covered.length - 2) + ' earlier topics</div>';
-    }
-    for (const step of showCovered) html += renderSection(step);
+    for (const step of covered) html += renderSection(step, 'DONE', 'done', 'done');
   }
-
-  // Current section (highlighted)
   if (current) {
-    html += '<div class="plan-group-label">NOW</div>';
-    html += renderSection(current);
+    html += renderSection(current, 'NOW', 'now', 'active');
+  }
+  for (const step of upcoming) {
+    html += renderSection(step, 'UP NEXT', 'next', 'pending');
   }
 
-  // Upcoming sections
-  if (upcoming.length > 0) {
-    html += '<div class="plan-group-label">UP NEXT</div>';
-    for (const step of upcoming) html += renderSection(step);
-  }
-
-  stepsEl.innerHTML = html;
+  body.innerHTML = html;
 }
 
 
@@ -6827,10 +6856,17 @@ async function initSetup() {
     Router.navigate('/dashboard');
   });
 
-  // Sidebar toggle
-  $('#btn-toggle-sidebar')?.addEventListener('click', () => {
-    const sidebar = $('#knowledge-sidebar');
-    if (sidebar) sidebar.classList.toggle('collapsed');
+  // Plan heading bar toggle
+  $('#plan-hb-toggle')?.addEventListener('click', () => togglePlanPanel());
+  $('#plan-panel-close')?.addEventListener('click', () => togglePlanPanel());
+  $('#plan-panel-overlay')?.addEventListener('click', (e) => {
+    if (e.target.id === 'plan-panel-overlay') togglePlanPanel();
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape') {
+      const overlay = $('#plan-panel-overlay');
+      if (overlay && !overlay.classList.contains('hidden')) togglePlanPanel();
+    }
   });
 
   // Course outline toggle
@@ -6947,10 +6983,8 @@ async function startNewSession(name, courseId, intent) {
     state.pendingSpotlightEvent = null;
     state.recentlyClosedSim = null;
 
-    // Reset plan UI — show "preparing" state
-    renderPlanProgress();
-    const planObj = $('#plan-objective');
-    if (planObj) planObj.innerHTML = '';
+    // Reset plan UI
+    updateHeadingBar();
 
     // Clear board panel
     const boardContent = $('#spotlight-content');
@@ -7200,12 +7234,7 @@ window.continueSession = async function(sessionId) {
       const active = state.plan.find(s => s.status === 'active');
       state.planActiveStep = active ? active.n : null;
 
-      const objEl = $('#plan-objective');
-      if (objEl && sessionData.plan.sessionObjective) {
-        objEl.innerHTML = `<div class="plan-objective-text">${escapeHtml(sessionData.plan.sessionObjective)}</div>`;
-      }
-
-      renderPlanProgress();
+      updateHeadingBar();
     }
 
     // Rebuild historical canvas content from transcript
@@ -7384,11 +7413,10 @@ function renderHistoricalStudentMessage(text) {
 function showTeachingLayout(courseMap) {
   document.title = courseMap.title + ' — Capacity';
   $('#course-title').textContent = courseMap.title;
-  $('#sidebar-section-label').textContent = 'SESSION';
-  $('#sidebar-status').textContent = state.studentName;
-  const sessionNum = (SessionManager.session && SessionManager.session.number) || '';
-  const statSess = $('#stat-session');
-  if (statSess) statSess.textContent = sessionNum ? `Session ${sessionNum}` : 'Session';
+  const sidebarLabel = $('#sidebar-section-label');
+  if (sidebarLabel) sidebarLabel.textContent = 'SESSION';
+  const sidebarStatus = $('#sidebar-status');
+  if (sidebarStatus) sidebarStatus.textContent = state.studentName;
 
   $('#setup-panel').style.display = 'none';
   $('#teaching-layout').classList.remove('hidden');

@@ -407,9 +407,32 @@
         <div class="top-right">
           <span id="session-timer">0:00</span>
           <span id="session-cost" class="session-cost" title="Estimated LLM cost this session">$0.00</span>
-          <button class="icon-btn" id="btn-toggle-sidebar">☰</button>
         </div>
       </header>
+
+      <!-- Plan Heading Bar -->
+      <div id="plan-heading-bar" class="plan-heading-bar hidden">
+        <div class="plan-hb-progress"><div class="plan-hb-fill" id="plan-hb-fill"></div></div>
+        <div class="plan-hb-content" id="plan-hb-toggle">
+          <span class="plan-hb-dot" id="plan-hb-dot"></span>
+          <span class="plan-hb-section" id="plan-hb-section"></span>
+          <span class="plan-hb-sep">›</span>
+          <span class="plan-hb-topic" id="plan-hb-topic"></span>
+          <span class="plan-hb-detour hidden" id="plan-hb-detour">DETOUR</span>
+          <span class="plan-hb-meta" id="plan-hb-meta"></span>
+        </div>
+      </div>
+
+      <!-- Plan Panel Overlay (click heading bar to toggle) -->
+      <div id="plan-panel-overlay" class="plan-panel-overlay hidden">
+        <div class="plan-panel" id="plan-panel">
+          <div class="plan-panel-header">
+            <span class="plan-panel-title">Lesson Plan</span>
+            <button class="plan-panel-close" id="plan-panel-close">&times;</button>
+          </div>
+          <div id="plan-panel-body"></div>
+        </div>
+      </div>
 
       <!-- Main Layout — Split: Chat Left, Board Right -->
       <main id="main-layout">
@@ -452,31 +475,6 @@
             <div class="board-empty-text">Euler will draw here</div>
           </div>
         </div>
-
-        <!-- Sidebar (collapsible) -->
-        <aside id="knowledge-sidebar">
-          <!-- Session info pill -->
-          <div class="sb-session-pill">
-            <div class="sb-session-id" id="stat-session"></div>
-            <div class="sb-session-meta">
-              <span class="sb-meta-item" id="stat-time"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg> 0:00</span>
-              <span class="sb-meta-item" id="stat-responses">0 responses</span>
-            </div>
-          </div>
-
-          <!-- Progress section -->
-          <div id="plan-progress">
-            <div class="sb-section-label">PROGRESS</div>
-            <div id="plan-steps"></div>
-          </div>
-
-          <!-- Course map (hidden — progress section is sufficient) -->
-          <div id="sidebar-course-map" style="display:none">
-            <span id="sidebar-section-label" style="display:none"></span>
-            <span id="sidebar-status" style="display:none"></span>
-            <div id="course-progress-list" class="course-progress-list"></div>
-          </div>
-        </aside>
 
       </main>
     </div>

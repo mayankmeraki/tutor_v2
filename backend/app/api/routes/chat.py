@@ -563,10 +563,50 @@ def _format_agent_results(completed: list[dict]) -> str | None:
     return "\n\n".join(parts)
 
 
-def _format_assets(assets: list[dict]) -> str | None:
-    if not assets:
+def _build_plan_accountability(session) -> dict | None:
+    """Build plan accountability context for tutor prompt injection."""
+    if not session.current_topics or session.current_topic_index < 0:
         return None
-    return json.dumps(assets, indent=2)
+
+    plan = session.current_plan or {}
+    sections = plan.get("sections", [{}])
+    # Find active section
+    section_title = sections[0].get("title", "Current Section") if sections else "Current Section"
+    section_n = 1
+    section_total = len(sections) if sections else 1
+
+    topic_total = len(session.current_topics)
+    topic_n = session.current_topic_index + 1
+    current = (
+        session.current_topics[session.current_topic_index]
+        if 0 <= session.current_topic_index < topic_total
+        else {}
+    )
+
+    done_count = len(session.completed_topics)
+    total_count = done_count + topic_total
+
+    result = {
+        "section_title": section_title,
+        "section_n": section_n,
+        "section_total": section_total,
+        "topic_title": current.get("title", "?"),
+        "topic_n": topic_n,
+        "topic_total": topic_total,
+        "done_count": done_count,
+        "total_count": total_count,
+        "detour_active": bool(session.detour_stack),
+    }
+
+    if session.detour_stack:
+        saved = session.detour_stack[-1]
+        result["detour_reason"] = saved.get("reason", "prerequisite gap")
+        saved_topics = saved.get("saved_topics", [])
+        saved_idx = saved.get("saved_topic_index", 0)
+        if 0 <= saved_idx < len(saved_topics):
+            result["return_topic"] = saved_topics[saved_idx].get("title", "previous topic")
+
+    return result
 
 
 def _build_assessment_summary(ar: dict) -> dict:
@@ -675,7 +715,7 @@ def _build_tutor_prompt(session, context_data) -> str:
         "currentTopic": current_topic,
         "completedTopics": _format_completed(session.completed_topics),
         "scenarioSkill": scenario_skill,
-        "preparedAssets": _format_assets(session.available_assets),
+        "planAccountability": _build_plan_accountability(session),
     })
 
 
@@ -1422,8 +1462,8 @@ async def chat(request: Request):
                     "assessmentResult": assessment_result_ctx,
                     "preAssessmentNote": _format_pre_assessment_note(session.pre_assessment_note),
                     "lastAssessmentSummary": session.last_assessment_summary,
-                    "preparedAssets": _format_assets(session.available_assets),
                     "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
+                    "planAccountability": _build_plan_accountability(session),
                 })
                 active_tools = TUTOR_TOOLS
 
@@ -1825,6 +1865,77 @@ async def chat(request: Request):
                                         slog.warning("Failed to upsert student note: %s", e)
 
                             result = "Student model updated. Continue teaching — do not mention this update to the student."
+
+                        # ── modify_plan ───────────────────────────────
+                        elif block.name == "modify_plan":
+                            action = block.input.get("action")
+                            reason = block.input.get("reason", "")
+                            slog.info("modify_plan", extra={"action": action, "reason": reason[:100]})
+
+                            if action == "insert_prereq":
+                                prereq_topics = block.input.get("prereq_topics", [])
+                                if not prereq_topics:
+                                    result = "Error: prereq_topics is required for insert_prereq."
+                                else:
+                                    # Push current position onto detour stack
+                                    session.detour_stack.append({
+                                        "saved_topic_index": session.current_topic_index,
+                                        "saved_topics": [t.copy() for t in session.current_topics],
+                                        "reason": reason,
+                                    })
+                                    # Replace current topics with prereqs
+                                    session.current_topics = prereq_topics
+                                    session.current_topic_index = 0
+                                    # Emit SSE
+                                    yield _sse({
+                                        "type": "PLAN_DETOUR_START",
+                                        "prereq_topics": prereq_topics,
+                                        "reason": reason,
+                                        "return_topic": session.detour_stack[-1]["saved_topics"][
+                                            session.detour_stack[-1]["saved_topic_index"]
+                                        ].get("title", "previous topic") if session.detour_stack[-1]["saved_topics"] else "previous topic",
+                                    })
+                                    current_topic = prereq_topics[0] if prereq_topics else None
+                                    result = (
+                                        f"Detour started. Now teaching prerequisite: {prereq_topics[0].get('title', '?')}. "
+                                        f"When done, call modify_plan(action='end_detour') to resume."
+                                    )
+
+                            elif action == "end_detour":
+                                if not session.detour_stack:
+                                    result = "Error: No active detour to end. The detour stack is empty."
+                                else:
+                                    saved = session.detour_stack.pop()
+                                    session.current_topics = saved["saved_topics"]
+                                    session.current_topic_index = saved["saved_topic_index"]
+                                    current_topic = (
+                                        session.current_topics[session.current_topic_index]
+                                        if 0 <= session.current_topic_index < len(session.current_topics)
+                                        else None
+                                    )
+                                    yield _sse({"type": "PLAN_DETOUR_END"})
+                                    result = (
+                                        f"Detour complete. Resumed at: {current_topic.get('title', '?') if current_topic else 'end of section'}. "
+                                        f"Continue teaching from where you left off."
+                                    )
+
+                            elif action == "skip":
+                                next_topic = _advance_topic(session)
+                                if session.current_topics and session.current_topic_index > 0:
+                                    skipped = session.current_topics[session.current_topic_index - 1]
+                                    yield _sse({
+                                        "type": "TOPIC_COMPLETE",
+                                        "topic": skipped.get("title", "?"),
+                                        "skipped": True,
+                                        "reason": reason,
+                                    })
+                                if next_topic:
+                                    current_topic = next_topic
+                                    result = f"Skipped. Now on: {next_topic.get('title', '?')}."
+                                else:
+                                    result = "Skipped. No more topics in current section."
+                            else:
+                                result = f"Unknown modify_plan action: {action}"
 
                         # ── advance_topic ─────────────────────────────
                         elif block.name == "advance_topic":

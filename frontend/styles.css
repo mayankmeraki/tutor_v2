@@ -76,9 +76,7 @@ body {
 }
 
 .course-title {
-  font-size: 14px;
-  font-weight: 600;
-  color: var(--text-muted);
+  display: none;
 }
 
 #session-timer {
@@ -1012,9 +1010,6 @@ body {
 #main-layout.notebook-fullscreen #canvas-stream .block-card {
   padding: 14px 16px;
 }
-#main-layout.notebook-fullscreen #knowledge-sidebar {
-  display: none;
-}
 
 .spotlight-fullscreen-btn {
   background: none;
@@ -1425,81 +1420,206 @@ body {
 }
 
 
-/* ─── Knowledge Sidebar ──────────────────────────────────── */
+/* ─── Plan Heading Bar ───────────────────────────────────── */
 
-#knowledge-sidebar {
-  width: 250px;
-  background: var(--bg-surface);
-  border-left: 1px solid var(--border);
-  padding: 16px 14px;
+.plan-heading-bar {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-active);
   flex-shrink: 0;
-  overflow-y: auto;
+  cursor: pointer;
+  user-select: none;
+  transition: background 0.2s;
+}
+.plan-heading-bar:hover { background: var(--bg-hover); }
+.plan-heading-bar.hidden { display: none; }
+
+.plan-hb-progress {
+  height: 3px;
+  background: rgba(255,255,255,0.06);
+}
+.plan-hb-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--accent-dim), var(--accent));
+  transition: width 0.6s cubic-bezier(0.4,0,0.2,1);
+  width: 0%;
+  box-shadow: 0 0 8px rgba(52,211,153,0.3);
+}
+.plan-hb-content {
   display: flex;
-  flex-direction: column;
-  gap: 0;
-  transition: width var(--transition), padding var(--transition);
-}
-
-#knowledge-sidebar.collapsed {
-  width: 0;
-  padding: 0;
-  border: none;
-  overflow: hidden;
-}
-
-/* Session info pill */
-.sb-session-pill {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid var(--border);
-  border-radius: 10px;
-  padding: 12px 14px;
-  margin-bottom: 16px;
-}
-.sb-session-id {
+  align-items: center;
+  padding: 10px 20px;
+  gap: 10px;
   font-size: 13px;
-  font-weight: 600;
-  color: var(--text);
-  margin-bottom: 6px;
+  min-height: 36px;
 }
-.sb-session-meta {
-  display: flex;
-  align-items: center;
-  gap: 12px;
+.plan-hb-dot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  background: var(--accent);
+  flex-shrink: 0;
+  box-shadow: 0 0 6px rgba(52,211,153,0.4);
 }
-.sb-meta-item {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
+.plan-hb-section { color: var(--text); font-weight: 600; font-size: 13px; }
+.plan-hb-sep { color: var(--text-dim); font-size: 12px; }
+.plan-hb-topic { color: var(--accent-bright); font-weight: 600; font-size: 13px; }
+.plan-hb-detour {
+  background: var(--yellow-dim);
+  color: var(--yellow);
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+.plan-hb-detour.hidden { display: none; }
+.plan-hb-meta {
+  margin-left: auto;
   color: var(--text-dim);
+  font-size: 11px;
   font-family: var(--font-mono);
 }
-.sb-meta-item svg {
-  opacity: 0.5;
+
+/* Detour state */
+.plan-heading-bar.detour .plan-hb-dot { background: var(--yellow); }
+.plan-heading-bar.detour .plan-hb-section { color: var(--yellow); }
+.plan-heading-bar.detour .plan-hb-topic { color: var(--yellow); }
+.plan-heading-bar.detour { border-bottom-color: rgba(251,191,36,0.3); }
+
+/* ─── Plan Panel Overlay ─────────────────────────────────── */
+
+.plan-panel-overlay {
+  position: fixed;
+  top: 0; left: 0; right: 0; bottom: 0;
+  background: rgba(0,0,0,0.5);
+  z-index: 1000;
+  display: flex;
+  justify-content: center;
+  padding-top: 80px;
+  backdrop-filter: blur(2px);
+}
+.plan-panel-overlay.hidden { display: none; }
+
+.plan-panel {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  width: 420px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 20px;
+  box-shadow: 0 8px 40px rgba(0,0,0,0.6);
+  align-self: flex-start;
+}
+.plan-panel-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+.plan-panel-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text);
+}
+.plan-panel-close {
+  background: none;
+  border: none;
+  color: var(--text-dim);
+  font-size: 20px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+}
+.plan-panel-close:hover { color: var(--text); }
+
+/* Plan panel content */
+.pp-objective {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 14px;
+  line-height: 1.5;
+}
+.pp-progress {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 16px;
+  font-family: var(--font-mono);
+}
+.pp-progress-bar {
+  flex: 1;
+  max-width: 200px;
+  height: 4px;
+  background: var(--bg);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.pp-progress-bar .fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: 2px;
+  transition: width 0.4s;
 }
 
-/* Shared section label */
-.sb-section-label {
-  font-size: 10px;
+/* Section in plan panel */
+.pp-section { margin-bottom: 14px; }
+.pp-section-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 0;
+}
+.pp-section-header .icon { width: 14px; text-align: center; flex-shrink: 0; }
+.pp-section-header.done { color: var(--green); }
+.pp-section-header.active { color: var(--accent-bright); }
+.pp-section-header.pending { color: var(--text-dim); }
+.pp-section-header.detour { color: var(--yellow); }
+.pp-section-header.paused { color: #a78bfa; }
+
+.pp-badge {
+  font-size: 8px;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.1em;
-  color: var(--text-dim);
-  padding: 0 2px 8px;
-  border-bottom: 1px solid var(--border);
-  margin-bottom: 10px;
+  letter-spacing: 0.08em;
+  padding: 1px 6px;
+  border-radius: 3px;
 }
+.pp-badge.done { color: var(--green); background: var(--green-dim); }
+.pp-badge.now { color: var(--accent); background: var(--accent-dim); }
+.pp-badge.next { color: var(--text-dim); background: var(--bg-hover); }
+.pp-badge.detour { color: var(--yellow); background: var(--yellow-dim); }
+.pp-badge.paused { color: #a78bfa; background: #2a1f3e; }
 
-#sidebar-status {
-  font-size: 12px;
-  color: var(--text-dim);
+/* Topics in plan panel */
+.pp-topics { padding-left: 24px; }
+.pp-topic {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  padding: 3px 0;
 }
+.pp-topic .icon { width: 12px; text-align: center; flex-shrink: 0; font-size: 10px; }
+.pp-topic.done { color: var(--green); opacity: 0.7; }
+.pp-topic.active { color: var(--accent-bright); font-weight: 500; }
+.pp-topic.pending { color: var(--text-dim); }
+.pp-topic.paused { color: #a78bfa; font-style: italic; }
 
-/* Divider between course map and plan */
-#sidebar-course-map {
-  display: none;
-  margin-top: 16px;
-  padding-top: 0;
+.pp-detour-reason {
+  font-size: 10px;
+  color: var(--text-dim);
+  font-style: italic;
+  padding: 2px 0 2px 24px;
+  border-left: 2px solid var(--yellow-dim);
+  margin-left: 6px;
+  margin-top: 2px;
 }
 
 /* ─── Course Progress List ───────────────────────────────── */
@@ -4083,19 +4203,16 @@ body {
 /* ─── Responsive: Laptop ───────────────────────────────── */
 @media (max-width: 1440px) {
   #canvas-stream { padding: 24px 32px; }
-  #knowledge-sidebar { width: 220px; padding: 14px 12px; }
   .board-text { font-size: 23px; }
   .board-response .response-text { font-size: 20px; }
 }
 @media (max-width: 1200px) {
   #canvas-stream { padding: 16px 20px; }
-  #knowledge-sidebar { width: 200px; padding: 12px 10px; }
   .board-text { font-size: 21px; }
   .board-response .response-text { font-size: 18px; }
   .block-card { padding: 16px 18px; }
 }
 @media (max-width: 1024px) {
-  #knowledge-sidebar { width: 0; padding: 0; border: none; overflow: hidden; }
   #canvas-stream { padding: 12px 16px; }
 }
 

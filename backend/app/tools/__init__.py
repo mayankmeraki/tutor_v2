@@ -163,7 +163,7 @@ TUTOR_TOOLS = [
         "description": (
             "Start a background agent to do work while you continue teaching. "
             "Results arrive in [AGENT RESULTS] on your next turn. "
-            "Built-in types: 'planning' (plans next section), 'asset' (fetches images/content). "
+            "Built-in types: 'planning' (plans next section). "
             "For interactive visualizations, use <teaching-widget> tag directly instead of agents. "
             "Any other type creates a custom LLM agent with your task/instructions as its prompt. "
             "Examples: 'research', 'problem_gen', 'content', 'analysis', 'worked_example'. "
@@ -176,7 +176,7 @@ TUTOR_TOOLS = [
                 "type": {
                     "type": "string",
                     "description": (
-                        "Agent type. 'planning' and 'asset' have built-in behavior. "
+                        "Agent type. 'planning' has built-in behavior. "
                         "Any other string creates a custom agent — name it descriptively."
                     ),
                 },
@@ -185,7 +185,6 @@ TUTOR_TOOLS = [
                     "description": (
                         "What the agent should do. Be specific and detailed. "
                         "For planning: starting topic, student model, observations. "
-                        "For asset: JSON array of asset specs. "
                         "For custom agents: the full task description."
                     ),
                 },
@@ -275,6 +274,44 @@ TUTOR_TOOLS = [
                 },
             },
             "required": ["reason"],
+        },
+    },
+    {
+        "name": "modify_plan",
+        "description": (
+            "Modify the current teaching plan without scrapping it. Three actions:\n"
+            "- insert_prereq: You discovered the student is missing a prerequisite. "
+            "Push the current position onto a detour stack, insert prerequisite topics, "
+            "and teach those first. When done, call modify_plan(action='end_detour') to resume.\n"
+            "- end_detour: Pop the detour stack and resume where you left off before the detour.\n"
+            "- skip: Skip the current topic (student already knows it) and advance to the next."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["insert_prereq", "end_detour", "skip"],
+                    "description": "The plan modification action to take.",
+                },
+                "prereq_topics": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "title": {"type": "string"},
+                            "concept": {"type": "string"},
+                        },
+                        "required": ["title", "concept"],
+                    },
+                    "description": "Topics to insert as prerequisites (for insert_prereq only).",
+                },
+                "reason": {
+                    "type": "string",
+                    "description": "Why this plan change is needed.",
+                },
+            },
+            "required": ["action", "reason"],
         },
     },
     {

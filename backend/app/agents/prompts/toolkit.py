@@ -71,7 +71,7 @@ NOTEBOOK: teaching-notebook-step (+correction), teaching-notebook-comment
 materials.images → <teaching-image src="URL" caption="CAPTION" />
 materials.diagrams → <teaching-image src="URL" caption="CAPTION" />
 Show at natural moments. When materials are missing: search_images, web_search,
-or spawn asset agent. Don't teach without visuals.
+or spawn a research agent. Don't teach without visuals.
 
 ═══ VIDEO FLOW ═══
 

@@ -302,10 +302,32 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if session_scope:
         parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
 
+    # Plan accountability — injected every turn so the tutor knows exactly where it is
+    plan_acct = context_data.get("planAccountability")
+    if plan_acct:
+        acct_lines = ["[PLAN ACCOUNTABILITY — internal, never reveal to student]"]
+        if plan_acct.get("section_title"):
+            acct_lines.append(f"Section: \"{plan_acct['section_title']}\" ({plan_acct.get('section_n', '?')} of {plan_acct.get('section_total', '?')})")
+        if plan_acct.get("topic_title"):
+            acct_lines.append(f"Topic: \"{plan_acct['topic_title']}\" ({plan_acct.get('topic_n', '?')} of {plan_acct.get('topic_total', '?')} in section)")
+        if plan_acct.get("detour_active"):
+            acct_lines.append(f"Detour: ACTIVE — {plan_acct.get('detour_reason', 'prerequisite gap')}")
+            acct_lines.append(f"Return to: \"{plan_acct.get('return_topic', '?')}\" when detour completes")
+        done = plan_acct.get("done_count", 0)
+        total = plan_acct.get("total_count", 0)
+        pct = round(done / total * 100) if total else 0
+        acct_lines.append(f"Progress: {done}/{total} topics ({pct}%)")
+        acct_lines.append(
+            "RULES: Finish current topic before advancing. "
+            "For prereq gaps, call modify_plan(action='insert_prereq'). "
+            "To skip a topic the student knows, call modify_plan(action='skip')."
+        )
+        parts.append("\n".join(acct_lines) + "\n")
+
     # ─── SECTION 4: EVENT CONTEXT ───────────────────────────────
     # One-shot events from this turn — agent results, assessments, delegation.
     has_events = any(context_data.get(k) for k in [
-        "agentResults", "delegationResult", "assessmentResult", "preparedAssets"
+        "agentResults", "delegationResult", "assessmentResult"
     ])
 
     if has_events:
@@ -375,10 +397,6 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         )
         parts.append(pre_assessment_note)
 
-    # Pre-prepared assets
-    prepared_assets = context_data.get("preparedAssets")
-    if prepared_assets:
-        parts.append(f"\n[PREPARED ASSETS]\n{prepared_assets}\n")
 
     dynamic_context = "\n".join(parts)
     return (static_prompt, dynamic_context)
