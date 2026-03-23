@@ -528,19 +528,32 @@
         <span class="voice-indicator-label" id="voice-indicator-label">Euler is speaking</span>
       </div>
 
-      <!-- Floating mic button (bottom center, always visible in voice mode) -->
+      <!-- Voice bottom bar (waveform + mic + input) -->
       <div id="voice-mic-float" class="voice-mic-float hidden">
+        <div class="voice-bottom-row">
+          <!-- Left waveform -->
+          <div class="voice-wave-side">
+            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+          </div>
+          <!-- Mic button -->
+          <button class="voice-mic-btn" id="voice-mic-btn" title="Hold Space or click to talk">
+            <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="1" width="6" height="11" rx="3" />
+              <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+              <line x1="12" y1="19" x2="12" y2="23" />
+              <line x1="8" y1="23" x2="16" y2="23" />
+            </svg>
+            <div class="mic-ring"></div>
+            <div class="mic-ring mic-ring-2"></div>
+          </button>
+          <!-- Right waveform -->
+          <div class="voice-wave-side">
+            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
+          </div>
+        </div>
         <div class="voice-mic-hint"><kbd>Space</kbd> hold to talk</div>
-        <button class="voice-mic-btn" id="voice-mic-btn" title="Hold Space or click to talk">
-          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <rect x="9" y="1" width="6" height="11" rx="3" />
-            <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-            <line x1="12" y1="19" x2="12" y2="23" />
-            <line x1="8" y1="23" x2="16" y2="23" />
-          </svg>
-          <div class="mic-ring"></div>
-          <div class="mic-ring mic-ring-2"></div>
-        </button>
       </div>
 
       <!-- Hand cursor — overlays on board, follows drawing commands -->

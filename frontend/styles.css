@@ -4265,6 +4265,9 @@ body {
 }
 #main-layout.voice-mode #split-handle { display: none; }
 #main-layout.voice-mode #board-panel { flex: 1 !important; }
+/* Hide text-mode chat input bar in voice mode */
+#main-layout.voice-mode #chat-panel .chat-input-area,
+#main-layout.voice-mode #chat-panel #chat-input-area { display: none !important; }
 
 /* Voice mode interactive — chat pane slides in for MCQ/freetext/video */
 #main-layout.voice-mode-interactive #chat-panel {
@@ -4278,9 +4281,9 @@ body {
 
 /* ─── Subtitle Bar (cinematic style) ─────────────────────── */
 .voice-subtitle-bar {
-  position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
-  background: linear-gradient(transparent 0%, rgba(10,13,11,0.6) 25%, rgba(10,13,11,0.9) 60%, rgba(10,13,11,0.98) 100%);
-  padding: 40px 0 80px; text-align: center; pointer-events: none;
+  position: fixed; bottom: 70px; left: 0; right: 0; z-index: 50;
+  background: linear-gradient(transparent 0%, rgba(10,13,11,0.5) 40%, rgba(10,13,11,0.85) 100%);
+  padding: 30px 0 14px; text-align: center; pointer-events: none;
   transition: opacity 0.3s;
 }
 .voice-subtitle-bar.hidden { display: none; }
@@ -4338,81 +4341,108 @@ body {
 .voice-tap-ring.pop { animation: vtap-ring 0.45s ease-out forwards; }
 @keyframes vtap-ring { 0%{opacity:.9;transform:translate(-50%,-50%) scale(.4)} 100%{opacity:0;transform:translate(-50%,-50%) scale(2)} }
 
-/* ─── Floating Mic Button (bottom center, glowing green) ─── */
+/* ─── Voice Bottom Bar (mic + waveform + input) ──────────── */
 .voice-mic-float {
-  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
-  z-index: 55; display: flex; flex-direction: column; align-items: center; gap: 8px;
-  pointer-events: auto;
+  position: fixed; bottom: 0; left: 0; right: 0;
+  z-index: 55; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center;
+  padding-bottom: 16px;
 }
 .voice-mic-float.hidden { display: none; }
+
+/* Waveform + mic row */
+.voice-bottom-row {
+  display: flex; align-items: center; gap: 0;
+  pointer-events: auto; position: relative;
+}
+
+/* Waveform bars on either side of mic */
+.voice-wave-side {
+  display: flex; align-items: center; gap: 2px; height: 40px;
+  padding: 0 6px;
+}
+.voice-wave-side .wbar {
+  width: 3px; border-radius: 2px;
+  background: rgba(52,211,153,0.2);
+  height: 6px; transition: height 0.1s ease;
+}
+/* Animate when speaking */
+.voice-mic-float.speaking .voice-wave-side .wbar {
+  background: rgba(52,211,153,0.5);
+  animation: wbar-dance 0.4s ease-in-out infinite alternate;
+}
+.voice-wave-side .wbar:nth-child(1) { animation-delay: 0s; }
+.voice-wave-side .wbar:nth-child(2) { animation-delay: 0.05s; }
+.voice-wave-side .wbar:nth-child(3) { animation-delay: 0.1s; }
+.voice-wave-side .wbar:nth-child(4) { animation-delay: 0.15s; }
+.voice-wave-side .wbar:nth-child(5) { animation-delay: 0.08s; }
+.voice-wave-side .wbar:nth-child(6) { animation-delay: 0.12s; }
+.voice-wave-side .wbar:nth-child(7) { animation-delay: 0.18s; }
+.voice-wave-side .wbar:nth-child(8) { animation-delay: 0.03s; }
+@keyframes wbar-dance {
+  0% { height: 4px; }
+  100% { height: 28px; }
+}
+/* Recording — red bars */
+.voice-mic-float.recording .voice-wave-side .wbar {
+  background: rgba(248,113,113,0.5);
+  animation: wbar-dance 0.35s ease-in-out infinite alternate;
+}
+
+/* Mic button */
 .voice-mic-btn {
-  width: 56px; height: 56px; border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, rgba(52,211,153,0.12), rgba(10,13,11,0.95));
-  border: 1.5px solid rgba(52,211,153,0.25);
+  width: 48px; height: 48px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgba(52,211,153,0.15), rgba(10,13,11,0.95));
+  border: 1.5px solid rgba(52,211,153,0.3);
   color: var(--accent); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  position: relative; transition: all 0.25s;
-  box-shadow: 0 2px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
+  position: relative; transition: all 0.25s; flex-shrink: 0;
+  box-shadow: 0 2px 16px rgba(0,0,0,0.4);
 }
 .voice-mic-btn:hover {
   border-color: rgba(52,211,153,0.5); transform: scale(1.08);
-  box-shadow: 0 0 24px rgba(52,211,153,0.2), 0 2px 20px rgba(0,0,0,0.5);
+  box-shadow: 0 0 20px rgba(52,211,153,0.2);
 }
-.voice-mic-btn .mic-icon { width: 22px; height: 22px; position: relative; z-index: 2; }
+.voice-mic-btn .mic-icon { width: 20px; height: 20px; position: relative; z-index: 2; }
 .voice-mic-btn .mic-ring {
-  position: absolute; inset: -4px; border-radius: 50%;
-  border: 1.5px solid rgba(52,211,153,0.15);
-  transition: all 0.3s;
+  position: absolute; inset: -3px; border-radius: 50%;
+  border: 1.5px solid rgba(52,211,153,0.12); transition: all 0.3s;
 }
-.voice-mic-btn .mic-ring-2 {
-  inset: -10px;
-  border-color: rgba(52,211,153,0.08);
-}
+.voice-mic-btn .mic-ring-2 { inset: -8px; border-color: rgba(52,211,153,0.06); }
 
-/* Recording state — red glow */
+/* Recording — red mic */
 .voice-mic-btn.recording {
-  background: radial-gradient(circle at 40% 35%, rgba(248,113,113,0.25), rgba(30,10,10,0.95));
+  background: radial-gradient(circle at 40% 35%, rgba(248,113,113,0.3), rgba(30,10,10,0.95));
   border-color: rgba(248,113,113,0.5); color: var(--red);
-  box-shadow: 0 0 30px rgba(248,113,113,0.3);
+  box-shadow: 0 0 24px rgba(248,113,113,0.25);
 }
-.voice-mic-btn.recording .mic-ring {
-  border-color: rgba(248,113,113,0.3);
-  animation: ring-expand 1.5s ease-out infinite;
-}
-.voice-mic-btn.recording .mic-ring-2 {
-  border-color: rgba(248,113,113,0.15);
-  animation: ring-expand 1.5s ease-out 0.3s infinite;
-}
-@keyframes ring-expand {
-  0% { transform: scale(1); opacity: 0.6; }
-  100% { transform: scale(1.6); opacity: 0; }
-}
+.voice-mic-btn.recording .mic-ring { border-color: rgba(248,113,113,0.3); animation: ring-expand 1.5s ease-out infinite; }
+.voice-mic-btn.recording .mic-ring-2 { border-color: rgba(248,113,113,0.15); animation: ring-expand 1.5s ease-out 0.3s infinite; }
+@keyframes ring-expand { 0%{transform:scale(1);opacity:.6} 100%{transform:scale(1.6);opacity:0} }
 
-/* Speaking state — green glow */
+/* Speaking — green pulse */
 .voice-mic-btn.speaking-active {
-  background: radial-gradient(circle at 40% 35%, rgba(52,211,153,0.2), rgba(10,20,15,0.95));
   border-color: rgba(52,211,153,0.4);
-  box-shadow: 0 0 25px rgba(52,211,153,0.2);
-}
-.voice-mic-btn.speaking-active .mic-ring {
-  border-color: rgba(52,211,153,0.25);
-  animation: ring-glow 2s ease-in-out infinite;
-}
-@keyframes ring-glow {
-  0%, 100% { border-color: rgba(52,211,153,0.15); }
-  50% { border-color: rgba(52,211,153,0.35); }
+  box-shadow: 0 0 20px rgba(52,211,153,0.15);
 }
 
+/* Hint below */
 .voice-mic-hint {
   font-size: 10px; color: var(--text-dim); white-space: nowrap;
-  opacity: 0.6; transition: opacity 0.2s;
+  margin-top: 6px; opacity: 0.5; pointer-events: none;
 }
-.voice-mic-float:hover .voice-mic-hint { opacity: 1; }
 .voice-mic-hint kbd {
-  font-family: var(--font-mono); background: rgba(52,211,153,0.08);
-  padding: 2px 6px; border-radius: 4px; font-size: 10px; color: var(--accent-dim);
-  border: 1px solid rgba(52,211,153,0.15); margin-right: 3px;
+  font-family: var(--font-mono); background: rgba(52,211,153,0.06);
+  padding: 1px 5px; border-radius: 3px; font-size: 10px; color: var(--accent-dim);
+  border: 1px solid rgba(52,211,153,0.12); margin-right: 2px;
 }
+
+/* Input row (appears when question active) */
+.voice-input-row {
+  display: flex; align-items: center; gap: 8px;
+  margin-top: 8px; pointer-events: auto; width: 100%; max-width: 600px; padding: 0 20px;
+}
+.voice-input-row.hidden { display: none; }
 
 /* ─── Board Question Input (slide-up panel) ──────────────── */
 .board-question-input {

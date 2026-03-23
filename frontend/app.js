@@ -10335,22 +10335,29 @@ function voiceShowIndicator(mode) {
   const el = $('#voice-indicator');
   const label = $('#voice-indicator-label');
   const micBtn = $('#voice-mic-btn');
+  const micFloat = $('#voice-mic-float');
   if (!el) return;
   el.classList.remove('hidden', 'speaking', 'listening');
   el.classList.add(mode);
   if (label) label.textContent = mode === 'speaking' ? 'Euler is speaking' : 'Listening...';
-  // Sync mic button state
+  // Sync mic button + waveform state
   if (micBtn) {
     micBtn.classList.remove('speaking-active', 'recording');
     if (mode === 'speaking') micBtn.classList.add('speaking-active');
+  }
+  if (micFloat) {
+    micFloat.classList.remove('speaking', 'recording');
+    micFloat.classList.add(mode === 'speaking' ? 'speaking' : mode === 'listening' ? 'recording' : '');
   }
 }
 
 function voiceHideIndicator() {
   const el = $('#voice-indicator');
   const micBtn = $('#voice-mic-btn');
+  const micFloat = $('#voice-mic-float');
   if (el) { el.classList.remove('speaking', 'listening'); el.classList.add('hidden'); }
   if (micBtn) micBtn.classList.remove('speaking-active', 'recording');
+  if (micFloat) micFloat.classList.remove('speaking', 'recording');
 }
 
 // ── Hand cursor ─────────────────────────────────────────────
