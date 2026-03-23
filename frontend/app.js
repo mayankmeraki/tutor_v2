@@ -8951,26 +8951,38 @@ async function bdRunAnimation(cmd) {
 
   let code = bdSanitizeAnimCode(cmd.code);
   // Inject onControl bridge so tutor can change animation parameters at runtime
+  // Scale factor so animation text/strokes are proportional to container size
+  // Base: 300px wide container. If actual is 600px, scale = 2x.
+  const baseW = 300;
+  const animScale = Math.round(w) / baseW;
   const controlBridge = `
     var _controlParams = {};
     var _elements = {};
+    var S = ${animScale.toFixed(2)}; // scale factor for text/strokes
     function onControl(params) {
       if (params._unhighlight) { _controlParams._highlight = null; }
       Object.assign(_controlParams, params);
     }
     p._onControl = function(params) { onControl(params); };
+    // Helper: scale-aware text size
+    function sTextSize(sz) { return sz * S; }
+    // Helper: scale-aware stroke weight
+    function sStroke(w) { return Math.max(1, w * S); }
     // Helper: apply highlight glow to drawing context
     function applyHighlight(p, color, isHighlighted) {
       if (isHighlighted) {
-        p.strokeWeight(4);
+        p.strokeWeight(sStroke(3));
         p.drawingContext.shadowColor = color || '#34d399';
-        p.drawingContext.shadowBlur = 18;
+        p.drawingContext.shadowBlur = 18 * S;
       } else {
-        p.strokeWeight(2);
+        p.strokeWeight(sStroke(1.5));
         p.drawingContext.shadowBlur = 0;
       }
     }
   `;
+  // Auto-scale hardcoded text sizes and stroke weights in the AI-generated code
+  code = code.replace(/p\.textSize\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.textSize(${n} * S)`);
+  code = code.replace(/p\.strokeWeight\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.strokeWeight(Math.max(1, ${n} * S))`);
   code = controlBridge + '\n' + code;
   let sketchFn;
   try {
