@@ -8783,9 +8783,18 @@ async function bdRunCommand(cmd) {
   if (cmd.id) bdRegisterElement(cmd);
   // Voice mode: move hand cursor to follow drawing
   if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Auto-scroll to new content in voice mode
-  if (state.teachingMode === 'voice' && cmd.y) bdScrollToY(cmd.y);
-  else if (state.teachingMode === 'voice' && cmd.cy) bdScrollToY(cmd.cy);
+  // Auto-scroll ONLY when content exceeds visible area
+  if (state.teachingMode === 'voice') {
+    const cmdY = cmd.y || cmd.cy || 0;
+    const cmdH = cmd.h || cmd.size || 30;
+    const wrap = document.getElementById('bd-canvas-wrap');
+    if (wrap && cmdY > 0) {
+      const visibleBottom = (wrap.scrollTop + wrap.clientHeight) / state.boardDraw.scale;
+      if (cmdY + cmdH > visibleBottom - 20) {
+        bdScrollToY(cmdY);
+      }
+    }
+  }
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
     case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;

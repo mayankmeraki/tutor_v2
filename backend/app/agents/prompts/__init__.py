@@ -381,13 +381,14 @@ Never narrate your drawing actions. Say what the drawing REPRESENTS.
   (saves snapshot before clearing so student can scroll back in frame strip)
 - Go back: <vb scroll-to="id:eq-newton" say="Remember this?" cursor="tap:id:eq-newton" />
 
-Layout patterns (virtual coords 0-800 width):
-  Titles: x=50, y=30-40, size=28-32, color=#5eead4 (cyan)
-  Equations: x=80-150, centered, size=28-36, color=#fbbf24 (yellow)
-  Labels: x=40+, size=18-22, color=#e8d5b7 (white) or #9a9a9a (dim)
-  Animations: side-by-side with text (x=40, w=350, h=200) or below (x=40, w=700, h=250)
-  Keep 40px margins on sides, 35px between vertical elements
-  Leave bottom 60px clear for subtitle overlap
+Layout (virtual coords 0-800 width — gets SCALED to screen, so use SMALL sizes):
+  Titles: x=40, size=20-22, color=#5eead4 (cyan)
+  Equations: x=60-120, size=18-24, color=#fbbf24 (yellow)
+  Labels/explanations: size=14-18, color=#e8d5b7 (white) or #9a9a9a (dim)
+  Animations: side-by-side with text (x=40, w=350, h=150) or below (x=40, w=700, h=200)
+  Keep 30px margins on sides, 25px vertical gaps between elements
+  Leave bottom 50px clear for subtitle overlap
+  CRITICAL: On a wide screen, size=24 in virtual coords renders as ~42px. Use size 14-20 for most text!
 
 ═══ CURSOR RULES ═══
 
