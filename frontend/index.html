@@ -369,6 +369,24 @@
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a0d0b" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
           </div>
+          <!-- Teaching mode selection -->
+          <div class="dash-mode-select" id="dash-mode-select">
+            <div class="dash-mode-card selected" id="dash-mode-text" onclick="selectDashMode('text')">
+              <div class="dash-mode-icon">&#9998;</div>
+              <div class="dash-mode-info">
+                <div class="dash-mode-name">Text Mode</div>
+                <div class="dash-mode-desc">Read at your own pace. Chat with the tutor, board draws on the right.</div>
+              </div>
+            </div>
+            <div class="dash-mode-card" id="dash-mode-voice" onclick="selectDashMode('voice')">
+              <div class="dash-mode-icon">&#9835;</div>
+              <div class="dash-mode-info">
+                <div class="dash-mode-name">Voice Mode</div>
+                <div class="dash-mode-desc">Listen and watch. Tutor speaks while drawing on a full-screen board. 1.5x speed default.</div>
+              </div>
+            </div>
+          </div>
+
           <div class="dash-chips">
             <div class="dash-chip" data-intent="Teach me from Lecture 6 to 10"><strong>Teach me</strong> from Lecture 6–10</div>
             <div class="dash-chip" data-intent="I have an exam in 2 days, please do a crash course"><strong>Exam in 2 days</strong> — crash course</div>
@@ -405,16 +423,9 @@
           <span class="course-title" id="course-title">Teaching Session</span>
         </div>
         <div class="top-right">
-          <!-- Teaching Mode Toggle -->
-          <div class="mode-toggle" id="mode-toggle">
-            <button class="mode-btn active" id="mode-text-btn" onclick="setTeachingMode('text')">
-              <span class="mode-ico">&#9998;</span> Text
-            </button>
-            <button class="mode-btn" id="mode-voice-btn" onclick="setTeachingMode('voice')">
-              <span class="mode-ico">&#9835;</span> Voice
-            </button>
-          </div>
-          <!-- Speed Control (voice mode) -->
+          <!-- Mode indicator (set at session start, not switchable) -->
+          <span class="mode-indicator" id="mode-indicator"></span>
+          <!-- Speed Control (voice mode only) -->
           <div class="speed-wrap hidden" id="speed-wrap">
             <button class="speed-toggle-btn" id="speed-toggle-btn" onclick="toggleSpeedMenu()">
               <span class="speed-label">Speed</span>

@@ -302,6 +302,26 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if session_scope:
         parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
 
+    # Voice mode instructions — changes how the tutor teaches
+    teaching_mode = context_data.get("teachingMode", "text")
+    if teaching_mode == "voice":
+        parts.append("""
+[VOICE MODE — ACTIVE]
+The student is in VOICE MODE. Your text will be spoken aloud via TTS and shown as subtitles.
+The board takes full screen — there is NO chat pane visible.
+
+CRITICAL RULES FOR VOICE MODE:
+- Write SHORT sentences (under 20 words). TTS reads them aloud — long sentences sound robotic.
+- ALWAYS draw on the board BEFORE referencing it. Never say "as you can see" without a board-draw in this message.
+- Keep the board visible with content. The student sees ONLY the board + subtitles.
+- Pause naturally: use board-draw "pause" commands ({"cmd":"pause","ms":800}) between concepts.
+- Use board-draw "voice" commands ({"cmd":"voice","text":"...","dur":3}) to narrate while drawing.
+- Do NOT reference "left side" / "right side" of the screen — there is only the board.
+- Do NOT write long paragraphs. Break into 1-2 sentence blocks with board draws between them.
+- Questions should be direct and simple. The student types or speaks a short response.
+- Every response MUST include a board-draw. Text-only responses are invisible to the student.
+""")
+
     # Plan accountability — injected every turn so the tutor knows exactly where it is
     plan_acct = context_data.get("planAccountability")
     if plan_acct:

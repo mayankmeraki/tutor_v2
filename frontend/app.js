@@ -1661,6 +1661,7 @@ function buildContext() {
       sessionCount: cp.sessionCount,
       isReturning: cp.sessionCount > 1,
       studentIntent: state.studentIntent || null,
+      teachingMode: state.teachingMode, // 'text' or 'voice'
     }),
   });
 
@@ -7435,6 +7436,9 @@ function showTeachingLayout(courseMap) {
   $('#teaching-layout').classList.remove('hidden');
   if (typeof DashBg !== 'undefined') DashBg.stop();
 
+  // Apply teaching mode (text or voice) — locked for this session
+  applyTeachingMode();
+
   renderCourseProgress();
   startTimer();
 
@@ -9997,31 +10001,44 @@ document.addEventListener('DOMContentLoaded', () => {
 const ELEVENLABS_VOICE_ID = 'JBFqnCBsd6RMkjVDRZzb';
 const ELEVENLABS_MODEL = 'eleven_turbo_v2_5';
 
-// ── Mode switching ──────────────────────────────────────────
+// ── Mode selection (at session start, not switchable mid-session) ────
 
-function setTeachingMode(mode) {
+// Called from dashboard mode cards
+function selectDashMode(mode) {
   state.teachingMode = mode;
+  const textCard = $('#dash-mode-text');
+  const voiceCard = $('#dash-mode-voice');
+  if (textCard) textCard.classList.toggle('selected', mode === 'text');
+  if (voiceCard) voiceCard.classList.toggle('selected', mode === 'voice');
+}
+
+// Called once when session actually starts — locks the mode
+function applyTeachingMode() {
+  const mode = state.teachingMode;
   const mainLayout = $('#main-layout');
   const subtitleBar = $('#voice-subtitle-bar');
   const voiceInd = $('#voice-indicator');
   const speedWrap = $('#speed-wrap');
-  const modeTextBtn = $('#mode-text-btn');
-  const modeVoiceBtn = $('#mode-voice-btn');
+  const indicator = $('#mode-indicator');
 
   if (mode === 'voice') {
     mainLayout?.classList.add('voice-mode');
     subtitleBar?.classList.remove('hidden');
     voiceInd?.classList.remove('hidden');
     speedWrap?.classList.remove('hidden');
-    modeTextBtn?.classList.remove('active');
-    modeVoiceBtn?.classList.add('active');
+    if (indicator) {
+      indicator.textContent = 'Voice Mode';
+      indicator.className = 'mode-indicator voice-mode';
+    }
   } else {
     mainLayout?.classList.remove('voice-mode');
     subtitleBar?.classList.add('hidden');
     voiceInd?.classList.add('hidden');
     speedWrap?.classList.add('hidden');
-    modeTextBtn?.classList.add('active');
-    modeVoiceBtn?.classList.remove('active');
+    if (indicator) {
+      indicator.textContent = 'Text Mode';
+      indicator.className = 'mode-indicator text-mode';
+    }
     voiceHideSubtitle();
     voiceHideHand();
     voiceHideBoardQuestion();

@@ -4202,19 +4202,34 @@ body {
 
 /* ─── Voice Mode ────────────────────────────────────────── */
 
-/* Mode toggle */
-.mode-toggle {
-  display: flex; background: var(--bg-elevated); border-radius: 8px;
-  border: 1px solid var(--border); padding: 2px; gap: 2px;
+/* Mode indicator in header (read-only, set at session start) */
+.mode-indicator {
+  font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 3px 10px; border-radius: 4px; display: none;
 }
-.mode-btn {
-  padding: 4px 14px; border-radius: 6px; border: none; font-size: 11px;
-  font-family: var(--font-sans); cursor: pointer; transition: all 0.2s;
-  background: transparent; color: var(--text-dim); display: flex; align-items: center; gap: 4px;
+.mode-indicator.text-mode {
+  display: inline-block; color: var(--text-dim); background: var(--bg-elevated); border: 1px solid var(--border);
 }
-.mode-btn.active { background: var(--accent-dim); color: var(--accent); }
-.mode-btn:hover { color: var(--text); }
-.mode-ico { font-size: 12px; }
+.mode-indicator.voice-mode {
+  display: inline-block; color: var(--accent); background: var(--accent-dim); border: 1px solid var(--accent-dim);
+}
+
+/* Dashboard mode selection cards */
+.dash-mode-select {
+  display: flex; gap: 10px; margin: 14px 0;
+}
+.dash-mode-card {
+  flex: 1; display: flex; align-items: flex-start; gap: 12px;
+  padding: 14px 16px; border-radius: 10px;
+  border: 1.5px solid var(--border); background: var(--bg-surface);
+  cursor: pointer; transition: all 0.2s;
+}
+.dash-mode-card:hover { border-color: var(--border-active); background: var(--bg-elevated); }
+.dash-mode-card.selected { border-color: var(--accent-dim); background: rgba(52,211,153,0.05); }
+.dash-mode-icon { font-size: 22px; flex-shrink: 0; margin-top: 2px; }
+.dash-mode-name { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 3px; }
+.dash-mode-card.selected .dash-mode-name { color: var(--accent-bright); }
+.dash-mode-desc { font-size: 11px; color: var(--text-dim); line-height: 1.4; }
 
 /* Speed control */
 .speed-wrap { position: relative; }

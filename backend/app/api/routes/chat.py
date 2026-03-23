@@ -154,6 +154,18 @@ def _extract_user_email(context_data: dict) -> str | None:
         return None
 
 
+def _extract_teaching_mode(context_data: dict) -> str:
+    """Extract teaching mode from student profile ('text' or 'voice')."""
+    profile_str = context_data.get("studentProfile", "")
+    if not profile_str:
+        return "text"
+    try:
+        profile = json.loads(profile_str)
+        return profile.get("teachingMode", "text")
+    except (json.JSONDecodeError, TypeError):
+        return "text"
+
+
 def _extract_collection_id(context_data: dict) -> str | None:
     """Extract collectionId from student profile (BYO mode indicator)."""
     profile_str = context_data.get("studentProfile", "")
@@ -1414,10 +1426,11 @@ async def chat(request: Request):
             except Exception as e:
                 slog.warning("Failed to load knowledge summary: %s", e)
 
-            # ── Step 5: Detect BYO mode and build appropriate prompt ───
+            # ── Step 5: Detect BYO/voice mode and build appropriate prompt ───
             agent_results_str = _format_agent_results(completed) if completed else None
             collection_id = _extract_collection_id(context_data)
             user_email = _extract_user_email(context_data)
+            teaching_mode = _extract_teaching_mode(context_data)
             is_byo = bool(collection_id)
 
             if is_byo:
@@ -1464,6 +1477,7 @@ async def chat(request: Request):
                     "lastAssessmentSummary": session.last_assessment_summary,
                     "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
                     "planAccountability": _build_plan_accountability(session),
+                    "teachingMode": teaching_mode,
                 })
                 active_tools = TUTOR_TOOLS
 
