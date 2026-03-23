@@ -1204,6 +1204,18 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   if (state.isStreaming) return;
   state.isStreaming = true;
   state._lastSSETimestamp = Date.now();
+
+  // Voice mode: restore full-screen board if we were in interactive mode
+  if (state.teachingMode === 'voice') {
+    const mainLayout = $('#main-layout');
+    if (mainLayout) {
+      mainLayout.classList.remove('voice-mode-interactive');
+      mainLayout.classList.add('voice-mode');
+    }
+    const micFloat = $('#voice-mic-float');
+    if (micFloat) micFloat.style.display = '';
+  }
+
   // Disable quick actions during streaming
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = true);
 
@@ -3050,6 +3062,25 @@ function renderTeachingTag(tag) {
 
   if (!structuralTags.has(tag.name) && !skipAssetRecord) {
     SessionManager.recordAsset(tag);
+  }
+
+  // Voice mode: if this is an interactive tag, temporarily show chat pane
+  // so the MCQ/freetext controls are visible (they render in #canvas-stream)
+  const _voiceInteractiveTags = new Set([
+    'teaching-mcq', 'teaching-freetext', 'teaching-agree-disagree',
+    'teaching-fillblank', 'teaching-spot-error', 'teaching-confidence',
+    'teaching-canvas', 'teaching-teachback', 'teaching-video',
+  ]);
+  if (state.teachingMode === 'voice' && _voiceInteractiveTags.has(tag.name)) {
+    const mainLayout = $('#main-layout');
+    if (mainLayout) {
+      mainLayout.classList.remove('voice-mode');
+      mainLayout.classList.add('voice-mode-interactive');
+    }
+    // Hide subtitle and mic during interaction
+    voiceHideSubtitle();
+    const micFloat = $('#voice-mic-float');
+    if (micFloat) micFloat.style.display = 'none';
   }
 
   switch (tag.name) {

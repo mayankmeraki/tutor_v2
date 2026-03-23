@@ -4265,6 +4265,15 @@ body {
 }
 #main-layout.voice-mode #split-handle { display: none; }
 #main-layout.voice-mode #board-panel { flex: 1 !important; }
+
+/* Voice mode interactive — chat pane slides in for MCQ/freetext/video */
+#main-layout.voice-mode-interactive #chat-panel {
+  width: 35% !important; min-width: 300px !important; overflow: visible !important;
+  border-right: 1px solid var(--border); flex: none !important;
+  animation: slide-in-chat 0.3s ease;
+}
+#main-layout.voice-mode-interactive #split-handle { display: none; }
+@keyframes slide-in-chat { from { width: 0 !important; min-width: 0 !important; opacity: 0; } to { opacity: 1; } }
 /* Voice mode: board takes full width, no constraints */
 
 /* ─── Subtitle Bar (cinematic style) ─────────────────────── */
