@@ -263,6 +263,10 @@ _WIDGET_RE = _re.compile(
 _SIM_RE = _re.compile(
     r'<teaching-simulation[^>]*?(?:title="([^"]*)")?[^>]*/?>',
 )
+_VOICE_SCENE_RE = _re.compile(
+    r'<teaching-voice-scene[^>]*?(?:title="([^"]*)")?[^>]*?>'
+    r'([\s\S]*?)</teaching-voice-scene>',
+)
 
 SUMMARY_PROMPT = """\
 Summarize this tutoring conversation for continuity. Be structured and concise:
@@ -310,6 +314,27 @@ def _count_messages_tokens(messages: list[dict]) -> int:
     return total
 
 
+def _compress_voice_scene(match) -> str:
+    """Compress a voice scene to a short summary — extract say texts only."""
+    title = match.group(1) or "untitled"
+    content = match.group(2)
+    # Extract all say="..." values
+    say_texts = _re.findall(r'say=["\']([^"\']*)["\']', content)
+    # Check if it ended with a question
+    has_question = 'question="true"' in content or "question='true'" in content
+    summary_parts = [f'[voice-scene: "{title}"']
+    if say_texts:
+        # Keep just the spoken text, concatenated
+        spoken = ' '.join(s for s in say_texts if s.strip())
+        if len(spoken) > 300:
+            spoken = spoken[:297] + '...'
+        summary_parts.append(f' — said: "{spoken}"')
+    if has_question:
+        summary_parts.append(' (asked question)')
+    summary_parts.append(']')
+    return ''.join(summary_parts)
+
+
 def _compress_old_messages(messages: list[dict]) -> list[dict]:
     """Strip board-draw JSONL, widget HTML, and sim tags from older messages."""
     compressed = []
@@ -324,6 +349,7 @@ def _compress_old_messages(messages: list[dict]) -> list[dict]:
         content = _BOARD_DRAW_RE.sub(lambda m: f'[board-draw: "{m.group(1) or "untitled"}"]', content)
         content = _WIDGET_RE.sub(lambda m: f'[widget: "{m.group(1) or "untitled"}"]', content)
         content = _SIM_RE.sub(lambda m: f'[simulation: "{m.group(1) or ""}"]', content)
+        content = _VOICE_SCENE_RE.sub(lambda m: _compress_voice_scene(m), content)
         # Skip empty messages after stripping
         if not content.strip() or content.strip() == '.':
             continue
