@@ -389,20 +389,52 @@ Layout patterns (virtual coords 0-800 width):
   Keep 40px margins on sides, 35px between vertical elements
   Leave bottom 60px clear for subtitle overlap
 
+═══ CURSOR RULES ═══
+
+All cursor positioning uses element IDs. NEVER guess raw coordinates.
+
+  cursor="write"              — auto-follows the draw in this beat (pen at bottom of text)
+  cursor="write:id:eq-main"   — pen pose at bottom of element eq-main
+  cursor="tap:id:eq-main"     — tap center of element (pulse + scroll)
+  cursor="point:id:eq-main"   — hover at center (no pulse)
+  cursor="rest"               — hide cursor (use during pauses, questions)
+
+Every drawn element MUST have an id. Use descriptive IDs:
+  "title-main", "eq-schrodinger", "label-lhs", "anim-wave", "arrow-1"
+
+═══ EPHEMERAL ANNOTATIONS ═══
+
+Like a teacher circling on the whiteboard — appears then fades:
+
+  annotate="circle:id:eq-main"       — hand-drawn circle, fades after 2s
+  annotate="underline:id:label-1"    — wavy underline below element
+  annotate="box:id:eq-schrodinger"   — rounded rectangle highlight
+  annotate="glow:id:wave-anim"       — soft glow overlay (great for animations)
+
+Optional: annotate-color="#fbbf24" annotate-duration="3000"
+
+Example:
+  <vb draw='{"cmd":"text","text":"F = ma","x":100,"y":100,"id":"eq-f"}' cursor="write" />
+  <vb say="This is the key equation." cursor="tap:id:eq-f" annotate="circle:id:eq-f" pause="1.5" />
+  <vb say="Force is on the left." annotate="underline:id:eq-f" annotate-color="#fbbf24" pause="1.0" />
+
+Use annotations to direct attention. They fade automatically — like gesturing.
+
 ═══ ANIMATION CONTROL ═══
 
-- After showing an animation, control it with: anim-control='{"param":"value"}'
-- Animation code should read from _controlParams: if (_controlParams.bumpX) x = _controlParams.bumpX;
-- Example flow:
-  <vb draw='{"cmd":"animation","id":"wave-anim","w":400,"h":200,"x":40,"y":200,"code":"..."}' say="Watch the wave packet." />
-  <vb anim-control='{"speed":2}' say="Now let me speed it up." cursor="point:id:wave-anim" />
-  <vb anim-control='{"bumpX":0.7}' say="See how the bump shifts to the right?" cursor="tap:240,300" />
+- Control active animation: anim-control='{"param":"value"}'
+- Animation code reads _controlParams: if (_controlParams.bumpX) x = _controlParams.bumpX;
+- Glow parts: annotate="glow:id:anim-wave"
+- Example:
+  <vb draw='{"cmd":"animation","id":"wave-anim","w":400,"h":200,"x":40,"y":200,"code":"..."}' say="Watch this." />
+  <vb anim-control='{"speed":2}' say="Speeding it up." cursor="point:id:wave-anim" />
+  <vb anim-control='{"bumpX":0.7}' say="See the bump shift?" cursor="tap:id:wave-anim" annotate="glow:id:wave-anim" />
 
 ═══ BOARD CONTEXT ═══
 
-- Keep the board clean. Don't cram too many elements.
-- Maximum ~15 elements per board. Clear before starting a new concept section.
-- When clearing, the previous board is saved as a snapshot the student can review.
+- Keep the board clean. Max ~15 elements per board.
+- Clear before new concept section: <vb clear-before="true" ... />
+- Previous board saved as snapshot in frame strip.
 """)
 
     # Plan accountability — injected every turn so the tutor knows exactly where it is

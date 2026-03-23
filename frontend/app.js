@@ -10528,6 +10528,18 @@ function parseVoiceBeats(sceneContent) {
     const scrollMatch = attrStr.match(/scroll-to='([^']*)'|scroll-to="([^"]*)"/);
     if (scrollMatch) beat.scrollTo = scrollMatch[1] || scrollMatch[2];
 
+    // Parse annotate — ephemeral annotation: annotate="circle:id:eq-main" or "underline:id:label" or "glow:id:anim" or "box:id:eq"
+    const annotateMatch = attrStr.match(/annotate='([^']*)'|annotate="([^"]*)"/);
+    if (annotateMatch) beat.annotate = annotateMatch[1] || annotateMatch[2];
+
+    // Parse annotate-color
+    const annColorMatch = attrStr.match(/annotate-color='([^']*)'|annotate-color="([^"]*)"/);
+    if (annColorMatch) beat.annotateColor = annColorMatch[1] || annColorMatch[2];
+
+    // Parse annotate-duration (ms)
+    const annDurMatch = attrStr.match(/annotate-duration='([^']*)'|annotate-duration="([^"]*)"/);
+    if (annDurMatch) beat.annotateDuration = parseInt(annDurMatch[1] || annDurMatch[2]) || 2000;
+
     beats.push(beat);
   }
   return beats;
@@ -10579,6 +10591,20 @@ async function executeVoiceScene(sceneTag) {
     // 2. Animation control — change params on active animation
     if (beat.animControl) {
       bdControlAnimation(beat.animControl);
+    }
+
+    // 2b. Ephemeral annotation (circle, underline, glow, box)
+    if (beat.annotate) {
+      const annParts = beat.annotate.split(':');
+      // Format: "circle:id:elementId" or "underline:id:elementId"
+      if (annParts.length >= 3 && annParts[1] === 'id') {
+        const annType = annParts[0]; // circle, underline, box, glow
+        const annId = annParts.slice(2).join(':'); // element ID (may contain colons)
+        voiceAnnotate(annType, annId, {
+          color: beat.annotateColor || '#34d399',
+          duration: beat.annotateDuration || 2000,
+        });
+      }
     }
 
     // 3. Start draw + say in parallel
@@ -10651,63 +10677,73 @@ async function executeSay(text) {
   voiceHideIndicator();
 }
 
-// Execute cursor positioning
-function executeCursor(cursorStr, drawCmds) {
-  // Default: if no cursor specified but there's a draw, auto-write
-  if (!cursorStr && drawCmds && drawCmds.length > 0) {
-    cursorStr = 'write';
-  }
-  // If explicitly rest, or no cursor and no draw, hide hand
-  if (cursorStr === 'rest' || (!cursorStr && (!drawCmds || drawCmds.length === 0))) {
-    // Don't hide — keep cursor where it was unless explicitly resting
-    if (cursorStr === 'rest') voiceHideHand();
-    return;
-  }
+// ── Cursor System (ID-based, deterministic) ────────────────
 
-  // cursor="write" — follow the draw command coordinates
-  if (cursorStr === 'write' && drawCmds && drawCmds.length > 0) {
-    const cmd = drawCmds[0];
-    const pos = getCommandPosition(cmd);
-    if (pos) voiceMoveHand(pos.x, pos.y, true);
-    return;
-  }
-
-  // cursor="tap:x,y" or cursor="point:x,y"
-  const tapMatch = cursorStr.match(/^tap:(\d+),(\d+)$/);
-  if (tapMatch) {
-    voiceTapAt(parseInt(tapMatch[1]), parseInt(tapMatch[2]));
-    return;
-  }
-
-  const pointMatch = cursorStr.match(/^point:(\d+),(\d+)$/);
-  if (pointMatch) {
-    voiceMoveHand(parseInt(pointMatch[1]), parseInt(pointMatch[2]), false);
-    return;
-  }
-
-  // cursor="tap:id:elementId" or cursor="point:id:elementId" — reference by element ID
-  const idTapMatch = cursorStr.match(/^tap:id:(.+)$/);
-  if (idTapMatch) {
-    const el = bdElementRegistry[idTapMatch[1]];
-    if (el) {
-      voiceTapAt(el.x + (el.w || 0) / 2, el.y + (el.h || 0) / 2);
-      bdScrollToElement(idTapMatch[1]);
-    }
-    return;
-  }
-
-  const idPointMatch = cursorStr.match(/^point:id:(.+)$/);
-  if (idPointMatch) {
-    const el = bdElementRegistry[idPointMatch[1]];
-    if (el) {
-      voiceMoveHand(el.x + (el.w || 0) / 2, el.y + (el.h || 0) / 2, false);
-      bdScrollToElement(idPointMatch[1]);
-    }
-    return;
-  }
+// Resolve an element ID to its center position (virtual coords)
+function resolveElementPos(id) {
+  const el = bdElementRegistry[id];
+  if (!el) return null;
+  return { x: el.x + (el.w || 0) / 2, y: el.y + (el.h || 0) / 2 };
 }
 
-// Extract position from a draw command
+// Get bottom-center of an element (for cursor below text)
+function resolveElementBottom(id) {
+  const el = bdElementRegistry[id];
+  if (!el) return null;
+  return { x: el.x + (el.w || 0) / 2, y: el.y + (el.h || 0) + 5 };
+}
+
+// Execute cursor from beat attribute
+function executeCursor(cursorStr, drawCmds) {
+  if (!cursorStr && drawCmds && drawCmds.length > 0) cursorStr = 'write';
+  if (!cursorStr || cursorStr === 'rest') { voiceHideHand(); return; }
+
+  // cursor="write" — auto-follow the draw in this beat (uses its ID or coords)
+  if (cursorStr === 'write' && drawCmds && drawCmds.length > 0) {
+    const cmd = drawCmds[drawCmds.length - 1]; // last draw = where cursor ends
+    if (cmd.id) {
+      // Will be registered after draw — position at draw coords for now
+      const pos = getCommandPosition(cmd);
+      if (pos) voiceMoveHand(pos.x, pos.y + (cmd.size || 24), true);
+    } else {
+      const pos = getCommandPosition(cmd);
+      if (pos) voiceMoveHand(pos.x, pos.y + (cmd.size || 24), true);
+    }
+    return;
+  }
+
+  // cursor="write:id:X" — position at bottom of element X, in writing pose
+  const writeIdMatch = cursorStr.match(/^write:id:(.+)$/);
+  if (writeIdMatch) {
+    const pos = resolveElementBottom(writeIdMatch[1]);
+    if (pos) { voiceMoveHand(pos.x, pos.y, true); bdScrollToElement(writeIdMatch[1]); }
+    return;
+  }
+
+  // cursor="tap:id:X" — tap center of element X
+  const tapIdMatch = cursorStr.match(/^tap:id:(.+)$/);
+  if (tapIdMatch) {
+    const pos = resolveElementPos(tapIdMatch[1]);
+    if (pos) { voiceTapAt(pos.x, pos.y); bdScrollToElement(tapIdMatch[1]); }
+    return;
+  }
+
+  // cursor="point:id:X" — hover at center of element X
+  const pointIdMatch = cursorStr.match(/^point:id:(.+)$/);
+  if (pointIdMatch) {
+    const pos = resolveElementPos(pointIdMatch[1]);
+    if (pos) { voiceMoveHand(pos.x, pos.y, false); bdScrollToElement(pointIdMatch[1]); }
+    return;
+  }
+
+  // Fallback: cursor="tap:x,y" or cursor="point:x,y" with raw coords
+  const tapMatch = cursorStr.match(/^tap:(\d+),(\d+)$/);
+  if (tapMatch) { voiceTapAt(parseInt(tapMatch[1]), parseInt(tapMatch[2])); return; }
+
+  const pointMatch = cursorStr.match(/^point:(\d+),(\d+)$/);
+  if (pointMatch) { voiceMoveHand(parseInt(pointMatch[1]), parseInt(pointMatch[2]), false); return; }
+}
+
 function getCommandPosition(cmd) {
   if (!cmd) return null;
   switch (cmd.cmd) {
@@ -10715,22 +10751,113 @@ function getCommandPosition(cmd) {
     case 'line': case 'arrow': case 'dashed': return { x: cmd.x1, y: cmd.y1 };
     case 'rect': case 'fillrect': return { x: cmd.x, y: cmd.y };
     case 'circle': case 'arc': return { x: cmd.cx, y: cmd.cy };
+    case 'animation': return { x: cmd.x || 0, y: cmd.y || 0 };
     default: return null;
   }
 }
 
-// Hook: called after each board draw command to position hand (for non-scene draws)
+// Hook for non-scene board draws — only follows if NOT in a voice scene
 function voiceHandFollowCommand(cmd) {
-  if (state.teachingMode !== 'voice') return;
+  if (state.teachingMode !== 'voice' || state._voiceSceneActive) return;
   if (!cmd) return;
-  // Only follow if NOT inside a voice scene (scene handles its own cursor)
-  if (state._voiceSceneActive) return;
+  if (cmd.cmd === 'pause') { voiceHideHand(); return; }
+  // In non-scene mode, follow draws by ID if available
+  if (cmd.id) {
+    const pos = resolveElementBottom(cmd.id) || resolveElementPos(cmd.id);
+    if (pos) voiceMoveHand(pos.x, pos.y, true);
+  }
+}
 
-  const pos = getCommandPosition(cmd);
-  if (pos) voiceMoveHand(pos.x, pos.y, true);
+// ── Ephemeral Annotations (circle, underline, glow — fade after delay) ────
 
-  if (cmd.cmd === 'pause') voiceHideHand();
-  if (cmd.cmd === 'dot') voiceTapAt(cmd.x, cmd.y);
+function voiceAnnotate(type, targetId, options = {}) {
+  const el = bdElementRegistry[targetId];
+  if (!el) return;
+  const bd = state.boardDraw;
+  if (!bd.canvas || !bd.ctx) return;
+
+  const s = bd.scale;
+  const color = options.color || '#34d399';
+  const duration = options.duration || 2000;
+  const lineWidth = (options.lineWidth || 2.5) * s;
+
+  // Create ephemeral canvas overlay for the annotation
+  const layer = document.getElementById('bd-anim-layer');
+  if (!layer) return;
+
+  const overlay = document.createElement('canvas');
+  overlay.width = bd.canvas.width;
+  overlay.height = bd.canvas.height;
+  overlay.style.cssText = `position:absolute;top:0;left:0;width:${bd.canvas.style.width};height:${bd.canvas.style.height};pointer-events:none;z-index:5;transition:opacity 0.5s;`;
+  layer.appendChild(overlay);
+
+  const ctx = overlay.getContext('2d');
+  ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+  ctx.strokeStyle = color;
+  ctx.lineWidth = lineWidth;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+
+  const x = el.x * s;
+  const y = el.y * s;
+  const w = (el.w || 100) * s;
+  const h = (el.h || 30) * s;
+  const pad = 8 * s;
+
+  if (type === 'circle') {
+    // Hand-drawn circle effect (slightly wobbly ellipse)
+    ctx.beginPath();
+    const cx = x + w / 2, cy = y + h / 2;
+    const rx = w / 2 + pad, ry = h / 2 + pad;
+    for (let i = 0; i <= 64; i++) {
+      const angle = (i / 64) * Math.PI * 2;
+      const wobble = 1 + Math.sin(angle * 5) * 0.03;
+      const px = cx + Math.cos(angle) * rx * wobble;
+      const py = cy + Math.sin(angle) * ry * wobble;
+      i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.closePath();
+    ctx.stroke();
+  } else if (type === 'underline') {
+    // Wavy underline below the element
+    const uy = y + h + 4 * s;
+    ctx.beginPath();
+    ctx.moveTo(x - pad / 2, uy);
+    for (let px = x; px < x + w + pad; px += 3) {
+      ctx.lineTo(px, uy + Math.sin(px * 0.1) * 2 * s);
+    }
+    ctx.stroke();
+  } else if (type === 'box') {
+    // Rounded rectangle
+    const r = 6 * s;
+    ctx.beginPath();
+    ctx.roundRect(x - pad, y - pad, w + pad * 2, h + pad * 2, r);
+    ctx.stroke();
+  } else if (type === 'glow') {
+    // Glow effect — filled semi-transparent rectangle
+    ctx.fillStyle = color.replace(')', ',0.15)').replace('rgb', 'rgba').replace('#', '');
+    // Convert hex to rgba
+    const hexToRgba = (hex, alpha) => {
+      const r = parseInt(hex.slice(1,3), 16);
+      const g = parseInt(hex.slice(3,5), 16);
+      const b = parseInt(hex.slice(5,7), 16);
+      return `rgba(${r},${g},${b},${alpha})`;
+    };
+    ctx.fillStyle = hexToRgba(color.startsWith('#') ? color : '#34d399', 0.12);
+    ctx.fillRect(x - pad, y - pad, w + pad * 2, h + pad * 2);
+    ctx.strokeStyle = hexToRgba(color.startsWith('#') ? color : '#34d399', 0.4);
+    ctx.lineWidth = lineWidth * 0.7;
+    ctx.strokeRect(x - pad, y - pad, w + pad * 2, h + pad * 2);
+  }
+
+  // Fade out after duration
+  setTimeout(() => {
+    overlay.style.opacity = '0';
+    setTimeout(() => overlay.remove(), 500);
+  }, duration);
+
+  // Scroll to the annotated element
+  bdScrollToElement(targetId);
 }
 
 // ── Hook into finalizeAIMessage for voice mode ──────────────
