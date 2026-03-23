@@ -530,8 +530,17 @@
 
       <!-- Floating mic button (bottom center, always visible in voice mode) -->
       <div id="voice-mic-float" class="voice-mic-float hidden">
-        <div class="voice-mic-hint"><kbd>Space</kbd> to talk</div>
-        <button class="voice-mic-btn" id="voice-mic-btn" title="Hold Space or click to talk">&#127908;</button>
+        <div class="voice-mic-hint"><kbd>Space</kbd> hold to talk</div>
+        <button class="voice-mic-btn" id="voice-mic-btn" title="Hold Space or click to talk">
+          <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="9" y="1" width="6" height="11" rx="3" />
+            <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
+            <line x1="12" y1="19" x2="12" y2="23" />
+            <line x1="8" y1="23" x2="16" y2="23" />
+          </svg>
+          <div class="mic-ring"></div>
+          <div class="mic-ring mic-ring-2"></div>
+        </button>
       </div>
 
       <!-- Hand cursor — overlays on board, follows drawing commands -->

@@ -10291,15 +10291,23 @@ function voiceHideSubtitle() {
 function voiceShowIndicator(mode) {
   const el = $('#voice-indicator');
   const label = $('#voice-indicator-label');
+  const micBtn = $('#voice-mic-btn');
   if (!el) return;
   el.classList.remove('hidden', 'speaking', 'listening');
   el.classList.add(mode);
   if (label) label.textContent = mode === 'speaking' ? 'Euler is speaking' : 'Listening...';
+  // Sync mic button state
+  if (micBtn) {
+    micBtn.classList.remove('speaking-active', 'recording');
+    if (mode === 'speaking') micBtn.classList.add('speaking-active');
+  }
 }
 
 function voiceHideIndicator() {
   const el = $('#voice-indicator');
+  const micBtn = $('#voice-mic-btn');
   if (el) { el.classList.remove('speaking', 'listening'); el.classList.add('hidden'); }
+  if (micBtn) micBtn.classList.remove('speaking-active', 'recording');
 }
 
 // ── Hand cursor ─────────────────────────────────────────────

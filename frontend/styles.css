@@ -4329,36 +4329,80 @@ body {
 .voice-tap-ring.pop { animation: vtap-ring 0.45s ease-out forwards; }
 @keyframes vtap-ring { 0%{opacity:.9;transform:translate(-50%,-50%) scale(.4)} 100%{opacity:0;transform:translate(-50%,-50%) scale(2)} }
 
-/* ─── Floating Mic Button (bottom center) ────────────────── */
+/* ─── Floating Mic Button (bottom center, glowing green) ─── */
 .voice-mic-float {
-  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
-  z-index: 55; display: flex; align-items: center; gap: 10px;
+  position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+  z-index: 55; display: flex; flex-direction: column; align-items: center; gap: 8px;
   pointer-events: auto;
 }
+.voice-mic-float.hidden { display: none; }
 .voice-mic-btn {
-  width: 52px; height: 52px; border-radius: 50%;
-  background: rgba(25,28,26,0.9); border: 2px solid var(--border-active);
-  color: var(--text-muted); font-size: 20px;
-  cursor: pointer; display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s; backdrop-filter: blur(8px);
-  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  width: 56px; height: 56px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 35%, rgba(52,211,153,0.12), rgba(10,13,11,0.95));
+  border: 1.5px solid rgba(52,211,153,0.25);
+  color: var(--accent); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  position: relative; transition: all 0.25s;
+  box-shadow: 0 2px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.04);
 }
-.voice-mic-btn:hover { border-color: var(--accent-dim); color: var(--accent); transform: translateX(-50%) scale(1.05); transform: scale(1.05); }
+.voice-mic-btn:hover {
+  border-color: rgba(52,211,153,0.5); transform: scale(1.08);
+  box-shadow: 0 0 24px rgba(52,211,153,0.2), 0 2px 20px rgba(0,0,0,0.5);
+}
+.voice-mic-btn .mic-icon { width: 22px; height: 22px; position: relative; z-index: 2; }
+.voice-mic-btn .mic-ring {
+  position: absolute; inset: -4px; border-radius: 50%;
+  border: 1.5px solid rgba(52,211,153,0.15);
+  transition: all 0.3s;
+}
+.voice-mic-btn .mic-ring-2 {
+  inset: -10px;
+  border-color: rgba(52,211,153,0.08);
+}
+
+/* Recording state — red glow */
 .voice-mic-btn.recording {
-  background: var(--red); border-color: var(--red); color: white;
-  animation: mic-pulse 1.5s ease-in-out infinite;
-  box-shadow: 0 0 20px rgba(248,113,113,0.4);
+  background: radial-gradient(circle at 40% 35%, rgba(248,113,113,0.25), rgba(30,10,10,0.95));
+  border-color: rgba(248,113,113,0.5); color: var(--red);
+  box-shadow: 0 0 30px rgba(248,113,113,0.3);
 }
-@keyframes mic-pulse { 0%,100%{box-shadow:0 0 20px rgba(248,113,113,0.3)} 50%{box-shadow:0 0 30px rgba(248,113,113,0.6)} }
+.voice-mic-btn.recording .mic-ring {
+  border-color: rgba(248,113,113,0.3);
+  animation: ring-expand 1.5s ease-out infinite;
+}
+.voice-mic-btn.recording .mic-ring-2 {
+  border-color: rgba(248,113,113,0.15);
+  animation: ring-expand 1.5s ease-out 0.3s infinite;
+}
+@keyframes ring-expand {
+  0% { transform: scale(1); opacity: 0.6; }
+  100% { transform: scale(1.6); opacity: 0; }
+}
+
+/* Speaking state — green glow */
+.voice-mic-btn.speaking-active {
+  background: radial-gradient(circle at 40% 35%, rgba(52,211,153,0.2), rgba(10,20,15,0.95));
+  border-color: rgba(52,211,153,0.4);
+  box-shadow: 0 0 25px rgba(52,211,153,0.2);
+}
+.voice-mic-btn.speaking-active .mic-ring {
+  border-color: rgba(52,211,153,0.25);
+  animation: ring-glow 2s ease-in-out infinite;
+}
+@keyframes ring-glow {
+  0%, 100% { border-color: rgba(52,211,153,0.15); }
+  50% { border-color: rgba(52,211,153,0.35); }
+}
+
 .voice-mic-hint {
   font-size: 10px; color: var(--text-dim); white-space: nowrap;
-  background: rgba(25,28,26,0.85); padding: 4px 10px; border-radius: 6px;
-  border: 1px solid var(--border); backdrop-filter: blur(4px);
+  opacity: 0.6; transition: opacity 0.2s;
 }
+.voice-mic-float:hover .voice-mic-hint { opacity: 1; }
 .voice-mic-hint kbd {
-  font-family: var(--font-mono); background: var(--bg-hover);
-  padding: 1px 5px; border-radius: 3px; font-size: 10px; color: var(--text-muted);
-  border: 1px solid var(--border);
+  font-family: var(--font-mono); background: rgba(52,211,153,0.08);
+  padding: 2px 6px; border-radius: 4px; font-size: 10px; color: var(--accent-dim);
+  border: 1px solid rgba(52,211,153,0.15); margin-right: 3px;
 }
 
 /* ─── Board Question Input (slide-up panel) ──────────────── */
