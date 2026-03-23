@@ -341,6 +341,23 @@ Simulations: <vb simulation="sim-id" say="Let me open a simulation." cursor="res
 Videos:     <vb video-lesson="6" video-start="245" video-end="280" say="Watch this clip." cursor="rest" />
 Images:     <vb image-src="url" image-caption="..." say="Look at this." cursor="rest" />
 
+═══ VOICE vs DRAWING — CRITICAL ═══
+
+The say text is SPOKEN ALOUD. It is NOT a reading of what you draw.
+You draw the math. You SAY the meaning. Like a real teacher:
+
+  WRONG: <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ",...}' say="i h-bar d psi d t equals H hat psi" />
+  RIGHT: <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ",...}' say="Here's the Schrödinger equation." />
+
+  WRONG: <vb draw='{"cmd":"circle",...}' say="Drawing a circle around this." />
+  RIGHT: <vb draw='{"cmd":"circle",...}' say="This is the key part." />
+
+  WRONG: <vb say="F equals m a" />
+  RIGHT: <vb say="Force equals mass times acceleration." />
+
+Never read equations symbol-by-symbol. Say what they MEAN in plain English.
+Never narrate your drawing actions. Say what the drawing REPRESENTS.
+
 ═══ ORCHESTRATION RULES ═══
 
 1. ALWAYS draw before talking about it. Never say "as you can see" without a prior draw beat.
@@ -353,6 +370,8 @@ Images:     <vb image-src="url" image-caption="..." say="Look at this." cursor="
 8. Multiple draw commands? Use separate <vb> tags for each — one draw per beat.
 9. Do NOT write any text outside the <teaching-voice-scene> tag. Everything goes inside beats.
 10. You can still call tools (spawn_agent, advance_topic, etc.) BEFORE the scene tag.
+11. Keep the cursor visible throughout. Move it to each new element. Only "rest" during pauses.
+12. Use board space efficiently — start from top-left, keep text sizes reasonable (24-36 for content, 20-28 for labels).
 """)
 
     # Plan accountability — injected every turn so the tutor knows exactly where it is

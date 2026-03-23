@@ -10110,7 +10110,7 @@ async function voiceSpeak(text) {
       body: JSON.stringify({
         text: cleanText,
         model_id: ELEVENLABS_MODEL,
-        voice_settings: { stability: 0.45, similarity_boost: 0.78, style: 0.3, use_speaker_boost: true },
+        voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.2, use_speaker_boost: true },
         optimize_streaming_latency: 4,
       }),
     });
@@ -10173,11 +10173,16 @@ function estimateVoiceDuration(text) {
 function voiceShowSubtitle(text) {
   const el = $('#voice-subtitle-text');
   if (!el) return;
-  // Render markdown basics for subtitles
+  // Render markdown for subtitles — no LaTeX (subtitles should be plain speech)
   let display = text
     .replace(/\*\*(.+?)\*\*/g, '<em>$1</em>')
-    .replace(/\*(.+?)\*/g, '<em>$1</em>');
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/\$[^$]+\$/g, '') // strip inline LaTeX from subtitles
+    .replace(/\$\$[\s\S]+?\$\$/g, ''); // strip display LaTeX
   el.innerHTML = display;
+  // Ensure subtitle bar is visible
+  const bar = $('#voice-subtitle-bar');
+  if (bar) bar.classList.remove('hidden');
 }
 
 function voiceHideSubtitle() {
@@ -10534,8 +10539,14 @@ async function executeSay(text) {
 
 // Execute cursor positioning
 function executeCursor(cursorStr, drawCmds) {
-  if (!cursorStr || cursorStr === 'rest') {
-    voiceHideHand();
+  // Default: if no cursor specified but there's a draw, auto-write
+  if (!cursorStr && drawCmds && drawCmds.length > 0) {
+    cursorStr = 'write';
+  }
+  // If explicitly rest, or no cursor and no draw, hide hand
+  if (cursorStr === 'rest' || (!cursorStr && (!drawCmds || drawCmds.length === 0))) {
+    // Don't hide — keep cursor where it was unless explicitly resting
+    if (cursorStr === 'rest') voiceHideHand();
     return;
   }
 
