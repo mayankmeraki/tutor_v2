@@ -528,46 +528,20 @@
         <span class="voice-indicator-label" id="voice-indicator-label">Euler is speaking</span>
       </div>
 
-      <!-- Voice bottom bar -->
-      <div id="voice-mic-float" class="voice-mic-float hidden">
-        <!-- Compact mode: waveform + mic + text toggle -->
-        <div class="voice-bottom-row" id="voice-bottom-compact">
-          <div class="voice-wave-side">
-            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-          </div>
-          <button class="voice-mic-btn" id="voice-mic-btn" title="Hold Space or click to talk">
-            <svg class="mic-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="1" width="6" height="11" rx="3" />
-              <path d="M19 10v1a7 7 0 0 1-14 0v-1" />
-              <line x1="12" y1="19" x2="12" y2="23" />
-              <line x1="8" y1="23" x2="16" y2="23" />
-            </svg>
-            <div class="mic-ring"></div>
-            <div class="mic-ring mic-ring-2"></div>
-          </button>
-          <div class="voice-wave-side">
-            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-            <div class="wbar"></div><div class="wbar"></div><div class="wbar"></div><div class="wbar"></div>
-          </div>
-          <!-- Text mode toggle -->
-          <button class="voice-text-toggle" id="voice-text-toggle" onclick="toggleVoiceTextInput()" title="Type instead">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <path d="M17 10H3"/><path d="M21 6H3"/><path d="M21 14H3"/><path d="M17 18H3"/>
-            </svg>
-          </button>
-        </div>
-        <!-- Expanded mode: text input -->
-        <div class="voice-text-input-row hidden" id="voice-text-input-row">
-          <input type="text" class="voice-text-field" id="voice-text-field" placeholder="Type your message..." autocomplete="off">
-          <button class="voice-text-send" id="voice-text-send" onclick="submitVoiceTextInput()">
+      <!-- Voice input bar — one unified pill -->
+      <div id="voice-mic-float" class="voice-bar-wrap hidden">
+        <div class="voice-bar" id="voice-bar-main">
+          <input type="text" class="voice-bar-input" id="voice-bar-input"
+                 placeholder="Type or hold Space to talk..." autocomplete="off">
+          <button class="voice-bar-send" id="voice-bar-send" onclick="submitVoiceBarInput()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </button>
-          <button class="voice-text-close" onclick="toggleVoiceTextInput()">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+          <button class="voice-bar-mic" id="voice-mic-btn" title="Hold to talk">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+            </svg>
           </button>
         </div>
-        <div class="voice-mic-hint" id="voice-mic-hint"><kbd>Space</kbd> hold to talk</div>
       </div>
 
       <!-- Hand cursor — overlays on board, follows drawing commands -->

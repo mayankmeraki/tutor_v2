@@ -4347,147 +4347,74 @@ body:has(.voice-mic-float:not(.hidden)) #board-question-input { display: none !i
 .voice-tap-ring.pop { animation: vtap-ring 0.45s ease-out forwards; }
 @keyframes vtap-ring { 0%{opacity:.9;transform:translate(-50%,-50%) scale(.4)} 100%{opacity:0;transform:translate(-50%,-50%) scale(2)} }
 
-/* ─── Voice Bottom Bar (mic + waveform + input) ──────────── */
-.voice-mic-float {
-  position: fixed; bottom: 0; left: 0; right: 0;
-  z-index: 55; pointer-events: none;
-  display: flex; flex-direction: column; align-items: center;
-  padding-bottom: 16px;
+/* ─── Voice Input Bar (unified pill) ──────────────────────── */
+.voice-bar-wrap {
+  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
+  z-index: 55; width: 100%; max-width: 500px; padding: 0 16px;
 }
-.voice-mic-float.hidden { display: none; }
+.voice-bar-wrap.hidden { display: none; }
 
-/* Waveform + mic row */
-.voice-bottom-row {
-  display: flex; align-items: center; gap: 0;
-  pointer-events: auto; position: relative;
+.voice-bar {
+  background: rgba(17,20,19,0.92);
+  border: 1px solid var(--border-active);
+  border-radius: 28px;
+  padding: 5px 5px 5px 18px;
+  display: flex; align-items: center; gap: 6px;
+  backdrop-filter: blur(12px);
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
-
-/* Waveform bars on either side of mic */
-.voice-wave-side {
-  display: flex; align-items: center; gap: 2px; height: 40px;
-  padding: 0 6px;
-}
-.voice-wave-side .wbar {
-  width: 3px; border-radius: 2px;
-  background: rgba(52,211,153,0.2);
-  height: 6px; transition: height 0.1s ease;
-}
-/* Animate when speaking */
-.voice-mic-float.speaking .voice-wave-side .wbar {
-  background: rgba(52,211,153,0.5);
-  animation: wbar-dance 0.4s ease-in-out infinite alternate;
-}
-.voice-wave-side .wbar:nth-child(1) { animation-delay: 0s; }
-.voice-wave-side .wbar:nth-child(2) { animation-delay: 0.05s; }
-.voice-wave-side .wbar:nth-child(3) { animation-delay: 0.1s; }
-.voice-wave-side .wbar:nth-child(4) { animation-delay: 0.15s; }
-.voice-wave-side .wbar:nth-child(5) { animation-delay: 0.08s; }
-.voice-wave-side .wbar:nth-child(6) { animation-delay: 0.12s; }
-.voice-wave-side .wbar:nth-child(7) { animation-delay: 0.18s; }
-.voice-wave-side .wbar:nth-child(8) { animation-delay: 0.03s; }
-@keyframes wbar-dance {
-  0% { height: 4px; }
-  100% { height: 28px; }
-}
-/* Recording — red bars */
-.voice-mic-float.recording .voice-wave-side .wbar {
-  background: rgba(248,113,113,0.5);
-  animation: wbar-dance 0.35s ease-in-out infinite alternate;
+.voice-bar:focus-within {
+  border-color: rgba(52,211,153,0.3);
+  box-shadow: 0 0 0 2px rgba(52,211,153,0.08), 0 4px 24px rgba(0,0,0,0.4);
 }
 
-/* Mic button */
-.voice-mic-btn {
-  width: 48px; height: 48px; border-radius: 50%;
-  background: radial-gradient(circle at 40% 35%, rgba(52,211,153,0.15), rgba(10,13,11,0.95));
-  border: 1.5px solid rgba(52,211,153,0.3);
+.voice-bar-input {
+  flex: 1; background: none; border: none; outline: none;
+  color: var(--text); font-size: 14px; font-family: var(--font-sans);
+  padding: 8px 0; min-width: 0;
+}
+.voice-bar-input::placeholder { color: var(--text-dim); }
+.voice-bar-input.transcript { color: var(--text-muted); font-style: italic; }
+
+/* Mic button (right side of pill) */
+.voice-bar-mic {
+  width: 40px; height: 40px; border-radius: 50%;
+  background: rgba(52,211,153,0.1); border: 1.5px solid rgba(52,211,153,0.25);
   color: var(--accent); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
-  position: relative; transition: all 0.25s; flex-shrink: 0;
-  box-shadow: 0 2px 16px rgba(0,0,0,0.4);
+  transition: all 0.2s; flex-shrink: 0;
 }
-.voice-mic-btn:hover {
-  border-color: rgba(52,211,153,0.5); transform: scale(1.08);
-  box-shadow: 0 0 20px rgba(52,211,153,0.2);
+.voice-bar-mic:hover {
+  background: rgba(52,211,153,0.18); border-color: rgba(52,211,153,0.4);
 }
-.voice-mic-btn .mic-icon { width: 20px; height: 20px; position: relative; z-index: 2; }
-.voice-mic-btn .mic-ring {
-  position: absolute; inset: -3px; border-radius: 50%;
-  border: 1.5px solid rgba(52,211,153,0.12); transition: all 0.3s;
-}
-.voice-mic-btn .mic-ring-2 { inset: -8px; border-color: rgba(52,211,153,0.06); }
+.voice-bar-mic svg { width: 18px; height: 18px; }
 
-/* Recording — red mic */
-.voice-mic-btn.recording {
-  background: radial-gradient(circle at 40% 35%, rgba(248,113,113,0.3), rgba(30,10,10,0.95));
-  border-color: rgba(248,113,113,0.5); color: var(--red);
-  box-shadow: 0 0 24px rgba(248,113,113,0.25);
+/* Recording state */
+.voice-bar.recording { border-color: rgba(248,113,113,0.4); }
+.voice-bar.recording .voice-bar-mic {
+  background: var(--red); border-color: var(--red); color: white;
+  animation: vb-mic-pulse 1.5s ease-in-out infinite;
 }
-.voice-mic-btn.recording .mic-ring { border-color: rgba(248,113,113,0.3); animation: ring-expand 1.5s ease-out infinite; }
-.voice-mic-btn.recording .mic-ring-2 { border-color: rgba(248,113,113,0.15); animation: ring-expand 1.5s ease-out 0.3s infinite; }
-@keyframes ring-expand { 0%{transform:scale(1);opacity:.6} 100%{transform:scale(1.6);opacity:0} }
+@keyframes vb-mic-pulse { 0%,100%{box-shadow:0 0 8px rgba(248,113,113,0.2)} 50%{box-shadow:0 0 16px rgba(248,113,113,0.4)} }
 
-/* Speaking — green pulse */
-.voice-mic-btn.speaking-active {
-  border-color: rgba(52,211,153,0.4);
-  box-shadow: 0 0 20px rgba(52,211,153,0.15);
+/* Speaking state */
+.voice-bar.speaking .voice-bar-mic {
+  background: rgba(52,211,153,0.15); border-color: rgba(52,211,153,0.35);
+  animation: vb-speak-pulse 2s ease-in-out infinite;
 }
+@keyframes vb-speak-pulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 12px rgba(52,211,153,0.2)} }
 
-/* Hint below */
-.voice-mic-hint {
-  font-size: 10px; color: var(--text-dim); white-space: nowrap;
-  margin-top: 6px; opacity: 0.5; pointer-events: none;
-}
-.voice-mic-hint kbd {
-  font-family: var(--font-mono); background: rgba(52,211,153,0.06);
-  padding: 1px 5px; border-radius: 3px; font-size: 10px; color: var(--accent-dim);
-  border: 1px solid rgba(52,211,153,0.12); margin-right: 2px;
-}
-
-/* Text toggle button (keyboard icon) */
-.voice-text-toggle {
+/* Send button (visible when text entered) */
+.voice-bar-send {
   width: 36px; height: 36px; border-radius: 50%;
-  background: rgba(25,28,26,0.8); border: 1px solid var(--border);
-  color: var(--text-dim); cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.2s; margin-left: 8px;
+  background: var(--accent); border: none; color: var(--bg);
+  cursor: pointer; display: none; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all 0.15s;
 }
-.voice-text-toggle:hover { background: var(--bg-hover); color: var(--text); border-color: var(--border-active); }
-
-/* Expanded text input row */
-.voice-text-input-row {
-  display: flex; align-items: center; gap: 8px;
-  pointer-events: auto; width: 100%; max-width: 600px; padding: 0 16px;
-  margin-top: 8px;
-  animation: text-row-in 0.25s ease;
-}
-.voice-text-input-row.hidden { display: none; }
-@keyframes text-row-in { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: translateY(0); } }
-
-.voice-text-field {
-  flex: 1; background: rgba(25,28,26,0.9); border: 1px solid var(--border-active);
-  border-radius: 24px; padding: 10px 18px; color: var(--text);
-  font-family: var(--font-sans); font-size: 14px; outline: none;
-  backdrop-filter: blur(8px);
-  transition: border-color 0.2s;
-}
-.voice-text-field:focus { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(52,211,153,0.08); }
-.voice-text-field::placeholder { color: var(--text-dim); }
-
-.voice-text-send {
-  width: 38px; height: 38px; border-radius: 50%; border: none;
-  background: var(--accent); color: var(--bg); cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s; flex-shrink: 0;
-}
-.voice-text-send:hover { background: var(--accent-bright); transform: scale(1.05); }
-
-.voice-text-close {
-  width: 30px; height: 30px; border-radius: 50%; border: none;
-  background: transparent; color: var(--text-dim); cursor: pointer;
-  display: flex; align-items: center; justify-content: center;
-  transition: all 0.15s; flex-shrink: 0;
-}
-.voice-text-close:hover { color: var(--text); }
+.voice-bar-send.visible { display: flex; }
+.voice-bar-send:hover { transform: scale(1.05); }
+.voice-bar-send svg { width: 16px; height: 16px; }
 
 /* ─── Board Question Input (slide-up panel) ──────────────── */
 .board-question-input {

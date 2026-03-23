@@ -10360,30 +10360,23 @@ function voiceHideSubtitle() {
 function voiceShowIndicator(mode) {
   const el = $('#voice-indicator');
   const label = $('#voice-indicator-label');
-  const micBtn = $('#voice-mic-btn');
-  const micFloat = $('#voice-mic-float');
+  const bar = $('#voice-bar-main');
   if (!el) return;
   el.classList.remove('hidden', 'speaking', 'listening');
   el.classList.add(mode);
   if (label) label.textContent = mode === 'speaking' ? 'Euler is speaking' : 'Listening...';
-  // Sync mic button + waveform state
-  if (micBtn) {
-    micBtn.classList.remove('speaking-active', 'recording');
-    if (mode === 'speaking') micBtn.classList.add('speaking-active');
-  }
-  if (micFloat) {
-    micFloat.classList.remove('speaking', 'recording');
-    micFloat.classList.add(mode === 'speaking' ? 'speaking' : mode === 'listening' ? 'recording' : '');
+  if (bar) {
+    bar.classList.remove('speaking', 'recording');
+    if (mode === 'speaking') bar.classList.add('speaking');
+    if (mode === 'listening') bar.classList.add('recording');
   }
 }
 
 function voiceHideIndicator() {
   const el = $('#voice-indicator');
-  const micBtn = $('#voice-mic-btn');
-  const micFloat = $('#voice-mic-float');
+  const bar = $('#voice-bar-main');
   if (el) { el.classList.remove('speaking', 'listening'); el.classList.add('hidden'); }
-  if (micBtn) micBtn.classList.remove('speaking-active', 'recording');
-  if (micFloat) micFloat.classList.remove('speaking', 'recording');
+  if (bar) bar.classList.remove('speaking', 'recording');
 }
 
 // ── Hand cursor ─────────────────────────────────────────────
@@ -10452,7 +10445,6 @@ function voiceHideHand() {
 function voiceShowBoardQuestion(questionText) {
   const isGeneric = !questionText || questionText === 'Type your response...';
 
-  // Show question as subtitle (if it's an actual question)
   if (!isGeneric) {
     let rendered = questionText;
     if (typeof renderLatex === 'function') rendered = renderLatex(rendered);
@@ -10460,31 +10452,22 @@ function voiceShowBoardQuestion(questionText) {
     voiceShowSubtitle(rendered);
   }
 
-  // Expand the text input in the voice bottom bar
-  const row = $('#voice-text-input-row');
-  const compact = $('#voice-bottom-compact');
-  const hint = $('#voice-mic-hint');
-  if (row) {
-    row.classList.remove('hidden');
-    if (compact) compact.style.display = 'none';
-    if (hint) hint.style.display = 'none';
-    const field = $('#voice-text-field');
-    if (field) {
-      field.placeholder = isGeneric ? 'Type your response...' : 'Your answer...';
-      field.value = '';
-      field.focus();
-    }
+  // Focus the unified input bar
+  const field = $('#voice-bar-input');
+  if (field) {
+    field.placeholder = isGeneric ? 'Type your response...' : 'Your answer...';
+    field.value = '';
+    field.focus();
   }
 }
 
 function voiceHideBoardQuestion() {
-  // Collapse back to compact mic bar
-  const row = $('#voice-text-input-row');
-  const compact = $('#voice-bottom-compact');
-  const hint = $('#voice-mic-hint');
-  if (row) row.classList.add('hidden');
-  if (compact) compact.style.display = '';
-  if (hint) hint.style.display = '';
+  const field = $('#voice-bar-input');
+  if (field) {
+    field.placeholder = 'Type or hold Space to talk...';
+    field.value = '';
+    field.blur();
+  }
 }
 
 function submitBoardAnswer() {
@@ -11061,52 +11044,38 @@ function voiceSleep(ms) {
   return new Promise(r => setTimeout(r, ms / state.voiceSpeed));
 }
 
-// ── Voice text input toggle ─────────────────────────────────
+// ── Unified voice bar submit ────────────────────────────────
 
-function toggleVoiceTextInput() {
-  const row = $('#voice-text-input-row');
-  const compact = $('#voice-bottom-compact');
-  const hint = $('#voice-mic-hint');
-  if (!row) return;
-
-  const isOpen = !row.classList.contains('hidden');
-  if (isOpen) {
-    // Close text input, show compact
-    row.classList.add('hidden');
-    if (compact) compact.style.display = '';
-    if (hint) hint.style.display = '';
-  } else {
-    // Open text input, hide compact bar
-    row.classList.remove('hidden');
-    if (compact) compact.style.display = 'none';
-    if (hint) hint.style.display = 'none';
-    const field = $('#voice-text-field');
-    if (field) { field.value = ''; field.focus(); }
-  }
-}
-
-function submitVoiceTextInput() {
-  const field = $('#voice-text-field');
+function submitVoiceBarInput() {
+  const field = $('#voice-bar-input');
   if (!field || !field.value.trim()) return;
   const text = field.value.trim();
-  toggleVoiceTextInput(); // close input
-  voiceHideBoardQuestion();
+  field.value = '';
+  field.placeholder = 'Type or hold Space to talk...';
+  voiceHideSubtitle();
+  // Hide send button
+  const sendBtn = $('#voice-bar-send');
+  if (sendBtn) sendBtn.classList.remove('visible');
   streamADK(text);
 }
 
-// ── Enter key handlers ──────────────────────────────────────
+// Show/hide send button based on input content
+document.addEventListener('input', (e) => {
+  if (e.target.id === 'voice-bar-input') {
+    const sendBtn = $('#voice-bar-send');
+    if (sendBtn) sendBtn.classList.toggle('visible', e.target.value.trim().length > 0);
+  }
+});
+
+// ── Enter key handler ───────────────────────────────────────
 document.addEventListener('keydown', (e) => {
+  if (e.key === 'Enter' && document.activeElement?.id === 'voice-bar-input') {
+    e.preventDefault();
+    submitVoiceBarInput();
+  }
   if (e.key === 'Enter' && document.activeElement?.id === 'board-question-field') {
     e.preventDefault();
     submitBoardAnswer();
-  }
-  if (e.key === 'Enter' && document.activeElement?.id === 'voice-text-field') {
-    e.preventDefault();
-    submitVoiceTextInput();
-  }
-  // Escape closes text input
-  if (e.key === 'Escape' && document.activeElement?.id === 'voice-text-field') {
-    toggleVoiceTextInput();
   }
 });
 
@@ -11135,8 +11104,8 @@ function startPushToTalk() {
   if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
   _pttActive = true;
 
-  const micBtn = $('#voice-mic-btn');
-  if (micBtn) micBtn.classList.add('recording');
+  const bar = $('#voice-bar-main');
+  if (bar) bar.classList.add('recording');
   voiceShowIndicator('listening');
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -11148,7 +11117,9 @@ function startPushToTalk() {
   let transcript = '';
   _pttRecognition.onresult = (e) => {
     transcript = Array.from(e.results).map(r => r[0].transcript).join('');
-    voiceShowSubtitle('You: ' + transcript);
+    // Show transcript in the input field
+    const field = $('#voice-bar-input');
+    if (field) { field.value = transcript; field.classList.add('transcript'); }
   };
   _pttRecognition.onerror = () => { stopPushToTalk(); };
   _pttRecognition.onend = () => {
@@ -11159,19 +11130,19 @@ function startPushToTalk() {
 
 function stopPushToTalk() {
   _pttActive = false;
-  const micBtn = $('#voice-mic-btn');
-  if (micBtn) micBtn.classList.remove('recording');
+  const bar = $('#voice-bar-main');
+  if (bar) bar.classList.remove('recording');
   voiceHideIndicator();
 
   if (_pttRecognition) {
     _pttRecognition.stop();
-    // Get final transcript
     setTimeout(() => {
-      const subText = $('#voice-subtitle-text');
-      const text = subText?.textContent?.replace(/^You:\s*/, '').trim();
-      voiceHideSubtitle();
+      const field = $('#voice-bar-input');
+      const text = field?.value?.trim();
+      if (field) field.classList.remove('transcript');
       if (text && text.length > 1) {
         voiceHideBoardQuestion();
+        field.value = '';
         streamADK(text);
       }
       _pttRecognition = null;
