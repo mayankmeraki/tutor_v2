@@ -10441,43 +10441,41 @@ function voiceHideHand() {
 // ── Board question input (voice mode) ───────────────────────
 
 function voiceShowBoardQuestion(questionText) {
-  const container = $('#board-question-input');
-  const textEl = $('#board-question-text');
-  const field = $('#board-question-field');
-  if (!container || !textEl) return;
+  const isGeneric = !questionText || questionText === 'Type your response...';
 
-  // If it's a generic prompt, hide the question text area
-  const isGeneric = questionText === 'Type your response...';
-  if (isGeneric) {
-    textEl.innerHTML = '';
-    textEl.style.display = 'none';
-  } else {
-    // Render LaTeX and markdown in question text
+  // Show question as subtitle (if it's an actual question)
+  if (!isGeneric) {
     let rendered = questionText;
     if (typeof renderLatex === 'function') rendered = renderLatex(rendered);
     rendered = rendered.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\*(.+?)\*/g, '<em>$1</em>');
-    textEl.innerHTML = rendered;
-    textEl.style.display = 'block';
+    voiceShowSubtitle(rendered);
   }
 
-  container.classList.remove('hidden');
-  requestAnimationFrame(() => container.classList.add('visible'));
-  if (field) {
-    field.placeholder = isGeneric ? 'Type your response...' : 'Your answer...';
-    field.value = '';
-    field.focus();
+  // Expand the text input in the voice bottom bar
+  const row = $('#voice-text-input-row');
+  const compact = $('#voice-bottom-compact');
+  const hint = $('#voice-mic-hint');
+  if (row) {
+    row.classList.remove('hidden');
+    if (compact) compact.style.display = 'none';
+    if (hint) hint.style.display = 'none';
+    const field = $('#voice-text-field');
+    if (field) {
+      field.placeholder = isGeneric ? 'Type your response...' : 'Your answer...';
+      field.value = '';
+      field.focus();
+    }
   }
-
-  voiceHideSubtitle();
-  voiceShowIndicator('listening');
 }
 
 function voiceHideBoardQuestion() {
-  const container = $('#board-question-input');
-  if (container) {
-    container.classList.remove('visible');
-    setTimeout(() => container.classList.add('hidden'), 300);
-  }
+  // Collapse back to compact mic bar
+  const row = $('#voice-text-input-row');
+  const compact = $('#voice-bottom-compact');
+  const hint = $('#voice-mic-hint');
+  if (row) row.classList.add('hidden');
+  if (compact) compact.style.display = '';
+  if (hint) hint.style.display = '';
 }
 
 function submitBoardAnswer() {

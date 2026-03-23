@@ -4269,7 +4269,11 @@ body {
 #main-layout.voice-mode #chat-panel .chat-input-area,
 #main-layout.voice-mode #chat-panel #chat-input-area,
 #main-layout.voice-mode .text-input-area,
-#main-layout.voice-mode .text-input { display: none !important; }
+#main-layout.voice-mode .text-input,
+#main-layout.voice-mode ~ #board-question-input,
+.voice-mic-float ~ #board-question-input { display: none !important; }
+/* Also hide the old board question panel when voice bottom bar is active */
+body:has(.voice-mic-float:not(.hidden)) #board-question-input { display: none !important; }
 
 /* Voice mode interactive — chat pane slides in for MCQ/freetext/video */
 #main-layout.voice-mode-interactive #chat-panel {
