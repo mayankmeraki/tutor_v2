@@ -10178,8 +10178,7 @@ function applyTeachingMode() {
   }
 }
 
-// ── ElevenLabs Text to Dialogue TTS ─────────────────────────
-// Uses Eleven v3 model with native emotion tags: [cheerfully], [whispering], etc.
+// ── ElevenLabs Streaming TTS (fast, low latency) ────────────
 
 async function voiceSpeak(text) {
   if (state.teachingMode !== 'voice' || !text.trim()) return;
@@ -10188,7 +10187,7 @@ async function voiceSpeak(text) {
   if (state.voiceAudioCtx.state === 'suspended') await state.voiceAudioCtx.resume();
   if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch {} }
 
-  // Clean text for TTS — strip markdown, HTML, LaTeX. Keep emotion tags [like this].
+  // Clean for TTS — strip markdown, HTML, LaTeX, emotion tags
   const cleanText = text
     .replace(/\*\*(.+?)\*\*/g, '$1')
     .replace(/\*(.+?)\*/g, '$1')
@@ -10196,6 +10195,7 @@ async function voiceSpeak(text) {
     .replace(/<[^>]+>/g, '')
     .replace(/\$\$[\s\S]+?\$\$/g, '')
     .replace(/\$(.+?)\$/g, '$1')
+    .replace(/\[[^\]]*\]\s*/g, '') // strip emotion tags for turbo model
     .trim();
 
   if (!cleanText || cleanText.length < 3) return;
@@ -10206,70 +10206,46 @@ async function voiceSpeak(text) {
     return;
   }
 
-  // Try Text to Dialogue API (Eleven v3 — natural emotion tags)
   try {
-    const resp = await fetch('https://api.elevenlabs.io/v1/text-to-dialogue', {
-      method: 'POST',
-      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        inputs: [{ text: cleanText, voice_id: ELEVENLABS_VOICE_ID }],
-      }),
-    });
-
-    if (resp.ok) {
-      return await voicePlayAudioResponse(resp);
-    }
-
-    // Dialogue API failed — fall back to streaming TTS
-    console.warn('Dialogue API error:', resp.status, '— falling back to streaming TTS');
-  } catch (e) {
-    console.warn('Dialogue API failed:', e);
-  }
-
-  // Fallback: regular streaming TTS (strips emotion tags)
-  try {
-    const fallbackText = cleanText.replace(/\[[^\]]*\]\s*/g, '');
     const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`, {
       method: 'POST',
       headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
       body: JSON.stringify({
-        text: fallbackText,
+        text: cleanText,
         model_id: ELEVENLABS_MODEL_FALLBACK,
         voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.2, use_speaker_boost: true },
         optimize_streaming_latency: 4,
       }),
     });
 
-    if (resp.ok) {
-      return await voicePlayAudioResponse(resp);
+    if (!resp.ok) {
+      console.warn('TTS error:', resp.status);
+      await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
+      return;
     }
+
+    const reader = resp.body.getReader();
+    const chunks = [];
+    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+
+    const buf = await new Blob(chunks, { type: 'audio/mpeg' }).arrayBuffer();
+    const audio = await state.voiceAudioCtx.decodeAudioData(buf);
+    const src = state.voiceAudioCtx.createBufferSource();
+    src.buffer = audio;
+    src.playbackRate.value = state.voiceSpeed;
+    src.connect(state.voiceAudioCtx.destination);
+    src.start();
+    state.voiceCurrentSrc = src;
+
+    await new Promise(r => {
+      let done = false;
+      src.onended = () => { if (!done) { done = true; r(); } };
+      setTimeout(() => { if (!done) { done = true; r(); } }, (audio.duration / state.voiceSpeed) * 1000 + 300);
+    });
   } catch (e) {
-    console.warn('Fallback TTS failed:', e);
+    console.warn('TTS failed:', e);
+    await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
   }
-
-  // Both failed — wait estimated duration
-  await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
-}
-
-async function voicePlayAudioResponse(resp) {
-  const reader = resp.body.getReader();
-  const chunks = [];
-  while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
-
-  const buf = await new Blob(chunks, { type: 'audio/mpeg' }).arrayBuffer();
-  const audio = await state.voiceAudioCtx.decodeAudioData(buf);
-  const src = state.voiceAudioCtx.createBufferSource();
-  src.buffer = audio;
-  src.playbackRate.value = state.voiceSpeed;
-  src.connect(state.voiceAudioCtx.destination);
-  src.start();
-  state.voiceCurrentSrc = src;
-
-  await new Promise(r => {
-    let done = false;
-    src.onended = () => { if (!done) { done = true; r(); } };
-    setTimeout(() => { if (!done) { done = true; r(); } }, (audio.duration / state.voiceSpeed) * 1000 + 300);
-  });
 }
 
 let _elKeyCache = null;

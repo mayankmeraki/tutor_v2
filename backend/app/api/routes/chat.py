@@ -913,8 +913,8 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
 
                 yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
 
-            claude_messages.append({"role": "assistant", "content": message.content})
-            claude_messages.append({"role": "user", "content": tool_results})
+            claude_messages.append({"role": "assistant", "content": _serialize_content(message.content)})
+            claude_messages.append({"role": "user", "content": _serialize_content(tool_results)})
             continue
 
         # No more tool calls — done

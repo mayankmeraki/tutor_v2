@@ -61,10 +61,9 @@ SOCRATIC-ONLY — Orient, check, consolidate ONLY.
 
 ═══ TOOL STRATEGY ═══
 
-Call ALL tools in a SINGLE turn — do not split across multiple turns.
-Use get_section_content to read the professor's actual words (max 2 calls).
-Use search_images for real-world photos (max 1 call).
-After tools return, output the JSONL plan immediately.
+Call get_section_content to read the professor's actual words (max 2 calls).
+Call all tools in a SINGLE turn. After tools return, output the JSONL plan immediately.
+Do NOT search for images or web content — focus only on planning the teaching sequence.
 
 ═══ CRITICAL OUTPUT RULES ═══
 

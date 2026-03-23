@@ -321,7 +321,7 @@ class AgentRuntime:
 
         wrapped_instructions = (
             f"<task>\n{task.instructions}\n</task>\n\n"
-            "Step 1: Call tools to gather course content (get_section_content, search_images).\n"
+            "Step 1: Call get_section_content for relevant sections (max 2 calls).\n"
             "Step 2: Output the complete JSONL plan.\n"
             "Do NOT output narrative text — only tool calls, then JSONL."
         )
@@ -680,33 +680,6 @@ def _get_planning_tools() -> list[dict]:
                     "section_index": {"type": "number", "description": "Section index within lesson"},
                 },
                 "required": ["lesson_id", "section_index"],
-            },
-        },
-        {
-            "name": "search_images",
-            "description": "Search Wikimedia Commons for educational images.",
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query"},
-                    "limit": {"type": "number", "description": "Max results (1-5, default 3)"},
-                },
-                "required": ["query"],
-            },
-        },
-        {
-            "name": "web_search",
-            "description": (
-                "Search the web for supplementary information — formulas, derivations, "
-                "real-world examples, diagrams, or context not in course materials."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "query": {"type": "string", "description": "Search query — be specific"},
-                    "limit": {"type": "number", "description": "Max results (1-8, default 5)"},
-                },
-                "required": ["query"],
             },
         },
     ]
