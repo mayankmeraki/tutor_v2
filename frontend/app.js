@@ -1414,6 +1414,10 @@ function handleSSEEvent(event) {
       removeAssessmentTransition();
       cleanupToolIndicators();
       ensureFallbackInput();
+      // Voice mode: show question input if the run ended with a question
+      if (typeof voiceHandleRunFinished === 'function') {
+        try { voiceHandleRunFinished(); } catch {}
+      }
       break;
 
     case 'RUN_ERROR':
@@ -10245,12 +10249,20 @@ function voiceShowBoardQuestion(questionText) {
   const field = $('#board-question-field');
   if (!container || !textEl) return;
 
-  textEl.innerHTML = questionText;
-  container.classList.remove('hidden');
-  // Slide in
-  requestAnimationFrame(() => container.classList.add('visible'));
-  if (field) { field.value = ''; field.focus(); }
+  // If it's a generic prompt, hide the question text area
+  const isGeneric = questionText === 'Type your response...';
+  textEl.innerHTML = isGeneric ? '' : questionText;
+  textEl.style.display = isGeneric ? 'none' : 'block';
 
+  container.classList.remove('hidden');
+  requestAnimationFrame(() => container.classList.add('visible'));
+  if (field) {
+    field.placeholder = isGeneric ? 'Type your response...' : 'Your answer...';
+    field.value = '';
+    field.focus();
+  }
+
+  voiceHideSubtitle();
   voiceShowIndicator('listening');
 }
 
@@ -10400,22 +10412,38 @@ function voiceHandleFinalizedText(text) {
   // Always show subtitle immediately (don't wait for TTS)
   voiceShowSubtitle(stripped);
 
-  // Check if this text contains a question (ends with ?)
-  const isQuestion = stripped.endsWith('?');
-
   // Speak it (fire-and-forget, errors caught)
+  // Do NOT show question input here — it blocks the agentic loop.
+  // Question input is shown only when the entire run finishes (RUN_FINISHED).
   voiceSpeak(stripped)
     .then(() => {
-      if (isQuestion) voiceShowBoardQuestion(stripped);
-      // Clear subtitle after speech ends (with a short delay for readability)
       setTimeout(() => voiceHideSubtitle(), 2000);
     })
     .catch(e => {
       console.warn('Voice TTS error:', e);
-      // Even if TTS fails, subtitle is visible and question input still works
-      if (isQuestion) voiceShowBoardQuestion(stripped);
       setTimeout(() => voiceHideSubtitle(), 5000);
     });
+}
+
+// Called when the entire agentic run finishes — show board input for student response
+function voiceHandleRunFinished() {
+  if (state.teachingMode !== 'voice') return;
+
+  const lastMsg = state.messages.filter(m => m.role === 'assistant').pop();
+  if (!lastMsg) return;
+  const text = typeof lastMsg.content === 'string' ? lastMsg.content : '';
+
+  // Don't show input if there's an interactive tag — those render their own controls
+  const hasInteractiveTag = /<teaching-(mcq|freetext|agree-disagree|fillblank|spot-error|confidence|canvas|teachback)/i.test(text);
+  if (hasInteractiveTag) return;
+
+  // Extract question if present
+  const stripped = stripTeachingTags(text).replace(/<[^>]+>/g, '').replace(/\s+/g, ' ').trim();
+  const sentences = stripped.split(/(?<=[.!?])\s+/);
+  const lastQ = sentences.filter(s => s.endsWith('?')).pop();
+
+  // Always show board input after run finishes — with question text if there was one
+  voiceShowBoardQuestion(lastQ || 'Type your response...');
 }
 
 // ── Utility ─────────────────────────────────────────────────
