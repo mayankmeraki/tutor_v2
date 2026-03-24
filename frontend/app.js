@@ -706,7 +706,7 @@ const state = {
 
   // Voice mode
   teachingMode: 'voice', // voice mode is the default
-  voiceSpeed: 1.5,
+  voiceSpeed: 1,
   voiceAudioCtx: null,
   voiceCurrentSrc: null,
   voiceCurrentAudio: null,

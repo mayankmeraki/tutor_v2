@@ -18,27 +18,25 @@
       <!-- Nav -->
       <nav class="lp-nav">
         <div>
-          <div class="lp-logo">Capacity</div>
-          <div class="lp-logo-sub">by MerakiLabs</div>
+          <div class="lp-logo">Capacity <span style="color:var(--text-dim);font-weight:400;font-size:14px">AI Tutor</span></div>
         </div>
         <div class="lp-nav-r">
           <a class="lp-nav-link" id="lp-signin">Sign in</a>
-          <button class="lp-nav-btn" id="lp-getstarted">Get started</button>
+          <button class="lp-nav-btn" id="lp-getstarted">Start Free</button>
         </div>
       </nav>
 
       <!-- Hero split: text left, demo right — compact -->
       <div class="lp-hero-split">
         <div class="lp-hero-left">
-          <div class="lp-pill">Meet Euler — your AI tutor</div>
-          <h1>Study with a tutor that<br><span class="lp-acc">actually teaches.</span></h1>
+          <div class="lp-pill">AI-powered teaching</div>
+          <h1>Learn with a tutor that<br><span class="lp-acc" style="font-family:'Caveat',cursive;color:#fbbf24">draws</span> and <span class="lp-acc">speaks</span></h1>
           <p class="lp-sub">
-            Euler draws on the board, runs simulations, checks your understanding,
-            and adapts to how you learn — grounded in real university lectures.
+            Watch concepts come alive on a live chalkboard while your AI tutor explains with voice. Ask questions anytime.
           </p>
           <div class="lp-cta">
-            <button class="lp-btn lp-btn-primary" id="lp-cta-start">Start studying — free</button>
-            <button class="lp-btn lp-btn-ghost" id="lp-cta-how">See how it works</button>
+            <button class="lp-btn lp-btn-primary" id="lp-cta-start">Start a Free Lesson</button>
+            <button class="lp-btn lp-btn-ghost" id="lp-cta-how">Watch Demo &#9654;</button>
           </div>
           <div class="lp-diff-strip">
             <div class="lp-diff-item">
@@ -409,12 +407,12 @@
           <div class="speed-wrap hidden" id="speed-wrap">
             <button class="speed-toggle-btn" id="speed-toggle-btn" onclick="toggleSpeedMenu()">
               <span class="speed-label">Speed</span>
-              <span class="speed-val" id="speed-val">1.5x</span>
+              <span class="speed-val" id="speed-val">1x</span>
             </button>
             <div class="speed-menu hidden" id="speed-menu">
               <button onclick="pickSpeed(0.75)">0.75x</button>
-              <button onclick="pickSpeed(1)">1x</button>
-              <button class="active" onclick="pickSpeed(1.5)">1.5x</button>
+              <button class="active" onclick="pickSpeed(1)">1x</button>
+              <button onclick="pickSpeed(1.5)">1.5x</button>
               <button onclick="pickSpeed(2)">2x</button>
               <button onclick="pickSpeed(3)">3x</button>
             </div>
