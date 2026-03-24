@@ -9403,11 +9403,19 @@ async function bdProcessQueue() {
   // Capture tutor-only snapshot after all commands finish (before student draws)
   if (!bd.cancelFlag && bd.canvas && !bd.tutorSnapshot) {
     if (bdActiveAnimations.length > 0) {
-      // Animations still running — defer until they rasterize
-      setTimeout(() => {
-        bdRasterizeAllAnimations();
-        try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
-      }, 500);
+      // Voice mode: DON'T rasterize — keep animations alive
+      // Just capture canvas + overlay as-is for snapshot
+      if (state.teachingMode === 'voice') {
+        setTimeout(() => {
+          try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
+        }, 500);
+      } else {
+        // Text mode: rasterize animations onto canvas for clean snapshot
+        setTimeout(() => {
+          bdRasterizeAllAnimations();
+          try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
+        }, 500);
+      }
     } else {
       try {
         bd.tutorSnapshot = bd.canvas.toDataURL('image/png');
@@ -10127,7 +10135,10 @@ function bdReplayCommandsInstant(cmds) {
 function bdCaptureBoard() {
   const bd = state.boardDraw;
   if (!bd.canvas) return null;
-  bdRasterizeAllAnimations();
+  // In voice mode, don't destroy animations — just capture current frame
+  if (state.teachingMode !== 'voice') {
+    bdRasterizeAllAnimations();
+  }
   const ctx = bd.ctx;
   const w = bd.canvas.width;
   const h = bd.canvas.height;
