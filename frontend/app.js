@@ -8948,6 +8948,9 @@ function bdClearBoard() {
   bd.ctx.fillRect(0, 0, BD_VIRTUAL_W * bd.scale, bd.currentH * bd.scale);
   bdDrawGrid();
   bdHideVoice();
+  // Reset scroll to top so the fresh board starts visible from the top
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (wrap) wrap.scrollTop = 0;
 }
 
 async function bdRunCommand(cmd) {
@@ -8960,15 +8963,15 @@ async function bdRunCommand(cmd) {
   if (cmd.id) bdRegisterElement(cmd);
   // Voice mode: move hand cursor to follow drawing
   if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Auto-scroll: only when canvas has grown beyond the viewport
-  if (state.teachingMode === 'voice') {
+  // Auto-scroll to keep newly drawn content visible
+  {
     const wrap = document.getElementById('bd-canvas-wrap');
     if (wrap && wrap.scrollHeight > wrap.clientHeight) {
-      const cmdY = cmd.y || cmd.cy || 0;
-      const cmdH = cmd.h || cmd.size || 30;
-      const scaledBottom = (cmdY + cmdH) * state.boardDraw.scale;
+      const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
+      const maxCmdY = ys.length ? Math.max(...ys) : 0;
+      const cmdH = cmd.h || cmd.size || cmd.r || 30;
+      const scaledBottom = (maxCmdY + cmdH) * state.boardDraw.scale;
       const viewBottom = wrap.scrollTop + wrap.clientHeight;
-      // Only scroll if the new content is below the current view
       if (scaledBottom > viewBottom - 30) {
         wrap.scrollTo({ top: scaledBottom - wrap.clientHeight + 60, behavior: 'smooth' });
       }
@@ -9834,6 +9837,9 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
     const c = document.getElementById('bd-canvas');
     const v = document.getElementById('bd-voice-text');
     if (c) bdInit(c, v);
+    // Ensure new board starts scrolled to the top
+    const initWrap = document.getElementById('bd-canvas-wrap');
+    if (initWrap) initWrap.scrollTop = 0;
 
     // First-time hint on Send button
     setTimeout(() => {
@@ -11062,13 +11068,12 @@ async function executeDraw(drawCmds) {
     await bdProcessQueue();
   }
 
-  // Auto-scroll board to show new content
-  const boardContent = $('#spotlight-content');
-  if (boardContent && state.boardDraw.canvas) {
-    const canvas = state.boardDraw.canvas;
-    const canvasBottom = canvas.height / state.boardDraw.DPR;
-    if (canvasBottom > boardContent.clientHeight) {
-      boardContent.scrollTop = canvasBottom - boardContent.clientHeight;
+  // Auto-scroll board to keep latest content visible
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (wrap && state.boardDraw.canvas) {
+    const canvasBottom = state.boardDraw.canvas.height / state.boardDraw.DPR;
+    if (canvasBottom > wrap.clientHeight) {
+      wrap.scrollTo({ top: canvasBottom - wrap.clientHeight + 40, behavior: 'smooth' });
     }
   }
 }
