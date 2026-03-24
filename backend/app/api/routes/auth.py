@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from jose import jwt, JWTError
 
 from app.core.config import settings
+from app.core.rate_limit import check_rate_limit
 from app.services.user_service import create_user, get_user_by_email, verify_password
 
 log = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ async def get_current_user(request: Request) -> dict:
 # ─── Routes ──────────────────────────────────────────────
 
 @router.post("/login")
-async def login(request: Request):
+async def login(request: Request, _=Depends(check_rate_limit)):
     """Authenticate against MongoDB users collection, issue a mockup JWT."""
     body = await request.json()
     email = body.get("email", "").strip().lower()
@@ -77,7 +78,7 @@ async def login(request: Request):
 
 
 @router.post("/signup")
-async def signup(request: Request):
+async def signup(request: Request, _=Depends(check_rate_limit)):
     """Create a new user account in MongoDB and issue a JWT."""
     body = await request.json()
     name = body.get("name", "").strip()
@@ -87,8 +88,8 @@ async def signup(request: Request):
     if not name or not email or not password:
         raise HTTPException(status_code=400, detail="Name, email, and password are required")
 
-    if len(password) < 6:
-        raise HTTPException(status_code=400, detail="Password must be at least 6 characters")
+    if len(password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
 
     existing = await get_user_by_email(email)
     if existing:

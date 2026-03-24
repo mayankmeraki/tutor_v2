@@ -22,7 +22,7 @@ router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
 @router.post("")
-async def create(request: Request):
+async def create(request: Request, user: dict = Depends(get_current_user)):
     """Create a new session document."""
     body = await request.json()
     session_id = body.get("sessionId")
@@ -50,21 +50,21 @@ async def my_sessions_with_headlines(course_id: int, user: dict = Depends(get_cu
 
 
 @router.get("/student/{course_id}/{student_name}")
-async def student_sessions(course_id: int, student_name: str):
+async def student_sessions(course_id: int, student_name: str, user: dict = Depends(get_current_user)):
     """Get all sessions for a student+course, newest first."""
     docs = await get_sessions_for_student(course_id, student_name)
     return docs
 
 
 @router.get("/student/{course_id}/{student_name}/with-headlines")
-async def student_sessions_with_headlines(course_id: int, student_name: str):
+async def student_sessions_with_headlines(course_id: int, student_name: str, user: dict = Depends(get_current_user)):
     """Get all sessions for a student+course with AI-generated headlines."""
     docs = await get_sessions_with_headlines(course_id, student_name)
     return docs
 
 
 @router.get("/{session_id}")
-async def get(session_id: str):
+async def get(session_id: str, user: dict = Depends(get_current_user)):
     """Get a session by sessionId."""
     doc = await get_session(session_id)
     if not doc:
@@ -73,7 +73,7 @@ async def get(session_id: str):
 
 
 @router.patch("/{session_id}")
-async def patch(session_id: str, request: Request):
+async def patch(session_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Partial update of a session (transcript, sections, metrics, status, etc.)."""
     body = await request.json()
     doc = await update_session(session_id, body)
@@ -83,7 +83,7 @@ async def patch(session_id: str, request: Request):
 
 
 @router.post("/{session_id}/summarize-section")
-async def summarize(session_id: str, request: Request):
+async def summarize(session_id: str, request: Request, user: dict = Depends(get_current_user)):
     """Generate an LLM summary for a completed section."""
     body = await request.json()
     section_index = body.get("sectionIndex")

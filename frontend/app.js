@@ -10324,19 +10324,12 @@ async function voiceSpeak(text) {
 
   if (!cleanText || cleanText.length < 3) return;
 
-  const apiKey = await getElevenLabsKey();
-  if (!apiKey) { await voiceSleep(estimateVoiceDuration(cleanText) * 1000); return; }
-
+  // Use backend TTS proxy (API key stays server-side)
   try {
-    const resp = await fetch(`https://api.elevenlabs.io/v1/text-to-speech/${ELEVENLABS_VOICE_ID}/stream`, {
+    const resp = await fetch(`${state.apiUrl}/api/tts`, {
       method: 'POST',
-      headers: { 'xi-api-key': apiKey, 'Content-Type': 'application/json', 'Accept': 'audio/mpeg' },
-      body: JSON.stringify({
-        text: cleanText,
-        model_id: ELEVENLABS_MODEL_FALLBACK,
-        voice_settings: { stability: 0.55, similarity_boost: 0.75, style: 0.2, use_speaker_boost: true },
-        optimize_streaming_latency: 4,
-      }),
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ text: cleanText, voice_id: ELEVENLABS_VOICE_ID }),
     });
 
     if (!resp.ok) {
@@ -10372,20 +10365,7 @@ async function voiceSpeak(text) {
   }
 }
 
-let _elKeyCache = null;
-async function getElevenLabsKey() {
-  if (_elKeyCache) return _elKeyCache;
-  try {
-    const resp = await fetch(`${state.apiUrl}/api/config`);
-    if (resp.ok) {
-      const data = await resp.json();
-      _elKeyCache = data.elevenlabs_api_key || null;
-    }
-  } catch {}
-  // Fallback to hardcoded (from wireframe testing)
-  if (!_elKeyCache) _elKeyCache = 'sk_52aa1fc556a9a03de659146ef8dd5a3f0c75831d9f382ab3';
-  return _elKeyCache;
-}
+// TTS is now proxied through backend — no API key on frontend
 
 function estimateVoiceDuration(text) {
   return text.split(/\s+/).length / 2.8 + 0.2;

@@ -243,7 +243,11 @@ async def upload_file_material(
     if not collection:
         return JSONResponse(status_code=404, content={"error": "Collection not found"})
 
+    # Enforce file size limit (50MB)
+    MAX_UPLOAD_SIZE = 50 * 1024 * 1024
     file_bytes = await file.read()
+    if len(file_bytes) > MAX_UPLOAD_SIZE:
+        return JSONResponse(status_code=413, content={"error": f"File too large. Max {MAX_UPLOAD_SIZE // (1024*1024)}MB."})
     filename = file.filename or "upload"
     file_title = title or filename.rsplit(".", 1)[0]
 

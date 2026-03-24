@@ -34,6 +34,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("Failed to ensure user indexes (MongoDB may be unreachable): %s", e)
 
+    # Ensure session indexes
+    from app.services.session_service import ensure_session_indexes
+    try:
+        await ensure_session_indexes()
+    except Exception as e:
+        log.warning("Failed to ensure session indexes: %s", e)
+
     # Ensure BYO pipeline indexes
     from app.services.byo_indexes import ensure_byo_indexes
     try:
@@ -125,10 +132,56 @@ async def health():
 
 @app.get("/api/config")
 async def get_config():
-    """Return frontend-safe config values."""
+    """Return frontend-safe config values. No secrets exposed."""
     return {
-        "elevenlabs_api_key": settings.ELEVENLABS_API_KEY or None,
+        "tts_enabled": bool(settings.ELEVENLABS_API_KEY),
     }
+
+
+@app.post("/api/tts")
+async def tts_proxy(request: Request):
+    """Proxy TTS requests to ElevenLabs — keeps API key server-side."""
+    if not settings.ELEVENLABS_API_KEY:
+        return JSONResponse(status_code=503, content={"error": "TTS not configured"})
+
+    body = await request.json()
+    text = body.get("text", "")
+    voice_id = body.get("voice_id", "UgBBYS2sOqTuMpoF3BR0")
+
+    if not text or len(text) > 500:
+        return JSONResponse(status_code=400, content={"error": "Text required, max 500 chars"})
+
+    import httpx
+    async with httpx.AsyncClient(timeout=30.0) as client:
+        try:
+            resp = await client.post(
+                f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream",
+                headers={
+                    "xi-api-key": settings.ELEVENLABS_API_KEY,
+                    "Content-Type": "application/json",
+                    "Accept": "audio/mpeg",
+                },
+                json={
+                    "text": text,
+                    "model_id": "eleven_turbo_v2_5",
+                    "voice_settings": {"stability": 0.55, "similarity_boost": 0.75, "style": 0.2},
+                    "optimize_streaming_latency": 4,
+                },
+            )
+            if resp.status_code != 200:
+                return JSONResponse(status_code=resp.status_code, content={"error": "TTS API error"})
+
+            from starlette.responses import StreamingResponse
+            return StreamingResponse(
+                content=resp.iter_bytes(),
+                media_type="audio/mpeg",
+                headers={"Cache-Control": "no-cache"},
+            )
+        except httpx.TimeoutException:
+            return JSONResponse(status_code=504, content={"error": "TTS timeout"})
+        except Exception as e:
+            log.warning("TTS proxy error: %s", e)
+            return JSONResponse(status_code=502, content={"error": "TTS proxy failed"})
 
 
 # API routes

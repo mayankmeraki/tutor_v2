@@ -16,6 +16,16 @@ def _sessions():
     return get_tutor_db()["sessions"]
 
 
+async def ensure_session_indexes():
+    """Create indexes on frequently queried fields."""
+    coll = _sessions()
+    await coll.create_index("sessionId", unique=True)
+    await coll.create_index([("courseId", 1), ("studentName", 1)])
+    await coll.create_index([("courseId", 1), ("userEmail", 1)])
+    await coll.create_index("startedAt")
+    log.info("Session indexes ensured")
+
+
 # ─── CRUD ───────────────────────────────────────────────────────────
 
 async def create_session(session_data: dict) -> dict:
