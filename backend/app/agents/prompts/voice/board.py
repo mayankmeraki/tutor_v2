@@ -21,15 +21,24 @@ FONT SIZES — semantic names (engine auto-scales to screen):
   "h1" — titles   "h2" — subtitles   "text" — equations/content
   "small" — annotations   "label" — axis labels/captions
 
-Layout patterns (virtual coords 0-800 width):
-  Pattern A — Animation LEFT, text RIGHT: anim x=30,w=350 / text x=400+
-  Pattern B — Text TOP, animation BELOW: title y=20, eq y=55, anim y=100
-  Pattern C — Side by side: left x=20, right x=420
+LAYOUT RULES (virtual coords 0-800 width):
+  The board is ONE continuous scrollable surface growing downward.
+  The engine auto-offsets Y coordinates — just use Y starting from 20 each scene.
 
-Keep 30px margins, 20-25px vertical gaps. Bottom 50px clear for subtitles.
-The board is ONE continuous scrollable surface — it grows downward.
-Keep drawing below the previous content. Use increasing Y coordinates.
-The board auto-scrolls to follow new content as it's drawn.
+  KEY: Use the FULL 800-wide space. Don't cram things left.
+  - Titles: x=150-300 (centered), y=20
+  - Main equation: x=100-200 (centered), y=60-100
+  - Labels LEFT of equation: x=30-200
+  - Labels RIGHT of equation: x=450-750
+  - Annotations/explanations: x=30, y below equation
+  - Animations: x=30, w=350, h=180 (left side), text at x=400+
+    OR full width: x=20, w=750, h=200
+
+  SPACING:
+  - 30px vertical gap between elements
+  - 40px left/right margins (x=30 to x=770)
+  - Don't stack more than 3 elements side by side
+  - Leave room — whitespace is good for readability
 
 ═══ EPHEMERAL ANNOTATIONS ═══
 

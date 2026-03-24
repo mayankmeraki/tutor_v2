@@ -8211,31 +8211,51 @@ function bdControlAnimation(params) {
 }
 
 function bdZoomPulse(elementId) {
-  // Zoom-pulse effect: briefly scale up the area around an element, then back
+  // Zoom-pulse: create a floating clone of the element area, scale it up, then fade out
   const entry = bdElementRegistry[elementId];
   if (!entry) return;
-  const wrap = document.getElementById('bd-canvas-wrap');
-  const content = document.getElementById('spotlight-content');
-  if (!wrap || !content) return;
-
   const bd = state.boardDraw;
+  if (!bd.canvas || !bd.ctx) return;
   const s = bd.scale;
-  const cx = (entry.x + (entry.w || 0) / 2) * s;
-  const cy = (entry.y + (entry.h || 0) / 2) * s;
 
-  // Use CSS transform on the canvas wrap for a smooth zoom effect
-  wrap.style.transition = 'transform 0.4s ease';
-  wrap.style.transformOrigin = `${cx}px ${cy}px`;
-  wrap.style.transform = 'scale(1.15)';
+  // Calculate element bounds in screen pixels
+  const pad = 10 * s;
+  const sx = Math.max(0, entry.x * s - pad);
+  const sy = Math.max(0, entry.y * s - pad);
+  const sw = (entry.w || 100) * s + pad * 2;
+  const sh = (entry.h || 30) * s + pad * 2;
 
+  // Capture just that region from the canvas
+  const layer = document.getElementById('bd-anim-layer');
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!layer || !wrap) return;
+
+  // Create a highlight div positioned over the element
+  const highlight = document.createElement('div');
+  highlight.style.cssText = `
+    position:absolute; left:${sx}px; top:${sy}px;
+    width:${sw}px; height:${sh}px;
+    border: 2px solid rgba(94,234,212,0.5);
+    border-radius: 6px;
+    box-shadow: 0 0 20px rgba(52,211,153,0.2), inset 0 0 20px rgba(52,211,153,0.05);
+    z-index: 25; pointer-events: none;
+    transition: all 0.3s ease;
+    transform: scale(1);
+  `;
+  layer.appendChild(highlight);
+
+  // Pulse: scale up slightly
+  requestAnimationFrame(() => {
+    highlight.style.transform = 'scale(1.08)';
+    highlight.style.boxShadow = '0 0 30px rgba(52,211,153,0.35), inset 0 0 30px rgba(52,211,153,0.08)';
+  });
+
+  // Fade out after delay
   setTimeout(() => {
-    wrap.style.transform = 'scale(1)';
-    setTimeout(() => {
-      wrap.style.transition = '';
-      wrap.style.transformOrigin = '';
-      wrap.style.transform = '';
-    }, 400);
-  }, 1200);
+    highlight.style.opacity = '0';
+    highlight.style.transform = 'scale(1)';
+    setTimeout(() => highlight.remove(), 300);
+  }, 1500);
 }
 
 function bdClearElementRegistry() {
