@@ -8971,19 +8971,22 @@ async function bdRunCommand(cmd) {
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
   // Register element by ID for referencing/scrolling
   if (cmd.id) bdRegisterElement(cmd);
-  // Voice mode: move hand cursor to follow drawing
-  if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Auto-scroll to keep newly drawn content visible
+  // Hand cursor disabled — was causing positioning issues
+  // if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
+  // Auto-scroll: only when content goes below the visible viewport
+  // AND canvas has grown enough to warrant scrolling
   {
     const wrap = document.getElementById('bd-canvas-wrap');
-    if (wrap && wrap.scrollHeight > wrap.clientHeight) {
+    if (wrap && wrap.scrollHeight > wrap.clientHeight + 80) {
       const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
       const maxCmdY = ys.length ? Math.max(...ys) : 0;
-      const cmdH = cmd.h || cmd.size || cmd.r || 30;
-      const scaledBottom = (maxCmdY + cmdH) * state.boardDraw.scale;
-      const viewBottom = wrap.scrollTop + wrap.clientHeight;
-      if (scaledBottom > viewBottom - 30) {
-        wrap.scrollTo({ top: scaledBottom - wrap.clientHeight + 60, behavior: 'smooth' });
+      if (maxCmdY > 0) {
+        const cmdH = cmd.h || cmd.size || cmd.r || 30;
+        const scaledBottom = (maxCmdY + cmdH) * state.boardDraw.scale;
+        const viewBottom = wrap.scrollTop + wrap.clientHeight;
+        if (scaledBottom > viewBottom - 40) {
+          wrap.scrollTo({ top: Math.max(0, scaledBottom - wrap.clientHeight + 80), behavior: 'smooth' });
+        }
       }
     }
   }
