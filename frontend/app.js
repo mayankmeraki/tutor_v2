@@ -10549,16 +10549,42 @@ function parseVoiceBeats(sceneContent) {
     const sayMatch = attrStr.match(/say='([^']*)'|say="([^"]*)"/);
     if (sayMatch) beat.say = sayMatch[1] || sayMatch[2] || '';
 
-    // Parse draw attribute (JSON string)
-    const drawMatch = attrStr.match(/draw='([^']*)'|draw="([^"]*)"/);
-    if (drawMatch) {
-      const drawStr = (drawMatch[1] || drawMatch[2] || '').replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    // Parse draw attribute (JSON string — may use single or double quotes)
+    // Single-quoted is preferred: draw='{"cmd":"text",...}'
+    // But LLM may use double-quoted: draw="{&quot;cmd&quot;:&quot;text&quot;,...}"
+    let drawStr = null;
+    const drawSingleMatch = attrStr.match(/draw='((?:[^'\\]|\\.)*)'/);
+    if (drawSingleMatch) {
+      drawStr = drawSingleMatch[1];
+    } else {
+      // Try extracting JSON after draw= by bracket matching
+      const drawStart = attrStr.indexOf('draw=');
+      if (drawStart >= 0) {
+        const afterEq = attrStr.slice(drawStart + 5);
+        const quote = afterEq[0];
+        if (quote === "'" || quote === '"') {
+          // Find matching close, but allow nested quotes
+          let depth = 0; let i = 1;
+          for (; i < afterEq.length; i++) {
+            if (afterEq[i] === '{') depth++;
+            else if (afterEq[i] === '}') { depth--; if (depth <= 0 && i > 1) { i++; break; } }
+          }
+          // Take from after opening quote to the closing brace
+          const raw = afterEq.slice(1, i);
+          if (raw.includes('{')) drawStr = raw;
+        }
+      }
+    }
+    if (drawStr) {
+      drawStr = drawStr.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#39;/g, "'");
       try {
-        // Could be single command or newline-separated commands
         const cmds = drawStr.split('\n').filter(l => l.trim()).map(l => JSON.parse(l));
         beat.draw = cmds;
       } catch {
-        try { beat.draw = [JSON.parse(drawStr)]; } catch { beat.draw = null; }
+        try { beat.draw = [JSON.parse(drawStr)]; } catch (e) {
+          console.warn('[VoiceScene] Failed to parse draw:', e.message, drawStr.slice(0, 100));
+          beat.draw = null;
+        }
       }
     }
 
