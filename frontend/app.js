@@ -9137,8 +9137,9 @@ async function bdRunAnimation(cmd) {
   const maxW = Math.max(200, boardW - x - 10, 200); // at least 200px
   const w = Math.max(150, Math.min(rawW, maxW, boardW * 0.6, 700));
   const h = Math.max(100, Math.min(rawH, boardH * 0.4, 300));
-  // Duration: 0 means keep alive indefinitely (for live animations)
-  const duration = cmd.duration === 0 ? 0 : (cmd.duration || 0); // default to 0 = live
+  // Voice mode: NEVER rasterize animations via timer — keep them alive
+  // Text mode: use LLM-specified duration or default 6000ms
+  const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
 
   bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 200));
 
