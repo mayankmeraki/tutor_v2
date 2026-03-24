@@ -10652,6 +10652,19 @@ function parseVoiceBeats(sceneContent) {
     const annDurMatch = attrStr.match(/annotate-duration='([^']*)'|annotate-duration="([^"]*)"/);
     if (annDurMatch) beat.annotateDuration = parseInt(annDurMatch[1] || annDurMatch[2]) || 2000;
 
+    // Debug: summarize what this beat has
+    const beatParts = [];
+    if (beat.say) beatParts.push(`say="${beat.say.slice(0, 40)}..."`);
+    if (beat.draw) beatParts.push(`draw=${beat.draw.length} cmds`);
+    if (beat.cursor) beatParts.push(`cursor=${beat.cursor}`);
+    if (beat.pause) beatParts.push(`pause=${beat.pause}s`);
+    if (beat.question) beatParts.push('QUESTION');
+    if (beat.animControl) beatParts.push('anim-control');
+    if (beat.annotate) beatParts.push(`annotate=${beat.annotate}`);
+    if (beat.videoLesson) beatParts.push(`video=${beat.videoLesson}`);
+    if (beat.simulation) beatParts.push(`sim=${beat.simulation}`);
+    console.log(`[VoiceScene] Parsed beat ${beats.length + 1}: ${beatParts.join(' | ') || '(empty beat)'}`);
+
     beats.push(beat);
   }
   return beats;
@@ -10796,7 +10809,10 @@ async function executeVoiceScene(sceneTag) {
 
 // Execute draw commands from a beat
 async function executeDraw(drawCmds) {
-  if (!drawCmds || drawCmds.length === 0) return;
+  if (!drawCmds || drawCmds.length === 0) {
+    return;
+  }
+  console.log(`[VoiceScene] Drawing ${drawCmds.length} commands:`, drawCmds.map(c => c.cmd).join(', '));
 
   // Ensure board canvas exists
   if (!state.boardDraw.canvas) {
