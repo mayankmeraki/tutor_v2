@@ -8973,19 +8973,21 @@ async function bdRunCommand(cmd) {
   if (cmd.id) bdRegisterElement(cmd);
   // Hand cursor disabled — was causing positioning issues
   // if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Auto-scroll: only when content goes below the visible viewport
-  // AND canvas has grown enough to warrant scrolling
+  // Gentle auto-scroll: only nudge down slightly when content reaches the bottom edge
   {
     const wrap = document.getElementById('bd-canvas-wrap');
-    if (wrap && wrap.scrollHeight > wrap.clientHeight + 80) {
+    if (wrap) {
       const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
-      const maxCmdY = ys.length ? Math.max(...ys) : 0;
-      if (maxCmdY > 0) {
-        const cmdH = cmd.h || cmd.size || cmd.r || 30;
+      const maxCmdY = ys.length ? Math.max(...ys) : -1;
+      if (maxCmdY >= 0) {
+        const cmdH = cmd.h || cmd.size || cmd.r || 20;
         const scaledBottom = (maxCmdY + cmdH) * state.boardDraw.scale;
         const viewBottom = wrap.scrollTop + wrap.clientHeight;
-        if (scaledBottom > viewBottom - 40) {
-          wrap.scrollTo({ top: Math.max(0, scaledBottom - wrap.clientHeight + 80), behavior: 'smooth' });
+        // Only scroll if content just barely exceeds the visible area
+        if (scaledBottom > viewBottom - 10 && scaledBottom < viewBottom + 200) {
+          // Nudge by just enough to show the new content + small margin
+          const nudge = scaledBottom - viewBottom + 40;
+          wrap.scrollBy({ top: nudge, behavior: 'smooth' });
         }
       }
     }
@@ -11063,14 +11065,7 @@ async function executeDraw(drawCmds) {
     await bdProcessQueue();
   }
 
-  // Auto-scroll board to keep latest content visible
-  const wrap = document.getElementById('bd-canvas-wrap');
-  if (wrap && state.boardDraw.canvas) {
-    const canvasBottom = state.boardDraw.canvas.height / state.boardDraw.DPR;
-    if (canvasBottom > wrap.clientHeight) {
-      wrap.scrollTo({ top: canvasBottom - wrap.clientHeight + 40, behavior: 'smooth' });
-    }
-  }
+  // No auto-scroll — board stays at top
 }
 
 // Execute say — TTS + subtitle (optionally with pre-fetched TTS response)
