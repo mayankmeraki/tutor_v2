@@ -10990,7 +10990,7 @@ async function executeVoiceScene(sceneTag) {
       };
       renderTeachingTag(videoTag);
       if (beat.say) await executeSay(beat.say, myPrefetch);
-      if (beat.pause) await voiceSleep(beat.pause * 1000);
+      await voiceBeatGap(beat.pause);
       if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
       continue;
     }
@@ -11004,7 +11004,7 @@ async function executeVoiceScene(sceneTag) {
       };
       renderTeachingTag(simTag);
       if (beat.say) await executeSay(beat.say, myPrefetch);
-      if (beat.pause) await voiceSleep(beat.pause * 1000);
+      await voiceBeatGap(beat.pause);
       if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
       continue;
     }
@@ -11018,7 +11018,7 @@ async function executeVoiceScene(sceneTag) {
       };
       renderTeachingTag(widgetTag);
       if (beat.say) await executeSay(beat.say, myPrefetch);
-      if (beat.pause) await voiceSleep(beat.pause * 1000);
+      await voiceBeatGap(beat.pause);
       if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
       continue;
     }
@@ -11030,9 +11030,9 @@ async function executeVoiceScene(sceneTag) {
     // Wait for both to complete
     await Promise.all([drawPromise, sayPromise]);
 
-    // 4. Pause after beat
-    if (beat.pause && beat.pause > 0) {
-      await voiceSleep(beat.pause * 1000);
+    // 4. Inter-beat gap: explicit pause OR minimum natural breathing room
+    if (!beat.question) {
+      await voiceBeatGap(beat.pause);
     }
 
     // Resolve next beat's prefetched TTS (should already be done by now)
@@ -11405,6 +11405,18 @@ function voiceHandleRunFinished() {
 
 function voiceSleep(ms) {
   return new Promise(r => setTimeout(r, ms / state.voiceSpeed));
+}
+
+// Natural inter-beat breathing gap — ensures a perceptual pause between
+// beats even when the agent omits an explicit pause attribute. Explicit
+// pauses are speed-scaled; the minimum floor (350ms) is real-time so
+// fast playback still feels human.
+const MINIMUM_BEAT_GAP_MS = 350;
+function voiceBeatGap(pauseAttr) {
+  const explicitMs = (pauseAttr && pauseAttr > 0)
+    ? (pauseAttr * 1000) / state.voiceSpeed
+    : 0;
+  return new Promise(r => setTimeout(r, Math.max(explicitMs, MINIMUM_BEAT_GAP_MS)));
 }
 
 // ── Unified voice bar submit ────────────────────────────────
