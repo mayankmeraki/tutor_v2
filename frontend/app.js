@@ -11083,14 +11083,39 @@ async function executeDraw(drawCmds) {
 }
 
 // Execute say — TTS + subtitle (optionally with pre-fetched TTS response)
+// Supports {ref:elementId} markers in text — triggers highlight on referenced board elements
 async function executeSay(text, prefetchedResp) {
   if (!text || !text.trim()) return;
-  voiceShowSubtitle(text);
+
+  // Extract {ref:id} markers — these trigger element highlights during speech
+  const refs = [];
+  const cleanText = text.replace(/\{ref:([^}]+)\}/g, (_, id) => {
+    refs.push(id.trim());
+    return ''; // remove from spoken/subtitle text
+  }).trim();
+
+  // Show subtitle (without ref markers)
+  voiceShowSubtitle(cleanText);
   voiceShowIndicator('speaking');
-  await voiceSpeak(text, prefetchedResp);
+
+  // Trigger highlights on referenced elements — staggered across speech duration
+  if (refs.length > 0) {
+    const estDuration = (cleanText.split(/\s+/).length / 2.8 + 0.2) * 1000;
+    const interval = estDuration / (refs.length + 1);
+    refs.forEach((refId, i) => {
+      setTimeout(() => {
+        // Highlight: scroll to element + ephemeral glow
+        if (bdElementRegistry[refId]) {
+          bdScrollToElement(refId);
+          voiceAnnotate('glow', refId, { color: '#5eead4', duration: 1500 });
+        }
+      }, interval * (i + 1));
+    });
+  }
+
+  await voiceSpeak(cleanText, prefetchedResp);
   voiceHideIndicator();
-  // Natural post-speech pause — prevents "burst" when next beat's TTS is prefetched
-  // Without this, prefetched audio starts instantly after the previous finishes
+  // Natural post-speech pause
   await new Promise(r => setTimeout(r, 300));
 }
 

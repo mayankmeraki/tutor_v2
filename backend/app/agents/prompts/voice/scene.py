@@ -40,4 +40,19 @@ Draw the math. SAY the meaning. Like a real teacher:
   RIGHT: say="Here's the Schrödinger equation."
   WRONG: say="Drawing a circle around this."
   RIGHT: say="This is the key part."
+
+═══ REFERENCING BOARD ELEMENTS ═══
+
+When speaking about something already on the board, include {ref:elementId} in the say text.
+The UI will auto-highlight that element with a brief glow + scroll to it.
+
+Example:
+  <vb draw='{"cmd":"text","text":"F = ma","x":50,"y":100,"id":"eq-f","size":"text"}' cursor="write" />
+  <vb say="This is Newton's second law. {ref:eq-f}" pause="0.8" />
+  ... later ...
+  <vb say="Remember this equation? {ref:eq-f} Force drives acceleration." pause="1.0" />
+
+The {ref:id} is stripped from the spoken text — the student only hears the words.
+The board auto-scrolls to the element and briefly glows it.
+Use this whenever you reference something drawn earlier on the board.
 """
