@@ -187,6 +187,60 @@ def _compile_teaching_overrides(context_data: dict) -> str | None:
     return "\n".join(overrides)
 
 
+def _get_voice_mode_prompt() -> str:
+    """Voice mode instructions — placed in STATIC block for prompt caching."""
+    return r"""
+[VOICE MODE — ACTIVE]
+The student is in VOICE MODE. There is NO chat pane — only a full-screen board with subtitles.
+Your spoken words are delivered via TTS. The board is the only visual.
+
+═══ OUTPUT FORMAT: <teaching-voice-scene> ═══
+
+Instead of text + <teaching-board-draw>, output a <teaching-voice-scene> tag.
+Inside it: a sequence of <vb /> (voice beat) tags executed sequentially.
+
+EXAMPLE:
+<teaching-voice-scene title="The Schrödinger Equation">
+<vb say="Let me show you the most important equation in quantum mechanics." cursor="rest" pause="0.3" />
+<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","x":150,"y":100,"color":"#fbbf24","size":"text","id":"eq-main"}' say="Here it is." cursor="write" pause="0.5" />
+<vb say="The left side — how psi changes in time." cursor="tap:id:eq-main" pause="0.8" />
+<vb say="What does the left side represent physically?" cursor="rest" question="true" />
+</teaching-voice-scene>
+
+═══ <vb> ATTRIBUTES ═══
+
+say="..."       — Text to speak (TTS). Short sentences (under 20 words).
+draw='...'      — Board draw JSON command. Use single quotes around JSON.
+cursor="..."    — "write" | "tap:id:X" | "point:id:X" | "rest"
+pause="N"       — Seconds to wait after beat completes.
+question="true" — Final beat. Shows input bar. Scene stops.
+
+═══ ASSET BEATS ═══
+
+Widgets:     <vb widget-title="..." widget-code="..." say="Try this." cursor="rest" />
+Simulations: <vb simulation="sim-id" say="Let me open this." cursor="rest" />
+Videos:      <vb video-lesson="6" video-start="245" video-end="280" say="Watch this." cursor="rest" />
+
+═══ VOICE vs DRAWING ═══
+
+say text is SPOKEN. It is NOT a reading of what you draw.
+Draw the math, SAY the meaning:
+  WRONG: say="i h-bar d psi d t equals H psi"
+  RIGHT: say="Here's the Schrödinger equation."
+
+═══ RULES ═══
+
+1. Draw before referencing. 2. Short sentences (under 20 words).
+3. Alternate draw/say beats. 4. Use pause="0.5"-"1.5" generously.
+5. End with question="true" for student response.
+6. Every element MUST have an id for cursor references.
+7. Use semantic font sizes: "h1", "h2", "text", "small", "label".
+8. No text outside <teaching-voice-scene>. Tools go BEFORE the scene tag.
+9. Keep board clean. Max ~15 elements. Use clear-before="true" between concepts.
+10. Animations: use layout Pattern A (anim left, text right) or B (text top, anim below).
+"""
+
+
 def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     """Build tutor system prompt.
 
@@ -197,13 +251,19 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     # Compile per-student teaching overrides from _profile notes
     teaching_overrides = _compile_teaching_overrides(context_data)
 
-    # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students)
+    # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students in same mode)
     tutor_prompt = build_tutor_system_prompt()
     static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
     scenario_skill = context_data.get("scenarioSkill")
     if scenario_skill:
         static_parts.append(scenario_skill)
+
+    # Voice mode instructions go in STATIC block (mode is locked for entire session)
+    # This enables prompt caching — the ~3K token voice block is cached, not re-sent each turn
+    teaching_mode = context_data.get("teachingMode", "text")
+    if teaching_mode == "voice":
+        static_parts.append(_get_voice_mode_prompt())
 
     static_prompt = "\n".join(static_parts)
 
@@ -302,210 +362,8 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if session_scope:
         parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
 
-    # Voice mode instructions — completely different output format
-    teaching_mode = context_data.get("teachingMode", "text")
-    if teaching_mode == "voice":
-        parts.append(r"""
-[VOICE MODE — ACTIVE]
-The student is in VOICE MODE. There is NO chat pane — only a full-screen board with subtitles.
-Your spoken words are delivered via TTS. The board is the only visual.
-
-═══ OUTPUT FORMAT: <teaching-voice-scene> ═══
-
-Instead of text + <teaching-board-draw>, output a <teaching-voice-scene> tag.
-Inside it: a sequence of <vb /> (voice beat) tags executed sequentially.
-
-EXAMPLE:
-<teaching-voice-scene title="The Schrödinger Equation">
-<vb say="Let me show you the most important equation in quantum mechanics." cursor="rest" pause="0.3" />
-<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","x":150,"y":100,"color":"#fbbf24","size":40}' say="Here it is. The Schrödinger equation." cursor="write" pause="0.5" />
-<vb say="The left side tells you how psi changes in time." cursor="tap:200,100" pause="0.8" />
-<vb say="The right side — the Hamiltonian — encodes all the physics." cursor="tap:450,100" pause="1.0" />
-<vb draw='{"cmd":"circle","cx":300,"cy":110,"r":60,"color":"#34d399"}' say="This single equation drives everything." cursor="tap:300,110" pause="1.5" />
-<vb say="What does the left side represent physically?" cursor="rest" question="true" />
-</teaching-voice-scene>
-
-═══ <vb> ATTRIBUTES ═══
-
-say="..."       — Text to speak (TTS). Short sentences (under 20 words). Empty = silent beat.
-draw='...'      — Board draw JSON command (same format as board-draw JSONL). Single command per beat.
-                  Use single quotes around the JSON: draw='{"cmd":"text",...}'
-cursor="..."    — Hand cursor: "write" (follows draw), "tap:x,y" (point+pulse), "point:x,y" (hover), "rest" (hidden)
-pause="N"       — Seconds to wait after voice+draw complete. Use for breathing room.
-question="true" — Final beat. Shows input bar after speaking. Scene stops here.
-
-═══ ASSET BEATS ═══
-
-Widgets:    <vb widget-title="..." widget-code="<div>...</div>" say="Try this interactive." cursor="rest" />
-Simulations: <vb simulation="sim-id" say="Let me open a simulation." cursor="rest" />
-Videos:     <vb video-lesson="6" video-start="245" video-end="280" say="Watch this clip." cursor="rest" />
-Images:     <vb image-src="url" image-caption="..." say="Look at this." cursor="rest" />
-
-═══ VOICE vs DRAWING — CRITICAL ═══
-
-The say text is SPOKEN ALOUD. It is NOT a reading of what you draw.
-You draw the math. You SAY the meaning. Like a real teacher:
-
-  WRONG: <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ",...}' say="i h-bar d psi d t equals H hat psi" />
-  RIGHT: <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ",...}' say="Here's the Schrödinger equation." />
-
-  WRONG: <vb draw='{"cmd":"circle",...}' say="Drawing a circle around this." />
-  RIGHT: <vb draw='{"cmd":"circle",...}' say="This is the key part." />
-
-  WRONG: <vb say="F equals m a" />
-  RIGHT: <vb say="Force equals mass times acceleration." />
-
-Never read equations symbol-by-symbol. Say what they MEAN in plain English.
-Never narrate your drawing actions. Say what the drawing REPRESENTS.
-
-═══ EMOTION TAGS IN SPEECH ═══
-
-The TTS engine supports emotion tags in square brackets. Use them for natural delivery:
-
-  "[thoughtfully] That's an interesting way to think about it."
-  "[cheerfully] Exactly right!"
-  "[whispering] Here's the secret..."
-  "[excited] And THIS is where it gets really cool."
-  "[sigh] Well, it's a bit more complicated than that."
-  "[laughing] Not quite, but I love the creativity!"
-
-Use sparingly — 1-2 per scene. Overuse sounds theatrical.
-
-═══ ORCHESTRATION RULES ═══
-
-1. ALWAYS draw before talking about it. Never say "as you can see" without a prior draw beat.
-2. Short say text — under 20 words per beat. TTS sounds robotic with long sentences.
-3. Alternate draw and say beats for natural rhythm: draw → say → draw → say.
-4. After writing something important, add a tap + pause beat to let it land.
-5. Use pause="0.5" to "1.5" generously. Pauses are where learning happens.
-6. End with question="true" when you want the student to respond.
-7. The cursor is the student's focus point. Always move it to what you're discussing.
-8. Multiple draw commands? Use separate <vb> tags for each — one draw per beat.
-9. Do NOT write any text outside the <teaching-voice-scene> tag. Everything goes inside beats.
-10. You can still call tools (spawn_agent, advance_topic, etc.) BEFORE the scene tag.
-11. Keep the cursor visible throughout. Move it to each new element. Only "rest" during pauses.
-12. Use board space efficiently — start from top-left, keep text sizes reasonable (24-36 for content, 20-28 for labels).
-
-═══ BOARD LAYOUT ═══
-
-- Assign IDs to key elements: draw='{"cmd":"text",...,"id":"eq-schrodinger"}'
-- Reference later: cursor="tap:id:eq-schrodinger" — scrolls to element and taps it
-- Clear board between major concepts: <vb clear-before="true" draw='...' />
-  (saves snapshot before clearing so student can scroll back in frame strip)
-- Go back: <vb scroll-to="id:eq-newton" say="Remember this?" cursor="tap:id:eq-newton" />
-
-FONT SIZES — use semantic names (the engine auto-scales to screen):
-  "h1"    — titles, section headings
-  "h2"    — subtitles, topic headings
-  "h3"    — minor headings
-  "text"  — equations, main content (default)
-  "small" — annotations, side notes
-  "label" — axis labels, captions
-  Example: {"cmd":"text","text":"The Big Question:","size":"h1",...}
-  Example: {"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","size":"text",...}
-  You can also use numbers (14-20) but semantic names are preferred.
-
-Layout patterns (same as text mode board — structured like lecture notes):
-  Pattern A — Animation LEFT, text RIGHT:
-    animation: x=30, y=100, w=350, h=180
-    text/equations: x=400+
-  Pattern B — Text TOP, animation BELOW:
-    title: y=20
-    equation: y=55
-    animation: x=30, y=100, w=700, h=200
-  Pattern C — Side by side:
-    left block: x=20, right block: x=420
-
-  Animations must have: title, axis labels, legend, proper colors.
-  Keep 30px margins, 20-25px vertical gaps.
-  Leave bottom 50px clear for subtitles.
-
-═══ CURSOR RULES ═══
-
-All cursor positioning uses element IDs. NEVER guess raw coordinates.
-
-  cursor="write"              — auto-follows the draw in this beat (pen at bottom of text)
-  cursor="write:id:eq-main"   — pen pose at bottom of element eq-main
-  cursor="tap:id:eq-main"     — tap center of element (pulse + scroll)
-  cursor="point:id:eq-main"   — hover at center (no pulse)
-  cursor="rest"               — hide cursor (use during pauses, questions)
-
-Every drawn element MUST have an id. Use descriptive IDs:
-  "title-main", "eq-schrodinger", "label-lhs", "anim-wave", "arrow-1"
-
-═══ EPHEMERAL ANNOTATIONS ═══
-
-Like a teacher circling on the whiteboard — appears then fades:
-
-  annotate="circle:id:eq-main"       — hand-drawn circle, fades after 2s
-  annotate="underline:id:label-1"    — wavy underline below element
-  annotate="box:id:eq-schrodinger"   — rounded rectangle highlight
-  annotate="glow:id:wave-anim"       — soft glow overlay (great for animations)
-
-Optional: annotate-color="#fbbf24" annotate-duration="3000"
-
-Example:
-  <vb draw='{"cmd":"text","text":"F = ma","x":100,"y":100,"id":"eq-f"}' cursor="write" />
-  <vb say="This is the key equation." cursor="tap:id:eq-f" annotate="circle:id:eq-f" pause="1.5" />
-  <vb say="Force is on the left." annotate="underline:id:eq-f" annotate-color="#fbbf24" pause="1.0" />
-
-Use annotations to direct attention. They fade automatically — like gesturing.
-
-═══ ANIMATION CONTROL ═══
-
-Control active animation parameters and highlight individual elements:
-
-  anim-control='{"param":"value"}'       — change animation variables
-  anim-control='{"_highlight":"curve1"}' — glow/pulse a named element inside the animation
-  anim-control='{"_unhighlight":true}'   — remove all highlights
-
-Animation code MUST define named elements for highlighting:
-  var _elements = {};  // registry of drawable elements
-  _elements["psi-curve"] = { draw: function() { /* draw the curve */ }, color: "#5eead4" };
-  _elements["x-psi-curve"] = { draw: function() { /* draw x*psi */ }, color: "#fbbf24" };
-
-The bridge auto-handles highlighting: when _controlParams._highlight is set,
-the named element draws with a glow effect (thicker stroke + shadow).
-
-Example animation code pattern:
-  var _elements = {};
-  _elements["psi"] = { color: "#5eead4" };
-  _elements["result"] = { color: "#fbbf24" };
-
-  p.draw = function() {
-    p.background(26, 29, 46);
-    // Draw each element — check if highlighted
-    var hl = _controlParams._highlight;
-    drawCurve("psi", p, hl === "psi");
-    drawCurve("result", p, hl === "result");
-  };
-
-  function drawCurve(name, p, highlighted) {
-    var el = _elements[name];
-    if (highlighted) {
-      p.strokeWeight(4);
-      p.drawingContext.shadowColor = el.color;
-      p.drawingContext.shadowBlur = 15;
-    } else {
-      p.strokeWeight(2);
-      p.drawingContext.shadowBlur = 0;
-    }
-    p.stroke(el.color);
-    // ... draw the curve
-  }
-
-Example beat flow:
-  <vb draw='{"cmd":"animation","id":"wave","w":500,"h":200,"x":40,"y":150,"code":"..."}' say="Two curves here." />
-  <vb anim-control='{"_highlight":"psi"}' say="This cyan one is the input wave function." pause="1.5" />
-  <vb anim-control='{"_highlight":"result"}' say="And this yellow one is what comes out after the operator." pause="1.5" />
-  <vb anim-control='{"_unhighlight":true}' say="See how they are different shapes?" pause="1.0" />
-
-═══ BOARD CONTEXT ═══
-
-- Keep the board clean. Max ~15 elements per board.
-- Clear before new concept section: <vb clear-before="true" ... />
-- Previous board saved as snapshot in frame strip.
-""")
+    # Voice mode instructions are now in the STATIC block for prompt caching.
+    # (see _get_voice_mode_prompt() called in static_parts above)
 
     # Plan accountability — injected every turn so the tutor knows exactly where it is
     plan_acct = context_data.get("planAccountability")

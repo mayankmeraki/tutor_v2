@@ -9005,20 +9005,20 @@ async function bdRunAnimation(cmd) {
   const layer = document.getElementById('bd-anim-layer');
   if (!layer) return;
 
-  const s = bd.scale;
-  // Position uses virtual coords * scale (same as text/line commands)
+  const s = bd.scale || 1;
+  // Guard: if canvas not ready, use sensible defaults
+  const wrap = document.getElementById('bd-canvas-wrap');
+  const boardW = (wrap && wrap.clientWidth > 0) ? wrap.clientWidth : 800;
+  const boardH = (wrap && wrap.clientHeight > 0) ? wrap.clientHeight : 500;
+  // Position uses virtual coords * scale
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
-  // Size: use virtual coords * scale but cap to prevent overflow
-  const wrap = document.getElementById('bd-canvas-wrap');
-  const boardW = wrap ? wrap.clientWidth : 600;
-  const boardH = wrap ? wrap.clientHeight : 400;
+  // Size: virtual * scale, clamped to board bounds
   const rawW = (cmd.w || 350) * s;
   const rawH = (cmd.h || 200) * s;
-  // Clamp: don't exceed board width minus position, and hard cap at 700px
-  const w = Math.min(rawW, boardW - x - 10, boardW * 0.6, 700);
-  const h = Math.min(rawH, boardH * 0.4, 300);
-  console.log(`[Animation] pos=${Math.round(x)},${Math.round(y)} size=${Math.round(w)}x${Math.round(h)} board=${boardW}x${boardH} scale=${s.toFixed(2)}`);
+  const maxW = Math.max(200, boardW - x - 10, 200); // at least 200px
+  const w = Math.max(150, Math.min(rawW, maxW, boardW * 0.6, 700));
+  const h = Math.max(100, Math.min(rawH, boardH * 0.4, 300));
   // Duration: 0 means keep alive indefinitely (for live animations)
   const duration = cmd.duration === 0 ? 0 : (cmd.duration || 0); // default to 0 = live
 
@@ -9218,12 +9218,20 @@ function bdRasterizeAnimation(entry) {
   if (!bd.canvas || !bd.ctx) { bdRemoveAnimation(entry); return; }
 
   const p5Canvas = entry.container.querySelector('canvas');
-  if (p5Canvas) {
-    const s = bd.scale;
-    bd.ctx.save();
-    bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
-    bd.ctx.drawImage(p5Canvas, entry.vx * s, entry.vy * s, entry.vw * s, entry.vh * s);
-    bd.ctx.restore();
+  if (p5Canvas && p5Canvas.width > 0 && p5Canvas.height > 0) {
+    const s = bd.scale || 1;
+    const dw = (entry.vw || 300) * s;
+    const dh = (entry.vh || 200) * s;
+    if (dw > 0 && dh > 0) {
+      bd.ctx.save();
+      bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+      try {
+        bd.ctx.drawImage(p5Canvas, (entry.vx || 0) * s, (entry.vy || 0) * s, dw, dh);
+      } catch (e) {
+        console.warn('Animation rasterize failed:', e.message);
+      }
+      bd.ctx.restore();
+    }
   }
   bdRemoveAnimation(entry);
 }
