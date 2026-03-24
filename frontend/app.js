@@ -705,7 +705,7 @@ const state = {
   detourStack: [],
 
   // Voice mode
-  teachingMode: 'text', // 'text' | 'voice'
+  teachingMode: 'voice', // voice mode is the default
   voiceSpeed: 1.5,
   voiceAudioCtx: null,
   voiceCurrentSrc: null,
@@ -10377,52 +10377,22 @@ const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
 const ELEVENLABS_MODEL_DIALOGUE = 'eleven_v3'; // Text to Dialogue — natural emotion tags
 const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 
-// ── Mode selection (at session start, not switchable mid-session) ────
+// ── Voice mode is the default and only mode ────
 
-// Called from dashboard mode cards
-function selectDashMode(mode) {
-  state.teachingMode = mode;
-  const textCard = $('#dash-mode-text');
-  const voiceCard = $('#dash-mode-voice');
-  if (textCard) textCard.classList.toggle('selected', mode === 'text');
-  if (voiceCard) voiceCard.classList.toggle('selected', mode === 'voice');
-}
-
-// Called once when session actually starts — locks the mode
+// Called once when session starts — always voice mode
 function applyTeachingMode() {
-  const mode = state.teachingMode;
+  state.teachingMode = 'voice';
   const mainLayout = $('#main-layout');
   const subtitleBar = $('#voice-subtitle-bar');
   const voiceInd = $('#voice-indicator');
   const speedWrap = $('#speed-wrap');
-  const indicator = $('#mode-indicator');
-
   const micFloat = $('#voice-mic-float');
 
-  if (mode === 'voice') {
-    mainLayout?.classList.add('voice-mode');
-    subtitleBar?.classList.remove('hidden');
-    voiceInd?.classList.remove('hidden');
-    speedWrap?.classList.remove('hidden');
-    micFloat?.classList.remove('hidden');
-    if (indicator) {
-      indicator.textContent = 'VOICE';
-      indicator.className = 'mode-indicator voice-mode';
-    }
-  } else {
-    mainLayout?.classList.remove('voice-mode');
-    subtitleBar?.classList.add('hidden');
-    voiceInd?.classList.add('hidden');
-    speedWrap?.classList.add('hidden');
-    micFloat?.classList.add('hidden');
-    if (indicator) {
-      indicator.textContent = 'TEXT';
-      indicator.className = 'mode-indicator text-mode';
-    }
-    voiceHideSubtitle();
-    voiceHideHand();
-    voiceHideBoardQuestion();
-  }
+  mainLayout?.classList.add('voice-mode');
+  subtitleBar?.classList.remove('hidden');
+  voiceInd?.classList.remove('hidden');
+  speedWrap?.classList.remove('hidden');
+  micFloat?.classList.remove('hidden');
 }
 
 // ── ElevenLabs Streaming TTS (chunked playback for low latency) ──
