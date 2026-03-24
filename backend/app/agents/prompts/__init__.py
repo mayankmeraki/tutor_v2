@@ -4,6 +4,7 @@ from .toolkit import TOOLKIT_PROMPT, MQL_TOOLKIT_PROMPT
 from .tags import TAGS_PROMPT
 from .assessment import ASSESSMENT_SYSTEM_PROMPT
 from .teaching_delegate import build_delegation_prompt
+from .voice import build_voice_mode_prompt
 from .scenarios.course_follow import SKILL_COURSE
 from .scenarios.exam import SKILL_EXAM_FULL
 from .scenarios.exam_topic import SKILL_EXAM_TOPIC
@@ -188,57 +189,8 @@ def _compile_teaching_overrides(context_data: dict) -> str | None:
 
 
 def _get_voice_mode_prompt() -> str:
-    """Voice mode instructions — placed in STATIC block for prompt caching."""
-    return r"""
-[VOICE MODE — ACTIVE]
-The student is in VOICE MODE. There is NO chat pane — only a full-screen board with subtitles.
-Your spoken words are delivered via TTS. The board is the only visual.
-
-═══ OUTPUT FORMAT: <teaching-voice-scene> ═══
-
-Instead of text + <teaching-board-draw>, output a <teaching-voice-scene> tag.
-Inside it: a sequence of <vb /> (voice beat) tags executed sequentially.
-
-EXAMPLE:
-<teaching-voice-scene title="The Schrödinger Equation">
-<vb say="Let me show you the most important equation in quantum mechanics." cursor="rest" pause="0.3" />
-<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","x":150,"y":100,"color":"#fbbf24","size":"text","id":"eq-main"}' say="Here it is." cursor="write" pause="0.5" />
-<vb say="The left side — how psi changes in time." cursor="tap:id:eq-main" pause="0.8" />
-<vb say="What does the left side represent physically?" cursor="rest" question="true" />
-</teaching-voice-scene>
-
-═══ <vb> ATTRIBUTES ═══
-
-say="..."       — Text to speak (TTS). Short sentences (under 20 words).
-draw='...'      — Board draw JSON command. Use single quotes around JSON.
-cursor="..."    — "write" | "tap:id:X" | "point:id:X" | "rest"
-pause="N"       — Seconds to wait after beat completes.
-question="true" — Final beat. Shows input bar. Scene stops.
-
-═══ ASSET BEATS ═══
-
-Widgets:     <vb widget-title="..." widget-code="..." say="Try this." cursor="rest" />
-Simulations: <vb simulation="sim-id" say="Let me open this." cursor="rest" />
-Videos:      <vb video-lesson="6" video-start="245" video-end="280" say="Watch this." cursor="rest" />
-
-═══ VOICE vs DRAWING ═══
-
-say text is SPOKEN. It is NOT a reading of what you draw.
-Draw the math, SAY the meaning:
-  WRONG: say="i h-bar d psi d t equals H psi"
-  RIGHT: say="Here's the Schrödinger equation."
-
-═══ RULES ═══
-
-1. Draw before referencing. 2. Short sentences (under 20 words).
-3. Alternate draw/say beats. 4. Use pause="0.5"-"1.5" generously.
-5. End with question="true" for student response.
-6. Every element MUST have an id for cursor references.
-7. Use semantic font sizes: "h1", "h2", "text", "small", "label".
-8. No text outside <teaching-voice-scene>. Tools go BEFORE the scene tag.
-9. Keep board clean. Max ~15 elements. Use clear-before="true" between concepts.
-10. Animations: use layout Pattern A (anim left, text right) or B (text top, anim below).
-"""
+    """Voice mode instructions — from voice/ module, placed in STATIC block for prompt caching."""
+    return build_voice_mode_prompt()
 
 
 def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
