@@ -5866,52 +5866,80 @@ function appendSpotlightReference(type, title, reopenTag) {
   addBoardFrameThumb(refId, type, title, thumbDataUrl);
 }
 
-// Restore the live board (current session's active board) after viewing history
-window.returnToLiveBoard = function() {
-  if (!state._savedLiveBoard) return;
+// ── Board history overlay (voice mode) ──────────────────────
+// Shows a previous board as an overlay WITHOUT destroying the live board.
+// The live canvas + animations stay hidden underneath.
 
-  const saved = state._savedLiveBoard;
-  const panel = $('#spotlight-panel');
+function _showBoardHistoryOverlay(entry) {
   const content = $('#spotlight-content');
-  const titleEl = $('#spotlight-title');
+  if (!content) return;
 
-  if (panel && content) {
-    // Show the saved snapshot immediately
-    content.innerHTML = `
-      <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1d2e">
-        <img src="${saved.snapshot}" style="max-width:100%;max-height:100%;object-fit:contain" alt="Current board"/>
-      </div>`;
-    if (titleEl) titleEl.textContent = saved.title;
-    panel.classList.add('stage-active');
-    state.spotlightActive = true;
-    state.spotlightInfo = { type: 'board-draw', title: saved.title };
-
-    // If we have raw content, rebuild the canvas for live interaction
-    if (saved.rawContent) {
-      setTimeout(() => {
-        openBoardDrawSpotlight(saved.title, saved.rawContent, { skipReference: true });
-        state.boardDraw.commandQueue = [];
-        state.boardDraw._instantReplayCount = 999;
-        const lines = saved.rawContent.split('\n');
-        for (const ln of lines) {
-          const trimmed = ln.trim();
-          if (!trimmed) continue;
-          try { state.boardDraw.commandQueue.push(JSON.parse(trimmed)); } catch {}
-        }
-        state.boardDraw.active = true;
-      }, 100);
-    }
+  // Create or get the history overlay div
+  let overlay = document.getElementById('board-history-overlay');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'board-history-overlay';
+    overlay.style.cssText = 'position:absolute;inset:0;z-index:30;background:#1a1d2e;display:flex;flex-direction:column;';
+    content.style.position = 'relative';
+    content.appendChild(overlay);
   }
 
-  state._savedLiveBoard = null;
+  // Hide the live board content (canvas, animations) behind the overlay
+  const bdContainer = content.querySelector('.bd-container');
+  if (bdContainer) bdContainer.style.visibility = 'hidden';
 
-  // Hide "Return to Live" button
-  const liveBtn = $('#board-live-btn');
-  if (liveBtn) liveBtn.classList.add('hidden');
+  // Build overlay content
+  let imgSrc = entry.snapshot || '';
+  if (!imgSrc && entry.boardDrawContent) {
+    // No snapshot but has draw content — show placeholder
+    imgSrc = '';
+  }
+
+  overlay.innerHTML = `
+    <div style="padding:8px 12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid rgba(255,255,255,0.07)">
+      <span style="font-size:11px;color:var(--text-dim)">Viewing: ${escapeHtml(entry.title || 'Previous board')}</span>
+      <button onclick="returnToLiveBoard()" style="margin-left:auto;padding:4px 12px;border-radius:6px;border:1px solid var(--accent-dim);background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;font-family:var(--font-sans)">&#9654; Return to Live</button>
+    </div>
+    <div style="flex:1;display:flex;align-items:center;justify-content:center;overflow:auto;padding:16px">
+      ${imgSrc
+        ? `<img src="${imgSrc}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:6px" alt="Board history"/>`
+        : '<div style="color:var(--text-dim);font-size:13px">Board snapshot not available</div>'
+      }
+    </div>
+  `;
+  overlay.style.display = 'flex';
+
+  // Update title
+  const titleEl = $('#spotlight-title');
+  if (titleEl) titleEl.textContent = entry.title || 'Previous Board';
+}
+
+// Return to live board — remove the history overlay, show live canvas again
+window.returnToLiveBoard = function() {
+  // Remove history overlay
+  const overlay = document.getElementById('board-history-overlay');
+  if (overlay) overlay.remove();
+
+  // Unhide the live board content
+  const content = $('#spotlight-content');
+  if (content) {
+    const bdContainer = content.querySelector('.bd-container');
+    if (bdContainer) bdContainer.style.visibility = '';
+  }
+
+  // Restore title
+  if (state.spotlightInfo?.title) {
+    const titleEl = $('#spotlight-title');
+    if (titleEl) titleEl.textContent = state.spotlightInfo.title;
+  }
 
   // Deactivate all frame strip thumbs
   const strip = $('#board-frame-strip');
   if (strip) strip.querySelectorAll('.board-frame-thumb').forEach(t => t.classList.remove('active'));
+
+  // Hide the header "Live" button (no longer needed)
+  const liveBtn = $('#board-live-btn');
+  if (liveBtn) liveBtn.classList.add('hidden');
 };
 
 function addBoardFrameThumb(refId, type, title, thumbDataUrl) {
@@ -5950,37 +5978,27 @@ window.reopenSpotlight = function(refId) {
   const entry = state.spotlightHistory.find(e => e.id === refId);
   if (!entry) return;
 
-  // Voice mode: pause TTS, hide subtitles, save current board state
+  // Voice mode: use overlay approach — hide live board, show history on top
   if (state.teachingMode === 'voice') {
-    // Stop any playing TTS audio
     voiceStopCurrent();
     voiceHideSubtitle();
     voiceHideHand();
 
-    // Save current live board as snapshot before switching
-    if (state.boardDraw.canvas && !state._savedLiveBoard) {
-      try {
-        state._savedLiveBoard = {
-          snapshot: state.boardDraw.canvas.toDataURL('image/png'),
-          title: state.spotlightInfo?.title || 'Board',
-          rawContent: state.boardDraw.rawContent,
-        };
-      } catch {}
+    // Show history overlay (snapshot or replay) — live board stays hidden underneath
+    if (entry.type === 'board-draw') {
+      _showBoardHistoryOverlay(entry);
+      return;
     }
-
-    // Show "Return to Live" button
-    const liveBtn = $('#board-live-btn');
-    if (liveBtn) liveBtn.classList.remove('hidden');
   }
 
   if (entry.type === 'video' && entry.tag.lessonId !== undefined) {
     openVideoInSpotlight(entry.tag.lessonId, entry.tag.start, entry.tag.end, entry.tag.label, { skipReference: true });
   } else if (entry.type === 'board-draw' && entry.boardDrawContent) {
-    // Replay board-draw with stored commands (instant replay)
+    // Text mode: replay board-draw with stored commands (instant replay)
     const bdTitle = entry.title || 'Board';
     openBoardDrawSpotlight(bdTitle, entry.boardDrawContent, { skipReference: true });
     state.boardDraw.commandQueue = [];
-    state.boardDraw._instantReplayCount = 999; // replay all instantly
+    state.boardDraw._instantReplayCount = 999;
     const bdLines = entry.boardDrawContent.split('\n');
     for (const ln of bdLines) {
       const trimmed = ln.trim();
@@ -5989,19 +6007,11 @@ window.reopenSpotlight = function(refId) {
     }
     state.boardDraw.active = true;
   } else if (entry.type === 'board-draw' && entry.snapshot) {
-    // Voice scene snapshot — show as full-size image in board panel
-    const panel = $('#spotlight-panel');
+    // Text mode fallback: show snapshot
     const content = $('#spotlight-content');
-    const titleEl = $('#spotlight-title');
-    if (panel && content) {
-      content.innerHTML = `
-        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1d2e">
-          <img src="${entry.snapshot}" style="max-width:100%;max-height:100%;object-fit:contain" alt="Board snapshot"/>
-        </div>`;
-      if (titleEl) titleEl.textContent = entry.title || 'Board';
-      panel.classList.add('stage-active');
-      state.spotlightActive = true;
-      state.spotlightInfo = { type: 'board-draw', title: entry.title, isSnapshot: true };
+    if (content) {
+      content.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1d2e">
+        <img src="${entry.snapshot}" style="max-width:100%;max-height:100%;object-fit:contain" alt="Board snapshot"/></div>`;
     }
   } else if (entry.type === 'widget' && entry.widgetCode) {
     openWidgetSpotlight(entry.title, entry.widgetCode, false, { skipReference: true });
