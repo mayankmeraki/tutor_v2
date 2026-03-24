@@ -3325,7 +3325,13 @@ function renderVideoTag(tag) {
   const label = tag.attrs.label || 'Watch this segment';
   const lessonId = parseInt(tag.attrs.lesson) || state.checkpoint.currentLessonId;
 
-  // Open directly in spotlight — no inline card
+  // Voice mode: render inline on board with expand/minimize/close
+  if (state.teachingMode === 'voice') {
+    renderInlineMedia('video', { lessonId, start, end, label });
+    return;
+  }
+
+  // Text mode: open in spotlight panel
   openVideoInSpotlight(lessonId, start, end, label);
 }
 
@@ -4345,7 +4351,13 @@ function renderImageTag(tag) {
 function renderSimulationTag(tag) {
   const simId = tag.attrs.id || 'unknown';
 
-  // Open directly in spotlight — no inline card
+  // Voice mode: render inline on board
+  if (state.teachingMode === 'voice') {
+    renderInlineMedia('simulation', { simId });
+    return;
+  }
+
+  // Text mode: open in spotlight panel
   showSpotlight({ attrs: { type: 'simulation', id: simId } });
 }
 
@@ -10904,6 +10916,73 @@ function voiceHandFollowCommand(cmd) {
 }
 
 // ── Ephemeral Annotations (circle, underline, glow — fade after delay) ────
+
+// ── Inline Media (video/sim on board for voice mode) ────────
+
+function renderInlineMedia(type, data) {
+  const boardContent = $('#spotlight-content');
+  if (!boardContent) return;
+
+  // Remove any existing inline media
+  const existing = document.getElementById('inline-media-box');
+  if (existing) existing.remove();
+
+  const box = document.createElement('div');
+  box.id = 'inline-media-box';
+  box.className = 'inline-media-box';
+
+  let contentHTML = '';
+  let title = '';
+
+  if (type === 'video') {
+    const videoUrl = findVideoUrl(data.lessonId);
+    if (!videoUrl) { console.warn('No video URL for lesson', data.lessonId); return; }
+    const src = buildVideoSrc(videoUrl, data.start, data.end);
+    title = data.label || 'Video';
+    contentHTML = `<iframe src="${escapeAttr(src)}" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen style="width:100%;height:100%;border:none;border-radius:6px"></iframe>`;
+  } else if (type === 'simulation') {
+    title = 'Simulation';
+    const sim = state.simulations?.find(s => s.id === data.simId || s.sim_id === data.simId);
+    if (sim) {
+      title = sim.title || 'Simulation';
+      contentHTML = `<iframe src="${escapeAttr(sim.entry_url || sim.url || '')}" style="width:100%;height:100%;border:none;border-radius:6px"></iframe>`;
+    } else {
+      contentHTML = `<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-dim)">Loading simulation...</div>`;
+    }
+  }
+
+  box.innerHTML = `
+    <div class="inline-media-header">
+      <span class="inline-media-badge">${type === 'video' ? 'VIDEO' : 'SIM'}</span>
+      <span class="inline-media-title">${escapeHtml(title)}</span>
+      <div class="inline-media-controls">
+        <button class="inline-media-btn" onclick="expandInlineMedia()" title="Fullscreen">⛶</button>
+        <button class="inline-media-btn" onclick="closeInlineMedia()" title="Close">✕</button>
+      </div>
+    </div>
+    <div class="inline-media-content">${contentHTML}</div>
+  `;
+
+  boardContent.appendChild(box);
+  boardContent.style.position = 'relative';
+
+  // Store for reference
+  state._inlineMedia = { type, data, title };
+}
+
+function expandInlineMedia() {
+  const box = document.getElementById('inline-media-box');
+  if (!box) return;
+  box.classList.toggle('fullscreen');
+}
+
+function closeInlineMedia() {
+  const box = document.getElementById('inline-media-box');
+  if (box) box.remove();
+  state._inlineMedia = null;
+  // Trigger agent response after closing
+  streamADK('[Student closed the video/simulation]', true);
+}
 
 function voiceAnnotate(type, targetId, options = {}) {
   const el = bdElementRegistry[targetId];
