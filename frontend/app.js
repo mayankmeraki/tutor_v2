@@ -11080,6 +11080,9 @@ async function executeSay(text, prefetchedResp) {
   voiceShowIndicator('speaking');
   await voiceSpeak(text, prefetchedResp);
   voiceHideIndicator();
+  // Natural post-speech pause — prevents "burst" when next beat's TTS is prefetched
+  // Without this, prefetched audio starts instantly after the previous finishes
+  await new Promise(r => setTimeout(r, 300));
 }
 
 // ── Cursor System (ID-based, deterministic) ────────────────
@@ -11395,7 +11398,7 @@ function voiceSleep(ms) {
 // beats even when the agent omits an explicit pause attribute. Explicit
 // pauses are speed-scaled; the minimum floor (350ms) is real-time so
 // fast playback still feels human.
-const MINIMUM_BEAT_GAP_MS = 350;
+const MINIMUM_BEAT_GAP_MS = 500; // half-second breathing room between beats
 function voiceBeatGap(pauseAttr) {
   const explicitMs = (pauseAttr && pauseAttr > 0)
     ? (pauseAttr * 1000) / state.voiceSpeed
