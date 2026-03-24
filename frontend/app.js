@@ -9878,13 +9878,25 @@ function bdReplayCommandsInstant(cmds) {
   const bd = state.boardDraw;
   if (!bd.ctx) return;
   const s = bd.scale;
+  const fontScale = bdGetFontScale();
   const ctx = bd.ctx;
+
+  // Pre-expand canvas to fit all commands so nothing gets clipped
+  let maxY = 0;
+  for (const cmd of cmds) {
+    const y = cmd.y || cmd.y1 || cmd.cy || 0;
+    const h = cmd.h || cmd.size || cmd.r || 30;
+    maxY = Math.max(maxY, y + h);
+    if (cmd.y2) maxY = Math.max(maxY, cmd.y2);
+  }
+  if (maxY > 0) bdExpandIfNeeded(maxY);
+
   for (const cmd of cmds) {
     if (bd.cancelFlag) return;
     if (cmd.cmd === 'voice' || cmd.cmd === 'animation') continue;
     ctx.save();
     ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
-    const c = cmd.color || 'white';
+    const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
     const w = (cmd.w || 2) * s;
     ctx.strokeStyle = c;
     ctx.lineWidth = w;
@@ -9919,12 +9931,12 @@ function bdReplayCommandsInstant(cmds) {
       ctx.arc(cmd.cx * s, cmd.cy * s, cmd.r * s, 0, Math.PI * 2);
       ctx.stroke();
     } else if (cmd.cmd === 'text') {
-      const sz = (cmd.size || 18) * s;
+      const sz = bdResolveSize(cmd.size || 18) * fontScale;
       ctx.fillStyle = c;
-      ctx.font = `${cmd.style || ''} ${sz}px 'Patrick Hand', cursive`.trim();
+      ctx.font = `${cmd.style || ''} ${sz}px 'Caveat', cursive`.trim();
       ctx.fillText(cmd.text, cmd.x * s, cmd.y * s);
     } else if (cmd.cmd === 'latex') {
-      const sz = (cmd.size || 22) * s;
+      const sz = bdResolveSize(cmd.size || 16) * fontScale;
       const text = latexToUnicode(cmd.tex);
       ctx.fillStyle = c;
       ctx.font = `italic ${sz}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
@@ -9947,7 +9959,7 @@ function bdReplayCommandsInstant(cmds) {
       if (rows.length === 0) { ctx.restore(); continue; }
       const nRows = rows.length;
       const nCols = Math.max(...rows.map(r => r.length));
-      const fs = (cmd.size || 22) * s;
+      const fs = (cmd.size || 22) * fontScale;
       const font = `italic ${fs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
       ctx.font = font;
       const cellPadX = 12 * s, cellPadY = 8 * s;
@@ -10018,7 +10030,7 @@ function bdReplayCommandsInstant(cmds) {
       ctx.beginPath(); ctx.moveTo(bx, by1); ctx.quadraticCurveTo(bx+bw, by1, bx+bw, midY); ctx.stroke();
       ctx.beginPath(); ctx.moveTo(bx+bw, midY); ctx.quadraticCurveTo(bx+bw, by2, bx, by2); ctx.stroke();
       if (cmd.label) {
-        const bfs = (cmd.size||18)*s;
+        const bfs = (cmd.size||18) * fontScale;
         ctx.fillStyle = c; ctx.font = `italic ${bfs}px 'CMU Serif', 'Times New Roman', Georgia, serif`;
         ctx.fillText(latexToUnicode(cmd.label), bx+bw+6*s*dir, midY+bfs/3);
       }
