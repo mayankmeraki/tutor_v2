@@ -1207,6 +1207,8 @@ function generateId() {
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
   if (state.isStreaming) return;
   state.isStreaming = true;
+  state._stopRequested = false;
+  state._streamReader = null;
   state._lastSSETimestamp = Date.now();
 
   // Voice mode: restore full-screen board if we were in interactive mode
@@ -1218,6 +1220,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
     }
     const micFloat = $('#voice-mic-float');
     if (micFloat) micFloat.style.display = '';
+    voiceBarSetThinking(true);
   }
 
   // Disable quick actions during streaming
@@ -1228,9 +1231,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state._streamingTimeout = setTimeout(() => {
     if (state.isStreaming) {
       console.warn('[streamADK] Safety timeout — force-resetting streaming state');
-      state.isStreaming = false;
-      removeStreamingIndicator();
-      renderAIError('Response timed out. Please try again.');
+      stopGeneration();
     }
   }, 120000);
 
@@ -1290,6 +1291,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
     }
 
     const reader = res.body.getReader();
+    state._streamReader = reader;
     const decoder = new TextDecoder();
     let buffer = '';
 
@@ -1297,6 +1299,10 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
     state.currentMessageId = null;
 
     while (true) {
+      if (state._stopRequested) {
+        reader.cancel();
+        break;
+      }
       const { done, value } = await reader.read();
       if (done) break;
 
@@ -1311,44 +1317,63 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
 
         try {
           const event = JSON.parse(jsonStr);
-          handleSSEEvent(event);
+          if (!state._stopRequested) handleSSEEvent(event);
         } catch (e) {
           // Skip unparseable events
         }
       }
     }
 
-    if (buffer.startsWith('data: ')) {
+    if (!state._stopRequested && buffer.startsWith('data: ')) {
       try {
         const event = JSON.parse(buffer.slice(6).trim());
         handleSSEEvent(event);
       } catch (e) {}
     }
   } catch (err) {
-    removeStreamingIndicator();
-    removeAssessmentTransition();
-    renderAIError(err.message);
+    if (!state._stopRequested) {
+      removeStreamingIndicator();
+      removeAssessmentTransition();
+      renderAIError(err.message);
+    }
   }
 
+  // Clean up after stop or normal completion
+  const wasStopped = state._stopRequested;
   state.isStreaming = false;
+  state._streamReader = null;
+  state._stopRequested = false;
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
   // Re-enable quick actions
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = false);
 
-  // Voice mode safety net: always show board input after streaming ends
-  // (RUN_FINISHED handler may have failed or not fired)
+  // Voice mode: reset thinking state and show input
   if (state.teachingMode === 'voice') {
-    setTimeout(() => {
-      // Check if voice input bar already has focus (user is typing)
-      const voiceInput = $('#voice-bar-input');
-      const isTyping = voiceInput && voiceInput === document.activeElement && voiceInput.value.trim();
-      if (!isTyping) {
-        try { voiceHandleRunFinished(); } catch (e) {
-          console.warn('voiceHandleRunFinished failed:', e);
-          voiceShowBoardQuestion('Type your response...');
-        }
+    voiceBarSetThinking(false);
+
+    if (wasStopped) {
+      // Stop requested: discard the streaming message, remove from history
+      removeStreamingIndicator();
+      removeAssessmentTransition();
+      const streamMsg = document.getElementById('ai-stream-msg');
+      if (streamMsg) streamMsg.remove();
+      // Remove the last assistant message from state if partially accumulated
+      if (state.messages.length && state.messages[state.messages.length - 1].role === 'assistant') {
+        state.messages.pop();
       }
-    }, 500);
+      voiceShowBoardQuestion('Type your response...');
+    } else {
+      setTimeout(() => {
+        const voiceInput = $('#voice-bar-input');
+        const isTyping = voiceInput && voiceInput === document.activeElement && voiceInput.value.trim();
+        if (!isTyping) {
+          try { voiceHandleRunFinished(); } catch (e) {
+            console.warn('voiceHandleRunFinished failed:', e);
+            voiceShowBoardQuestion('Type your response...');
+          }
+        }
+      }, 500);
+    }
   }
 
   SessionManager.saveSession();
@@ -1395,6 +1420,7 @@ function handleSSEEvent(event) {
       state.boardDraw._streamingHandled = false;
       state.widget = { active: false, contentStartIdx: 0, complete: false, title: '', code: '', ready: false, pendingParams: null, liveState: {}, assetId: null };
       removeStreamingIndicator();
+      hideSessionPrep();
       // Safety net: if onboarding overlay is still showing when tutor starts talking, remove it
       const staleOnboard = $('#onboarding-block');
       if (staleOnboard) {
@@ -6607,19 +6633,47 @@ function renderSessionCards(active, completed) {
     }
   }
 
-  // Wire search
+  // Wire search — client-side instant + server semantic for 3+ chars
   const searchInput = document.getElementById('dash-session-search');
   if (searchInput) {
+    let _searchDebounce = null;
     searchInput.addEventListener('input', () => {
-      const q = searchInput.value.toLowerCase().trim();
-      const fActive = _allSessions.active.filter(s => _sessionMatchesQuery(s, q));
-      const fCompleted = _allSessions.completed.filter(s => _sessionMatchesQuery(s, q));
-      // Clear and re-render
+      const q = searchInput.value.trim();
+      const qLower = q.toLowerCase();
+
+      // Instant client-side filter
+      const fActive = _allSessions.active.filter(s => _sessionMatchesQuery(s, qLower));
+      const fCompleted = _allSessions.completed.filter(s => _sessionMatchesQuery(s, qLower));
       activeContainer.querySelectorAll('.dash-sessions-grid-inner, .dash-show-more').forEach(el => el.remove());
       _renderSessionBatch(activeContainer, fActive, true, q ? 100 : SESSIONS_PER_PAGE);
       if (completedItemsContainer) {
         completedItemsContainer.innerHTML = '';
         _renderSessionBatch(completedItemsContainer, fCompleted, false, q ? 100 : SESSIONS_PER_PAGE);
+      }
+
+      // Debounced semantic search for 3+ chars
+      if (_searchDebounce) clearTimeout(_searchDebounce);
+      if (q.length >= 3 && state.courseId) {
+        _searchDebounce = setTimeout(async () => {
+          try {
+            const url = `${state.apiUrl}/api/v1/sessions/search/${state.courseId}?q=${encodeURIComponent(q)}`;
+            const opts = AuthManager.isLoggedIn() ? { headers: AuthManager.authHeaders() } : {};
+            const res = await fetch(url, opts);
+            if (!res.ok) return;
+            const results = await res.json();
+            if (searchInput.value.trim() !== q) return; // stale
+            if (results.length > 0) {
+              const semanticActive = results.filter(s => s.status === 'active');
+              const semanticCompleted = results.filter(s => s.status !== 'active');
+              activeContainer.querySelectorAll('.dash-sessions-grid-inner, .dash-show-more').forEach(el => el.remove());
+              _renderSessionBatch(activeContainer, semanticActive, true, 100);
+              if (completedItemsContainer) {
+                completedItemsContainer.innerHTML = '';
+                _renderSessionBatch(completedItemsContainer, semanticCompleted, false, 100);
+              }
+            }
+          } catch (e) { console.debug('Semantic search failed:', e); }
+        }, 400);
       }
     });
   }
@@ -7117,15 +7171,18 @@ async function startNewSession(name, courseId, intent) {
   state.studentIntent = intent;
   state.courseId = courseId;
 
-  setStatus('Loading course...');
+  showSessionPrep();
 
   try {
+    updateSessionPrep('Loading course materials...');
     const courseMap = await loadCourseMap(state.courseId);
+    updateSessionPrep('Fetching simulations & concepts...');
     await Promise.all([
       fetchSimulations(state.courseId),
       fetchConcepts(state.courseId),
     ]);
 
+    updateSessionPrep('Checking your progress...');
     // Fetch previous sessions — find the one with most actual progress
     const prevSessions = await SessionManager.loadPreviousSessions(state.courseId, state.studentName) || [];
 
@@ -7157,6 +7214,7 @@ async function startNewSession(name, courseId, intent) {
       };
     }
 
+    updateSessionPrep('Organizing your lesson plan...');
     showTeachingLayout(courseMap);
 
     // Reset ALL session state for fresh start
@@ -7252,7 +7310,7 @@ OPENING INSTRUCTIONS:
 - Greet warmly (1 short sentence, use their name, acknowledge what they want).
 - DO NOT give an MCQ or quiz. No cold assessment on the opening message.
 - If returning: check [Student Notes] for what they covered. Reference it naturally ("Last time you had a great insight about..."). Ask ONE casual probing question in conversation (not an MCQ) to verify they remember.
-- Spawn planning agent in the background based on their intent.
+- A planning agent has ALREADY been spawned in the background — do NOT spawn another one. Do NOT call get_section_content yourself.
 - Start TEACHING with a board-draw or widget in this same message. The board should NOT be empty after your first response.
 - Keep chat brief (2-3 sentences). The visual does the teaching.`;
     } else if (hasProgress) {
@@ -7265,7 +7323,7 @@ OPENING INSTRUCTIONS:
 - Ask ONE natural conversational question to check if prior concepts are still solid ("Last time we explored how [X] works — does that still feel clear, or should we revisit?").
 - Based on their response, either revisit briefly or continue forward.
 - Start TEACHING with a visual (board-draw or widget) in this message. Board should not be empty.
-- Spawn planning agent in the background.`;
+- A planning agent has ALREADY been spawned — do NOT spawn another or call get_section_content yourself.`;
     } else {
       trigger = `[SYSTEM] ${timeCtx} New student "${state.studentName}" — first session.
 
@@ -7275,12 +7333,14 @@ OPENING INSTRUCTIONS:
 - DO NOT mention lessons, sections, or course structure. You're a tutor, not courseware.
 - Briefly set the stage: what you'll explore today and why it's interesting (1-2 sentences, no jargon).
 - Start TEACHING with a board-draw or widget immediately. The board should NOT be empty.
-- Spawn planning agent in the background.
+- A planning agent has ALREADY been spawned — do NOT spawn another or call get_section_content yourself.
 - Gauge their level THROUGH teaching ("Does this connect to anything you've seen before?"), not through quizzing.`;
     }
 
+    updateSessionPrep('Starting your session...');
     await streamADK(trigger, true, true);
   } catch (err) {
+    hideSessionPrep();
     setStatus(`Failed: ${err.message}`, 'error');
     // Reset loading state so user can retry
     state._startingSession = false;
@@ -7614,6 +7674,56 @@ function renderHistoricalStudentMessage(text) {
   block.dataset.resolved = 'true';
   block.innerHTML = `<span class="response-label">You</span> <span class="response-text">${escapeHtml(text)}</span>`;
   stream.appendChild(block);
+}
+
+// ── Session Prep Overlay ──────────────────────────────────────
+let _prepMsgTimer = null;
+const _prepMessages = [
+  'Preparing your study session...',
+  'Loading course materials...',
+  'Fetching simulations & concepts...',
+  'Checking your progress...',
+  'Organizing your lesson plan...',
+  'Starting your session...',
+  'Almost ready...',
+];
+
+function showSessionPrep() {
+  const overlay = $('#session-prep-overlay');
+  if (!overlay) return;
+  overlay.classList.remove('hidden', 'fade-out');
+  const msg = $('#session-prep-msg');
+  const sub = $('#session-prep-sub');
+  if (msg) msg.textContent = 'Preparing your study session...';
+  if (sub) sub.textContent = '';
+}
+
+function updateSessionPrep(text) {
+  const msg = $('#session-prep-msg');
+  const sub = $('#session-prep-sub');
+  if (msg) {
+    msg.style.animation = 'none';
+    void msg.offsetWidth; // trigger reflow
+    msg.style.animation = '';
+    msg.textContent = text;
+  }
+  // Show a subtle sub-message
+  const subs = [
+    'This should only take a moment',
+    'Setting things up for you',
+    'Getting everything in order',
+  ];
+  if (sub && !sub.textContent) {
+    sub.textContent = subs[Math.floor(Math.random() * subs.length)];
+  }
+}
+
+function hideSessionPrep() {
+  const overlay = $('#session-prep-overlay');
+  if (!overlay || overlay.classList.contains('hidden')) return;
+  overlay.classList.add('fade-out');
+  setTimeout(() => overlay.classList.add('hidden'), 500);
+  if (_prepMsgTimer) { clearInterval(_prepMsgTimer); _prepMsgTimer = null; }
 }
 
 function showTeachingLayout(courseMap) {
@@ -8292,14 +8402,42 @@ function bdInit(canvasEl, voiceEl) {
   bd.studentDrawing = false;
   bd.studentColor = '#22ee66';
   bd.studentStrokeW = 2.5;
+  bd._studentScrolledRecently = false;
   bdResizeCanvas();
   bdDrawGrid();
   bdInitStudentDrawing(canvasEl);
   bdInitToolbar();
+  bdInitScrollDetection();
   // Start processing commands that were queued during streaming
   if (bd.commandQueue.length > 0 && !bd.isProcessing) {
     bdProcessQueue();
   }
+}
+
+function bdInitScrollDetection() {
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap || wrap._bdScrollListenerAttached) return;
+  wrap._bdScrollListenerAttached = true;
+  let scrollTimer = null;
+  let lastProgrammaticScroll = 0;
+  const origScrollBy = wrap.scrollBy.bind(wrap);
+  const origScrollTo = wrap.scrollTo.bind(wrap);
+  wrap.scrollBy = function(...args) {
+    lastProgrammaticScroll = Date.now();
+    return origScrollBy(...args);
+  };
+  wrap.scrollTo = function(...args) {
+    lastProgrammaticScroll = Date.now();
+    return origScrollTo(...args);
+  };
+  wrap.addEventListener('scroll', () => {
+    if (Date.now() - lastProgrammaticScroll < 200) return;
+    state.boardDraw._studentScrolledRecently = true;
+    clearTimeout(scrollTimer);
+    scrollTimer = setTimeout(() => {
+      state.boardDraw._studentScrolledRecently = false;
+    }, 3000);
+  }, { passive: true });
 }
 
 function bdInitToolbar() {
@@ -9015,6 +9153,7 @@ function bdClearBoard() {
   bdClearElementRegistry();
   bdResetContentBottom();
   state._voiceSceneYOffset = 0;
+  bd._studentScrolledRecently = false;
   bdClearAllAnimations();
   bdResizeCanvas();
   bd.ctx.fillStyle = '#1a1d2e';
@@ -9044,19 +9183,18 @@ async function bdRunCommand(cmd) {
   if (cmd.id) bdRegisterElement(cmd);
   // Hand cursor disabled — was causing positioning issues
   // if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Gentle auto-scroll: only nudge down slightly when content reaches the bottom edge
+  // Gentle auto-scroll: only nudge down when content reaches the bottom edge.
+  // Suppressed when the student has recently scrolled manually (cooldown).
   {
     const wrap = document.getElementById('bd-canvas-wrap');
-    if (wrap) {
+    if (wrap && !state.boardDraw._studentScrolledRecently) {
       const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
       const maxCmdY = ys.length ? Math.max(...ys) : -1;
       if (maxCmdY >= 0) {
         const cmdH = cmd.h || cmd.size || cmd.r || 20;
         const scaledBottom = (maxCmdY + cmdH) * state.boardDraw.scale;
         const viewBottom = wrap.scrollTop + wrap.clientHeight;
-        // Only scroll if content just barely exceeds the visible area
         if (scaledBottom > viewBottom - 10 && scaledBottom < viewBottom + 200) {
-          // Nudge by just enough to show the new content + small margin
           const nudge = scaledBottom - viewBottom + 40;
           wrap.scrollBy({ top: nudge, behavior: 'smooth' });
         }
@@ -10991,7 +11129,8 @@ async function executeVoiceScene(sceneTag) {
       bd.ctx.stroke();
     }
 
-    // Auto-scroll to where new content will start
+    // Auto-scroll to where new content will start (reset student-scroll cooldown)
+    state.boardDraw._studentScrolledRecently = false;
     const wrap = document.getElementById('bd-canvas-wrap');
     if (wrap) {
       const targetScrollY = state._voiceSceneYOffset * bd.scale - 30;
@@ -11148,11 +11287,12 @@ async function executeDraw(drawCmds) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // Apply Y-offset for continuous board: shift all commands below previous content
+  // Apply Y-offset for continuous board: shift all commands below previous content.
+  // CLONE each command before mutating — prevents double-offset if objects are reused.
   const yOffset = state._voiceSceneYOffset || 0;
-  for (const cmd of drawCmds) {
-    if (!cmd || !cmd.cmd) continue;
-    // Offset Y coordinates so draws appear below previous scene content
+  for (const origCmd of drawCmds) {
+    if (!origCmd || !origCmd.cmd) continue;
+    const cmd = { ...origCmd };
     if (yOffset > 0) {
       if (cmd.y !== undefined) cmd.y += yOffset;
       if (cmd.y1 !== undefined) cmd.y1 += yOffset;
@@ -11162,12 +11302,33 @@ async function executeDraw(drawCmds) {
     state.boardDraw.commandQueue.push(cmd);
   }
 
-  // Process the queue
-  if (state.boardDraw.canvas && !state.boardDraw.isProcessing) {
-    await bdProcessQueue();
+  // Process the queue — wait for it to fully drain so bdContentBottomY
+  // is accurate before the next beat/scene reads it.
+  if (state.boardDraw.canvas) {
+    if (state.boardDraw.isProcessing) {
+      // Queue is already running — wait for it to finish (includes our new commands)
+      await bdWaitForQueueDrain();
+    } else {
+      await bdProcessQueue();
+    }
   }
+}
 
-  // No auto-scroll — board stays at top
+// Wait for the command queue to fully drain (poll until isProcessing is false and queue is empty)
+function bdWaitForQueueDrain() {
+  return new Promise(resolve => {
+    const check = () => {
+      const bd = state.boardDraw;
+      if (!bd.isProcessing && bd.commandQueue.length === 0) {
+        resolve();
+      } else if (bd.cancelFlag) {
+        resolve();
+      } else {
+        setTimeout(check, 50);
+      }
+    };
+    check();
+  });
 }
 
 // Execute say — TTS + subtitle (optionally with pre-fetched TTS response)
@@ -11553,9 +11714,61 @@ function voiceBeatGap(pauseAttr) {
   return new Promise(r => setTimeout(r, Math.max(explicitMs, MINIMUM_BEAT_GAP_MS)));
 }
 
+// ── Thinking state & stop generation ────────────────────────
+
+function voiceBarSetThinking(isThinking) {
+  const bar = $('#voice-bar-main');
+  const input = $('#voice-bar-input');
+  const micBtn = $('#voice-mic-btn');
+  const sendBtn = $('#voice-bar-send');
+  if (!bar) return;
+
+  if (isThinking) {
+    bar.classList.add('thinking');
+    if (input) { input.disabled = true; input.placeholder = ''; }
+    if (sendBtn) sendBtn.classList.remove('visible');
+    // Replace mic with stop button
+    if (micBtn) {
+      micBtn._origHTML = micBtn.innerHTML;
+      micBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+      micBtn.title = 'Stop generating';
+      micBtn.onclick = stopGeneration;
+    }
+  } else {
+    bar.classList.remove('thinking');
+    if (input) { input.disabled = false; input.placeholder = 'Type or hold Space to talk...'; }
+    if (micBtn) {
+      if (micBtn._origHTML) micBtn.innerHTML = micBtn._origHTML;
+      micBtn.title = 'Hold to talk';
+      micBtn.onclick = null;
+    }
+  }
+}
+
+function stopGeneration() {
+  if (!state.isStreaming) return;
+  state._stopRequested = true;
+  // Cancel the stream reader immediately
+  if (state._streamReader) {
+    try { state._streamReader.cancel(); } catch (e) {}
+  }
+  // Stop any active voice scene
+  if (state._voiceSceneActive) {
+    state._voiceSceneActive = false;
+    // Stop TTS audio
+    if (state._currentTTSAudio) {
+      try { state._currentTTSAudio.pause(); state._currentTTSAudio = null; } catch (e) {}
+    }
+  }
+  // Immediate UI feedback
+  voiceBarSetThinking(false);
+  removeStreamingIndicator();
+}
+
 // ── Unified voice bar submit ────────────────────────────────
 
 function submitVoiceBarInput() {
+  if (state.isStreaming) return;
   const field = $('#voice-bar-input');
   if (!field || !field.value.trim()) return;
   const text = field.value.trim();

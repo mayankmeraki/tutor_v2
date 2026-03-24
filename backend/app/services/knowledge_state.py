@@ -15,6 +15,7 @@ Document schema:
     lastUpdated:   ISO datetime
 """
 
+import asyncio
 import logging
 from datetime import datetime, timezone
 
@@ -23,10 +24,15 @@ from app.core.mongodb import get_tutor_db
 log = logging.getLogger(__name__)
 
 
-# ─── Collection accessor ───────────────────────────────────────────
+# ─── Collection accessors ──────────────────────────────────────────
 
 def _collection():
+    """Source of truth: one doc per student+course with notes array."""
     return get_tutor_db()["concept_states"]
+
+def _index_collection():
+    """Flat materialized index for vector search — one doc per note."""
+    return get_tutor_db()["student_note_index"]
 
 
 def _doc_id(course_id: int, user_email: str) -> str:
@@ -74,6 +80,11 @@ async def append_note(
 
     log.info("Knowledge note appended: %s/%d (%d chars, %d tags)",
              user_email, course_id, len(text), len(tags or []))
+
+    # Sync to vector index in background (non-blocking)
+    asyncio.create_task(_sync_note_to_vector_index(
+        course_id, user_email, text, tags or [], session_id
+    ))
 
     return {"logged": True, "note_length": len(text), "tags": tags or []}
 
@@ -133,7 +144,10 @@ async def upsert_concept_note(
                 best_overlap = overlap
                 best_idx = i
 
+        old_primary = None
         if best_idx >= 0:
+            old_tags = _normalize_tags(notes[best_idx].get("tags", []))
+            old_primary = old_tags[0] if old_tags else "_uncategorized"
             notes[best_idx] = new_note
             action = "replaced"
         else:
@@ -144,6 +158,12 @@ async def upsert_concept_note(
             {"_id": doc_id},
             {"$set": {"notes": notes, "lastUpdated": now}},
         )
+
+        # Clean orphaned vector doc if primary tag changed
+        if old_primary and old_primary != primary:
+            asyncio.create_task(_delete_vector_index_entry(
+                course_id, user_email, old_primary
+            ))
     else:
         await col.update_one(
             {"_id": doc_id},
@@ -162,7 +182,193 @@ async def upsert_concept_note(
     log.info("Knowledge note %s: %s/%d [%s] (%d chars)",
              action, user_email, course_id, primary, len(note_text))
 
+    # Sync to vector index in background
+    asyncio.create_task(_sync_note_to_vector_index(
+        course_id, user_email, note_text, concepts, session_id
+    ))
+
     return {"action": action, "primary_concept": primary}
+
+
+# ─── Vector Index Sync ─────────────────────────────────────────────
+
+async def _delete_vector_index_entry(
+    course_id: int, user_email: str, primary_tag: str
+) -> None:
+    """Delete an orphaned vector index entry (background task)."""
+    try:
+        doc_id = f"{user_email}:{course_id}:{primary_tag}"
+        await _index_collection().delete_one({"_id": doc_id})
+        log.debug("Deleted orphaned vector entry: %s", doc_id)
+    except Exception as e:
+        log.warning("Failed to delete orphaned vector entry: %s", e)
+
+async def _sync_note_to_vector_index(
+    course_id: int,
+    user_email: str,
+    note_text: str,
+    tags: list[str],
+    session_id: str,
+) -> None:
+    """Sync a note to the flat vector index (student_note_index).
+
+    Generates embedding via OpenRouter, then upserts into the flat collection.
+    Runs as background task — non-blocking.
+    """
+    try:
+        from app.services.embedding_service import generate_embedding, get_embedding_metadata
+
+        embedding = await generate_embedding(note_text)
+        if not embedding:
+            return  # silently skip if embedding fails
+
+        now = datetime.now(timezone.utc).isoformat()
+        meta = get_embedding_metadata()
+
+        # Upsert by (studentEmail, courseId, primary tag) — one vector per concept cluster
+        primary_tag = tags[0] if tags else "_uncategorized"
+        doc_id = f"{user_email}:{course_id}:{primary_tag}"
+
+        await _index_collection().update_one(
+            {"_id": doc_id},
+            {"$set": {
+                "studentEmail": user_email,
+                "courseId": course_id,
+                "noteText": note_text[:2000],  # truncate for storage
+                "tags": tags,
+                "embedding": embedding,
+                "embeddingModel": meta["model"],
+                "embeddingProvider": meta["provider"],
+                "sessionId": session_id,
+                "updatedAt": now,
+            }},
+            upsert=True,
+        )
+        log.debug("Vector index synced: %s/%d/%s", user_email, course_id, primary_tag)
+
+    except Exception as e:
+        log.warning("Vector index sync failed: %s", e)
+
+
+async def vector_search_notes(
+    course_id: int,
+    user_email: str,
+    query: str,
+    limit: int = 5,
+    threshold: float = 0.72,
+) -> list[dict]:
+    """Search student notes using MongoDB Atlas Vector Search.
+
+    Returns notes semantically similar to the query, filtered by student+course.
+    Uses cosine similarity with a threshold to reject noise.
+
+    Args:
+        course_id: Course to search within
+        user_email: Student's email
+        query: Natural language search query
+        limit: Max results to return
+        threshold: Minimum similarity score (0-1). Higher = stricter.
+
+    Returns:
+        List of {noteText, tags, score, updatedAt} dicts, sorted by relevance.
+    """
+    try:
+        from app.services.embedding_service import generate_embedding
+
+        query_embedding = await generate_embedding(query)
+        if not query_embedding:
+            return []
+
+        # MongoDB Atlas Vector Search aggregation
+        pipeline = [
+            {
+                "$vectorSearch": {
+                    "index": "notes_vector_index",
+                    "path": "embedding",
+                    "queryVector": query_embedding,
+                    "numCandidates": limit * 4,  # over-fetch then filter
+                    "limit": limit * 2,
+                    "filter": {
+                        "studentEmail": user_email,
+                        "courseId": course_id,
+                    },
+                }
+            },
+            {
+                "$addFields": {
+                    "score": {"$meta": "vectorSearchScore"},
+                }
+            },
+            {
+                "$match": {
+                    "score": {"$gte": threshold},
+                }
+            },
+            {
+                "$limit": limit,
+            },
+            {
+                "$project": {
+                    "_id": 0,
+                    "noteText": 1,
+                    "tags": 1,
+                    "score": 1,
+                    "updatedAt": 1,
+                }
+            },
+        ]
+
+        cursor = _index_collection().aggregate(pipeline)
+        results = await cursor.to_list(limit)
+
+        log.info("Vector search: %s/%d query='%s' → %d results (threshold=%.2f)",
+                 user_email, course_id, query[:50], len(results), threshold)
+
+        return results
+
+    except Exception as e:
+        log.warning("Vector search failed: %s", e)
+        return []
+
+
+async def hybrid_search_notes(
+    course_id: int,
+    user_email: str,
+    query: str,
+    limit: int = 5,
+) -> str:
+    """Hybrid search: vector search + text search, deduplicated and merged.
+
+    Returns formatted string for tutor context injection.
+    Falls back to text-only search if vector search fails.
+    """
+    # Try vector search first
+    vector_results = await vector_search_notes(course_id, user_email, query, limit)
+
+    # Also do text search (existing method)
+    text_results = await search_notes(course_id, user_email, query)
+
+    # If vector search returned results, format them
+    if vector_results:
+        lines = [f"Found {len(vector_results)} relevant notes:"]
+        seen_tags = set()
+        for r in vector_results:
+            tags = r.get("tags", [])
+            tag_key = tuple(tags) if tags else ("_none",)
+            if tag_key in seen_tags:
+                continue
+            seen_tags.add(tag_key)
+
+            text = r.get("noteText", "")
+            score = r.get("score", 0)
+            tags_str = f" [{', '.join(tags)}]" if tags else ""
+            display = text if len(text) <= 250 else text[:250] + "..."
+            lines.append(f"  [{score:.0%}] {display}{tags_str}")
+
+        return "\n".join(lines)
+
+    # Fallback to text search
+    return text_results
 
 
 async def search_notes(
@@ -350,3 +556,95 @@ def format_knowledge_state(knowledge_state: dict) -> str:
         lines.append("No student notes yet — this is a new student.")
 
     return "\n".join(lines)
+
+
+# ─── Backfill / Reindex ──────────────────────────────────────────
+
+async def backfill_vector_index(dry_run: bool = False) -> dict:
+    """Scan all concept_states docs, generate embeddings for notes missing from vector index.
+
+    - Skips notes that already have a matching vector doc (by doc_id)
+    - Removes orphaned vector docs that no longer match any source note
+    - Returns stats: {total_notes, synced, skipped, orphans_removed, errors}
+    """
+    from app.services.embedding_service import generate_embedding, get_embedding_metadata
+
+    col = _collection()
+    idx = _index_collection()
+    stats = {"total_notes": 0, "synced": 0, "skipped": 0, "orphans_removed": 0, "errors": 0}
+
+    # Collect all valid vector doc_ids from source
+    valid_vector_ids = set()
+
+    cursor = col.find({})
+    async for doc in cursor:
+        course_id = doc.get("courseId")
+        user_email = doc.get("userEmail")
+        if not course_id or not user_email:
+            continue
+
+        notes = doc.get("notes", [])
+        for note in notes:
+            tags = _normalize_tags(note.get("tags", []))
+            text = note.get("text", "")
+            primary = tags[0] if tags else "_uncategorized"
+            if not text or primary == "_profile":
+                continue
+
+            stats["total_notes"] += 1
+            vector_id = f"{user_email}:{course_id}:{primary}"
+            valid_vector_ids.add(vector_id)
+
+            # Check if vector doc already exists
+            existing = await idx.find_one({"_id": vector_id}, {"_id": 1})
+            if existing:
+                stats["skipped"] += 1
+                continue
+
+            if dry_run:
+                stats["synced"] += 1
+                continue
+
+            # Generate embedding and upsert
+            try:
+                embedding = await generate_embedding(text)
+                if not embedding:
+                    stats["errors"] += 1
+                    continue
+
+                now = datetime.now(timezone.utc).isoformat()
+                meta = get_embedding_metadata()
+
+                await idx.update_one(
+                    {"_id": vector_id},
+                    {"$set": {
+                        "studentEmail": user_email,
+                        "courseId": course_id,
+                        "noteText": text[:2000],
+                        "tags": tags,
+                        "embedding": embedding,
+                        "embeddingModel": meta["model"],
+                        "embeddingProvider": meta["provider"],
+                        "sessionId": note.get("sessionId", "backfill"),
+                        "updatedAt": now,
+                    }},
+                    upsert=True,
+                )
+                stats["synced"] += 1
+                log.info("Backfilled vector: %s/%d/%s", user_email, course_id, primary)
+
+            except Exception as e:
+                stats["errors"] += 1
+                log.warning("Backfill failed for %s: %s", vector_id, e)
+
+    # Clean orphaned vector docs
+    if not dry_run:
+        orphan_cursor = idx.find({}, {"_id": 1})
+        async for vdoc in orphan_cursor:
+            if vdoc["_id"] not in valid_vector_ids:
+                await idx.delete_one({"_id": vdoc["_id"]})
+                stats["orphans_removed"] += 1
+                log.info("Removed orphan vector doc: %s", vdoc["_id"])
+
+    log.info("Backfill complete: %s", stats)
+    return stats

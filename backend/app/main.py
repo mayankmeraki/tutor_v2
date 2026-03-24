@@ -200,6 +200,30 @@ app.include_router(events.router)
 app.include_router(ingestion.router)
 app.include_router(chat.router)
 
+
+# ─── Admin / management endpoints ────────────────────────────────
+
+@app.post("/api/admin/backfill-vectors")
+async def backfill_vectors(request: Request):
+    """Backfill vector embeddings for all existing knowledge notes.
+
+    POST /api/admin/backfill-vectors?dry_run=true  — preview what would be synced
+    POST /api/admin/backfill-vectors               — actually run the backfill
+    """
+    from app.services.knowledge_state import backfill_vector_index
+    from app.api.routes.auth import get_current_user
+
+    # Require auth
+    try:
+        user = await get_current_user(request)
+    except Exception:
+        return {"error": "Authentication required"}, 401
+
+    dry_run = request.query_params.get("dry_run", "").lower() in ("true", "1", "yes")
+    stats = await backfill_vector_index(dry_run=dry_run)
+    return {"ok": True, "dry_run": dry_run, **stats}
+
+
 # Static files: rendered Manim output
 os.makedirs(RENDERED_DIR, exist_ok=True)
 app.mount("/rendered", StaticFiles(directory=RENDERED_DIR), name="rendered")

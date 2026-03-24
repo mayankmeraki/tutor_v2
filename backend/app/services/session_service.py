@@ -324,6 +324,108 @@ async def get_sessions_with_headlines_by_email(course_id: int, user_email: str) 
     return await _enrich_sessions_with_headlines(sessions)
 
 
+# ─── Semantic Session Search ──────────────────────────────────
+
+async def search_sessions_semantic(
+    course_id: int,
+    user_email: str,
+    query: str,
+    limit: int = 10,
+) -> list[dict]:
+    """Search sessions using text matching + knowledge note vector search.
+
+    1. Text match: headline, description, intent, topic titles
+    2. Vector match: find relevant concept notes → match to sessions that covered them
+    Results are merged, deduplicated, and ranked.
+    """
+    import asyncio
+    import re
+
+    query_lower = query.lower().strip()
+    if not query_lower:
+        return []
+
+    # Load all sessions for this user+course
+    all_sessions = await get_sessions_for_user(course_id, user_email)
+    if not all_sessions:
+        return []
+
+    # Enrich with headlines (cached — fast after first call)
+    all_sessions = await _enrich_sessions_with_headlines(all_sessions)
+
+    # ── Text matching (fast, always works) ──
+    scored: list[tuple[float, dict]] = []
+    query_terms = query_lower.split()
+
+    for s in all_sessions:
+        score = 0.0
+        searchable = " ".join(filter(None, [
+            s.get("headline", ""),
+            s.get("headlineDescription", ""),
+            (s.get("intent") or {}).get("raw", "") if isinstance(s.get("intent"), dict) else str(s.get("intent", "")),
+            s.get("backendState", {}).get("sessionObjective", "") if isinstance(s.get("backendState"), dict) else "",
+        ])).lower()
+
+        # Score: each query term found
+        for term in query_terms:
+            if term in searchable:
+                score += 2.0
+
+        # Bonus: check completed topics
+        bs = s.get("backendState", {}) if isinstance(s.get("backendState"), dict) else {}
+        topics = bs.get("completedTopics", []) or []
+        for topic in topics:
+            title = (topic.get("title", "") + " " + topic.get("concept", "")).lower()
+            for term in query_terms:
+                if term in title:
+                    score += 1.5
+
+        if score > 0:
+            scored.append((score, s))
+
+    # ── Vector matching (semantic — may fail gracefully) ──
+    try:
+        from app.services.knowledge_state import vector_search_notes
+        vector_results = await vector_search_notes(course_id, user_email, query, limit=5)
+
+        if vector_results:
+            # Find which sessions covered these concepts
+            concept_tags = set()
+            for vr in vector_results:
+                for tag in vr.get("tags", []):
+                    concept_tags.add(tag.lower())
+
+            # Boost sessions that covered matching concepts
+            session_ids_scored = {id(s): score for score, s in scored}
+            for s in all_sessions:
+                bs = s.get("backendState", {}) if isinstance(s.get("backendState"), dict) else {}
+                topics = bs.get("completedTopics", []) or bs.get("currentTopics", []) or []
+                for topic in topics:
+                    concept = topic.get("concept", "").lower()
+                    title = topic.get("title", "").lower()
+                    for tag in concept_tags:
+                        if tag in concept or tag in title:
+                            existing = next((i for i, (_, es) in enumerate(scored) if es.get("sessionId") == s.get("sessionId")), None)
+                            if existing is not None:
+                                scored[existing] = (scored[existing][0] + 3.0, scored[existing][1])
+                            else:
+                                scored.append((3.0, s))
+                            break
+    except Exception as e:
+        log.debug("Vector search in session search failed (graceful): %s", e)
+
+    # Deduplicate by sessionId, keep highest score
+    seen = {}
+    for score, s in scored:
+        sid = s.get("sessionId", id(s))
+        if sid not in seen or score > seen[sid][0]:
+            seen[sid] = (score, s)
+
+    # Sort by score desc, then by date desc
+    results = sorted(seen.values(), key=lambda x: (-x[0], x[1].get("startedAt", "")))
+    return [s for _, s in results[:limit]]
+
+
 # ─── Backend State Sync ──────────────────────────────────────
 
 async def sync_backend_state(session_id: str, session) -> None:

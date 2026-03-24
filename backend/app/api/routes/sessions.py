@@ -12,6 +12,7 @@ from app.services.session_service import (
     get_sessions_for_user,
     get_sessions_with_headlines,
     get_sessions_with_headlines_by_email,
+    search_sessions_semantic,
     summarize_section,
     update_session,
 )
@@ -61,6 +62,15 @@ async def student_sessions_with_headlines(course_id: int, student_name: str, use
     """Get all sessions for a student+course with AI-generated headlines."""
     docs = await get_sessions_with_headlines(course_id, student_name)
     return docs
+
+
+@router.get("/search/{course_id}")
+async def search(course_id: int, q: str = "", user: dict = Depends(get_current_user)):
+    """Semantic search across sessions — text + vector matching."""
+    if not q or len(q.strip()) < 2:
+        return []
+    results = await search_sessions_semantic(course_id, user["email"], q.strip())
+    return results
 
 
 @router.get("/{session_id}")

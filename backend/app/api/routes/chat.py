@@ -36,6 +36,7 @@ from app.services.knowledge_state import (
     get_or_init_knowledge_state,
     format_knowledge_state,
     search_notes,
+    hybrid_search_notes,
     get_knowledge_summary,
 )
 from app.services.session_service import sync_backend_state
@@ -58,7 +59,7 @@ from app.api.routes import sse as _sse
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
 
-MAX_ROUNDS = 10
+MAX_ROUNDS = 6  # cap tutor tool rounds — prevents content-gathering loops
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
 
@@ -178,16 +179,22 @@ def _extract_collection_id(context_data: dict) -> str | None:
         return None
 
 
-async def _load_knowledge_state(context_data: dict) -> dict:
+async def _load_knowledge_context(context_data: dict) -> dict:
+    """Load knowledge state + summary in parallel at session start."""
     course_id, student_name = _extract_student_info(context_data)
     if not course_id or not student_name:
         return context_data
+    user_email = _extract_user_email(context_data)
     try:
-        ks = await get_or_init_knowledge_state(course_id, student_name)
-        formatted = format_knowledge_state(ks)
-        context_data["knowledgeState"] = formatted
+        ks, summary = await asyncio.gather(
+            get_or_init_knowledge_state(course_id, student_name),
+            get_knowledge_summary(course_id, user_email or student_name),
+        )
+        context_data["knowledgeState"] = format_knowledge_state(ks)
+        if summary:
+            context_data["knowledgeSummary"] = summary
     except Exception as e:
-        log.warning("Failed to load knowledge state: %s", e)
+        log.warning("Failed to load knowledge context: %s", e)
     return context_data
 
 
@@ -522,6 +529,42 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     )
 
     return result
+
+
+# ── Fast start: auto-spawn planner ─────────────────────────────────────────
+
+def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
+    """Pre-spawn planning agent at session start so plan builds in background.
+
+    The tutor starts teaching / calibrating immediately without waiting.
+    Plan lands in completed_queue by turn 2 or 3.
+    """
+    try:
+        intent = session.student_intent or "general study session"
+        spawn_context = {
+            **context_data,
+            "sessionScope": None,
+            "completedTopics": None,
+            "studentModel": None,
+            "lastAssessmentSummary": None,
+            "tutorNotes": None,
+        }
+        runtime.spawn(
+            agent_type="planning",
+            description=f"Plan session: {intent[:60]}",
+            instructions=(
+                f"The student wants to study: {intent}\n"
+                "Create a teaching plan based on the course content and student knowledge state.\n"
+                "Use get_section_content to inspect relevant sections, then output JSONL."
+            ),
+            context=spawn_context,
+        )
+        # Flag so the tutor doesn't spawn a duplicate planner
+        session._planner_auto_spawned = True
+        slog.info("Auto-spawned planning agent at session start",
+                   extra={"intent": intent[:80]})
+    except Exception as e:
+        slog.warning("Failed to auto-spawn planner: %s", e)
 
 
 # ── Plan promotion helpers ──────────────────────────────────────────────────
@@ -1184,7 +1227,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     user_email = _extract_user_email(context_data)
                     if course_id and user_email:
                         try:
-                            result = await search_notes(course_id, user_email, block.input["query"])
+                            result = await hybrid_search_notes(course_id, user_email, block.input["query"])
                         except Exception as e:
                             result = f"Failed to query knowledge: {str(e)[:200]}"
                     else:
@@ -1299,14 +1342,22 @@ async def chat(request: Request):
                     except (json.JSONDecodeError, TypeError):
                         pass
 
-            # ── Step 1a: Load knowledge state ──────────────────────────
+            # ── Step 1a: Load knowledge state + summary in parallel ────
             if is_session_start:
-                await _load_knowledge_state(context_data)
+                await _load_knowledge_context(context_data)
 
             # ── Step 2: Initialize agent runtime ──────────────────────
             if not session.agent_runtime:
                 session.agent_runtime = AgentRuntime(session_id=session_id)
             runtime = session.agent_runtime
+
+            # ── Step 2a: Auto-spawn planning agent on session start ───
+            # Pre-spawn so plan builds while tutor greets / calibrates.
+            # Tutor's first response doesn't wait — plan lands next turn.
+            if is_session_start and not session.current_plan and context_data.get("courseMap"):
+                collection_id_check = _extract_collection_id(context_data)
+                if not collection_id_check:  # skip BYO — only course mode
+                    _auto_spawn_planner(session, runtime, context_data, slog)
 
             # ── Step 3a: Check assessment → route to assessment agent ──
             if session.assessment:
@@ -1442,16 +1493,18 @@ async def chat(request: Request):
                 # pre_assessment_note stays alive — cleared when tutor calls advance_topic
                 slog.info("Injecting assessment results into tutor context")
 
-            # ── Step 4b: Load brief knowledge summary for prompt ─────
-            try:
-                course_id, _ = _extract_student_info(context_data)
-                user_email = _extract_user_email(context_data)
-                if course_id and user_email:
-                    ks_summary = await get_knowledge_summary(course_id, user_email)
-                    if ks_summary:
-                        context_data["knowledgeSummary"] = ks_summary
-            except Exception as e:
-                slog.warning("Failed to load knowledge summary: %s", e)
+            # ── Step 4b: Knowledge summary already loaded in step 1a ──
+            # (loaded in parallel by _load_knowledge_context on session start)
+            if not context_data.get("knowledgeSummary"):
+                try:
+                    course_id, _ = _extract_student_info(context_data)
+                    user_email = _extract_user_email(context_data)
+                    if course_id and user_email:
+                        ks_summary = await get_knowledge_summary(course_id, user_email)
+                        if ks_summary:
+                            context_data["knowledgeSummary"] = ks_summary
+                except Exception as e:
+                    slog.warning("Failed to load knowledge summary: %s", e)
 
             # ── Step 5: Detect BYO/voice mode and build appropriate prompt ───
             agent_results_str = _format_agent_results(completed) if completed else None
@@ -1514,6 +1567,8 @@ async def chat(request: Request):
 
             # ── Step 6: Tutor agentic loop ────────────────────────────
             rounds = 0
+            _section_content_calls = 0  # cap get_section_content per turn
+            MAX_SECTION_CONTENT_CALLS = 3
 
             # Periodic student model update (every 5 turns)
             session.assistant_turn_count += 1
@@ -1644,24 +1699,34 @@ async def chat(request: Request):
                             task_desc = block.input.get("task", "")
                             instructions = block.input.get("instructions", task_desc)
 
-                            spawn_context = context_data
-                            if agent_type == "planning":
-                                spawn_context = {
-                                    **context_data,
-                                    "sessionScope": _format_session_scope(session),
-                                    "completedTopics": _format_completed(session.completed_topics),
-                                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
-                                    "lastAssessmentSummary": session.last_assessment_summary,
-                                    "tutorNotes": "\n".join(session.tutor_notes[-5:]) if session.tutor_notes else None,
-                                }
+                            # Skip duplicate planning spawn if auto-spawned
+                            if agent_type == "planning" and getattr(session, '_planner_auto_spawned', False):
+                                session._planner_auto_spawned = False  # allow future spawns
+                                result = (
+                                    "Planning agent is already running in the background (auto-spawned at session start). "
+                                    "Results will be available in [AGENT RESULTS] on your next turn. "
+                                    "Do NOT call get_section_content yourself — the planner handles that. "
+                                    "Start teaching NOW with what you know from the course map."
+                                )
+                            else:
+                                spawn_context = context_data
+                                if agent_type == "planning":
+                                    spawn_context = {
+                                        **context_data,
+                                        "sessionScope": _format_session_scope(session),
+                                        "completedTopics": _format_completed(session.completed_topics),
+                                        "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                                        "lastAssessmentSummary": session.last_assessment_summary,
+                                        "tutorNotes": "\n".join(session.tutor_notes[-5:]) if session.tutor_notes else None,
+                                    }
 
-                            agent_id = runtime.spawn(
-                                agent_type, task_desc, instructions, spawn_context
-                            )
-                            result = (
-                                f"Agent {agent_id} spawned ({agent_type}). "
-                                "Results will be available in [AGENT RESULTS] on your next turn."
-                            )
+                                agent_id = runtime.spawn(
+                                    agent_type, task_desc, instructions, spawn_context
+                                )
+                                result = (
+                                    f"Agent {agent_id} spawned ({agent_type}). "
+                                    "Results will be available in [AGENT RESULTS] on your next turn."
+                                )
 
                         # ── check_agents ──────────────────────────────
                         elif block.name == "check_agents":
@@ -2109,7 +2174,7 @@ async def chat(request: Request):
                             user_email = _extract_user_email(context_data)
                             if course_id and user_email:
                                 try:
-                                    result = await search_notes(
+                                    result = await hybrid_search_notes(
                                         course_id, user_email, block.input["query"]
                                     )
                                 except Exception as e:
@@ -2133,11 +2198,28 @@ async def chat(request: Request):
 
                         # ── Normal tool execution ─────────────────────
                         else:
-                            try:
-                                result = await execute_tutor_tool(block.name, block.input)
-                            except Exception as e:
-                                slog.error("Tool failed: %s", e, exc_info=True, extra={"tool": block.name})
-                                result = f"Tool error ({block.name}): {str(e)[:200]}"
+                            # Cap get_section_content — planning agent handles bulk content loading
+                            if block.name == "get_section_content":
+                                _section_content_calls += 1
+                                if _section_content_calls > MAX_SECTION_CONTENT_CALLS:
+                                    result = (
+                                        "You've already loaded enough section content this turn. "
+                                        "The planning agent is gathering content in the background. "
+                                        "Teach with what you have NOW — use the course map for structure."
+                                    )
+                                    slog.info("get_section_content capped at %d", MAX_SECTION_CONTENT_CALLS)
+                                else:
+                                    try:
+                                        result = await execute_tutor_tool(block.name, block.input)
+                                    except Exception as e:
+                                        slog.error("Tool failed: %s", e, exc_info=True, extra={"tool": block.name})
+                                        result = f"Tool error ({block.name}): {str(e)[:200]}"
+                            else:
+                                try:
+                                    result = await execute_tutor_tool(block.name, block.input)
+                                except Exception as e:
+                                    slog.error("Tool failed: %s", e, exc_info=True, extra={"tool": block.name})
+                                    result = f"Tool error ({block.name}): {str(e)[:200]}"
 
                         elapsed = time.monotonic() - start_time
 

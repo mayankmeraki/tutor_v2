@@ -4392,6 +4392,27 @@ body {
 }
 @keyframes vb-speak-pulse { 0%,100%{box-shadow:none} 50%{box-shadow:0 0 12px rgba(52,211,153,0.2)} }
 
+/* Thinking state — while tutor generates */
+.voice-bar.thinking {
+  border-color: rgba(52,211,153,0.2);
+}
+.voice-bar.thinking .voice-bar-input {
+  opacity: 0.4; pointer-events: none;
+}
+.voice-bar.thinking .voice-bar-mic {
+  background: rgba(248,113,113,0.12); border-color: rgba(248,113,113,0.3);
+  color: var(--red); cursor: pointer;
+  animation: vb-think-pulse 1.8s ease-in-out infinite;
+}
+.voice-bar.thinking .voice-bar-mic:hover {
+  background: rgba(248,113,113,0.25); border-color: rgba(248,113,113,0.5);
+}
+.voice-bar.thinking .voice-bar-mic svg { width: 14px; height: 14px; }
+@keyframes vb-think-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(52,211,153,0.15); }
+  50% { box-shadow: 0 0 0 8px rgba(52,211,153,0.0); }
+}
+
 /* Send button (visible when text entered) */
 .voice-bar-send {
   width: 36px; height: 36px; border-radius: 50%;
@@ -4403,6 +4424,47 @@ body {
 .voice-bar-send:hover { transform: scale(1.05); }
 .voice-bar-send svg { width: 16px; height: 16px; }
 
+
+/* ─── Session Prep Overlay ───────────────────────────────── */
+.session-prep {
+  position: fixed; inset: 0; z-index: 200;
+  background: var(--bg);
+  display: flex; align-items: center; justify-content: center;
+  transition: opacity 0.5s ease;
+}
+.session-prep.hidden { display: none; }
+.session-prep.fade-out { opacity: 0; pointer-events: none; }
+
+.session-prep-content {
+  text-align: center; display: flex; flex-direction: column;
+  align-items: center; gap: 24px;
+}
+
+.session-prep-orb {
+  width: 48px; height: 48px; border-radius: 50%;
+  background: radial-gradient(circle at 40% 40%, rgba(52,211,153,0.3), rgba(52,211,153,0.05));
+  border: 1.5px solid rgba(52,211,153,0.2);
+  animation: prep-orb 2.4s ease-in-out infinite;
+}
+@keyframes prep-orb {
+  0%, 100% { transform: scale(1); box-shadow: 0 0 0 0 rgba(52,211,153,0.15); }
+  50% { transform: scale(1.15); box-shadow: 0 0 24px 8px rgba(52,211,153,0.08); }
+}
+
+.session-prep-msg {
+  font-size: 16px; font-weight: 500; color: var(--text);
+  letter-spacing: 0.01em;
+  animation: prep-fade-in 0.4s ease;
+}
+.session-prep-sub {
+  font-size: 13px; color: var(--text-dim);
+  min-height: 18px;
+  transition: opacity 0.3s;
+}
+@keyframes prep-fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 /* ─── Inline Media (video/sim on board) ──────────────────── */
 .inline-media-box {

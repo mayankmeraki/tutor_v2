@@ -2,43 +2,368 @@
 
 > **Status**: Backend pipeline 70% complete, Frontend 0%, Vector search 0%, Deletion 0%
 > **Last updated**: March 2026
-> **Audience**: Engineering team — covers schema, APIs, pipeline, retrieval, and production concerns
+> **Audience**: Principal Engineer / Architecture Review
 
 ---
 
 ## Table of Contents
 
-1. [Overview](#1-overview)
-2. [System Architecture](#2-system-architecture)
-3. [Source Types & Ingestion Matrix](#3-source-types--ingestion-matrix)
-4. [Pipeline Stages (Detailed)](#4-pipeline-stages-detailed)
-5. [MongoDB Schema (All Collections)](#5-mongodb-schema-all-collections)
-6. [GCS Storage Layout](#6-gcs-storage-layout)
-7. [REST API Surface](#7-rest-api-surface)
-8. [Material Query Layer (MQL) — 12 Tools](#8-material-query-layer-mql--12-tools)
-9. [Vector Search & Embeddings](#9-vector-search--embeddings)
-10. [Incremental Update & Merge Strategy](#10-incremental-update--merge-strategy)
-11. [Deletion Pipeline (Cascading)](#11-deletion-pipeline-cascading)
-12. [Teaching Context — How the Tutor Sees BYO Content](#12-teaching-context--how-the-tutor-sees-byo-content)
-13. [Student Use Cases & Retrieval Paths](#13-student-use-cases--retrieval-paths)
-14. [Frontend Integration Points](#14-frontend-integration-points)
-15. [External Dependencies & Cost Model](#15-external-dependencies--cost-model)
-16. [Production Concerns](#16-production-concerns)
-17. [Implementation Status & Gaps](#17-implementation-status--gaps)
+1. [What Problem Does This Solve?](#1-what-problem-does-this-solve)
+2. [Design Philosophy — SDK, Not a Monolith](#2-design-philosophy--sdk-not-a-monolith)
+3. [Honest Critique — Is This Overengineered?](#3-honest-critique--is-this-overengineered)
+4. [The Bare-Minimum System (Layer 0)](#4-the-bare-minimum-system-layer-0)
+5. [Layered Architecture — How Complexity Grows](#5-layered-architecture--how-complexity-grows)
+6. [End-to-End: How Every Query Type Gets Answered](#6-end-to-end-how-every-query-type-gets-answered)
+7. [System Architecture](#7-system-architecture)
+8. [Source Types & Ingestion Matrix](#8-source-types--ingestion-matrix)
+9. [Pipeline Stages (Detailed)](#9-pipeline-stages-detailed)
+10. [MongoDB Schema (All Collections)](#10-mongodb-schema-all-collections)
+11. [GCS Storage Layout](#11-gcs-storage-layout)
+12. [REST API Surface](#12-rest-api-surface)
+13. [Material Query Layer (MQL)](#13-material-query-layer-mql)
+14. [Vector Search & Embeddings](#14-vector-search--embeddings)
+15. [Incremental Update & Merge Strategy](#15-incremental-update--merge-strategy)
+16. [Deletion Pipeline (Cascading)](#16-deletion-pipeline-cascading)
+17. [Teaching Context — How the Tutor Sees BYO Content](#17-teaching-context--how-the-tutor-sees-byo-content)
+18. [Frontend Integration Points](#18-frontend-integration-points)
+19. [External Dependencies & Cost Model](#19-external-dependencies--cost-model)
+20. [Production Concerns](#20-production-concerns)
+21. [Implementation Status & Gaps](#21-implementation-status--gaps)
 
 ---
 
-## 1. Overview
+## 1. What Problem Does This Solve?
 
-The BYO (Bring Your Own) system lets students upload their own course materials — PDFs, YouTube videos, playlists, images, text notes — and have them processed into a structured, queryable library that the AI tutor can teach from.
+### The Core Problem
 
-**Core principle**: The tutor never receives raw material dumps. Instead, it gets a lean context snapshot (~600 tokens) and uses 12 MQL (Material Query Layer) tools to discover and read content on-demand — identical UX to how a teacher with a textbook works: browse the table of contents, flip to a page, read it, teach from it.
+A student has learning materials scattered across formats — lecture PDFs, YouTube recordings, handwritten notes, problem sets, slides. They want an AI tutor that can:
 
-**Pipeline in one sentence**: Upload → Extract → Transcribe → Classify → Chunk → Enrich → Index → Sequence → Teach.
+- **Teach** from THEIR materials (not generic internet knowledge)
+- **Answer questions** grounded in what their professor actually said
+- **Assess** them using the exercises from their actual course
+- **Track** what they've learned and what they haven't
+
+The tutor cannot simply dump 200 pages of PDF into its context window. Even if it could, it wouldn't know what to teach first, what depends on what, or what the student already understands.
+
+### What This Service Does
+
+It takes raw student materials (any format) and produces a **structured, queryable, teachable library** that any LLM-based tutor can navigate — the same way a human tutor would navigate a textbook:
+
+1. Look at the table of contents
+2. Find the right chapter
+3. Read the relevant section
+4. Teach it
+5. Quiz the student
+6. Track mastery
+
+### The End Goal
+
+A student should be able to:
+- Upload anything (PDF, video, notes, links)
+- Immediately (within minutes) start a teaching session
+- Ask ANY type of question — structured ("teach me chapter 3"), ad-hoc ("explain that energy thing"), assessment ("test me on last week's lecture"), conceptual ("why does entropy increase?") — and get answers grounded in their actual materials
 
 ---
 
-## 2. System Architecture
+## 2. Design Philosophy — SDK, Not a Monolith
+
+This system is designed as a **decoupled content intelligence layer** — not tied to any specific tutor implementation.
+
+### The Interface Contract
+
+Any tutor (ours or third-party) integrates via two surfaces:
+
+**Surface 1: REST API** (material management)
+```
+POST   /collections              → create a library
+POST   /collections/{id}/upload  → add material
+GET    /collections/{id}/status  → check processing
+DELETE /collections/{id}         → cleanup
+```
+
+**Surface 2: Tool Calling** (teaching — the MQL)
+```python
+# Tutor gets these as callable tools:
+browse_topics(collection_id) → list of topics
+read_chunk(chunk_id)         → full content of a section
+search(collection_id, query) → find relevant chunks
+get_exercises(topic_id)      → practice problems
+get_mastery(collection_id)   → student progress
+log_observation(concept, note) → record learning event
+```
+
+The tutor doesn't know or care about the pipeline, MongoDB, GCS, or embeddings. It sees a simple library interface: browse, search, read, assess.
+
+### Why This Matters
+
+- **Swap the tutor**: Different tutors (math specialist, language tutor, exam prep) can use the same content library
+- **Swap the pipeline**: Replace the chunking strategy, embedding model, or storage without touching the tutor
+- **Swap the LLM**: The MQL tools work identically whether the tutor runs GPT, Claude, or a fine-tuned model
+- **Test independently**: Pipeline has its own tests; tutor has its own tests; they communicate via a stable interface
+
+---
+
+## 3. Honest Critique — Is This Overengineered?
+
+**Short answer: Yes, for v1. The full spec has 14 MongoDB collections, a 10-stage pipeline, 12 query tools, a concept graph, incremental merge locking, and flow map generation. That's a lot.**
+
+Let's be honest about what the LLM can and cannot do at query time, because that determines what we actually need to pre-compute.
+
+### What the LLM CAN figure out on its own (given chunks)
+
+| Capability | Pre-computed in current design | Actually needed? |
+|-----------|-------------------------------|-----------------|
+| Identify topics from a list of chunk titles | `topic_index` | **No** — LLM can group chunks by scanning titles |
+| Decide teaching order | `flow_map` with chapter sequencing | **No** — LLM can sequence topics itself if it sees the list |
+| Extract concepts from content | `concept_graph` with dedup + aliases | **No** — LLM identifies concepts as it reads chunks |
+| Rate difficulty | `difficulty_map` | **No** — LLM can assess difficulty from content |
+| Create exercises | `exercise_index` | **Partially** — LLM can generate exercises, but extracting EXISTING ones from problem sets is valuable |
+| Decide what to teach next | Flow map + mastery state | **Partially** — LLM can decide, but needs stable IDs for progress tracking |
+
+### What the LLM CANNOT do without pre-computation
+
+| Capability | Why pre-computation is essential |
+|-----------|--------------------------------|
+| **Read the material** | 200 pages won't fit in context. Must chunk first. |
+| **Find relevant content** | Must have search (keyword or vector). Can't scan all chunks per query. |
+| **Remember across sessions** | Progress must persist. Need stable topic/concept IDs to track mastery. |
+| **Handle concurrent uploads** | Pipeline must process materials asynchronously with merge safety. |
+
+### The Real Question
+
+**Can we get 80% of the value with 20% of the complexity?**
+
+Yes. Here's how.
+
+---
+
+## 4. The Bare-Minimum System (Layer 0)
+
+### What It Takes to Start Teaching
+
+The absolute minimum to make "teach me from my uploaded PDF" work:
+
+```
+Upload → Extract text → Chunk (fixed-size) → Store chunks → Search + Read
+```
+
+**That's it.** 3 MongoDB collections. 3 API tools. 1 pipeline with 3 stages.
+
+### Layer 0 Schema (3 collections)
+
+```
+collections:   { id, userId, title, status }
+materials:     { id, collectionId, sourceType, title, status, text }
+chunks:        { id, materialId, collectionId, index, title, text, summary }
+```
+
+### Layer 0 Pipeline (3 stages)
+
+1. **Extract**: PDF → text (PyMuPDF), YouTube → transcript (captions API), Text → normalize
+2. **Chunk**: Split into ~1500 char sections at paragraph boundaries (no LLM needed)
+3. **Summarize**: LLM writes a 1-line summary per chunk (Haiku, cheap — or skip entirely)
+
+### Layer 0 Tools (3 tools)
+
+```python
+list_chunks(collection_id)            → [{id, title, summary}]  # table of contents
+read_chunk(chunk_id)                  → full text
+search(collection_id, query)          → keyword match across chunks
+```
+
+### What Layer 0 Handles
+
+| Student Request | How It Works |
+|----------------|-------------|
+| "Teach me my course" | Tutor calls `list_chunks()` → sees all sections → teaches sequentially |
+| "Explain the energy part" | Tutor calls `search("energy")` → reads matching chunks → teaches |
+| "I have a doubt about F=ma" | Tutor calls `search("F=ma")` → reads chunk → clarifies |
+| "Give me a practice problem" | Tutor reads relevant chunks → **generates** exercises on the fly |
+
+### What Layer 0 DOESN'T Handle Well
+
+- **"Teach me from topic X"** — no topic grouping, tutor must guess from chunk titles
+- **"Test me on past exam papers"** — exercises aren't extracted, tutor can only generate new ones
+- **Progress tracking** — no stable topic IDs, so "where did we leave off?" is unreliable
+- **Fuzzy search** — "the rotational force thing" won't match chunks about "torque"
+- **Visual assets** — no frame extraction, diagrams aren't indexed
+
+### Layer 0 Cost
+
+- Pipeline: ~$0.005 per material (just the summarization LLM call, or $0 if skipped)
+- Storage: just text, negligible
+- Latency: seconds (no LLM in the chunking path if we use fixed-size)
+
+### Verdict
+
+**Layer 0 is shippable in 3-4 days.** It handles the happy path: student uploads, tutor teaches. The LLM is smart enough to navigate simple chunk lists and synthesize teaching from raw content. This is the MVP.
+
+---
+
+## 5. Layered Architecture — How Complexity Grows
+
+Each layer adds capability. Each layer is optional. Ship Layer 0, validate, then add layers based on what users actually need.
+
+```
+┌────────────────────────────────────────────────────────────────┐
+│ LAYER 3: Polish                                                │
+│ Vector search, visual assets, frame extraction, PPTX/DOCX     │
+│ → Fuzzy queries, diagram access, all file types                │
+├────────────────────────────────────────────────────────────────┤
+│ LAYER 2: Intelligence                                          │
+│ Concept graph, exercise extraction, progress tracking          │
+│ → Assessment, spaced repetition, mastery-based teaching        │
+├────────────────────────────────────────────────────────────────┤
+│ LAYER 1: Structure                                             │
+│ Topic detection, flow map, classification, quality gate        │
+│ → Structured courses, prerequisite ordering, crash courses     │
+├────────────────────────────────────────────────────────────────┤
+│ LAYER 0: Bare Minimum (MVP)                                    │
+│ Extract → Chunk → Store → Search → Read                        │
+│ → Ad-hoc teaching, doubt solving, basic structured teaching    │
+└────────────────────────────────────────────────────────────────┘
+```
+
+### Layer 1: Structure (+1 week)
+
+**Adds**: LLM-based chunking (semantic boundaries instead of fixed-size), material classification, topic detection, flow map generation, quality gate.
+
+**New collections**: `topic_index`, `flow_map`
+
+**New tools**: `browse_topics()`, `browse_topic(topicId)`, `get_flow()`
+
+**What it unlocks**:
+- "Teach me my course" → proper chapter/topic sequence
+- "Prepare a crash course" → tutor uses flow map to select key topics
+- "Skip to dynamics" → tutor finds the dynamics topic group
+- Rejects garbage uploads (quality gate)
+
+**Why it's worth it**: The difference between "here are 47 chunks, good luck" and "here are 8 topics organized into 3 chapters" is massive for teaching quality. The tutor makes much better decisions with structure.
+
+### Layer 2: Intelligence (+1 week)
+
+**Adds**: Concept graph (with deduplication + prerequisites), exercise extraction from problem sets, student progress tracking with concept mastery.
+
+**New collections**: `concept_graph`, `exercise_index`, `student_progress`, `difficulty_map`
+
+**New tools**: `find_concept()`, `search_concepts()`, `get_exercises()`, `get_mastery()`, `log_observation()`
+
+**What it unlocks**:
+- "Test me on this topic" → real exercises from their actual problem sets (not LLM-generated)
+- "What should I study for the exam?" → mastery gaps identified from tracked progress
+- Prerequisites enforced → tutor won't teach integration before limits
+- "I struggle with friction problems" → concept mastery shows weak areas
+
+**Why it's worth it**: This is what separates "AI that reads your PDF" from "AI tutor that knows your course". Exercise extraction from actual past papers is the killer feature for exam prep.
+
+### Layer 3: Polish (+1 week)
+
+**Adds**: Vector embeddings + semantic search, visual asset index (frame extraction + classification + OCR), image/video file upload support, PPTX/DOCX parsing.
+
+**New collections**: `extracted_frames`, `asset_index` (+ embeddings on `chunks`)
+
+**New tools**: `semantic_search()`, `get_assets()`
+
+**What it unlocks**:
+- "Explain that derivation thing" → vector search finds it even without exact keywords
+- "Show me the diagram from lecture 3" → frame-level visual asset access
+- Upload lecture recordings (MP4) and PowerPoints directly
+
+**Why it's worth it**: Vector search is the biggest quality-of-life improvement for ad-hoc queries. Students don't use precise terminology — they say "the energy conservation thingy" not "first law of thermodynamics".
+
+---
+
+## 6. End-to-End: How Every Query Type Gets Answered
+
+This is the real test. Work backwards from what the student asks to what the system needs.
+
+### Query Type 1: Ad-Hoc Questions
+
+> "Hey, can you explain what the professor meant about entropy in lecture 5?"
+
+```
+Layer 0 path:  search("entropy lecture 5") → read matching chunk → teach
+Layer 3 path:  semantic_search("entropy concept from lecture 5") → more precise match
+```
+
+**Layer 0 is sufficient.** Vector search makes it better but isn't required.
+
+### Query Type 2: Structured Teaching
+
+> "Teach me my course from the beginning"
+
+```
+Layer 0 path:  list_chunks() → tutor sequences them by material/index → teaches in order
+Layer 1 path:  get_flow() → proper chapter sequence → browse_topic() → read_chunk() → teach
+```
+
+**Layer 0 works but is messy.** The tutor gets a flat list and must infer structure. Layer 1's flow map makes this dramatically better.
+
+### Query Type 3: Topic-Based Teaching
+
+> "I want to learn about electromagnetic induction"
+
+```
+Layer 0 path:  search("electromagnetic induction") → read matching chunks → teach
+Layer 1 path:  browse_topics() → find topic → browse_topic() → teach with full context
+```
+
+**Layer 0 works.** Layer 1 provides the topic boundary (where does "induction" start and end?) which helps the tutor give a complete explanation rather than a fragment.
+
+### Query Type 4: Assessment / Exam Prep
+
+> "Test me on past exam papers I uploaded"
+
+```
+Layer 0 path:  search("problem" OR "exercise" OR "calculate") → tutor reads chunks → generates questions
+Layer 2 path:  get_exercises(difficulty="advanced") → real problems from their actual exam papers
+```
+
+**Layer 0 is significantly worse.** It can only generate new problems from content. Layer 2 extracts the actual problems with solutions — much more valuable for exam prep. This is the strongest argument for Layer 2.
+
+### Query Type 5: Doubt Solving
+
+> "I don't understand why kinetic energy is ½mv² and not mv²"
+
+```
+Layer 0 path:  search("kinetic energy derivation") → read chunk → explain
+Layer 2 path:  find_concept("kinetic_energy") → see definition + prerequisites → deeper explanation
+Layer 3 path:  semantic_search("why is kinetic energy one half mv squared") → precise chunk match
+```
+
+**Layer 0 works if the material covers this.** The concept graph (Layer 2) helps the tutor identify prerequisites the student might be missing. Vector search (Layer 3) helps if the student's phrasing doesn't match the material's terminology.
+
+### Query Type 6: Crash Course
+
+> "Exam in 2 days, give me a crash course"
+
+```
+Layer 0 path:  list_chunks() → tutor picks "important-looking" chunks → compressed teaching
+Layer 1 path:  get_flow() → tutor selects key topics → skip details → focus on core
+Layer 2 path:  get_mastery() → skip already-known topics → focus on gaps → exercises for weak areas
+```
+
+**Layer 0 is bad for this.** Without structure, the tutor doesn't know what's important. Without mastery data, it can't skip what the student already knows. Layer 1+2 together make crash courses actually useful.
+
+### Summary: When Does Each Layer Pay For Itself?
+
+| Layer | Query Types It Dramatically Improves | Worth It? |
+|-------|--------------------------------------|-----------|
+| **0** (MVP) | Ad-hoc questions, basic doubt solving | **Always** — this is the floor |
+| **1** (Structure) | Structured teaching, crash courses, topic navigation | **Yes** — goes from "AI that reads your PDF" to "AI that teaches your course" |
+| **2** (Intelligence) | Assessment, exam prep, progress-aware teaching | **Yes if exam prep is a use case** — the killer feature for students |
+| **3** (Polish) | Fuzzy queries, visual assets, more file types | **Nice-to-have** — improves quality but not capability |
+
+### Recommended Pitch
+
+> **Ship Layer 0 in week 1** — prove the upload-to-teach loop works.
+> **Ship Layer 0+1 in week 2** — this is the real product: structured teaching from student materials.
+> **Ship Layer 0+1+2 in week 3** — this is the differentiated product: assessment + mastery tracking from their actual course materials.
+> **Layer 3 when needed** — vector search and visual assets are quality improvements, not capability gates.
+
+---
+
+## 7. System Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -60,117 +385,128 @@ The BYO (Bring Your Own) system lets students upload their own course materials 
 │  │ Orchestrator│  │ + MQL Tool Executor   │                          │
 │  └──────┬──────┘  └──────────────────────┘                          │
 │         │                                                             │
-│  ┌──────▼──────────────────────────────────────┐                     │
-│  │            Processing Pipeline               │                     │
-│  │  Extract → Transcribe → Frames → Classify   │                     │
-│  │  → Chunk → Enrich → Exercises → Merge Index  │                     │
-│  │  → Sequence                                   │                     │
-│  └──────┬──────────────────────────────────────┘                     │
+│  ┌──────▼──────────────────────────────────────────────────────────┐ │
+│  │            Processing Pipeline (Layer-dependent)                 │ │
+│  │  L0: Extract → Chunk → Store                                    │ │
+│  │  L1: + Classify → Smart Chunk → Topic Detect → Sequence         │ │
+│  │  L2: + Enrich → Exercises → Concept Graph → Progress            │ │
+│  │  L3: + Frames → Embed → Visual Assets                           │ │
+│  └──────┬──────────────────────────────────────────────────────────┘ │
 └─────────┼─────────────────────────────────────────────────────────────┘
           │
     ┌─────▼─────┐  ┌──────────┐  ┌──────────────────┐  ┌────────────┐
-    │  MongoDB   │  │   GCS    │  │ ElevenLabs /     │  │ Anthropic  │
-    │ (11 colls) │  │ (blobs)  │  │ YouTube Captions │  │ Claude     │
+    │  MongoDB   │  │   GCS    │  │ ElevenLabs STT / │  │ Anthropic  │
+    │            │  │ (blobs)  │  │ YouTube Captions  │  │ Claude     │
     └───────────┘  └──────────┘  └──────────────────┘  └────────────┘
+```
+
+### SDK Integration Points
+
+A third-party tutor integrates at two surfaces:
+
+```
+┌──────────────────────┐         ┌─────────────────────────┐
+│    ANY TUTOR (SDK)    │         │   BYO Content Service    │
+│                       │ REST →  │   /collections/*         │
+│  1. Manage materials  │─────────│   /materials/*           │
+│                       │         │                           │
+│  2. Query content     │ Tools → │   MQL tool executor       │
+│     (tool calling)    │─────────│   search, read, browse,   │
+│                       │         │   exercises, mastery       │
+└──────────────────────┘         └─────────────────────────┘
+
+The tutor NEVER touches MongoDB, GCS, or the pipeline.
+The tutor sees: browse, search, read, assess.
 ```
 
 ---
 
-## 3. Source Types & Ingestion Matrix
+## 8. Source Types & Ingestion Matrix
 
-| Source Type | Upload Method | Extraction | Transcription | Frame Extraction | Status |
-|-------------|--------------|------------|---------------|------------------|--------|
-| **PDF** | Multipart file upload (50MB max) | PyMuPDF (text + embedded images) | N/A | Embedded images extracted, uploaded to GCS | **Implemented** |
-| **YouTube Video** | URL (single) | yt-dlp metadata | YouTube captions → ElevenLabs fallback | ffmpeg keyframes → Claude Vision classify + OCR | **Implemented** |
-| **YouTube Playlist** | URL (playlist) | yt-dlp playlist expansion → individual videos | Per-video (see above) | Per-video (see above) | **Implemented** |
-| **Text Paste** | JSON body (`{type: "text", content: "..."}`) | Normalization + structure detection | N/A | N/A | **Implemented** |
-| **Text File** (txt, md) | Multipart file upload | UTF-8 decode → text pipeline | N/A | N/A | **Implemented** |
-| **Image** (JPG, PNG) | Multipart file upload | Claude Vision OCR + classification | N/A | The image itself is the "frame" | **Not implemented** |
-| **Video File** (MP4, MOV) | Multipart file upload → GCS | N/A (no yt-dlp needed) | ElevenLabs Speech-to-Text | ffmpeg keyframes → Claude Vision | **Not implemented** |
-| **PPTX** | Multipart file upload | python-pptx slide extraction | N/A | Slide renders as images | **Not implemented** |
-| **DOCX** | Multipart file upload | python-docx text extraction | N/A | Embedded images | **Not implemented** |
-| **Batch URLs** | JSON body (`{type: "batch", items: [...]}`) | Per-item dispatch | Per-item | Per-item | **Implemented** |
+| Source Type | Upload Method | Extraction | Transcription | Status |
+|-------------|--------------|------------|---------------|--------|
+| **PDF** | Multipart upload (50MB max) | PyMuPDF (text + embedded images) | N/A | **Implemented** |
+| **YouTube Video** | URL | yt-dlp metadata | YouTube captions → ElevenLabs STT fallback | **Implemented** |
+| **YouTube Playlist** | URL | yt-dlp expansion → individual videos | Per-video | **Implemented** |
+| **Text Paste** | JSON body | Normalization + structure detection | N/A | **Implemented** |
+| **Text File** (txt, md) | Multipart upload | UTF-8 decode → text pipeline | N/A | **Implemented** |
+| **Image** (JPG, PNG) | Multipart upload | Claude Vision OCR + classification | N/A | **Not implemented** |
+| **Video File** (MP4, MOV) | Multipart upload → GCS | ffprobe metadata | ElevenLabs STT | **Not implemented** |
+| **PPTX** | Multipart upload | python-pptx slide extraction | N/A | **Not implemented** |
+| **DOCX** | Multipart upload | python-docx text extraction | N/A | **Not implemented** |
 
-### Transcription Strategy (Updated)
+### Transcription Strategy
 
-Current cascade for YouTube:
+Current cascade for YouTube videos:
 1. **YouTube Captions** (free, fast) — `youtube-transcript-api`
 2. **Deepgram Nova-2** (paid fallback) — when captions unavailable
 
-**Proposed change**: Replace Deepgram with **ElevenLabs Speech-to-Text** for non-YouTube videos and as YouTube fallback:
-- ElevenLabs provides both TTS and STT — consolidates vendor
-- Cost-effective for our volume (we already pay for TTS)
+**Proposed change**: Replace Deepgram with **ElevenLabs Speech-to-Text** for all non-YouTube audio:
+- Consolidates vendor (we already pay ElevenLabs for TTS)
+- Cost-effective for our volume
 - Supports direct audio URL or file upload
-- Provides word-level timestamps suitable for segment generation
-
-Cascade becomes:
-1. YouTube Captions (free, YouTube only)
-2. ElevenLabs STT (paid, universal fallback — works for MP4/MOV/YouTube)
+- Provides word-level timestamps
 
 ---
 
-## 4. Pipeline Stages (Detailed)
+## 9. Pipeline Stages (Detailed)
 
-Each material runs through a 10-step pipeline as a background `asyncio.create_task()`. Material becomes "ready" (teachable) after step 6. Steps 7-9 run asynchronously afterward.
+Each material runs as a background `asyncio.create_task()`. The pipeline is layer-aware — Layer 0 runs stages 0-2 only, higher layers add more stages.
 
 ### Stage 0: VALIDATE
-**Purpose**: Pre-flight checks before any processing.
-**Checks**:
-- YouTube URL format validation
-- PDF: not encrypted, >0 pages, extractable text in first 3 pages (>100 chars)
-- Text: minimum 50 chars, >50% alphanumeric ratio (catches binary/gibberish)
-- Image (proposed): valid image format, minimum dimensions (100x100)
-- Video file (proposed): valid container, duration check (<4 hours)
+Pre-flight checks before any processing.
 
-**Failure mode**: Material status → `rejected` with reason. Collection progress updated.
+| Source | Validation |
+|--------|-----------|
+| YouTube | URL format, extractable via yt-dlp |
+| PDF | Not encrypted, >0 pages, text in first 3 pages (>100 chars) |
+| Text | Min 50 chars, >50% alphanumeric ratio |
+| Image (proposed) | Valid format, min 100x100 px |
+| Video file (proposed) | Valid container, <4 hours |
+
+Failure → material status `rejected` with reason.
 
 ### Stage 1: EXTRACT
-**Purpose**: Get raw content from the source.
+Get raw content from source.
 
 | Source | Extractor | Output |
 |--------|-----------|--------|
-| YouTube | `yt-dlp` metadata fetch | Title, duration, thumbnail, description |
-| YouTube Playlist | `yt-dlp` flat extraction | List of video URLs → creates child materials |
-| PDF | `PyMuPDF` | Per-page text + embedded images (uploaded to GCS) |
+| YouTube | `yt-dlp` metadata | Title, duration, thumbnail, description |
+| YouTube Playlist | `yt-dlp` flat expand | List of video URLs → child materials |
+| PDF | `PyMuPDF` | Per-page text + embedded images → GCS |
 | Text | `normalize_text()` | Cleaned text with structure hints |
-| Image (proposed) | Claude Vision | OCR text + content classification + description |
-| Video file (proposed) | ffprobe metadata | Duration, resolution, codec info |
 
 ### Stage 2: TRANSCRIBE (audio/video only)
-**Purpose**: Speech → timestamped text segments.
+Speech → timestamped text segments.
 
 ```python
 @dataclass
 class Segment:
-    text: str        # utterance text
-    start: float     # seconds
-    end: float       # seconds
-    speaker: int     # speaker ID (diarization)
+    text: str
+    start: float   # seconds
+    end: float
+    speaker: int    # diarization
     confidence: float
 ```
 
-**YouTube**: Captions API → ElevenLabs STT fallback
-**Video file** (proposed): ElevenLabs STT (direct audio upload)
+YouTube: Captions API → ElevenLabs STT fallback.
+Video file (proposed): ElevenLabs STT direct.
 
-Transcripts stored in MongoDB `transcripts` collection with GCS backup path.
+Stored in MongoDB `transcripts` with GCS backup.
 
-### Stage 3: FRAME EXTRACT (video only)
-**Purpose**: Extract and classify visual content (board work, equations, diagrams).
+---
 
-1. **ffmpeg** extracts keyframes at scene changes (~1 frame per 5-10 seconds)
-2. **Claude Vision** classifies each frame:
-   - `board` — handwritten content on whiteboard/chalkboard
-   - `equation` — mathematical formula prominently displayed
-   - `diagram` — figure, graph, chart, circuit, etc.
-   - `slide` — presentation slide with text
-   - `chart` — data visualization
-   - `talking_head` — instructor only (discarded)
-   - `transition` — blank/title card (discarded)
-3. **Claude Vision OCR** extracts text from educational frames
-4. Frames uploaded to GCS, metadata stored in `extracted_frames`
+**Stages below are Layer 1+ (not needed for MVP)**
 
-### Stage 4: CLASSIFY
-**Purpose**: Material type and subject detection using LLM (Haiku — cheap, fast).
+### Stage 3: FRAME EXTRACT (Layer 3, video only)
+Extract and classify visual content:
+1. ffmpeg keyframes (~1 per 5-10 seconds)
+2. Claude Vision classifies: `board | equation | diagram | slide | chart | talking_head | transition`
+3. Claude Vision OCR on educational frames
+4. Upload to GCS, metadata in `extracted_frames`
+
+### Stage 4: CLASSIFY (Layer 1+)
+LLM (Haiku) detects material type and subject:
 
 ```python
 @dataclass
@@ -178,172 +514,66 @@ class Classification:
     type: str           # lecture | assignment | exercise_set | reference | notes | mixed
     subjects: list[str] # ["classical mechanics", "kinematics"]
     difficulty: str     # beginner | intermediate | advanced
-    is_structured: bool # has headings / numbered sections
-    has_exercises: bool # contains practice problems
-    language: str       # "en"
+    is_structured: bool
+    has_exercises: bool
+    language: str
     confidence: float   # 0.0 - 1.0
     educational_quality: str  # high | medium | low | non_educational
-    title_suggestion: str
 ```
 
-### Stage 4b: QUALITY GATE
-**Purpose**: Reject low-quality or non-educational material.
-**Rejection criteria**:
-- Classification confidence < 0.4
-- Extracted text < 200 chars
-- `educational_quality == "non_educational"`
-- Video > 4 hours
+### Stage 4b: QUALITY GATE (Layer 1+)
+Reject: confidence < 0.4, text < 200 chars, `non_educational`, video > 4 hours.
 
 ### Stage 5: CHUNK
-**Purpose**: Semantic section splitting. Strategy depends on material type.
+**Layer 0**: Fixed-size paragraph-boundary splitting (~1500 chars). No LLM. Instant.
 
-| Material Type | Strategy | Target Size |
-|--------------|----------|-------------|
-| Video transcript | LLM detects topic boundaries using timestamps | 3-7 min per chunk |
-| Assignment / exercise set | LLM splits into individual problems | 1 problem per chunk |
-| Structured text (has headings) | LLM follows heading hierarchy (H1 = boundary, H2 = usually boundary, H3 = merge into parent) | 300-3000 chars |
-| Unstructured text | Paragraph-boundary splitting | ~1500 chars |
+**Layer 1+**: LLM-based semantic chunking:
 
-**Fallbacks**: Fixed-time chunks (3 min) for video, fixed-char chunks (1500) for text.
+| Material Type | Strategy | Target |
+|--------------|----------|--------|
+| Video transcript | LLM detects topic boundaries | 3-7 min per chunk |
+| Assignment | LLM splits into individual problems | 1 problem per chunk |
+| Structured text | LLM follows heading hierarchy | 300-3000 chars |
+| Unstructured | Paragraph-boundary fallback | ~1500 chars |
 
-```python
-@dataclass
-class RawChunk:
-    index: int
-    title: str          # descriptive, not "Section 3"
-    anchor: Anchor      # start/end in seconds (video) or char offset (text)
-    text: str           # raw content
-    topic_summary: str  # one-line summary
-    segments: list      # original transcript segments (video)
-    is_exercise: bool
-```
-
-### Stage 6: ENRICH (per-chunk, parallelized)
-**Purpose**: Extract structured knowledge from each chunk.
-
+### Stage 6: ENRICH (Layer 1+, per-chunk, parallelized)
 LLM (Haiku) extracts per-chunk:
-- **Summary** (2-3 sentences, student-facing)
-- **Key Points** (3-6 actionable takeaways)
-- **Concepts** with definitions and roles (introduced / prerequisite / applied)
-- **Formulas** (standard notation, not LaTeX)
-- **Difficulty** rating
-- **Linked frame IDs** (video frames within chunk's time range)
+- Summary (2-3 sentences)
+- Key points (3-6)
+- Concepts with definitions and roles (introduced / prerequisite / applied)
+- Formulas
+- Difficulty rating
 
-```python
-# Stored in MongoDB chunks collection:
-{
-    "chunkId": "uuid",
-    "materialId": "uuid",
-    "collectionId": "uuid",
-    "index": 0,
-    "title": "Deriving the Kinematic Equations",
-    "anchor": { "start": 120.0, "end": 330.0, "displayStart": "2:00", "displayEnd": "5:30" },
-    "content": {
-        "transcript": "full text...",
-        "summary": "This section derives...",
-        "keyPoints": ["v = v₀ + at applies when...", ...],
-        "formulas": ["v = v_0 + at", "x = x_0 + v_0*t + (1/2)*a*t^2"],
-        "concepts": ["kinematic_equations", "constant_acceleration"],
-        "difficulty": "intermediate",
-        "confidence": "high"
-    },
-    "linkedFrameIds": ["frame-uuid-1", "frame-uuid-2"],
-    "media": { "hasVideo": true },
-    "segments": [{ "text": "...", "start": 120.0, "end": 125.0 }, ...]
-}
-```
+**Material status → `ready` after this stage.** Teaching can begin.
 
-**Material status → `ready` here.** Collection progress updated. Teaching can begin.
+### Stage 7: EXERCISES (Layer 2, background)
+LLM extracts practice problems from exercise-flagged chunks. Distinguishes exercises (student solves) from worked examples (instructor demonstrates). Stores with type, difficulty, concepts, diagram references, and solutions.
 
-### Stage 7: EXERCISES (background)
-**Purpose**: Extract practice problems from exercise-flagged chunks.
+### Stage 8: MERGE INDEXES (Layer 1+, incremental, locked)
+Most complex stage. Runs per-material with MongoDB-based locking:
 
-LLM distinguishes:
-- **Exercises** (student solves) → extracted
-- **Worked examples** (instructor solves, shown step-by-step) → skipped
+1. **Topic merge**: LLM assigns chunks to existing topics or creates new ones
+2. **Concept merge**: LLM deduplicates concepts against existing graph
+3. **Exercise linking**: Exercises linked to topics via concept overlap
+4. **Asset cataloging**: Frames → `asset_index`
+5. **Difficulty map** rebuild
 
-```python
-@dataclass
-class Exercise:
-    exercise_id: str
-    material_id: str
-    chunk_id: str
-    collection_id: str
-    statement: str           # full problem text
-    type: str                # numerical | conceptual | derivation | multiple_choice
-    difficulty: str
-    concepts: list[str]
-    has_diagram: bool
-    diagram_frame_id: str    # linked video frame with diagram
-    diagram_url: str
-    solution: {
-        "available": bool,
-        "steps": list[str],
-        "answer": str
-    }
-    topic_id: str            # linked during index merge
-```
+Lock mechanism: `index_locks` collection, 5-min timeout, queue in `merge_queue`.
 
-### Stage 8: MERGE INDEXES (incremental, locked)
-**Purpose**: Organize chunks across materials into a coherent topic + concept structure.
-
-This is the most complex stage. Runs after EACH material (not batched). Uses MongoDB-based locking with a queue for concurrent merges.
-
-**Sub-steps**:
-
-1. **Topic detection / merge**: LLM assigns new chunks to existing topics or creates new ones
-   - `add_to_existing`: chunk covers same topic → `$addToSet chunkIds`
-   - `create_new`: genuinely new topic → new `topic_index` document
-   - Overlap scoring (0.0 = new, 1.0 = duplicate)
-
-2. **Concept graph merge**: LLM deduplicates new concept mentions against existing graph
-   - `map_to_existing`: "F=ma" maps to existing "Newton's Second Law" concept
-   - `create_new`: genuinely new concept → new `concept_graph` document with definition, prerequisites, formulas, aliases
-
-3. **Exercise linking**: Exercises linked to topics via concept overlap (set intersection)
-
-4. **Asset cataloging**: Video frames classified as `board/equation/diagram/slide/chart` → `asset_index`
-
-5. **Difficulty map rebuild**: Topics bucketed into beginner/intermediate/advanced
-
-### Stage 9: SEQUENCE (flow map generation)
-**Purpose**: Generate the recommended teaching order.
-
-LLM produces a chapter → topic sequence:
-```json
-{
-    "chapters": [
-        {
-            "title": "Foundations of Motion",
-            "subject": "mechanics",
-            "topics": [
-                { "topicId": "...", "order": 0, "estimatedMinutes": 15, "rationale": "No prerequisites" },
-                { "topicId": "...", "order": 1, "estimatedMinutes": 25, "rationale": "Builds on vectors" }
-            ]
-        }
-    ]
-}
-```
-
-Ordering rules enforced by prompt:
-- Prerequisites before dependents
-- Definitions → laws → problem-solving → exercises
-- Easier before harder (when no dependency)
-
-Flow map versioned — re-generated after each incremental merge.
+### Stage 9: SEQUENCE (Layer 1+)
+LLM generates chapter → topic teaching sequence. Prerequisites before dependents, definitions before applications, easier before harder. Versioned and re-generated on each merge.
 
 ---
 
-## 5. MongoDB Schema (All Collections)
+## 10. MongoDB Schema (All Collections)
 
-### Database: `capacity` (content database)
+### Layer 0 Collections (3)
 
 #### `content_collections`
 ```json
 {
     "collectionId": "uuid",
     "userId": "user-id",
-    "type": "byo",
     "title": "Physics 101 — My Notes",
     "status": "processing | partial | ready | error",
     "processingProgress": {
@@ -353,19 +583,12 @@ Flow map versioned — re-generated after each incremental merge.
         "currentStep": "enriching",
         "errors": []
     },
-    "subjects": ["classical mechanics", "thermodynamics"],
-    "stats": {
-        "totalMaterials": 4,
-        "totalChunks": 47,
-        "totalConcepts": 32,
-        "totalExercises": 15,
-        "totalTopics": 8
-    },
+    "subjects": ["classical mechanics"],
+    "stats": { "totalMaterials": 4, "totalChunks": 47, "totalConcepts": 32, "totalExercises": 15, "totalTopics": 8 },
     "createdAt": "datetime",
     "updatedAt": "datetime"
 }
 ```
-**Indexes**: `userId`, `status`
 
 #### `materials`
 ```json
@@ -377,32 +600,19 @@ Flow map versioned — re-generated after each incremental merge.
         "_originalUrl": "https://youtube.com/...",
         "_originalFilename": "lecture_notes.pdf",
         "_gcsPath": "coll-id/originals/mat-id.pdf",
-        "_rawText": "...",
-        "_fileBytes": null
+        "_rawText": "..."
     },
-    "status": "uploaded | extracting | transcribing | framing | classifying | chunking | enriching | ready | rejected | error",
+    "status": "uploaded | extracting | transcribing | classifying | chunking | enriching | ready | rejected | error",
     "errorDetail": null,
     "rejectReason": null,
-    "classification": {
-        "type": "lecture",
-        "subjects": ["mechanics"],
-        "difficulty": "intermediate",
-        "hasExercises": false,
-        "isStructured": true,
-        "language": "en",
-        "confidence": 0.92,
-        "educationalQuality": "high"
-    },
+    "classification": { "type": "lecture", "subjects": ["mechanics"], "difficulty": "intermediate", ... },
     "title": "Newton's Laws — Lecture 3",
     "chunkCount": 6,
     "duration": 1200,
-    "pageCount": null,
-    "thumbnailUrl": "https://img.youtube.com/...",
     "addedAt": "datetime",
     "readyAt": "datetime"
 }
 ```
-**Indexes**: `collectionId`, `(collectionId, status)`, `source._originalUrl` (sparse)
 
 #### `chunks`
 ```json
@@ -412,17 +622,12 @@ Flow map versioned — re-generated after each incremental merge.
     "collectionId": "uuid",
     "index": 0,
     "title": "Deriving the Kinematic Equations",
-    "anchor": {
-        "start": 120.0,
-        "end": 330.0,
-        "displayStart": "2:00",
-        "displayEnd": "5:30"
-    },
+    "anchor": { "start": 120.0, "end": 330.0, "displayStart": "2:00", "displayEnd": "5:30" },
     "content": {
         "transcript": "So now let's derive...",
         "summary": "This section derives the four kinematic equations...",
-        "keyPoints": ["v = v₀ + at applies when acceleration is constant", "..."],
-        "formulas": ["v = v_0 + at", "x = x_0 + v_0*t + (1/2)*a*t^2"],
+        "keyPoints": ["v = v₀ + at applies when acceleration is constant"],
+        "formulas": ["v = v_0 + at"],
         "concepts": ["kinematic_equations", "constant_acceleration"],
         "difficulty": "intermediate",
         "confidence": "high"
@@ -433,49 +638,8 @@ Flow map versioned — re-generated after each incremental merge.
     "embedding": null
 }
 ```
-**Indexes**: `collectionId`, `materialId`, `(collectionId, materialId, index)`
-**Proposed**: `embedding` field (1536-dim float array) + Atlas Vector Search index
 
-#### `transcripts`
-```json
-{
-    "materialId": "uuid",
-    "collectionId": "uuid",
-    "source": "youtube_captions | elevenlabs_stt",
-    "language": "en",
-    "duration": 1200.0,
-    "segments": [{ "text": "...", "start": 0.0, "end": 3.5, "speaker": 0, "confidence": 0.95 }],
-    "fullText": "complete transcript...",
-    "gcsPath": "coll-id/transcripts/mat-id.json",
-    "createdAt": "datetime"
-}
-```
-**Indexes**: `materialId` (unique), `collectionId`
-
-#### `extracted_frames`
-```json
-{
-    "frameId": "uuid",
-    "materialId": "uuid",
-    "collectionId": "uuid",
-    "timestamp": 185.0,
-    "displayTime": "3:05",
-    "classification": "board | equation | diagram | slide | chart",
-    "contentDescription": "Whiteboard showing free body diagram of block on inclined plane",
-    "ocr": {
-        "fullText": "F_N  F_g = mg  θ = 30°",
-        "elements": [
-            { "type": "equation", "text": "F_g = mg", "confidence": 0.9 },
-            { "type": "label", "text": "θ = 30°", "confidence": 0.85 }
-        ]
-    },
-    "gcsPath": "coll-id/frames/mat-id/frame_000185.jpg",
-    "gcsUrl": "gs://capacity-materials/...",
-    "quality": "high",
-    "isKeyFrame": true
-}
-```
-**Indexes**: `materialId`, `collectionId`, `(materialId, timestamp)`, `classification`
+### Layer 1 Collections (+2)
 
 #### `topic_index`
 ```json
@@ -488,60 +652,12 @@ Flow map versioned — re-generated after each incremental merge.
     "description": "The four kinematic equations for constant acceleration...",
     "difficulty": "intermediate",
     "order": 2,
-    "chunkIds": ["chunk-uuid-1", "chunk-uuid-2", "chunk-uuid-3"],
-    "conceptNames": ["kinematic_equations", "constant_acceleration", "displacement"],
-    "prerequisites": ["vectors", "velocity", "acceleration"],
-    "successors": ["projectile_motion"],
-    "exerciseCount": 4,
-    "createdAt": "datetime"
+    "chunkIds": ["chunk-uuid-1", "chunk-uuid-2"],
+    "conceptNames": ["kinematic_equations", "constant_acceleration"],
+    "prerequisites": ["vectors", "velocity"],
+    "exerciseCount": 4
 }
 ```
-**Indexes**: `collectionId`, `(collectionId, order)`
-
-#### `concept_graph`
-```json
-{
-    "conceptId": "uuid",
-    "collectionId": "uuid",
-    "name": "Newton's Second Law",
-    "normalizedName": "newtons_second_law",
-    "aliases": ["F=ma", "Newton's 2nd Law", "second law of motion"],
-    "definition": "The net force on an object equals its mass times its acceleration",
-    "category": "dynamics",
-    "subject": "mechanics",
-    "difficulty": "intermediate",
-    "formulas": ["F_net = ma"],
-    "prerequisites": ["force", "mass", "acceleration"],
-    "related": ["newtons_first_law", "newtons_third_law"],
-    "locations": [
-        { "topicId": "topic-uuid", "chunkId": "chunk-uuid", "role": "introduced" }
-    ],
-    "createdAt": "datetime"
-}
-```
-**Indexes**: `collectionId`, `(normalizedName, collectionId)`, `aliases`
-
-#### `exercise_index`
-```json
-{
-    "exerciseId": "uuid",
-    "materialId": "uuid",
-    "chunkId": "uuid",
-    "collectionId": "uuid",
-    "topicId": "topic-uuid",
-    "statement": "A 5 kg block on a 30° incline... Find the acceleration.",
-    "type": "numerical | conceptual | derivation | multiple_choice",
-    "difficulty": "intermediate",
-    "concepts": ["inclined_plane", "friction", "newtons_second_law"],
-    "hasDiagram": true,
-    "diagramDescription": "Block on inclined plane with force vectors",
-    "diagramFrameId": "frame-uuid",
-    "diagramUrl": "gs://...",
-    "solution": { "available": true, "steps": ["Draw FBD...", "Apply F=ma..."], "answer": "a = 3.27 m/s²" },
-    "createdAt": "datetime"
-}
-```
-**Indexes**: `collectionId`, `(collectionId, difficulty)`, `topicId`, `concepts`
 
 #### `flow_map`
 ```json
@@ -554,14 +670,68 @@ Flow map versioned — re-generated after each incremental merge.
             "title": "Foundations of Motion",
             "subject": "mechanics",
             "topics": [
-                { "topicId": "...", "order": 0, "estimatedMinutes": 15, "rationale": "Starting point" }
+                { "topicId": "...", "order": 0, "estimatedMinutes": 15, "rationale": "No prerequisites" }
             ]
         }
     ],
     "topicPositions": { "topic-uuid": { "chapter": 0, "position": 0 } }
 }
 ```
-**Indexes**: `collectionId` (unique)
+
+### Layer 2 Collections (+3)
+
+#### `concept_graph`
+```json
+{
+    "conceptId": "uuid",
+    "collectionId": "uuid",
+    "name": "Newton's Second Law",
+    "normalizedName": "newtons_second_law",
+    "aliases": ["F=ma", "Newton's 2nd Law"],
+    "definition": "The net force on an object equals its mass times its acceleration",
+    "formulas": ["F_net = ma"],
+    "prerequisites": ["force", "mass", "acceleration"],
+    "related": ["newtons_first_law", "newtons_third_law"],
+    "locations": [{ "topicId": "...", "chunkId": "...", "role": "introduced" }]
+}
+```
+
+#### `exercise_index`
+```json
+{
+    "exerciseId": "uuid",
+    "materialId": "uuid",
+    "chunkId": "uuid",
+    "collectionId": "uuid",
+    "topicId": "topic-uuid",
+    "statement": "A 5 kg block on a 30° incline... Find the acceleration.",
+    "type": "numerical | conceptual | derivation | multiple_choice",
+    "difficulty": "intermediate",
+    "concepts": ["inclined_plane", "friction"],
+    "hasDiagram": true,
+    "diagramUrl": "gs://...",
+    "solution": { "available": true, "steps": ["Draw FBD...", "Apply F=ma..."], "answer": "a = 3.27 m/s²" }
+}
+```
+
+#### `student_progress`
+```json
+{
+    "collectionId": "uuid",
+    "userEmail": "student@example.com",
+    "completedTopics": ["topic-uuid-1"],
+    "completedChunks": ["chunk-uuid-1"],
+    "currentPosition": { "topicId": "topic-uuid-3", "chunkIndex": 2 },
+    "conceptMastery": {
+        "newtons_second_law": {
+            "level": "proficient",
+            "tested": true,
+            "lastSeen": "datetime",
+            "observations": [{ "text": "Correctly applied F=ma to two-body problem", "at": "datetime" }]
+        }
+    }
+}
+```
 
 #### `difficulty_map`
 ```json
@@ -571,13 +741,27 @@ Flow map versioned — re-generated after each incremental merge.
         "beginner": [{ "topicId": "...", "name": "...", "conceptCount": 3 }],
         "intermediate": [...],
         "advanced": [...]
-    },
-    "topicCount": 8,
-    "conceptCount": 32,
-    "updatedAt": "datetime"
+    }
 }
 ```
-**Indexes**: `collectionId` (unique)
+
+### Layer 3 Collections (+2)
+
+#### `extracted_frames`
+```json
+{
+    "frameId": "uuid",
+    "materialId": "uuid",
+    "collectionId": "uuid",
+    "timestamp": 185.0,
+    "displayTime": "3:05",
+    "classification": "board | equation | diagram | slide | chart",
+    "contentDescription": "Free body diagram of block on inclined plane",
+    "ocr": { "fullText": "F_N  F_g = mg  θ = 30°", "elements": [...] },
+    "gcsPath": "coll-id/frames/mat-id/frame_000185.jpg",
+    "gcsUrl": "gs://..."
+}
+```
 
 #### `asset_index`
 ```json
@@ -587,153 +771,137 @@ Flow map versioned — re-generated after each incremental merge.
     "topicId": "topic-uuid",
     "type": "board | equation | diagram | slide | chart",
     "description": "Free body diagram of block on inclined plane",
-    "materialId": "uuid",
     "frameId": "frame-uuid",
-    "timestamp": 185.0,
-    "gcsPath": "coll-id/frames/mat-id/frame_000185.jpg",
     "gcsUrl": "gs://...",
-    "ocrText": "F_N  F_g = mg  θ = 30°",
-    "createdAt": "datetime"
-}
-```
-**Indexes**: `collectionId`, `topicId`, `type`
-
-#### `index_locks` (operational)
-```json
-{
-    "collectionId": "uuid",
-    "acquiredAt": "datetime",
-    "expiresAt": "datetime"
+    "ocrText": "F_N  F_g = mg"
 }
 ```
 
-#### `merge_queue` (operational)
+### Operational Collections (always present)
+
+#### `transcripts`
 ```json
 {
-    "collectionId": "uuid",
     "materialId": "uuid",
-    "queuedAt": "datetime"
-}
-```
-
-### Database: `tutor_v2` (student state)
-
-#### `student_progress`
-```json
-{
     "collectionId": "uuid",
-    "userEmail": "student@example.com",
-    "completedTopics": ["topic-uuid-1", "topic-uuid-2"],
-    "completedChunks": ["chunk-uuid-1", "chunk-uuid-2"],
-    "currentPosition": { "topicId": "topic-uuid-3", "chunkIndex": 2 },
-    "conceptMastery": {
-        "newtons_second_law": {
-            "level": "proficient",
-            "tested": true,
-            "lastSeen": "datetime",
-            "observations": [
-                { "text": "Correctly applied F=ma to two-body problem", "at": "datetime", "sessionId": "..." }
-            ]
-        }
-    },
-    "sessionCount": 5,
-    "lastSessionAt": "datetime"
+    "source": "youtube_captions | elevenlabs_stt",
+    "language": "en",
+    "duration": 1200.0,
+    "segments": [{ "text": "...", "start": 0.0, "end": 3.5, "speaker": 0, "confidence": 0.95 }],
+    "fullText": "complete transcript...",
+    "gcsPath": "coll-id/transcripts/mat-id.json"
 }
 ```
-**Indexes**: `(collectionId, userEmail)` (unique), `userEmail`
+
+#### `index_locks` / `merge_queue` (Layer 1+ operational)
+```json
+// index_locks
+{ "collectionId": "uuid", "acquiredAt": "datetime", "expiresAt": "datetime" }
+// merge_queue
+{ "collectionId": "uuid", "materialId": "uuid", "queuedAt": "datetime" }
+```
 
 ---
 
-## 6. GCS Storage Layout
+## 11. GCS Storage Layout
 
 ```
 gs://capacity-materials/
   └── {collectionId}/
       ├── originals/
-      │   ├── {materialId}.pdf          # Original uploaded PDF
-      │   ├── {materialId}.mp4          # Original uploaded video (proposed)
-      │   └── {materialId}.jpg          # Original uploaded image (proposed)
+      │   ├── {materialId}.pdf
+      │   ├── {materialId}.mp4          # (proposed — video files)
+      │   └── {materialId}.jpg          # (proposed — images)
       ├── frames/
       │   └── {materialId}/
-      │       ├── frame_000120.jpg      # Video keyframe at t=120s
-      │       ├── frame_000185.jpg
-      │       ├── page_001_img_0.jpg    # PDF embedded image (page 1, image 0)
-      │       └── page_003_img_1.jpg
+      │       ├── frame_000120.jpg      # video keyframe at t=120s
+      │       └── page_001_img_0.jpg    # PDF embedded image
       └── transcripts/
-          └── {materialId}.json         # Full transcript backup
+          └── {materialId}.json
 ```
 
 ---
 
-## 7. REST API Surface
+## 12. REST API Surface
 
-### Existing Endpoints (Implemented)
+### Core Endpoints (Implemented)
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `POST` | `/api/v1/collections` | Create collection `{ title, userId }` |
-| `GET` | `/api/v1/collections?userId=...` | List user's collections |
-| `GET` | `/api/v1/collections/{id}` | Collection details + materials |
-| `GET` | `/api/v1/collections/{id}/status` | Processing status (poll this) |
-| `POST` | `/api/v1/collections/{id}/materials` | Add YouTube/text/batch materials |
-| `POST` | `/api/v1/collections/{id}/upload` | Upload PDF/text file (multipart, 50MB) |
-| `POST` | `/api/v1/collections/{id}/reindex` | Full rebuild of indexes |
+| Method | Path | Purpose | Layer |
+|--------|------|---------|-------|
+| `POST` | `/api/v1/collections` | Create collection | L0 |
+| `GET` | `/api/v1/collections?userId=...` | List user's collections | L0 |
+| `GET` | `/api/v1/collections/{id}` | Collection + materials | L0 |
+| `GET` | `/api/v1/collections/{id}/status` | Processing progress | L0 |
+| `POST` | `/api/v1/collections/{id}/materials` | Add YouTube/text/batch | L0 |
+| `POST` | `/api/v1/collections/{id}/upload` | Upload PDF/txt file (50MB) | L0 |
+| `POST` | `/api/v1/collections/{id}/reindex` | Full rebuild | L1 |
 
-### Proposed New Endpoints
+### Proposed Endpoints
 
-| Method | Path | Purpose |
-|--------|------|---------|
-| `DELETE` | `/api/v1/collections/{id}` | Delete entire collection (cascading) |
-| `DELETE` | `/api/v1/collections/{cid}/materials/{mid}` | Delete single material (cascading) |
-| `GET` | `/api/v1/collections/{cid}/materials/{mid}/url` | Signed URL for original file (60 min expiry) |
-| `POST` | `/api/v1/collections/{id}/upload` | **Extend** to accept images (JPG/PNG) and video files (MP4/MOV) |
-| `GET` | `/api/v1/collections/{id}/search?q=...` | Vector similarity search across chunks (proposed) |
-
----
-
-## 8. Material Query Layer (MQL) — 12 Tools
-
-The tutor uses these tools to explore and read content on-demand. All tools are scoped to the active `collectionId`.
-
-| # | Tool | Purpose | Returns |
-|---|------|---------|---------|
-| 1 | `browse_topics()` | List all topics with progress | Topic list with difficulty, exercise counts |
-| 2 | `browse_topic(topicId)` | Open one topic | Chunks, concepts, exercises, assets for topic |
-| 3 | `get_flow()` | Teaching sequence | Chapters with ordered topics |
-| 4 | `read_chunk(chunkId)` | Read full content | Transcript, key points, formulas, linked visuals |
-| 5 | `search_content(query)` | Text search across chunks | Matching chunks with summaries |
-| 6 | `grep_material(materialId, query)` | Search within one material | Matching chunks |
-| 7 | `find_concept(name)` | Concept by name/alias | Definition, prerequisites, formulas, locations |
-| 8 | `search_concepts(query)` | Fuzzy concept search | Matching concepts with definitions |
-| 9 | `get_exercises(topicId?, difficulty?)` | Get practice problems | Exercise statements with metadata |
-| 10 | `get_mastery()` | Student progress | Completed topics, concept mastery levels |
-| 11 | `log_observation(conceptId, observation)` | Record mastery observation | Confirmation |
-| 12 | `get_assets(topicId?, type?)` | Teaching assets | Diagrams, frames with descriptions and URLs |
-
-### Proposed: Tool #13 — `semantic_search(query, limit?)`
-Vector similarity search across chunk embeddings. Returns top-K semantically similar chunks regardless of exact keyword match. Essential for handling student queries like "explain that derivation" or "the energy conservation thing".
+| Method | Path | Purpose | Layer |
+|--------|------|---------|-------|
+| `DELETE` | `/api/v1/collections/{id}` | Delete collection (cascading) | L0 |
+| `DELETE` | `/api/v1/collections/{cid}/materials/{mid}` | Delete material (cascading) | L0 |
+| `GET` | `/api/v1/collections/{cid}/materials/{mid}/url` | Signed URL (60 min) | L1 |
+| `POST` | `/api/v1/collections/{id}/upload` | Extend: images, video files | L3 |
+| `GET` | `/api/v1/collections/{id}/search?q=...` | Vector search | L3 |
 
 ---
 
-## 9. Vector Search & Embeddings
+## 13. Material Query Layer (MQL)
 
-### Current State
-`search_content` and `search_concepts` use MongoDB `$regex` — pure keyword matching. This fails for:
-- Synonyms: "velocity" vs "speed of the object"
-- Paraphrasing: "how energy is conserved" vs "law of conservation of energy"
-- Conceptual queries: "the equation we derived in lecture 3" has no keyword overlap with the actual chunk
+The tutor's interface to content. Organized by layer:
 
-### Proposed Implementation
+### Layer 0 Tools (minimum)
 
-**Embedding model**: OpenAI `text-embedding-3-small` (1536 dim, $0.02/1M tokens — negligible cost)
+| Tool | Purpose | Returns |
+|------|---------|---------|
+| `list_chunks(collectionId)` | Table of contents | Chunk titles + summaries |
+| `read_chunk(chunkId)` | Read a section | Full transcript, key points, formulas |
+| `search_content(collectionId, query)` | Keyword search | Matching chunks |
 
-**What gets embedded** (during enrichment, stage 6):
-- Chunk: `f"{title}. {summary}. Concepts: {', '.join(concepts)}"`
-- Concept: `f"{name}: {definition}"`
+### Layer 1 Tools (+3)
+
+| Tool | Purpose | Returns |
+|------|---------|---------|
+| `browse_topics(collectionId)` | All topics with progress | Topic list with difficulty, counts |
+| `browse_topic(topicId)` | One topic in detail | Chunks, concepts, exercises for topic |
+| `get_flow(collectionId)` | Teaching sequence | Chapters with ordered topics |
+
+### Layer 2 Tools (+5)
+
+| Tool | Purpose | Returns |
+|------|---------|---------|
+| `find_concept(name)` | Concept by name/alias | Definition, prerequisites, locations |
+| `search_concepts(query)` | Fuzzy concept search | Matching concepts |
+| `get_exercises(topicId?, difficulty?)` | Practice problems | Exercises with metadata |
+| `get_mastery(collectionId)` | Student progress | Completed topics, mastery levels |
+| `log_observation(conceptId, note)` | Record learning event | Confirmation |
+
+### Layer 3 Tools (+2)
+
+| Tool | Purpose | Returns |
+|------|---------|---------|
+| `semantic_search(collectionId, query)` | Vector similarity search | Top-K chunks by meaning |
+| `get_assets(topicId?, type?)` | Visual assets | Diagrams, frames with URLs |
+
+---
+
+## 14. Vector Search & Embeddings
+
+### Current State (Layer 0-2)
+`search_content` uses MongoDB `$regex` — pure keyword matching.
+
+### Proposed (Layer 3)
+
+**Embedding model**: OpenAI `text-embedding-3-small` (1536 dim, ~$0.02/1M tokens)
+
+**What gets embedded** (during enrichment):
+- Chunk: `"{title}. {summary}. Concepts: {concepts joined}"`
 
 **Storage**: `chunks.embedding` field (1536-dim float array)
 
-**Index**: MongoDB Atlas Vector Search index on `chunks.embedding`:
+**Index**: MongoDB Atlas Vector Search:
 ```json
 {
     "type": "vectorSearch",
@@ -748,11 +916,11 @@ Vector similarity search across chunk embeddings. Returns top-K semantically sim
 }
 ```
 
-**Query** (new MQL tool `semantic_search`):
+**Query**:
 ```python
-async def semantic_search(collection_id: str, query: str, limit: int = 5) -> str:
-    embedding = await embed_text(query)  # OpenAI embedding
-    results = await db.chunks.aggregate([
+async def semantic_search(collection_id: str, query: str, limit: int = 5):
+    embedding = await embed_text(query)
+    return await db.chunks.aggregate([
         {
             "$vectorSearch": {
                 "index": "chunk_embedding_index",
@@ -765,292 +933,207 @@ async def semantic_search(collection_id: str, query: str, limit: int = 5) -> str
         },
         { "$project": { "chunkId": 1, "title": 1, "content.summary": 1, "score": { "$meta": "vectorSearchScore" } } }
     ]).to_list(None)
-    # Format results for tutor
 ```
 
-**Fallback** (if not on Atlas): Use a sidecar vector store (Qdrant, Chroma) with the same interface.
+**Fallback** (non-Atlas): Qdrant or Chroma sidecar with the same tool interface.
 
 ---
 
-## 10. Incremental Update & Merge Strategy
+## 15. Incremental Update & Merge Strategy
 
-### Why Incremental?
-Students add materials over time — not a one-shot bulk upload. After uploading a PDF, they might add YouTube videos a day later, then paste their notes. Each addition should:
-1. Process independently (no re-processing existing materials)
-2. Merge into the existing topic/concept structure
-3. Re-sequence the flow map
+Students add materials over time. Each addition:
+1. Processes independently (stages 0-6)
+2. Merges into existing topic/concept structure (stage 8)
+3. Re-sequences the flow map (stage 9)
 
-### How It Works
-
+### Merge Flow
 ```
-Student uploads new PDF
-  → create_material() inserts material doc
-  → asyncio.create_task(process_material(material_id, collection_id))
-  → Pipeline runs stages 0-6 independently
-  → Stage 8: merge_into_indexes()
-      → Acquire MongoDB lock (prevents concurrent merges)
-      → If lock held: queue merge, return (processed when lock releases)
-      → LLM decides: add chunks to existing topics or create new ones
-      → LLM merges concepts: deduplicates against existing graph
+New PDF uploaded
+  → process_material() runs stages 0-6 independently
+  → Stage 8: acquire lock on collectionId
+      → If locked: queue in merge_queue, return
+      → LLM merges chunks into existing or new topics
+      → LLM deduplicates concepts
       → Link exercises, catalog assets
-      → Rebuild difficulty map
-      → Re-generate flow map (version incremented)
-      → Release lock → process queued merges
+      → Rebuild difficulty map, re-generate flow map
+      → Release lock → drain queue
 ```
 
 ### Concurrent Safety
-- MongoDB-based lock per collection: `index_locks` collection
-- Lock timeout: 5 minutes (stale locks are stolen)
-- Queue: `merge_queue` collection — stores pending merges when lock is held
-- After releasing lock: all queued merges processed sequentially
+- MongoDB lock per collection in `index_locks` (5-min timeout, stale locks stolen)
+- Queue in `merge_queue` — drained FIFO after lock release
 
 ---
 
-## 11. Deletion Pipeline (Cascading)
+## 16. Deletion Pipeline (Cascading)
 
 ### DELETE Material
-
 ```
 DELETE /api/v1/collections/{cid}/materials/{mid}
-  │
-  ├─ 1. Load material document (get source info for GCS cleanup)
-  ├─ 2. Delete from MongoDB:
-  │    ├─ chunks where materialId = mid
-  │    ├─ transcripts where materialId = mid
-  │    ├─ extracted_frames where materialId = mid
-  │    ├─ exercise_index where materialId = mid
-  │    └─ asset_index where materialId = mid
-  │
-  ├─ 3. Topic cleanup:
-  │    ├─ For each topic: $pull chunkIds belonging to this material
-  │    ├─ Delete topics with 0 remaining chunkIds (empty topics)
-  │    └─ Recalculate exerciseCount for affected topics
-  │
-  ├─ 4. Concept cleanup:
-  │    ├─ For each concept: $pull locations referencing deleted chunks
-  │    └─ Delete concepts with 0 remaining locations (orphaned)
-  │
-  ├─ 5. Re-sequence:
-  │    ├─ Rebuild difficulty_map
-  │    └─ Re-generate flow_map (version increment)
-  │
-  ├─ 6. GCS cleanup:
-  │    ├─ Delete cid/originals/mid.*
-  │    └─ Delete cid/frames/mid/ (all frame images)
-  │
-  ├─ 7. Delete material document itself
-  │
-  └─ 8. Update collection stats & progress
+  ├─ MongoDB cascading delete:
+  │   ├─ chunks (materialId = mid)
+  │   ├─ transcripts (materialId = mid)
+  │   ├─ extracted_frames (materialId = mid)
+  │   ├─ exercise_index (materialId = mid)
+  │   └─ asset_index (materialId = mid)
+  ├─ Topic cleanup: $pull chunkIds, delete empty topics
+  ├─ Concept cleanup: $pull locations, delete orphaned concepts
+  ├─ Re-sequence: rebuild difficulty_map + flow_map
+  ├─ GCS cleanup: originals + frames for this material
+  ├─ Delete material document
+  └─ Update collection stats
 ```
 
 ### DELETE Collection
-
 ```
 DELETE /api/v1/collections/{cid}
-  │
-  ├─ 1. Delete all scoped index data:
-  │    ├─ chunks, transcripts, extracted_frames, exercise_index
-  │    ├─ topic_index, concept_graph, asset_index
-  │    ├─ flow_map, difficulty_map
-  │    └─ index_locks, merge_queue
-  │
-  ├─ 2. Delete all materials
-  ├─ 3. Delete student_progress (tutor_v2 DB) for this collectionId
-  ├─ 4. Delete GCS folder: cid/ (recursive)
-  └─ 5. Delete collection document
+  ├─ Bulk delete: chunks, transcripts, frames, exercises,
+  │   topics, concepts, assets, flow_map, difficulty_map, locks, queue
+  ├─ Delete all materials
+  ├─ Delete student_progress
+  ├─ Delete GCS folder (recursive)
+  └─ Delete collection document
 ```
 
 ---
 
-## 12. Teaching Context — How the Tutor Sees BYO Content
+## 17. Teaching Context — How the Tutor Sees BYO Content
 
 ### Activation
-Frontend sends `collectionId` in the student profile JSON (within the context array). Chat route detects it via `_extract_collection_id()` and switches to BYO mode.
+Frontend sends `collectionId` in student profile. Chat route detects it and switches to BYO mode.
 
-### Lean Context Snapshot (~600-800 tokens)
-Built by `lean_context.py`, injected into the system prompt:
+### Lean Context (~600-800 tokens)
+Injected into system prompt. NOT the full content — just a snapshot:
 
 ```
 [Collection: Physics 101 — My Notes]
 Subjects: classical mechanics, thermodynamics | 8 topics, 47 chunks, 15 exercises
-collectionId: uuid-here
 
 Sequence: Foundations (3 topics) → Dynamics (2 topics) → Energy (3 topics)
 
 [Student Progress]
-Sessions: 3 | Completed topics: 2
-Current topic: Newton's Second Law (topicId: uuid)
-Needs work: friction, circular_motion
+Completed: 2 topics | Current: Newton's Second Law
+Weak concepts: friction, circular_motion
 
-[MQL Tools — Content Discovery]
-  browse_topics()          — list all topics
-  browse_topic(topicId)    — details for one topic
-  ... (abbreviated reference)
+[Tools Available]
+  browse_topics() — list topics
+  read_chunk(id) — read a section
+  search(query) — find content
+  ...
 ```
 
-### System Prompt Structure
+The tutor navigates content on-demand using MQL tools — never receives raw material dumps.
+
+### Prompt Structure
 ```
 TUTOR_SYSTEM_PROMPT (personality, pedagogy)
-  + MQL_TOOLKIT_PROMPT (12 tools, teaching flow instructions)
-  + TAGS_PROMPT (teaching tag syntax)
+  + MQL_TOOLKIT_PROMPT (tool instructions)
   + lean context snapshot
-  + student profile
-  + student model (private notes)
-  + agent results (if any)
+  + student profile + student model
 ```
 
-### Teaching Flow
-1. **Session start**: Tutor calls `get_flow()` + `get_mastery()` → plans what to teach
-2. **Per topic**: `browse_topic(topicId)` → `read_chunk(chunkId)` → teach with board/voice → `get_exercises(topicId)` → assess → `log_observation()`
-3. **Student asks random question**: `search_content("their question")` (or `semantic_search`) → `read_chunk()` → answer grounded in their materials
-4. **Crash course**: `get_flow()` + `difficulty_map` → tutor selects key topics → compressed teaching plan
-
 ---
 
-## 13. Student Use Cases & Retrieval Paths
-
-| Student Says | Retrieval Path | Works Today? |
-|-------------|---------------|-------------|
-| "Teach me my course" | `get_flow()` → sequential topic teaching | Yes |
-| "Teach me from topic X" | `search_content("X")` or `browse_topics()` → `browse_topic()` → `read_chunk()` | Yes (keyword); Needs vector for fuzzy |
-| "Explain this derivation" | `semantic_search("derivation of X")` → `read_chunk()` | **No** — needs vector search |
-| "Assess me on uploaded exam papers" | `get_exercises(difficulty="advanced")` → assessment flow | Partially — depends on exercise extraction quality |
-| "Prepare crash course, exam in 2 days" | `get_flow()` + `difficulty_map` → select key topics → compressed plan | Yes — tutor intelligence handles this |
-| "What's in my collection?" | `browse_topics()` → overview | Yes |
-| "Show me the diagram from lecture 3" | `get_assets(topicId, type="diagram")` → signed URL | Partially — needs signed URL endpoint |
-| "I uploaded new notes, teach from those too" | Upload → pipeline → incremental merge → tutor picks up on next `browse_topics()` | Yes |
-| "Delete that PDF I uploaded" | **DELETE material endpoint** → cascading cleanup | **No** — not implemented |
-| "Can you search for something specific in my materials?" | `search_content(query)` or `grep_material(materialId, query)` | Yes (keyword) |
-
-### Random Access Pattern (Student addresses things randomly)
-
-The tutor handles random student queries through the MQL tools:
-
-1. Student: "Hey, can you explain the thing about torque from that video I uploaded?"
-2. Tutor: calls `search_content("torque")` → finds 3 chunks mentioning torque
-3. Tutor: calls `read_chunk(best_match)` → gets full content
-4. Tutor: teaches from the chunk content, draws on board, references video timestamp
-
-With **vector search**, step 2 becomes much more robust — the student doesn't need to use the exact word "torque" (could say "the rotational force thing").
-
----
-
-## 14. Frontend Integration Points
+## 18. Frontend Integration Points
 
 ### What Needs to Be Built
 
-1. **Enable BYO card** — Remove `if (cid === 'byo') return` guard in `app.js`
-2. **Collection creation flow** — Name collection → upload materials → show progress
-3. **Upload UI** — Drag-and-drop zone supporting PDF, images, text paste, YouTube URL paste
-4. **Processing status** — Poll `GET /collections/{id}/status`, show per-material status
-5. **Material list** — Browse uploaded materials with type icons, status badges
-6. **Wire `collectionId`** — `buildContext()` must include `collectionId` in student profile when starting a BYO session
-7. **Material management** — Delete materials, add more to existing collection
-8. **Raw material viewer** — Signed URL access to view original PDFs, images, video frames
+| Component | What It Does | Layer |
+|-----------|-------------|-------|
+| Enable BYO card | Remove `if (cid === 'byo') return` guard | L0 |
+| Collection creation | Name → create via POST | L0 |
+| Upload UI | Drag-drop zone: PDF, text paste, YouTube URL | L0 |
+| Processing status | Poll `GET /status`, per-material progress | L0 |
+| Wire `collectionId` | `buildContext()` sends collectionId in profile | L0 |
+| Material list + delete | Browse uploads, remove materials | L0 |
+| Raw material viewer | Signed URL access to original files | L1 |
 
-### Context Wiring (Critical Path)
+### Context Wiring (Critical)
 
-In `app.js`, `buildContext()` currently sends:
-```javascript
-{ courseId, studentName, userEmail, teachingMode, ... }
-```
-
-For BYO, it must also send:
-```javascript
-{ collectionId: "uuid-of-active-collection", ... }
-```
-
-The chat route's `_extract_collection_id()` reads this and activates BYO mode.
+`buildContext()` currently sends `{ courseId, studentName, ... }`.
+For BYO: must also send `{ collectionId: "uuid" }`.
+Chat route's `_extract_collection_id()` reads this and activates BYO mode.
 
 ---
 
-## 15. External Dependencies & Cost Model
+## 19. External Dependencies & Cost Model
 
-| Service | Used For | Cost Estimate |
-|---------|----------|---------------|
-| **Anthropic Claude Sonnet** | Topic detection, concept merge, flow map, chunking | ~$0.05-0.15 per material |
-| **Anthropic Claude Haiku** | Classification, enrichment (per-chunk), exercises | ~$0.01-0.03 per material |
-| **Claude Vision** | Frame classification, OCR | ~$0.01-0.05 per video (depends on frame count) |
-| **YouTube Captions API** | Free transcription | Free |
-| **ElevenLabs STT** (proposed) | Transcription fallback, non-YouTube video | ~$0.01/min audio |
-| **OpenAI Embeddings** (proposed) | Vector embeddings for chunks | ~$0.001 per material (negligible) |
-| **Google Cloud Storage** | Original files, frames, transcripts | ~$0.02/GB/month |
-| **MongoDB Atlas** | All structured data + vector search | Existing infrastructure |
+| Service | Used For | Layer | Cost |
+|---------|----------|-------|------|
+| **Claude Sonnet** | Topic detection, concept merge, flow map, chunking | L1+ | ~$0.05-0.15/material |
+| **Claude Haiku** | Classification, enrichment, exercises | L1+ | ~$0.01-0.03/material |
+| **Claude Vision** | Frame classification, OCR | L3 | ~$0.01-0.05/video |
+| **YouTube Captions** | Free transcription | L0 | Free |
+| **ElevenLabs STT** | Transcription fallback, non-YouTube | L0 | ~$0.01/min |
+| **OpenAI Embeddings** | Vector embeddings | L3 | ~$0.001/material |
+| **GCS** | File storage | L0 | ~$0.02/GB/month |
+| **MongoDB Atlas** | All data + vector search | L0 | Existing |
 
-**Per-material cost estimate**: ~$0.05-0.25 depending on size and type.
-**Per-collection cost estimate** (10 materials): ~$0.50-2.50
+**Per-material cost**:
+- Layer 0: ~$0.005 (nearly free — no LLM in pipeline)
+- Layer 0+1: ~$0.05-0.15 (LLM for chunking + topic detection)
+- Full stack: ~$0.10-0.25
 
 ---
 
-## 16. Production Concerns
+## 20. Production Concerns
 
-### Rate Limiting
-- Upload endpoint: Rate limit per user (e.g., 10 uploads/minute, 100 uploads/day)
-- Pipeline: Max concurrent background tasks per collection (prevent resource exhaustion)
+### Rate Limits
+- Uploads: 10/min, 100/day per user
+- Max concurrent pipeline tasks per collection: 5
 
 ### File Size Limits
-- PDF: 50MB (current)
-- Video file (proposed): 500MB
-- Image: 10MB
-- Text: 1MB
-- Total collection: 2GB
+- PDF: 50MB | Video: 500MB | Image: 10MB | Text: 1MB | Collection total: 2GB
 
 ### Error Recovery
 - Each material processes independently — one failure doesn't block others
-- Failed materials can be retried (re-upload)
-- Pipeline status tracking at each stage — visible to user via status endpoint
-- Quality gate prevents garbage-in-garbage-out
-
-### Monitoring
-- Pipeline processing time per material (alert if > 5 minutes for text, > 15 for video)
-- LLM call failures (retry with exponential backoff)
-- GCS upload/download failures
-- Index merge lock contention (alert if queue grows)
+- Failed materials can be retried
+- Per-stage status tracking visible via API
 
 ### Security
-- All GCS access via signed URLs (60-min expiry)
+- GCS: signed URLs only (60-min expiry)
 - User-scoped collection access (userId check on all endpoints)
-- File upload validation (magic bytes check for PDF, image; no executable uploads)
-- Transcription content stays server-side (no API keys on frontend)
+- File upload validation (magic bytes, no executables)
 
 ---
 
-## 17. Implementation Status & Gaps
+## 21. Implementation Status & Gaps
 
-### Implemented (Backend)
+### What's Built
 
-| Component | Files | Notes |
+| Component | Layer | Files |
 |-----------|-------|-------|
-| Collection CRUD | `ingestion.py` | Create, list, get, status |
-| Material upload (PDF, YouTube, text) | `ingestion.py`, `orchestrator.py` | Multipart + JSON |
-| Full pipeline (10 stages) | `orchestrator.py`, `extractors/*`, `processors/*`, `transcribers/*` | End-to-end |
-| Incremental merge with locking | `index_builder.py` | MongoDB locks + queue |
-| Flow map generation | `sequencer.py` | Versioned, re-generated on merge |
-| MQL tools (12) | `mql.py`, `tools/__init__.py` | Full implementation |
-| Lean context builder | `lean_context.py` | ~600 token snapshot |
-| BYO tutor prompt | `toolkit.py` | MQL teaching instructions |
-| Chat route BYO branch | `chat.py` | Activated by `collectionId` |
-| GCS storage | `gcs.py` | Upload, download, signed URL, delete |
-| MongoDB indexes | `byo_indexes.py` | 11 collections indexed |
+| Collection CRUD | L0 | `ingestion.py` |
+| Material upload (PDF, YouTube, text) | L0 | `ingestion.py`, `orchestrator.py` |
+| Full 10-stage pipeline | L0-L2 | `orchestrator.py`, `extractors/*`, `processors/*` |
+| Incremental merge with locking | L1 | `index_builder.py` |
+| Flow map generation | L1 | `sequencer.py` |
+| 12 MQL tools | L0-L2 | `mql.py`, `tools/__init__.py` |
+| Lean context builder | L0 | `lean_context.py` |
+| Chat route BYO branch | L0 | `chat.py` |
+| GCS storage | L0 | `gcs.py` |
+| MongoDB indexes | L0-L2 | `byo_indexes.py` |
 
-### Not Implemented (Gaps)
+### What's Missing
 
-| Gap | Priority | Estimated Effort |
-|-----|----------|-----------------|
-| **Material deletion endpoint + cascading cleanup** | P0 | 1-2 days |
-| **Collection deletion endpoint** | P0 | 0.5 day |
-| **Frontend: Upload UI + collection management** | P0 | 3-4 days |
-| **Frontend: Wire `collectionId` into context** | P0 | 0.5 day |
-| **Image source type** (upload → OCR → chunk) | P1 | 1-2 days |
-| **Vector embeddings + semantic search** | P1 | 2-3 days |
-| **Signed URL endpoint** for raw material access | P1 | 0.5 day |
-| **ElevenLabs STT adapter** (replace Deepgram) | P1 | 1 day |
-| **Video file upload** (MP4/MOV → GCS → transcribe → frames) | P2 | 2-3 days |
-| **PPTX support** | P3 | 1-2 days |
-| **DOCX support** | P3 | 0.5 day |
+| Gap | Layer | Effort |
+|-----|-------|--------|
+| Material deletion + cascading cleanup | L0 | 1-2 days |
+| Collection deletion | L0 | 0.5 day |
+| Frontend: upload UI + collection management | L0 | 3-4 days |
+| Frontend: wire `collectionId` into context | L0 | 0.5 day |
+| Image source type | L3 | 1-2 days |
+| Vector embeddings + semantic search | L3 | 2-3 days |
+| Signed URL endpoint | L1 | 0.5 day |
+| ElevenLabs STT adapter | L0 | 1 day |
+| Video file upload (MP4/MOV) | L3 | 2-3 days |
+| PPTX / DOCX support | L3 | 1-2 days |
 
-### Recommended Implementation Order
+### Recommended Rollout
 
-1. **P0 block** (minimum viable): Deletion + Frontend upload + Context wiring → BYO is usable end-to-end
-2. **P1 block** (quality): Image upload + Vector search + Signed URLs + ElevenLabs STT → handles real student workflows
-3. **P2 block** (completeness): Video files + PPTX/DOCX → handles all common file types
+| Week | What Ships | What Works |
+|------|-----------|-----------|
+| **Week 1** | Layer 0: Extract + chunk + store + search + read + frontend upload + deletion | Students upload PDFs/YouTube/text, tutor teaches from content, ad-hoc questions work |
+| **Week 2** | Layer 1: Smart chunking + topics + flow map + classification | Structured courses, "teach me from topic X", crash courses |
+| **Week 3** | Layer 2: Concepts + exercises + progress tracking | Assessment from real exam papers, mastery tracking, spaced repetition |
+| **When needed** | Layer 3: Vector search + frames + images + video files | Fuzzy queries, visual assets, all file types |
