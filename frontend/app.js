@@ -709,6 +709,7 @@ const state = {
   voiceSpeed: 1.5,
   voiceAudioCtx: null,
   voiceCurrentSrc: null,
+  voiceCurrentAudio: null,
   voiceQueue: [], // queued text segments for TTS
   voiceHandVisible: false,
 
@@ -5952,10 +5953,7 @@ window.reopenSpotlight = function(refId) {
   // Voice mode: pause TTS, hide subtitles, save current board state
   if (state.teachingMode === 'voice') {
     // Stop any playing TTS audio
-    if (state.voiceCurrentSrc) {
-      try { state.voiceCurrentSrc.stop(); } catch {}
-      state.voiceCurrentSrc = null;
-    }
+    voiceStopCurrent();
     voiceHideSubtitle();
     voiceHideHand();
 
@@ -10401,28 +10399,59 @@ function applyTeachingMode() {
 
 // ── ElevenLabs Streaming TTS (chunked playback for low latency) ──
 
-async function voiceSpeak(text) {
-  if (state.teachingMode !== 'voice' || !text.trim()) return;
+// Stop whichever TTS playback source is active
+function voiceStopCurrent() {
+  if (state.voiceCurrentSrc) {
+    try { state.voiceCurrentSrc.stop(); } catch {}
+    state.voiceCurrentSrc = null;
+  }
+  if (state.voiceCurrentAudio) {
+    try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch {}
+    state.voiceCurrentAudio = null;
+  }
+}
 
-  if (!state.voiceAudioCtx) state.voiceAudioCtx = new AudioContext({ sampleRate: 44100 });
-  if (state.voiceAudioCtx.state === 'suspended') await state.voiceAudioCtx.resume();
-  if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch {} }
-
-  const cleanText = text
+function voiceCleanText(text) {
+  return text
     .replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1')
     .replace(/`(.+?)`/g, '$1').replace(/<[^>]+>/g, '')
     .replace(/\$\$[\s\S]+?\$\$/g, '').replace(/\$(.+?)\$/g, '$1')
     .replace(/\[[^\]]*\]\s*/g, '').trim();
+}
 
-  if (!cleanText || cleanText.length < 3) return;
-
-  // Use backend TTS proxy (API key stays server-side)
+// Pre-fetch TTS response without consuming the body — used for lookahead prefetching
+async function voiceFetchTTS(text) {
+  const clean = voiceCleanText(text);
+  if (!clean || clean.length < 3) return null;
   try {
     const resp = await fetch(`${state.apiUrl}/api/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ text: cleanText, voice_id: ELEVENLABS_VOICE_ID }),
+      body: JSON.stringify({ text: clean, voice_id: ELEVENLABS_VOICE_ID }),
     });
+    return resp.ok ? resp : null;
+  } catch { return null; }
+}
+
+async function voiceSpeak(text, prefetchedResp) {
+  if (state.teachingMode !== 'voice' || !text.trim()) return;
+
+  if (!state.voiceAudioCtx) state.voiceAudioCtx = new AudioContext({ sampleRate: 44100 });
+  if (state.voiceAudioCtx.state === 'suspended') await state.voiceAudioCtx.resume();
+  voiceStopCurrent();
+
+  const cleanText = voiceCleanText(text);
+  if (!cleanText || cleanText.length < 3) return;
+
+  try {
+    let resp = prefetchedResp;
+    if (!resp) {
+      resp = await fetch(`${state.apiUrl}/api/tts`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+        body: JSON.stringify({ text: cleanText, voice_id: ELEVENLABS_VOICE_ID }),
+      });
+    }
 
     if (!resp.ok) {
       console.warn('TTS error:', resp.status);
@@ -10430,31 +10459,114 @@ async function voiceSpeak(text) {
       return;
     }
 
-    // Stream chunks and start playing as soon as first chunk arrives
-    // Use MediaSource for true streaming playback on supported browsers,
-    // fallback to buffered playback otherwise
-    const reader = resp.body.getReader();
-    const chunks = [];
-    while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+    // Streaming playback via MediaSource (start playing from first chunk)
+    // Falls back to buffered AudioContext decode if MSE unsupported
+    const canStreamMSE = typeof MediaSource !== 'undefined'
+      && MediaSource.isTypeSupported('audio/mpeg');
 
-    const buf = await new Blob(chunks, { type: 'audio/mpeg' }).arrayBuffer();
-    const audio = await state.voiceAudioCtx.decodeAudioData(buf);
-    const src = state.voiceAudioCtx.createBufferSource();
-    src.buffer = audio;
-    src.playbackRate.value = state.voiceSpeed;
-    src.connect(state.voiceAudioCtx.destination);
-    src.start();
-    state.voiceCurrentSrc = src;
+    if (canStreamMSE) {
+      try {
+        await voiceSpeakMSE(resp);
+        return;
+      } catch (e) {
+        console.warn('MSE streaming failed, trying buffered:', e);
+        // resp body consumed — need to re-fetch
+        resp = await fetch(`${state.apiUrl}/api/tts`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+          body: JSON.stringify({ text: cleanText, voice_id: ELEVENLABS_VOICE_ID }),
+        });
+        if (!resp.ok) { await voiceSleep(estimateVoiceDuration(cleanText) * 1000); return; }
+      }
+    }
 
-    await new Promise(r => {
-      let done = false;
-      src.onended = () => { if (!done) { done = true; r(); } };
-      setTimeout(() => { if (!done) { done = true; r(); } }, (audio.duration / state.voiceSpeed) * 1000 + 300);
-    });
+    await voiceSpeakBuffered(resp);
   } catch (e) {
     console.warn('TTS failed:', e);
     await voiceSleep(estimateVoiceDuration(cleanText) * 1000);
   }
+}
+
+// Streaming playback via MediaSource Extensions — starts audio from first chunk
+async function voiceSpeakMSE(resp) {
+  const ms = new MediaSource();
+  const audio = new Audio();
+  audio.playbackRate = state.voiceSpeed;
+  const objUrl = URL.createObjectURL(ms);
+  audio.src = objUrl;
+
+  await new Promise((res, rej) => {
+    ms.addEventListener('sourceopen', res, { once: true });
+    setTimeout(() => rej(new Error('MSE sourceopen timeout')), 5000);
+  });
+
+  const sb = ms.addSourceBuffer('audio/mpeg');
+  const reader = resp.body.getReader();
+  let started = false;
+
+  const append = (chunk) => new Promise((res, rej) => {
+    if (sb.updating) {
+      sb.addEventListener('updateend', () => {
+        try { sb.appendBuffer(chunk); } catch (e) { rej(e); return; }
+        sb.addEventListener('updateend', res, { once: true });
+      }, { once: true });
+    } else {
+      try { sb.appendBuffer(chunk); } catch (e) { rej(e); return; }
+      sb.addEventListener('updateend', res, { once: true });
+    }
+  });
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      await append(value);
+      if (!started) {
+        started = true;
+        await audio.play();
+        state.voiceCurrentAudio = audio;
+      }
+    }
+
+    if (sb.updating) await new Promise(r => sb.addEventListener('updateend', r, { once: true }));
+    if (ms.readyState === 'open') ms.endOfStream();
+
+    if (!started) return; // no data
+
+    // Wait for playback to finish
+    if (!audio.ended) {
+      await new Promise(r => {
+        audio.addEventListener('ended', r, { once: true });
+        const safeMs = ((audio.duration || 30) / state.voiceSpeed) * 1000 + 500;
+        setTimeout(r, safeMs);
+      });
+    }
+  } finally {
+    state.voiceCurrentAudio = null;
+    URL.revokeObjectURL(objUrl);
+  }
+}
+
+// Buffered playback via AudioContext — fallback for browsers without MSE
+async function voiceSpeakBuffered(resp) {
+  const reader = resp.body.getReader();
+  const chunks = [];
+  while (true) { const { done, value } = await reader.read(); if (done) break; chunks.push(value); }
+
+  const buf = await new Blob(chunks, { type: 'audio/mpeg' }).arrayBuffer();
+  const decoded = await state.voiceAudioCtx.decodeAudioData(buf);
+  const src = state.voiceAudioCtx.createBufferSource();
+  src.buffer = decoded;
+  src.playbackRate.value = state.voiceSpeed;
+  src.connect(state.voiceAudioCtx.destination);
+  src.start();
+  state.voiceCurrentSrc = src;
+
+  await new Promise(r => {
+    let ended = false;
+    src.onended = () => { if (!ended) { ended = true; r(); } };
+    setTimeout(() => { if (!ended) { ended = true; r(); } }, (decoded.duration / state.voiceSpeed) * 1000 + 300);
+  });
 }
 
 // TTS is now proxied through backend — no API key on frontend
@@ -10621,6 +10733,7 @@ function pickSpeed(s) {
   if (menu) menu.classList.add('hidden');
   // Adjust currently playing audio
   if (state.voiceCurrentSrc) state.voiceCurrentSrc.playbackRate.value = s;
+  if (state.voiceCurrentAudio) state.voiceCurrentAudio.playbackRate = s;
 }
 
 // Close speed menu on outside click
@@ -10792,14 +10905,29 @@ async function executeVoiceScene(sceneTag) {
     openBoardDrawSpotlight(title, null, { clear: true });
   }
 
-  // Execute beats sequentially
+  // Pre-fetch first beat's TTS during board setup to cut initial latency
+  let prefetchedResp = null;
+  if (beats[0]?.say?.trim()) {
+    prefetchedResp = await voiceFetchTTS(beats[0].say);
+  }
+
+  // Execute beats sequentially — with TTS lookahead prefetching
   for (let i = 0; i < beats.length; i++) {
     const beat = beats[i];
     console.log(`[VoiceScene] Beat ${i+1}/${beats.length}:`, beat.say?.slice(0, 50) || '(draw only)');
 
+    // Grab this beat's prefetched TTS (null if none available)
+    const myPrefetch = prefetchedResp;
+    prefetchedResp = null;
+
+    // Kick off NEXT beat's TTS fetch — runs concurrently with this beat
+    let nextPrefetchP = null;
+    if (i + 1 < beats.length && beats[i + 1]?.say?.trim()) {
+      nextPrefetchP = voiceFetchTTS(beats[i + 1].say);
+    }
+
     // 0. Clear board if requested (saves snapshot first)
     if (beat.clearBefore && state.boardDraw.canvas) {
-      // Save snapshot to frame strip before clearing
       try {
         const snapshot = state.boardDraw.canvas.toDataURL('image/png');
         appendSpotlightReference('board-draw', title, { _snapshot: snapshot });
@@ -10812,7 +10940,7 @@ async function executeVoiceScene(sceneTag) {
     if (beat.scrollTo) {
       const idRef = beat.scrollTo.replace(/^id:/, '');
       bdScrollToElement(idRef);
-      await voiceSleep(300); // let scroll settle
+      await voiceSleep(300);
     }
 
     // 1. Position cursor (supports id: references)
@@ -10826,10 +10954,9 @@ async function executeVoiceScene(sceneTag) {
     // 2b. Ephemeral annotation (circle, underline, glow, box)
     if (beat.annotate) {
       const annParts = beat.annotate.split(':');
-      // Format: "circle:id:elementId" or "underline:id:elementId"
       if (annParts.length >= 3 && annParts[1] === 'id') {
-        const annType = annParts[0]; // circle, underline, box, glow
-        const annId = annParts.slice(2).join(':'); // element ID (may contain colons)
+        const annType = annParts[0];
+        const annId = annParts.slice(2).join(':');
         voiceAnnotate(annType, annId, {
           color: beat.annotateColor || '#34d399',
           duration: beat.annotateDuration || 2000,
@@ -10837,7 +10964,7 @@ async function executeVoiceScene(sceneTag) {
       }
     }
 
-    // 2c. Video — render via teaching-video tag, slide chat pane in
+    // 2c. Video — render via teaching-video tag
     if (beat.videoLesson) {
       const videoTag = {
         name: 'teaching-video',
@@ -10845,11 +10972,10 @@ async function executeVoiceScene(sceneTag) {
         content: '',
       };
       renderTeachingTag(videoTag);
-      // Say the intro, then pause for video duration
-      if (beat.say) await executeSay(beat.say);
-      // Wait — student watches video. Scene continues on next beat.
+      if (beat.say) await executeSay(beat.say, myPrefetch);
       if (beat.pause) await voiceSleep(beat.pause * 1000);
-      continue; // skip draw/say below
+      if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
+      continue;
     }
 
     // 2d. Simulation — render via teaching-simulation tag
@@ -10860,8 +10986,9 @@ async function executeVoiceScene(sceneTag) {
         content: '',
       };
       renderTeachingTag(simTag);
-      if (beat.say) await executeSay(beat.say);
+      if (beat.say) await executeSay(beat.say, myPrefetch);
       if (beat.pause) await voiceSleep(beat.pause * 1000);
+      if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
       continue;
     }
 
@@ -10873,14 +11000,15 @@ async function executeVoiceScene(sceneTag) {
         content: beat.widgetCode,
       };
       renderTeachingTag(widgetTag);
-      if (beat.say) await executeSay(beat.say);
+      if (beat.say) await executeSay(beat.say, myPrefetch);
       if (beat.pause) await voiceSleep(beat.pause * 1000);
+      if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
       continue;
     }
 
-    // 3. Start draw + say in parallel
+    // 3. Start draw + say in parallel (with prefetched TTS response)
     const drawPromise = executeDraw(beat.draw);
-    const sayPromise = executeSay(beat.say);
+    const sayPromise = executeSay(beat.say, myPrefetch);
 
     // Wait for both to complete
     await Promise.all([drawPromise, sayPromise]);
@@ -10890,13 +11018,16 @@ async function executeVoiceScene(sceneTag) {
       await voiceSleep(beat.pause * 1000);
     }
 
+    // Resolve next beat's prefetched TTS (should already be done by now)
+    if (nextPrefetchP) { try { prefetchedResp = await nextPrefetchP; } catch {} }
+
     // 5. If question, show input and stop
     if (beat.question) {
       voiceHideHand();
       const questionText = beat.say || 'What do you think?';
       const rendered = typeof renderLatex === 'function' ? renderLatex(questionText) : questionText;
       voiceShowBoardQuestion(rendered);
-      return; // Stop scene — student responds
+      return;
     }
   }
 
@@ -10942,12 +11073,12 @@ async function executeDraw(drawCmds) {
   }
 }
 
-// Execute say — TTS + subtitle
-async function executeSay(text) {
+// Execute say — TTS + subtitle (optionally with pre-fetched TTS response)
+async function executeSay(text, prefetchedResp) {
   if (!text || !text.trim()) return;
   voiceShowSubtitle(text);
   voiceShowIndicator('speaking');
-  await voiceSpeak(text);
+  await voiceSpeak(text, prefetchedResp);
   voiceHideIndicator();
 }
 

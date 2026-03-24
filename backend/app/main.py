@@ -152,9 +152,12 @@ async def tts_proxy(request: Request):
         return JSONResponse(status_code=400, content={"error": "Text required, max 500 chars"})
 
     import httpx
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        try:
-            resp = await client.post(
+    from starlette.responses import StreamingResponse
+
+    async def _stream_tts():
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            async with client.stream(
+                "POST",
                 f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}/stream",
                 headers={
                     "xi-api-key": settings.ELEVENLABS_API_KEY,
@@ -167,21 +170,25 @@ async def tts_proxy(request: Request):
                     "voice_settings": {"stability": 0.55, "similarity_boost": 0.75, "style": 0.2},
                     "optimize_streaming_latency": 4,
                 },
-            )
-            if resp.status_code != 200:
-                return JSONResponse(status_code=resp.status_code, content={"error": "TTS API error"})
+            ) as resp:
+                if resp.status_code != 200:
+                    yield b""
+                    return
+                async for chunk in resp.aiter_bytes(chunk_size=4096):
+                    yield chunk
 
-            from starlette.responses import StreamingResponse
-            return StreamingResponse(
-                content=resp.iter_bytes(),
-                media_type="audio/mpeg",
-                headers={"Cache-Control": "no-cache"},
-            )
-        except httpx.TimeoutException:
-            return JSONResponse(status_code=504, content={"error": "TTS timeout"})
-        except Exception as e:
-            log.warning("TTS proxy error: %s", e)
-            return JSONResponse(status_code=502, content={"error": "TTS proxy failed"})
+    try:
+        return StreamingResponse(
+            content=_stream_tts(),
+            media_type="audio/mpeg",
+            headers={
+                "Cache-Control": "no-cache",
+                "Transfer-Encoding": "chunked",
+            },
+        )
+    except Exception as e:
+        log.warning("TTS proxy error: %s", e)
+        return JSONResponse(status_code=502, content={"error": "TTS proxy failed"})
 
 
 # API routes
