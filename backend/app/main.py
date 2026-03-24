@@ -8,7 +8,7 @@ from app.core.logging_config import setup_logging
 
 setup_logging()  # Must be called before any other module logs
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
