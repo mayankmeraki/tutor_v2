@@ -1,7 +1,7 @@
 """Common prompts shared across text and voice teaching modes.
 
-These cover: identity, pedagogy, learning model, student handling, orchestration.
-Subject-independent — work for any domain (physics, math, CS, etc.).
+All content lives in sections/ — this module provides clean re-exports
+and a build function for the common (mode-independent) prompt.
 """
 
 from ..sections.identity import SECTION_IDENTITY
