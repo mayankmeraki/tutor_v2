@@ -14,243 +14,559 @@
 
     <!-- ═══ Landing Page ═══ -->
     <div id="landing-panel" style="display:none">
+      <style>:root {
+  --bg: #0a0d0b; --bg-surface: #111413; --bg-elevated: #191c1a;
+  --border: rgba(255,255,255,0.07);
+  --text: #ececec; --text-muted: #9a9a9a; --text-dim: #5a5e5c;
+  --accent: #34d399; --accent-bright: #5eead4; --accent-dim: #1a7a55;
+  --yellow: #fbbf24; --red: #f87171; --blue: #60a5fa; --purple: #a78bfa;
+  --font-sans: 'Inter', -apple-system, sans-serif;
+  --font-board: 'Caveat', cursive;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body { font-family: var(--font-sans); background: var(--bg); color: var(--text); overflow-x: hidden; }
 
-      <!-- Nav -->
-      <nav class="lp-nav">
-        <div>
-          <div class="lp-logo">Capacity <span style="color:var(--text-dim);font-weight:400;font-size:14px">AI Tutor</span></div>
-        </div>
-        <div class="lp-nav-r">
-          <a class="lp-nav-link" id="lp-signin">Sign in</a>
-          <button class="lp-nav-btn" id="lp-getstarted">Start Free</button>
-        </div>
-      </nav>
+/* ─── Nav ─── */
+nav {
+  position: fixed; top:0; left:0; right:0; z-index:100;
+  display:flex; align-items:center; justify-content:space-between;
+  padding: 12px 32px; background: rgba(10,13,11,0.8); backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+}
+.logo { font-size:17px; font-weight:700; color:var(--accent-bright); }
+.logo span { color:var(--text-dim); font-weight:400; }
+.nav-r { display:flex; gap:20px; align-items:center; }
+.nav-r a { color:var(--text-muted); text-decoration:none; font-size:13px; }
+.nav-cta {
+  padding:7px 18px; border-radius:8px; background:var(--accent); color:var(--bg);
+  font-size:13px; font-weight:600; text-decoration:none;
+}
 
-      <!-- Hero split: text left, demo right — compact -->
-      <div class="lp-hero-split">
-        <div class="lp-hero-left">
-          <div class="lp-pill">AI-powered teaching</div>
-          <h1>Learn with a tutor that<br><span class="lp-acc" style="font-family:'Caveat',cursive;color:#fbbf24">draws</span> and <span class="lp-acc">speaks</span></h1>
-          <p class="lp-sub">
-            Watch concepts come alive on a live chalkboard while your AI tutor explains with voice. Ask questions anytime.
-          </p>
-          <div class="lp-cta">
-            <button class="lp-btn lp-btn-primary" id="lp-cta-start">Start a Free Lesson</button>
-            <button class="lp-btn lp-btn-ghost" id="lp-cta-how">Watch Demo &#9654;</button>
-          </div>
-          <div class="lp-diff-strip">
-            <div class="lp-diff-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
-              <span>Real lectures</span>
-            </div>
-            <div class="lp-diff-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><rect x="3" y="11" width="4" height="10" rx="1"/><rect x="10" y="6" width="4" height="15" rx="1"/><rect x="17" y="2" width="4" height="19" rx="1"/></svg>
-              <span>Mastery-gated</span>
-            </div>
-            <div class="lp-diff-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5eead4" stroke-width="1.5"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="18" r="3"/><circle cx="18" cy="6" r="3"/><path d="M8.6 7.4L15.4 16.6M9 6h6" opacity=".5"/></svg>
-              <span>Fills gaps</span>
-            </div>
-            <div class="lp-diff-item">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 11-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 110-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 114 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82V9c.26.604.852.997 1.51 1H21a2 2 0 110 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
-              <span>Adapts to you</span>
-            </div>
-          </div>
-        </div>
-        <div class="lp-hero-right">
-          <div class="lp-demo lp-demo-split">
-            <div class="lp-demo-bar">
-              <span class="lp-dot"></span><span class="lp-dot"></span><span class="lp-dot"></span>
-              <span class="lp-demo-title">Studying with Euler · MIT 8.04</span>
-            </div>
-            <div class="lp-demo-split-body">
-              <!-- Left: Chat -->
-              <div class="lp-demo-chat">
-                <div class="lp-msg lp-msg-student">
-                  <div class="lp-msg-bubble lp-bubble-student">Why does the wave function need the imaginary number <em>i</em>?</div>
-                </div>
-                <div class="lp-msg lp-msg-tutor">
-                  <div class="lp-msg-bubble lp-bubble-tutor">Great question. Let me draw what happens without it first&nbsp;&mdash;</div>
-                </div>
-                <div class="lp-msg lp-msg-tutor">
-                  <div class="lp-msg-bubble lp-bubble-tutor">
-                    See the green curve? Without <em>i</em>, it decays to zero. That's not physical. What do you think the <em>i</em> does to fix this?
-                  </div>
-                </div>
-                <div class="lp-demo-input">
-                  <span>Type your answer...</span>
-                  <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                </div>
-              </div>
-              <!-- Right: Board -->
-              <div class="lp-demo-board">
-                <div class="lp-demo-board-bar">
-                  <span class="lp-demo-board-badge">BOARD</span>
-                  <span class="lp-demo-board-title">Why the <em>i</em> in the TDSE?</span>
-                </div>
-                <div class="lp-demo-board-canvas">
-                  <svg viewBox="0 0 320 220" width="100%" height="100%">
-                    <!-- Title -->
-                    <text x="160" y="20" fill="var(--yellow)" font-size="13" font-family="Caveat, cursive" font-weight="600" text-anchor="middle">Without i — the wave dies</text>
-                    <!-- Axes -->
-                    <line x1="30" y1="80" x2="290" y2="80" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/>
-                    <line x1="30" y1="30" x2="30" y2="80" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/>
-                    <text x="295" y="83" fill="var(--text-dim)" font-size="7" font-family="Inter">t</text>
-                    <text x="22" y="30" fill="var(--text-dim)" font-size="7" font-family="Inter">&psi;</text>
-                    <!-- Decaying wave (green) -->
-                    <path d="M30,50 Q50,20 70,50 Q90,80 110,55 Q130,35 150,58 Q170,75 190,62 Q210,52 230,65 Q250,73 270,68 Q285,70 290,72" stroke="var(--green)" stroke-width="2" fill="none" opacity="0.9">
-                      <animate attributeName="opacity" values="0.9;0.5;0.9" dur="3s" repeatCount="indefinite"/>
-                    </path>
-                    <!-- Label -->
-                    <text x="200" y="95" fill="var(--red)" font-size="8" font-family="Caveat, cursive">Decays to zero!</text>
-                    <!-- Divider -->
-                    <line x1="20" y1="110" x2="300" y2="110" stroke="rgba(255,255,255,0.08)" stroke-width="0.5"/>
-                    <!-- Second section title -->
-                    <text x="160" y="128" fill="var(--yellow)" font-size="13" font-family="Caveat, cursive" font-weight="600" text-anchor="middle">With i — the wave oscillates</text>
-                    <!-- Axes 2 -->
-                    <line x1="30" y1="190" x2="290" y2="190" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/>
-                    <line x1="30" y1="140" x2="30" y2="190" stroke="rgba(255,255,255,0.2)" stroke-width="0.8"/>
-                    <text x="295" y="193" fill="var(--text-dim)" font-size="7" font-family="Inter">t</text>
-                    <!-- Oscillating wave (cyan, animated) -->
-                    <path d="M30,165 Q55,135 80,165 Q105,195 130,165 Q155,135 180,165 Q205,195 230,165 Q255,135 280,165" stroke="var(--accent)" stroke-width="2" fill="none">
-                      <animate attributeName="d" values="M30,165 Q55,135 80,165 Q105,195 130,165 Q155,135 180,165 Q205,195 230,165 Q255,135 280,165;M30,165 Q55,195 80,165 Q105,135 130,165 Q155,195 180,165 Q205,135 230,165 Q255,195 280,165;M30,165 Q55,135 80,165 Q105,195 130,165 Q155,135 180,165 Q205,195 230,165 Q255,135 280,165" dur="2s" repeatCount="indefinite"/>
-                    </path>
-                    <!-- Label -->
-                    <text x="200" y="210" fill="var(--green)" font-size="8" font-family="Caveat, cursive">Same amplitude forever</text>
-                  </svg>
-                </div>
-              </div>
-            </div>
+/* ─── Hero ─── */
+.hero {
+  min-height: 100vh; display:flex; flex-direction:column; align-items:center;
+  justify-content:center; padding: 80px 24px 40px; text-align:center;
+  background: radial-gradient(ellipse at 50% 40%, rgba(52,211,153,0.06), transparent 60%);
+}
+.hero h1 {
+  font-size: 48px; font-weight:800; line-height:1.1; letter-spacing:-1.5px;
+  max-width:700px; margin-bottom:16px;
+}
+.hero h1 .g { color:var(--accent-bright); }
+.hero h1 .chalk { font-family:var(--font-board); color:var(--yellow); font-size:54px; }
+.hero p { font-size:17px; color:var(--text-muted); max-width:520px; line-height:1.5; margin-bottom:28px; }
+.hero-cta { display:flex; gap:12px; justify-content:center; margin-bottom:40px; }
+.btn-p {
+  padding:13px 28px; border-radius:10px; background:var(--accent); color:var(--bg);
+  font-size:15px; font-weight:600; border:none; cursor:pointer; text-decoration:none;
+}
+.btn-s {
+  padding:13px 28px; border-radius:10px; background:transparent;
+  border:1px solid var(--border); color:var(--text-muted);
+  font-size:15px; cursor:pointer; text-decoration:none;
+}
+
+/* ─── Board Teaser (main visual) ─── */
+.board-teaser {
+  width:100%; max-width:900px; border-radius:16px; overflow:hidden;
+  border:1px solid rgba(255,255,255,0.1); position:relative;
+  box-shadow: 0 30px 80px rgba(0,0,0,0.5), 0 0 60px rgba(52,211,153,0.04);
+}
+.bt-header {
+  display:flex; align-items:center; gap:6px; padding:8px 14px;
+  background:var(--bg-elevated); border-bottom:1px solid var(--border); font-size:11px;
+}
+.bt-dot { width:8px; height:8px; border-radius:50%; }
+.bt-dot.r{background:#ff5f57}.bt-dot.y{background:#febc2e}.bt-dot.g{background:#28c840}
+.bt-title { color:var(--text-dim); margin-left:8px; }
+.bt-badge { font-size:9px; font-weight:700; background:var(--accent-dim); color:var(--accent); padding:2px 7px; border-radius:4px; margin-left:auto; }
+
+.bt-canvas {
+  min-height:420px; position:relative; overflow:hidden;
+  background: linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px), #0d1014;
+  background-size:28px 28px;
+}
+
+/* Chalk content — animated in */
+.chalk { font-family:var(--font-board); position:absolute; opacity:0; animation: chalk-in 0.6s ease forwards; }
+@keyframes chalk-in { to { opacity:1; transform:translateY(0); } }
+.chalk { transform:translateY(6px); }
+
+/* Subtitle bar */
+.bt-sub {
+  position:absolute; bottom:0; left:0; right:0;
+  background: linear-gradient(transparent, rgba(10,13,11,0.92));
+  padding:30px 20px 14px; text-align:center;
+}
+.bt-sub-text { font-size:15px; color:#e8d5b7; text-shadow:0 1px 6px rgba(0,0,0,0.9); }
+.bt-sub-text em { color:var(--yellow); font-style:normal; font-weight:600; }
+
+/* Mic bar */
+.bt-mic {
+  position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
+  display:flex; align-items:center; gap:0;
+}
+.bt-mic-pill {
+  display:flex; align-items:center; gap:6px;
+  background:rgba(17,20,19,0.9); border:1px solid rgba(255,255,255,0.1);
+  border-radius:24px; padding:6px 16px 6px 14px;
+}
+.bt-mic-pill input {
+  background:none; border:none; color:var(--text-dim); font-size:13px;
+  font-family:var(--font-sans); width:180px; outline:none;
+}
+.bt-mic-icon {
+  width:30px; height:30px; border-radius:50%;
+  background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25);
+  display:flex; align-items:center; justify-content:center;
+}
+.bt-mic-icon svg { width:14px; height:14px; color:var(--accent); }
+
+/* Hand cursor */
+.hand {
+  position:absolute; z-index:5; pointer-events:none;
+  animation: hand-teach 8s ease-in-out infinite;
+}
+.hand svg { width:20px; height:20px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
+@keyframes hand-teach {
+  0% { left:120px; top:100px; transform:rotate(-12deg); }
+  15% { left:280px; top:100px; transform:rotate(-8deg); }
+  30% { left:280px; top:160px; transform:rotate(-12deg); }
+  45% { left:420px; top:160px; transform:rotate(-6deg); }
+  55% { left:500px; top:240px; transform:rotate(-14deg); }
+  70% { left:350px; top:300px; transform:rotate(-10deg); }
+  85% { left:200px; top:280px; transform:rotate(-8deg); }
+  100% { left:120px; top:100px; transform:rotate(-12deg); }
+}
+
+/* ─── p5 animation on board ─── */
+.board-anim {
+  position:absolute; border-radius:8px; overflow:hidden;
+  border:1px solid rgba(255,255,255,0.05);
+}
+
+/* Voice indicator */
+.bt-voice-ind {
+  position:absolute; top:10px; left:12px;
+  display:flex; align-items:center; gap:6px; padding:4px 10px;
+  border-radius:16px; background:rgba(17,20,19,0.85); border:1px solid var(--border);
+  font-size:10px; color:var(--accent);
+}
+.bt-voice-bars { display:flex; gap:2px; height:12px; align-items:center; }
+.bt-voice-bars .b { width:2px; border-radius:1px; background:var(--accent); height:4px; animation: vb 0.5s ease-in-out infinite alternate; }
+.bt-voice-bars .b:nth-child(1){animation-delay:0s}.bt-voice-bars .b:nth-child(2){animation-delay:.08s}
+.bt-voice-bars .b:nth-child(3){animation-delay:.16s}.bt-voice-bars .b:nth-child(4){animation-delay:.1s}
+@keyframes vb { 0%{height:4px} 100%{height:12px} }
+
+/* ─── Features (visual cards) ─── */
+.features {
+  padding:80px 24px; max-width:1100px; margin:0 auto;
+}
+.features h2 { text-align:center; font-size:32px; font-weight:700; margin-bottom:8px; }
+.features .sub { text-align:center; color:var(--text-muted); font-size:15px; margin-bottom:48px; }
+.feat-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:20px; }
+.feat-card {
+  border-radius:14px; overflow:hidden; border:1px solid var(--border);
+  background:var(--bg-surface); transition:all 0.25s;
+}
+.feat-card:hover { border-color:rgba(255,255,255,0.12); transform:translateY(-3px); box-shadow:0 12px 40px rgba(0,0,0,0.3); }
+.feat-visual {
+  height:180px; position:relative; overflow:hidden;
+  background: linear-gradient(135deg, var(--bg-elevated), var(--bg));
+}
+.feat-info { padding:20px; }
+.feat-title { font-size:16px; font-weight:600; margin-bottom:6px; }
+.feat-desc { font-size:13px; color:var(--text-muted); line-height:1.5; }
+
+/* Feature visual: chalk mini-boards */
+.mini-board {
+  width:100%; height:100%; position:relative;
+  background: linear-gradient(rgba(255,255,255,0.01) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.01) 1px, transparent 1px), #0d1014;
+  background-size:20px 20px; padding:20px;
+}
+.mini-board .chalk-t { font-family:var(--font-board); }
+
+/* ─── How It Works (visual steps) ─── */
+.how {
+  padding:80px 24px; max-width:900px; margin:0 auto; text-align:center;
+}
+.how h2 { font-size:32px; font-weight:700; margin-bottom:48px; }
+.how-steps { display:flex; gap:0; }
+.how-step {
+  flex:1; padding:24px; text-align:center; position:relative;
+  border:1px solid var(--border); border-right:none;
+}
+.how-step:first-child { border-radius:14px 0 0 14px; }
+.how-step:last-child { border-radius:0 14px 14px 0; border-right:1px solid var(--border); }
+.how-icon { font-size:32px; margin-bottom:12px; }
+.how-label { font-size:14px; font-weight:600; margin-bottom:4px; }
+.how-desc { font-size:12px; color:var(--text-muted); line-height:1.4; }
+.how-arrow { position:absolute; right:-10px; top:50%; transform:translateY(-50%); color:var(--accent); font-size:16px; z-index:2; background:var(--bg); padding:2px; }
+
+/* ─── CTA ─── */
+.cta {
+  padding:80px 24px; text-align:center;
+  background:radial-gradient(ellipse at center, rgba(52,211,153,0.05), transparent 60%);
+}
+.cta h2 { font-size:28px; font-weight:700; margin-bottom:10px; }
+.cta p { color:var(--text-muted); font-size:15px; margin-bottom:24px; }
+
+footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim); border-top:1px solid var(--border); }
+
+@media(max-width:768px) {
+  .hero h1 { font-size:32px; }
+  .feat-grid { grid-template-columns:1fr; }
+  .how-steps { flex-direction:column; }
+  .how-step { border-right:1px solid var(--border); }
+  .how-step:first-child { border-radius:14px 14px 0 0; }
+  .how-step:last-child { border-radius:0 0 14px 14px; }
+  .how-arrow { display:none; }
+  .board-teaser { border-radius:12px; }
+}</style>
+<nav>
+  <div class="logo">Capacity <span>AI Tutor</span></div>
+  <div class="nav-r">
+    <a href="#features">Features</a>
+    <a href="#how">How it works</a>
+    <a class="nav-cta" id="lp-signin" href="/login">Sign in</a>
+    <a class="nav-cta" id="lp-getstarted" href="/login">Start Free</a>
+  </div>
+</nav>
+
+<!-- ═══ Hero ═══ -->
+<section class="hero">
+  <h1>Learn with a tutor that<br><span class="chalk">draws</span> and <span class="g">speaks</span></h1>
+  <p>An AI that teaches like a real professor — drawing on a live board, explaining with voice, adapting to you.</p>
+  <div class="hero-cta">
+    <a href="/login" class="btn-p" id="lp-cta-start">Start a Free Lesson</a>
+    <a href="#how" class="btn-s" id="lp-cta-how">Watch Demo &#9654;</a>
+  </div>
+
+  <!-- Board teaser — the hero visual -->
+  <div class="board-teaser">
+    <div class="bt-header">
+      <span class="bt-dot r"></span><span class="bt-dot y"></span><span class="bt-dot g"></span>
+      <span class="bt-title">Quantum Physics — The Schrödinger Equation</span>
+      <span class="bt-badge">BOARD</span>
+    </div>
+    <div class="bt-canvas" id="board-canvas">
+      <!-- Voice indicator -->
+      <div class="bt-voice-ind">
+        <div class="bt-voice-bars"><div class="b"></div><div class="b"></div><div class="b"></div><div class="b"></div></div>
+        <span>Euler is speaking</span>
+      </div>
+
+      <!-- Chalk text (animated in with delays) -->
+      <div class="chalk" style="left:40px;top:30px;font-size:24px;color:#5eead4;animation-delay:0s">The Big Question:</div>
+      <div class="chalk" style="left:40px;top:65px;font-size:20px;color:#e8d5b7;animation-delay:0.3s">"I know ψ right now. What is ψ later?"</div>
+
+      <div class="chalk" style="left:40px;top:130px;font-size:14px;color:#5eead4;animation-delay:0.8s">Classical world:</div>
+      <div class="chalk" style="left:40px;top:155px;font-size:22px;color:#e8d5b7;animation-delay:1s">F = ma</div>
+      <div class="chalk" style="left:160px;top:157px;font-size:14px;color:var(--text-dim);animation-delay:1.2s">→ forces drive position</div>
+
+      <div class="chalk" style="left:40px;top:200px;font-size:14px;color:#fbbf24;animation-delay:1.5s">Quantum world:</div>
+      <div class="chalk" style="left:40px;top:225px;font-size:26px;color:#fbbf24;animation-delay:1.7s">iℏ ∂ψ/∂t = Ĥψ</div>
+      <div class="chalk" style="left:280px;top:230px;font-size:14px;color:var(--text-dim);animation-delay:2s">→ energy drives ψ</div>
+
+      <!-- Annotation circle (ephemeral) -->
+      <div style="position:absolute;left:30px;top:215px;width:260px;height:45px;border:2px solid var(--accent);border-radius:50%;opacity:0;animation:chalk-in 0.5s ease 2.5s forwards"></div>
+
+      <!-- p5 animation area -->
+      <canvas id="hero-anim" style="position:absolute;left:480px;top:80px;border-radius:8px;border:1px solid rgba(255,255,255,0.05)"></canvas>
+
+      <!-- Hand cursor -->
+      <div class="hand">
+        <svg viewBox="0 0 24 24" fill="none"><path d="M4 4L11 20L13.5 13.5L20 11L4 4Z" fill="white" stroke="white" stroke-width="0.5"/></svg>
+      </div>
+
+      <!-- Subtitle -->
+      <div class="bt-sub">
+        <div class="bt-sub-text">Energy determines how the quantum state <em>evolves</em>.</div>
+      </div>
+
+      <!-- Mic input pill -->
+      <div class="bt-mic">
+        <div class="bt-mic-pill">
+          <input placeholder="Type or hold Space to talk..." readonly>
+          <div class="bt-mic-icon">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+              <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/>
+            </svg>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+</section>
 
-      <!-- How Euler teaches — compact 3-column -->
-      <div class="lp-section" id="lp-how">
-        <div class="lp-section-head">
-          <h2>How Euler teaches</h2>
-        </div>
-        <div class="lp-how-grid">
-          <div class="lp-how-card">
-            <div class="lp-how-visual lp-hv-board">
-              <div class="lp-mini-chalk">F = ma</div>
-              <div class="lp-mini-chalk lp-mc-blue">a = F/m = (mg sin θ) / m</div>
-              <div class="lp-mini-chalk lp-mc-green">a = g sin θ ✓</div>
-              <div class="lp-mini-chalk lp-mc-gold">↑ Prof. Lewin, Lecture 6</div>
-            </div>
-            <div class="lp-how-info">
-              <h3>Draws on the board</h3>
-              <p>Equations, diagrams, derivations — like a real whiteboard.</p>
-            </div>
+<!-- ═══ Features (visual cards) ═══ -->
+<section class="features" id="features">
+  <h2>Teaching that feels real</h2>
+  <div class="sub">Not a chatbot. A live teaching experience.</div>
+
+  <div class="feat-grid">
+    <!-- Card 1: Board drawing -->
+    <div class="feat-card">
+      <div class="feat-visual">
+        <div class="mini-board">
+          <div class="chalk-t" style="font-size:20px;color:#5eead4;margin-bottom:8px">Operators:</div>
+          <div style="display:flex;align-items:center;gap:10px;margin:12px 0">
+            <span class="chalk-t" style="font-size:24px;color:#e8d5b7">ψ(x)</span>
+            <span style="color:var(--text-dim)">→</span>
+            <span style="border:2px solid var(--yellow);padding:4px 14px;border-radius:6px;font-family:var(--font-board);font-size:22px;color:var(--yellow)">Ô</span>
+            <span style="color:var(--text-dim)">→</span>
+            <span class="chalk-t" style="font-size:24px;color:var(--red)">???</span>
           </div>
-          <div class="lp-how-card">
-            <div class="lp-how-visual lp-hv-socratic">
-              <div class="lp-sq">If mass doubles, what happens to acceleration?</div>
-              <div class="lp-st">thinking...</div>
-              <div class="lp-sa">It stays the same — mass cancels out?</div>
-              <div class="lp-sq">Exactly. Now why doesn't that work for friction?</div>
-            </div>
-            <div class="lp-how-info">
-              <h3>Checks understanding</h3>
-              <p>Asks questions, gives space to think, then builds deeper.</p>
-            </div>
-          </div>
-          <div class="lp-how-card">
-            <div class="lp-how-visual lp-hv-sim">
-              <svg viewBox="0 0 220 55" class="lp-pendulum-svg">
-                <line x1="110" y1="2" x2="85" y2="40" stroke="var(--accent)" stroke-width="1.5">
-                  <animate attributeName="x2" values="85;135;85" dur="2s" repeatCount="indefinite"/>
-                </line>
-                <circle cx="85" cy="40" r="5" fill="var(--accent)" opacity="0.8">
-                  <animate attributeName="cx" values="85;135;85" dur="2s" repeatCount="indefinite"/>
-                </circle>
-                <rect x="165" y="12" width="8" height="30" rx="2" fill="var(--bg-elevated)"/>
-                <rect x="165" y="27" width="8" height="15" rx="2" fill="var(--green)" opacity="0.7">
-                  <animate attributeName="y" values="27;12;27" dur="2s" repeatCount="indefinite"/>
-                  <animate attributeName="height" values="15;30;15" dur="2s" repeatCount="indefinite"/>
-                </rect>
-                <rect x="180" y="12" width="8" height="30" rx="2" fill="var(--bg-elevated)"/>
-                <rect x="180" y="12" width="8" height="15" rx="2" fill="var(--accent)" opacity="0.7">
-                  <animate attributeName="height" values="15;0;15" dur="2s" repeatCount="indefinite"/>
-                </rect>
-                <text x="165" y="50" fill="var(--text-dim)" font-size="6" font-family="Inter">KE</text>
-                <text x="180" y="50" fill="var(--text-dim)" font-size="6" font-family="Inter">PE</text>
-                <path d="M110,2 Q98,14 100,20" stroke="var(--yellow)" stroke-width="0.8" fill="none" opacity="0.5"/>
-                <text x="93" y="18" fill="var(--yellow)" font-size="7" font-family="Inter" opacity="0.6">θ</text>
-              </svg>
-              <div class="lp-sim-tag">INTERACTIVE · Drag to change angle</div>
-            </div>
-            <div class="lp-how-info">
-              <h3>Runs simulations</h3>
-              <p>Interact with physics — change variables, see what happens.</p>
-            </div>
+          <div class="chalk-t" style="font-size:14px;color:var(--text-dim)">Stroke by stroke, like a real chalkboard</div>
+          <!-- Animated hand -->
+          <div style="position:absolute;right:30px;bottom:30px;animation:hand-teach 5s ease-in-out infinite">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 4L11 20L13.5 13.5L20 11L4 4Z" fill="white"/></svg>
           </div>
         </div>
       </div>
+      <div class="feat-info">
+        <div class="feat-title">&#9998; Draws while teaching</div>
+        <div class="feat-desc">Equations and diagrams appear live — pauses, circles key parts, points at what matters.</div>
+      </div>
+    </div>
 
-      <!-- Study modes section -->
-      <div class="lp-section lp-study-section">
-        <div class="lp-section-head">
-          <h2>Choose how you study</h2>
-          <p class="lp-section-sub">Pick a course Euler already knows, or bring your own lecture videos and materials. Either way, Euler uses the source material to ground every explanation.</p>
+    <!-- Card 2: Voice -->
+    <div class="feat-card">
+      <div class="feat-visual" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
+        <div style="display:flex;align-items:center;gap:3px;height:40px">
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out infinite alternate;height:8px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.1s infinite alternate;height:16px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.18s infinite alternate;height:28px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.08s infinite alternate;height:20px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.14s infinite alternate;height:12px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.06s infinite alternate;height:24px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.12s infinite alternate;height:16px"></div>
+          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.2s infinite alternate;height:10px"></div>
         </div>
+        <div style="font-family:var(--font-board);font-size:18px;color:#e8d5b7;text-align:center;max-width:250px">
+          "It just multiplies by x.<br>That's the whole story."
+        </div>
+        <div style="font-size:10px;color:var(--text-dim)">Natural voice — explains meaning, not symbols</div>
+      </div>
+      <div class="feat-info">
+        <div class="feat-title">&#9835; Speaks naturally</div>
+        <div class="feat-desc">Says what equations mean, not reads them. Pauses for emphasis. Like a one-on-one explanation.</div>
+      </div>
+    </div>
 
-        <div class="lp-study-grid">
-          <!-- Option A: Curated course -->
-          <div class="lp-study-card" id="lp-course-card">
-            <div class="lp-study-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><path d="M4 19.5A2.5 2.5 0 016.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z"/></svg>
-              Follow a course
-            </div>
-            <div class="lp-study-course">
-              <div class="lp-study-course-icon">
-                <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5"><circle cx="12" cy="12" r="3"/><path d="M12 2a10 10 0 0110 10"/><path d="M12 2a10 10 0 00-10 10"/><path d="M2 12a10 10 0 0010 10"/></svg>
-              </div>
-              <div>
-                <div class="lp-study-course-name">MIT 8.04 Quantum Physics I</div>
-                <div class="lp-study-course-meta">24 lectures · Prof. Allan Adams · 2013</div>
-              </div>
-            </div>
-            <p class="lp-study-desc">Euler follows the lecture structure, references real examples from class, and teaches each topic in order — like having the professor's TA.</p>
-            <div class="lp-study-action">
-              <span class="lp-study-btn">Start studying</span>
-              <span class="lp-study-arrow">&rsaquo;</span>
-            </div>
+    <!-- Card 3: Adaptive -->
+    <div class="feat-card">
+      <div class="feat-visual" style="display:flex;align-items:center;justify-content:center;padding:20px">
+        <div style="width:100%;max-width:280px">
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
+            <div style="width:28px;height:28px;border-radius:50%;background:rgba(96,165,250,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--blue)">&#128100;</div>
+            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--text-muted)">I'm confused about eigenfunctions...</div>
           </div>
-
-          <!-- Option B: Bring your own -->
-          <div class="lp-study-card lp-study-card-byo">
-            <div class="lp-study-label">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#5eead4" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-              Bring your own material
-            </div>
-            <div class="lp-byo-formats">
-              <span class="lp-byo-fmt">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2" ry="2"/></svg>
-                Lecture videos
-              </span>
-              <span class="lp-byo-fmt">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
-                PDFs &amp; notes
-              </span>
-              <span class="lp-byo-fmt">
-                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
-                YouTube links
-              </span>
-            </div>
-            <p class="lp-study-desc">Upload your own lecture recordings, slides, or notes. Euler watches and reads your material, then teaches you from it — grounded in your course, not generic knowledge.</p>
-            <div class="lp-study-action lp-study-action-soon">
-              <span class="lp-study-tag-soon">Coming soon</span>
-            </div>
+          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;justify-content:flex-end">
+            <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.12);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--accent-bright);max-width:220px">Let me try a visual approach instead — watch the board</div>
+            <div style="width:28px;height:28px;border-radius:50%;background:rgba(52,211,153,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--accent)">&#9998;</div>
+          </div>
+          <div style="display:flex;gap:4px;align-items:center;justify-content:center">
+            <div style="font-size:9px;color:var(--text-dim);background:var(--bg-elevated);padding:2px 6px;border-radius:3px">Switched to visual mode</div>
+            <div style="font-size:9px;color:var(--accent-dim);background:rgba(52,211,153,0.06);padding:2px 6px;border-radius:3px">Adapting difficulty ↓</div>
           </div>
         </div>
       </div>
-
-      <!-- Footer -->
-      <div class="lp-footer">
-        <span>Capacity · A MerakiLabs Company</span>
-        <span>Built with care for students</span>
+      <div class="feat-info">
+        <div class="feat-title">&#127891; Adapts to you</div>
+        <div class="feat-desc">Reads your responses. Struggling? Switches approach. Flying? Challenges you. Every session is personal.</div>
       </div>
+    </div>
+
+    <!-- Card 4: Animations -->
+    <div class="feat-card">
+      <div class="feat-visual">
+        <canvas id="feat-anim" style="width:100%;height:100%;display:block"></canvas>
+      </div>
+      <div class="feat-info">
+        <div class="feat-title">&#9881; Live animations</div>
+        <div class="feat-desc">Wave functions that move. Energy levels that respond. Interactive physics built right into the lesson.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ How It Works ═══ -->
+<section class="how" id="how">
+  <h2>Start in 30 seconds</h2>
+  <div class="how-steps">
+    <div class="how-step">
+      <div class="how-icon">&#128218;</div>
+      <div class="how-label">Pick a topic</div>
+      <div class="how-desc">"Explain Schrödinger intuitively" or pick a course lecture</div>
+      <span class="how-arrow">→</span>
+    </div>
+    <div class="how-step">
+      <div class="how-icon">&#9998;</div>
+      <div class="how-label">Watch & listen</div>
+      <div class="how-desc">Board draws live while voice explains step by step</div>
+      <span class="how-arrow">→</span>
+    </div>
+    <div class="how-step">
+      <div class="how-icon">&#128172;</div>
+      <div class="how-label">Talk back</div>
+      <div class="how-desc">Ask questions anytime — type or hold Space to speak</div>
+    </div>
+  </div>
+</section>
+
+<!-- ═══ CTA ═══ -->
+<section class="cta">
+  <h2>Ready to try?</h2>
+  <p>Free lesson. No credit card. Just start learning.</p>
+  <a href="/login" class="btn-p" style="font-size:16px;padding:14px 32px">Start Your First Lesson</a>
+</section>
+
+<footer>Capacity AI Tutor · Built for curious minds</footer>
+
+<!-- ═══ Animations ═══ -->
+<script>
+// Hero board animation — wave function
+(function() {
+  const c = document.getElementById('hero-anim');
+  if (!c) return;
+  const W = 380, H = 260;
+  c.width = W * 2; c.height = H * 2;
+  c.style.width = W + 'px'; c.style.height = H + 'px';
+  const ctx = c.getContext('2d');
+  ctx.scale(2, 2);
+
+  let t = 0;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+
+    // Background
+    ctx.fillStyle = 'rgba(13,16,20,0.95)';
+    ctx.fillRect(0, 0, W, H);
+
+    // Axes
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(30, H/2); ctx.lineTo(W-10, H/2); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(30, 10); ctx.lineTo(30, H-10); ctx.stroke();
+
+    // Labels
+    ctx.font = '11px Caveat'; ctx.fillStyle = '#5a5e5c';
+    ctx.fillText('ψ', 12, 20);
+    ctx.fillText('x', W-18, H/2-6);
+    ctx.fillText('0', 34, H/2+14);
+
+    // Wave function ψ(x) — gaussian wave packet
+    ctx.strokeStyle = '#5eead4'; ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (let px = 30; px < W-10; px++) {
+      const x = (px - W/2) / 50;
+      const env = Math.exp(-x*x/2) * 80;
+      const wave = env * Math.cos(5*x - t*2);
+      const py = H/2 - wave;
+      px === 30 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Probability |ψ|² — envelope
+    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath();
+    for (let px = 30; px < W-10; px++) {
+      const x = (px - W/2) / 50;
+      const env = Math.exp(-x*x/2) * 80;
+      const py = H/2 - env;
+      px === 30 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    // Legend
+    ctx.font = '12px Inter'; ctx.fillStyle = '#5eead4'; ctx.fillText('● ψ(x,t)', 50, H-16);
+    ctx.fillStyle = '#fbbf24'; ctx.fillText('● |ψ|²', 140, H-16);
+
+    // Title
+    ctx.font = 'italic 14px Caveat'; ctx.fillStyle = '#5eead4';
+    ctx.fillText('Wave function evolving in time', W/2 - 80, 20);
+
+    t += 0.02;
+    requestAnimationFrame(draw);
+  }
+  draw();
+})();
+
+// Feature card animation — harmonic oscillator
+(function() {
+  const c = document.getElementById('feat-anim');
+  if (!c) return;
+  const rect = c.parentElement.getBoundingClientRect();
+  const W = Math.round(rect.width) || 400, H = 180;
+  c.width = W * 2; c.height = H * 2;
+  c.style.width = W + 'px'; c.style.height = H + 'px';
+  const ctx = c.getContext('2d');
+  ctx.scale(2, 2);
+
+  let t = 0;
+  function draw() {
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0d1014'; ctx.fillRect(0, 0, W, H);
+
+    // Energy levels
+    const levels = [0.5, 1.5, 2.5, 3.5];
+    const colors = ['#5eead4', '#60a5fa', '#a78bfa', '#fbbf24'];
+    const mid = W/2;
+
+    // Parabolic potential
+    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
+    ctx.beginPath();
+    for (let px = 40; px < W-40; px++) {
+      const x = (px - mid) / 80;
+      const py = H - 20 - x*x*30;
+      if (py < 10) continue;
+      px === 40 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+    }
+    ctx.stroke();
+
+    // Energy level lines + wave functions
+    levels.forEach((n, i) => {
+      const baseY = H - 20 - n * 35;
+      if (baseY < 15) return;
+      const halfW = Math.sqrt(n * 35) * 80 / 30;
+
+      // Level line
+      ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(mid - halfW, baseY); ctx.lineTo(mid + halfW, baseY); ctx.stroke();
+
+      // Wave function
+      ctx.strokeStyle = colors[i]; ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      for (let px = mid - halfW; px < mid + halfW; px++) {
+        const x = (px - mid) / 30;
+        const amp = 12 * Math.exp(-x*x/2);
+        const phase = t * (1 + i * 0.5);
+        const wave = amp * Math.cos((i+1) * x * 1.2 + phase);
+        const py = baseY - wave;
+        px === mid - halfW ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+      }
+      ctx.stroke();
+
+      // Label
+      ctx.font = '10px JetBrains Mono'; ctx.fillStyle = colors[i];
+      ctx.fillText(`n=${i}`, mid + halfW + 6, baseY + 4);
+    });
+
+    // Title
+    ctx.font = 'italic 13px Caveat'; ctx.fillStyle = '#fbbf24';
+    ctx.fillText('Quantum Harmonic Oscillator', mid - 70, 16);
+
+    t += 0.03;
+    requestAnimationFrame(draw);
+  }
+  setTimeout(draw, 500);
+})();
+</script>
     </div>
 
     <!-- ═══ Login / Signup Panel ═══ -->
