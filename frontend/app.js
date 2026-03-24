@@ -8702,10 +8702,10 @@ async function bdAnimFillRect(cmd) {
   const s = bd.scale;
   bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 0));
   const c = BD_COLORS[cmd.color] || cmd.color || BD_COLORS.white;
-  bd.ctx.fillStyle = cmd.opacity ? c.replace(')', `,${cmd.opacity})`) .replace('rgb', 'rgba') : c;
-  if (cmd.opacity && !c.startsWith('rgb')) {
-    bd.ctx.globalAlpha = cmd.opacity;
-  }
+  // Default to semi-transparent to avoid covering content behind
+  const opacity = cmd.opacity || 0.15;
+  bd.ctx.globalAlpha = opacity;
+  bd.ctx.fillStyle = c;
   bd.ctx.fillRect((cmd.x || 0) * s, (cmd.y || 0) * s, (cmd.w || 0) * s, (cmd.h || 0) * s);
   bd.ctx.globalAlpha = 1;
 }
@@ -8831,19 +8831,24 @@ function bdClearBoard() {
 async function bdRunCommand(cmd) {
   const bd = state.boardDraw;
   if (bd.cancelFlag || !bd.canvas || !bd.ctx) return;
+  // Enforce minimum left margin so text doesn't get cut off
+  if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
+  if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
   // Register element by ID for referencing/scrolling
   if (cmd.id) bdRegisterElement(cmd);
   // Voice mode: move hand cursor to follow drawing
   if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Auto-scroll ONLY when content exceeds visible area
+  // Auto-scroll: only when canvas has grown beyond the viewport
   if (state.teachingMode === 'voice') {
-    const cmdY = cmd.y || cmd.cy || 0;
-    const cmdH = cmd.h || cmd.size || 30;
     const wrap = document.getElementById('bd-canvas-wrap');
-    if (wrap && cmdY > 0) {
-      const visibleBottom = (wrap.scrollTop + wrap.clientHeight) / state.boardDraw.scale;
-      if (cmdY + cmdH > visibleBottom - 20) {
-        bdScrollToY(cmdY);
+    if (wrap && wrap.scrollHeight > wrap.clientHeight) {
+      const cmdY = cmd.y || cmd.cy || 0;
+      const cmdH = cmd.h || cmd.size || 30;
+      const scaledBottom = (cmdY + cmdH) * state.boardDraw.scale;
+      const viewBottom = wrap.scrollTop + wrap.clientHeight;
+      // Only scroll if the new content is below the current view
+      if (scaledBottom > viewBottom - 30) {
+        wrap.scrollTo({ top: scaledBottom - wrap.clientHeight + 60, behavior: 'smooth' });
       }
     }
   }
@@ -10338,12 +10343,14 @@ function estimateVoiceDuration(text) {
 function voiceShowSubtitle(text) {
   const el = $('#voice-subtitle-text');
   if (!el) return;
-  // Render markdown for subtitles — no LaTeX (subtitles should be plain speech)
   let display = text
+    .replace(/\[[^\]]*\]\s*/g, '') // strip emotion tags like [excited], [thoughtfully]
     .replace(/\*\*(.+?)\*\*/g, '<em>$1</em>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
-    .replace(/\$[^$]+\$/g, '') // strip inline LaTeX from subtitles
-    .replace(/\$\$[\s\S]+?\$\$/g, ''); // strip display LaTeX
+    .replace(/\$[^$]+\$/g, '')
+    .replace(/\$\$[\s\S]+?\$\$/g, '')
+    .trim();
+  if (!display) return;
   el.innerHTML = display;
   // Ensure subtitle bar is visible
   const bar = $('#voice-subtitle-bar');
