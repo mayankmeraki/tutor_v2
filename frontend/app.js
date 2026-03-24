@@ -331,6 +331,9 @@ const SessionManager = (() => {
         widgetLiveState: state.widget.liveState || {},
         // Active board-draw content (in case it was streaming when save occurred)
         activeBoardDrawContent: state.boardDraw.rawContent || null,
+        // Voice mode state
+        teachingMode: state.teachingMode,
+        voiceSpeed: state.voiceSpeed,
       });
     } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
@@ -5809,6 +5812,9 @@ function appendSpotlightReference(type, title, reopenTag) {
   if (type === 'board-draw' && reopenTag._boardDrawContent) {
     historyEntry.boardDrawContent = reopenTag._boardDrawContent;
   }
+  if (type === 'board-draw' && reopenTag._snapshot) {
+    historyEntry.snapshot = reopenTag._snapshot; // PNG fallback for voice scenes
+  }
   if (type === 'widget' && reopenTag._widgetCode) {
     historyEntry.widgetCode = reopenTag._widgetCode;
   }
@@ -5907,6 +5913,18 @@ window.reopenSpotlight = function(refId) {
       try { state.boardDraw.commandQueue.push(JSON.parse(trimmed)); } catch (e) {}
     }
     state.boardDraw.active = true;
+  } else if (entry.type === 'board-draw' && entry.snapshot) {
+    // Voice scene snapshot — show as image (no replay possible)
+    const panel = $('#spotlight-panel');
+    const content = $('#spotlight-content');
+    const titleEl = $('#spotlight-title');
+    if (panel && content) {
+      content.innerHTML = `<img src="${entry.snapshot}" style="width:100%;height:auto;display:block;border-radius:4px" alt="Board snapshot"/>`;
+      if (titleEl) titleEl.textContent = entry.title || 'Board';
+      panel.classList.add('stage-active');
+      state.spotlightActive = true;
+      state.spotlightInfo = { type: 'board-draw', title: entry.title };
+    }
   } else if (entry.type === 'widget' && entry.widgetCode) {
     openWidgetSpotlight(entry.title, entry.widgetCode, false, { skipReference: true });
   } else if (entry.type === 'notebook') {
@@ -7292,6 +7310,14 @@ window.continueSession = async function(sessionId) {
     // Restore active board-draw content (for context builder)
     if (sessionData.activeBoardDrawContent) {
       state.boardDraw.rawContent = sessionData.activeBoardDrawContent;
+    }
+
+    // Restore voice mode state
+    if (sessionData.teachingMode) {
+      state.teachingMode = sessionData.teachingMode;
+    }
+    if (sessionData.voiceSpeed) {
+      state.voiceSpeed = sessionData.voiceSpeed;
     }
 
     // Save active spotlight info for restoration after canvas rebuild
