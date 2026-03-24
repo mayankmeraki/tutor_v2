@@ -5865,6 +5865,54 @@ function appendSpotlightReference(type, title, reopenTag) {
   addBoardFrameThumb(refId, type, title, thumbDataUrl);
 }
 
+// Restore the live board (current session's active board) after viewing history
+window.returnToLiveBoard = function() {
+  if (!state._savedLiveBoard) return;
+
+  const saved = state._savedLiveBoard;
+  const panel = $('#spotlight-panel');
+  const content = $('#spotlight-content');
+  const titleEl = $('#spotlight-title');
+
+  if (panel && content) {
+    // Show the saved snapshot immediately
+    content.innerHTML = `
+      <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1d2e">
+        <img src="${saved.snapshot}" style="max-width:100%;max-height:100%;object-fit:contain" alt="Current board"/>
+      </div>`;
+    if (titleEl) titleEl.textContent = saved.title;
+    panel.classList.add('stage-active');
+    state.spotlightActive = true;
+    state.spotlightInfo = { type: 'board-draw', title: saved.title };
+
+    // If we have raw content, rebuild the canvas for live interaction
+    if (saved.rawContent) {
+      setTimeout(() => {
+        openBoardDrawSpotlight(saved.title, saved.rawContent, { skipReference: true });
+        state.boardDraw.commandQueue = [];
+        state.boardDraw._instantReplayCount = 999;
+        const lines = saved.rawContent.split('\n');
+        for (const ln of lines) {
+          const trimmed = ln.trim();
+          if (!trimmed) continue;
+          try { state.boardDraw.commandQueue.push(JSON.parse(trimmed)); } catch {}
+        }
+        state.boardDraw.active = true;
+      }, 100);
+    }
+  }
+
+  state._savedLiveBoard = null;
+
+  // Hide "Return to Live" button
+  const liveBtn = $('#board-live-btn');
+  if (liveBtn) liveBtn.classList.add('hidden');
+
+  // Deactivate all frame strip thumbs
+  const strip = $('#board-frame-strip');
+  if (strip) strip.querySelectorAll('.board-frame-thumb').forEach(t => t.classList.remove('active'));
+};
+
 function addBoardFrameThumb(refId, type, title, thumbDataUrl) {
   const strip = $('#board-frame-strip');
   if (!strip) return;
@@ -5901,13 +5949,40 @@ window.reopenSpotlight = function(refId) {
   const entry = state.spotlightHistory.find(e => e.id === refId);
   if (!entry) return;
 
+  // Voice mode: pause TTS, hide subtitles, save current board state
+  if (state.teachingMode === 'voice') {
+    // Stop any playing TTS audio
+    if (state.voiceCurrentSrc) {
+      try { state.voiceCurrentSrc.stop(); } catch {}
+      state.voiceCurrentSrc = null;
+    }
+    voiceHideSubtitle();
+    voiceHideHand();
+
+    // Save current live board as snapshot before switching
+    if (state.boardDraw.canvas && !state._savedLiveBoard) {
+      try {
+        state._savedLiveBoard = {
+          snapshot: state.boardDraw.canvas.toDataURL('image/png'),
+          title: state.spotlightInfo?.title || 'Board',
+          rawContent: state.boardDraw.rawContent,
+        };
+      } catch {}
+    }
+
+    // Show "Return to Live" button
+    const liveBtn = $('#board-live-btn');
+    if (liveBtn) liveBtn.classList.remove('hidden');
+  }
+
   if (entry.type === 'video' && entry.tag.lessonId !== undefined) {
     openVideoInSpotlight(entry.tag.lessonId, entry.tag.start, entry.tag.end, entry.tag.label, { skipReference: true });
   } else if (entry.type === 'board-draw' && entry.boardDrawContent) {
-    // Replay board-draw with stored commands
+    // Replay board-draw with stored commands (instant replay)
     const bdTitle = entry.title || 'Board';
     openBoardDrawSpotlight(bdTitle, entry.boardDrawContent, { skipReference: true });
     state.boardDraw.commandQueue = [];
+    state.boardDraw._instantReplayCount = 999; // replay all instantly
     const bdLines = entry.boardDrawContent.split('\n');
     for (const ln of bdLines) {
       const trimmed = ln.trim();
@@ -5916,16 +5991,19 @@ window.reopenSpotlight = function(refId) {
     }
     state.boardDraw.active = true;
   } else if (entry.type === 'board-draw' && entry.snapshot) {
-    // Voice scene snapshot — show as image (no replay possible)
+    // Voice scene snapshot — show as full-size image in board panel
     const panel = $('#spotlight-panel');
     const content = $('#spotlight-content');
     const titleEl = $('#spotlight-title');
     if (panel && content) {
-      content.innerHTML = `<img src="${entry.snapshot}" style="width:100%;height:auto;display:block;border-radius:4px" alt="Board snapshot"/>`;
+      content.innerHTML = `
+        <div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:#1a1d2e">
+          <img src="${entry.snapshot}" style="max-width:100%;max-height:100%;object-fit:contain" alt="Board snapshot"/>
+        </div>`;
       if (titleEl) titleEl.textContent = entry.title || 'Board';
       panel.classList.add('stage-active');
       state.spotlightActive = true;
-      state.spotlightInfo = { type: 'board-draw', title: entry.title };
+      state.spotlightInfo = { type: 'board-draw', title: entry.title, isSnapshot: true };
     }
   } else if (entry.type === 'widget' && entry.widgetCode) {
     openWidgetSpotlight(entry.title, entry.widgetCode, false, { skipReference: true });
