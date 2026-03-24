@@ -4507,6 +4507,8 @@ function startSimBridge(simId, blockId) {
   };
 
   const listener = (event) => {
+    // Security: only accept messages from our own origin or same-origin iframes
+    if (event.origin !== window.location.origin && event.origin !== 'null') return;
     const data = event.data;
     if (!data || typeof data.type !== 'string') return;
 
@@ -6819,8 +6821,8 @@ function initLoginForm() {
       signupStatus.className = 'setup-status error';
       return;
     }
-    if (password.length < 6) {
-      signupStatus.textContent = 'Password must be at least 6 characters.';
+    if (password.length < 8) {
+      signupStatus.textContent = 'Password must be at least 8 characters.';
       signupStatus.className = 'setup-status error';
       return;
     }
