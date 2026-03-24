@@ -1335,10 +1335,12 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   // (RUN_FINISHED handler may have failed or not fired)
   if (state.teachingMode === 'voice') {
     setTimeout(() => {
-      const boardInput = $('#board-question-input');
-      if (boardInput && !boardInput.classList.contains('visible')) {
+      // Check if voice input bar already has focus (user is typing)
+      const voiceInput = $('#voice-bar-input');
+      const isTyping = voiceInput && voiceInput === document.activeElement && voiceInput.value.trim();
+      if (!isTyping) {
         try { voiceHandleRunFinished(); } catch (e) {
-          console.warn('voiceHandleRunFinished failed, showing generic input:', e);
+          console.warn('voiceHandleRunFinished failed:', e);
           voiceShowBoardQuestion('Type your response...');
         }
       }
@@ -8271,8 +8273,9 @@ function bdExpandIfNeeded(maxY) {
     bd.currentH = maxY + 200;
     bdResizeCanvas();
     bdDrawGrid();
-    const wrap = document.getElementById('bd-canvas-wrap');
-    if (wrap) wrap.scrollTop = wrap.scrollHeight;
+    // Don't auto-scroll on expansion — let the voice mode scroll logic
+    // handle it (only scrolls when content is below visible area).
+    // In text mode, the canvas is inside a scrollable container anyway.
   }
 }
 
@@ -10492,38 +10495,6 @@ function voiceHideBoardQuestion() {
   }
 }
 
-function submitBoardAnswer() {
-  const field = $('#board-question-field');
-  if (!field || !field.value.trim()) return;
-  const answer = field.value.trim();
-  voiceHideBoardQuestion();
-  voiceHideIndicator();
-  // Send as regular message
-  streamADK(answer);
-}
-
-function toggleVoiceInput() {
-  const micBtn = $('#board-question-mic');
-  if (!micBtn) return;
-  // Simple Web Speech API integration
-  if ('webkitSpeechRecognition' in window || 'SpeechRecognition' in window) {
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    const recognition = new SpeechRecognition();
-    recognition.continuous = false;
-    recognition.interimResults = true;
-    const field = $('#board-question-field');
-
-    micBtn.classList.add('active');
-    recognition.onresult = (e) => {
-      const transcript = Array.from(e.results).map(r => r[0].transcript).join('');
-      if (field) field.value = transcript;
-    };
-    recognition.onend = () => { micBtn.classList.remove('active'); };
-    recognition.onerror = () => { micBtn.classList.remove('active'); };
-    recognition.start();
-  }
-}
-
 // ── Speed control ───────────────────────────────────────────
 
 function toggleSpeedMenu() {
@@ -11112,9 +11083,9 @@ function voiceHandleRunFinished() {
   if (!lastMsg) return;
   const text = typeof lastMsg.content === 'string' ? lastMsg.content : '';
 
-  // Don't show input if voice scene already showed a question
-  const boardInput = $('#board-question-input');
-  if (boardInput && boardInput.classList.contains('visible')) return;
+  // Don't show input if user is already typing
+  const voiceInput = $('#voice-bar-input');
+  if (voiceInput && voiceInput === document.activeElement && voiceInput.value.trim()) return;
 
   // Don't show input if there's an interactive tag
   const hasInteractiveTag = /<teaching-(mcq|freetext|agree-disagree|fillblank|spot-error|confidence|canvas|teachback)/i.test(text);
@@ -11161,10 +11132,6 @@ document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement?.id === 'voice-bar-input') {
     e.preventDefault();
     submitVoiceBarInput();
-  }
-  if (e.key === 'Enter' && document.activeElement?.id === 'board-question-field') {
-    e.preventDefault();
-    submitBoardAnswer();
   }
 });
 
