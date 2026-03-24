@@ -2417,6 +2417,7 @@ function handlePlanFromAgent(plan, sessionObjective) {
 
   // Build sections from plan — planning agent may output sections or flat topics
   let newSections = [];
+  console.log('[PLAN] sections:', plan.sections?.length, '_topics:', plan._topics?.length, 'topics:', plan.topics?.length);
   if (plan.sections && plan.sections.length > 0) {
     newSections = plan.sections.map(sec => ({
       n: sec.n || 1,

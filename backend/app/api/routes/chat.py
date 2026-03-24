@@ -754,6 +754,7 @@ def _build_tutor_prompt(session, context_data) -> str:
         "completedTopics": _format_completed(session.completed_topics),
         "scenarioSkill": scenario_skill,
         "planAccountability": _build_plan_accountability(session),
+        "teachingMode": session.teaching_mode,
     })
 
 
