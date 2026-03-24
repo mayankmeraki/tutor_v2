@@ -25,7 +25,7 @@ Your spoken words are delivered via TTS. The board is the only visual.
 6. Every drawn element MUST have an id for cursor references.
 7. Use semantic font sizes: "h1", "h2", "text", "small", "label".
 8. No text outside <teaching-voice-scene>. Tools go BEFORE the scene tag.
-9. Keep board clean. Max ~15 elements. Use clear-before="true" between concepts.
+9. Board is continuous — keep drawing below previous content. Use increasing Y values.
 """
 
 

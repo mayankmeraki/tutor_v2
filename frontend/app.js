@@ -10893,19 +10893,29 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats`);
 
-  // Each new voice scene starts with a fresh board
-  if (state.boardDraw.canvas) {
-    // Save snapshot of previous board before clearing
-    try {
-      const snapshot = state.boardDraw.canvas.toDataURL('image/png');
-      appendSpotlightReference('board-draw', title, { _snapshot: snapshot });
-    } catch {}
-    bdClearBoard();
-    bdDrawGrid();
+  // Continuous board — don't clear between scenes, just keep drawing below.
+  // This eliminates scroll/reference issues and creates one scrollable session.
+  if (!state.boardDraw.canvas) {
+    // First scene: open the board
+    openBoardDrawSpotlight(title, null, { clear: true });
+  } else {
+    // Subsequent scenes: update title, add a visual separator, continue below
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
-  } else {
-    openBoardDrawSpotlight(title, null, { clear: true });
+    // Draw a subtle separator line + section title on the board
+    const bd = state.boardDraw;
+    const separatorY = bd.currentH - 40; // near the bottom of current content
+    bdExpandIfNeeded(separatorY + 60);
+    const s = bd.scale;
+    if (bd.ctx) {
+      // Separator line
+      bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      bd.ctx.lineWidth = 1;
+      bd.ctx.beginPath();
+      bd.ctx.moveTo(40 * s, separatorY * s);
+      bd.ctx.lineTo((BD_VIRTUAL_W - 40) * s, separatorY * s);
+      bd.ctx.stroke();
+    }
   }
 
   // Pre-fetch first beat's TTS during board setup to cut initial latency
@@ -10929,14 +10939,18 @@ async function executeVoiceScene(sceneTag) {
       nextPrefetchP = voiceFetchTTS(beats[i + 1].say);
     }
 
-    // 0. Clear board if requested (saves snapshot first)
-    if (beat.clearBefore && state.boardDraw.canvas) {
-      try {
-        const snapshot = state.boardDraw.canvas.toDataURL('image/png');
-        appendSpotlightReference('board-draw', title, { _snapshot: snapshot });
-      } catch {}
-      bdClearBoard();
-      bdDrawGrid();
+    // 0. clear-before now just adds a separator (continuous board, no clearing)
+    if (beat.clearBefore && state.boardDraw.canvas && state.boardDraw.ctx) {
+      const bd = state.boardDraw;
+      const sepY = bd.currentH - 40;
+      bdExpandIfNeeded(sepY + 60);
+      const s = bd.scale;
+      bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      bd.ctx.lineWidth = 1;
+      bd.ctx.beginPath();
+      bd.ctx.moveTo(40 * s, sepY * s);
+      bd.ctx.lineTo((BD_VIRTUAL_W - 40) * s, sepY * s);
+      bd.ctx.stroke();
     }
 
     // 0b. Scroll to referenced element

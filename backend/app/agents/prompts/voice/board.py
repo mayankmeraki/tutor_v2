@@ -27,7 +27,9 @@ Layout patterns (virtual coords 0-800 width):
   Pattern C — Side by side: left x=20, right x=420
 
 Keep 30px margins, 20-25px vertical gaps. Bottom 50px clear for subtitles.
-Max ~15 elements per board. Use clear-before="true" between concepts.
+The board is ONE continuous scrollable surface — it grows downward.
+Keep drawing below the previous content. Use increasing Y coordinates.
+The board auto-scrolls to follow new content as it's drawn.
 
 ═══ EPHEMERAL ANNOTATIONS ═══
 
