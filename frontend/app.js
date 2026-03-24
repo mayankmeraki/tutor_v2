@@ -11099,16 +11099,41 @@ async function executeSay(text, prefetchedResp) {
   voiceShowIndicator('speaking');
 
   // Trigger highlights on referenced elements — staggered across speech duration
+  // Scroll up to element, glow it, then scroll back to latest content
   if (refs.length > 0) {
     const estDuration = (cleanText.split(/\s+/).length / 2.8 + 0.2) * 1000;
     const interval = estDuration / (refs.length + 1);
+    const wrap = document.getElementById('bd-canvas-wrap');
+    const scrollBeforeRef = wrap ? wrap.scrollTop : 0;
+
     refs.forEach((refId, i) => {
       setTimeout(() => {
-        // Highlight: scroll to element + ephemeral glow
-        if (bdElementRegistry[refId]) {
-          bdScrollToElement(refId);
-          voiceAnnotate('glow', refId, { color: '#5eead4', duration: 1500 });
-        }
+        if (!bdElementRegistry[refId]) return;
+        // Scroll to the referenced element
+        bdScrollToElement(refId);
+        // Apply glow highlight
+        voiceAnnotate('glow', refId, { color: '#5eead4', duration: 1800 });
+
+        // After glow fades, scroll back to where we were (latest content)
+        setTimeout(() => {
+          if (wrap) {
+            // Scroll to the bottom of drawn content (latest), not to the saved position
+            // This handles the case where new content was drawn during the highlight
+            const bd = state.boardDraw;
+            if (bd.canvas) {
+              const contentBottom = (bd.currentH - 60) * bd.scale;
+              const viewH = wrap.clientHeight;
+              const targetScroll = Math.max(0, contentBottom - viewH + 40);
+              // Only scroll back if we're still looking at the old reference
+              const currentScroll = wrap.scrollTop;
+              const refEntry = bdElementRegistry[refId];
+              const refY = refEntry ? refEntry.y * bd.scale : 0;
+              if (Math.abs(currentScroll - refY + 40) < 100) {
+                wrap.scrollTo({ top: targetScroll, behavior: 'smooth' });
+              }
+            }
+          }
+        }, 2000); // wait for glow to fade + small buffer
       }, interval * (i + 1));
     });
   }
