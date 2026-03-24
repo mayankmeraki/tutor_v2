@@ -29,6 +29,7 @@ MAX_PLANNING_TOOL_ROUNDS = 3
 MAX_PLANNING_OUTPUT_ROUNDS = 2
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds — doubles each retry (2, 4, 8)
+AGENT_TIMEOUT = 90  # seconds — hard timeout for background agent coroutines
 
 # ── Data classes ────────────────────────────────────────────────────────────
 
@@ -169,6 +170,8 @@ class AgentRuntime:
             # All go through the generic LLM agent
             coro = self._run_llm_agent(task, context)
 
+        # Wrap in timeout to prevent hung agents
+        coro = asyncio.wait_for(coro, timeout=AGENT_TIMEOUT)
         task._task = asyncio.create_task(self._safe_run(task, coro))
         log.info(
             "Spawned %s (%s) — %s",
@@ -267,6 +270,19 @@ class AgentRuntime:
                 event["title"] = result.get("title")
                 event["html"] = result.get("html")
             self._push_event(event)
+        except asyncio.TimeoutError:
+            task.status = "error"
+            task.error = f"Agent timed out after {AGENT_TIMEOUT}s"
+            task.error_type = "timeout"
+            task.completed_at = time.time()
+            self.completed_queue.append(task)
+            log.error("%s timed out after %.1fs", task.agent_id, task.completed_at - task.created_at)
+            self._push_event({
+                "type": "AGENT_ERROR",
+                "agent_id": task.agent_id,
+                "agent_type": task.type,
+                "error": f"Timed out after {AGENT_TIMEOUT}s",
+            })
         except asyncio.CancelledError:
             task.status = "error"
             task.error = "Cancelled"

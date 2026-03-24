@@ -8,7 +8,9 @@ Sessions are restored from MongoDB on cache miss (server restart).
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 import uuid
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
@@ -17,6 +19,9 @@ if TYPE_CHECKING:
     from app.agents.agent_runtime import AgentRuntime, DelegationState, AssessmentState
 
 log = logging.getLogger(__name__)
+
+MAX_SESSIONS = 500
+SESSION_TTL_SECONDS = 1800  # 30 minutes
 
 
 @dataclass
@@ -33,6 +38,9 @@ class Session:
     completion_reason: str | None = None
     pause_note: str | None = None
     teaching_mode: str = "text"  # "text" or "voice"
+
+    # ── Housekeeping ──
+    last_accessed: float = field(default_factory=time.time)
 
     # ── Sub-agent architecture ──
     agent_runtime: AgentRuntime | None = None
@@ -88,6 +96,14 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
+_session_locks: dict[str, asyncio.Lock] = {}
+
+
+def get_session_lock(session_id: str) -> asyncio.Lock:
+    """Return (or create) a per-session asyncio lock for concurrent request safety."""
+    if session_id not in _session_locks:
+        _session_locks[session_id] = asyncio.Lock()
+    return _session_locks[session_id]
 
 
 async def get_or_create_session(session_id: str | None) -> tuple[Session, str]:
@@ -101,7 +117,46 @@ async def get_or_create_session(session_id: str | None) -> tuple[Session, str]:
         else:
             _sessions[session_id] = Session()
             log.info("New session created: %s", session_id)
-    return _sessions[session_id], session_id
+
+    session = _sessions[session_id]
+    session.last_accessed = time.time()
+
+    # Evict stale sessions to bound memory
+    await _evict_stale_sessions()
+
+    return session, session_id
+
+
+async def _evict_stale_sessions() -> None:
+    """Remove sessions older than TTL, sync to MongoDB first. Cap at MAX_SESSIONS."""
+    now = time.time()
+    stale_ids = [
+        sid for sid, s in _sessions.items()
+        if now - s.last_accessed > SESSION_TTL_SECONDS
+    ]
+    for sid in stale_ids:
+        try:
+            from app.services.session_service import sync_backend_state
+            await sync_backend_state(sid, _sessions[sid])
+        except Exception as e:
+            log.warning("Failed to sync stale session %s before eviction: %s", sid[:8], e)
+        del _sessions[sid]
+        _session_locks.pop(sid, None)
+        log.info("Evicted stale session: %s", sid[:8])
+
+    # Hard cap — evict least-recently-accessed sessions
+    if len(_sessions) > MAX_SESSIONS:
+        sorted_ids = sorted(_sessions, key=lambda sid: _sessions[sid].last_accessed)
+        to_evict = sorted_ids[: len(_sessions) - MAX_SESSIONS]
+        for sid in to_evict:
+            try:
+                from app.services.session_service import sync_backend_state
+                await sync_backend_state(sid, _sessions[sid])
+            except Exception as e:
+                log.warning("Failed to sync capped session %s before eviction: %s", sid[:8], e)
+            del _sessions[sid]
+            _session_locks.pop(sid, None)
+            log.info("Evicted session (cap): %s", sid[:8])
 
 
 async def _try_restore_session(session_id: str) -> Session | None:
