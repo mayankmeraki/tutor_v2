@@ -10640,12 +10640,19 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats`);
 
-  // Open board if not already open
-  if (!state.boardDraw.canvas) {
-    openBoardDrawSpotlight(title, null, { clear: true });
-  } else {
+  // Each new voice scene starts with a fresh board
+  if (state.boardDraw.canvas) {
+    // Save snapshot of previous board before clearing
+    try {
+      const snapshot = state.boardDraw.canvas.toDataURL('image/png');
+      appendSpotlightReference('board-draw', title, { _snapshot: snapshot });
+    } catch {}
+    bdClearBoard();
+    bdDrawGrid();
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
+  } else {
+    openBoardDrawSpotlight(title, null, { clear: true });
   }
 
   // Execute beats sequentially
