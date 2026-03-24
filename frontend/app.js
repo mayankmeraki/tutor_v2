@@ -10965,33 +10965,37 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats`);
 
-  // Continuous board — each scene draws below the previous one.
-  // The Y-offset ensures no overlapping even if tutor uses same Y coords.
+  // Continuous board — each scene draws just below the previous content.
   if (!state.boardDraw.canvas) {
-    // First scene: open the board, start at Y=0
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
     bdResetContentBottom();
   } else {
-    // Subsequent scenes: offset below previous content + add separator
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
 
-    // Set Y-offset to below all previous content + gap
-    state._voiceSceneYOffset = bdContentBottomY + 40; // 40px gap between scenes
+    // Offset = just below last drawn content + small gap (15px virtual)
+    state._voiceSceneYOffset = bdContentBottomY + 15;
 
-    // Draw separator line at the gap
+    // Draw a subtle separator line
     const bd = state.boardDraw;
-    const sepY = state._voiceSceneYOffset - 20; // midpoint of gap
-    bdExpandIfNeeded(sepY + 30);
+    const sepY = state._voiceSceneYOffset - 8;
+    bdExpandIfNeeded(sepY + 20);
     const s = bd.scale;
     if (bd.ctx) {
-      bd.ctx.strokeStyle = 'rgba(255,255,255,0.06)';
+      bd.ctx.strokeStyle = 'rgba(255,255,255,0.05)';
       bd.ctx.lineWidth = 1;
       bd.ctx.beginPath();
-      bd.ctx.moveTo(60 * s, sepY * s);
-      bd.ctx.lineTo((BD_VIRTUAL_W - 60) * s, sepY * s);
+      bd.ctx.moveTo(80 * s, sepY * s);
+      bd.ctx.lineTo((BD_VIRTUAL_W - 80) * s, sepY * s);
       bd.ctx.stroke();
+    }
+
+    // Auto-scroll to where new content will start
+    const wrap = document.getElementById('bd-canvas-wrap');
+    if (wrap) {
+      const targetScrollY = state._voiceSceneYOffset * bd.scale - 30;
+      wrap.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'smooth' });
     }
   }
 
