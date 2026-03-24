@@ -3071,10 +3071,12 @@ function renderTeachingTag(tag) {
 
   // Voice mode: if this is an interactive tag, temporarily show chat pane
   // so the MCQ/freetext controls are visible (they render in #canvas-stream)
+  // Only assessment/input tags trigger chat pane slide-in.
+  // Videos, sims, widgets render on the board — no layout switch.
   const _voiceInteractiveTags = new Set([
     'teaching-mcq', 'teaching-freetext', 'teaching-agree-disagree',
     'teaching-fillblank', 'teaching-spot-error', 'teaching-confidence',
-    'teaching-canvas', 'teaching-teachback', 'teaching-video',
+    'teaching-canvas', 'teaching-teachback',
   ]);
   if (state.teachingMode === 'voice' && _voiceInteractiveTags.has(tag.name)) {
     const mainLayout = $('#main-layout');
@@ -8998,9 +9000,10 @@ async function bdRunAnimation(cmd) {
   const boardH = wrap ? wrap.clientHeight : 400;
   const rawW = (cmd.w || 350) * s;
   const rawH = (cmd.h || 200) * s;
-  // Clamp: don't exceed board width minus position, and cap at 65% of board
-  const w = Math.min(rawW, boardW - x - 10, boardW * 0.65);
-  const h = Math.min(rawH, boardH * 0.45, 350);
+  // Clamp: don't exceed board width minus position, and hard cap at 700px
+  const w = Math.min(rawW, boardW - x - 10, boardW * 0.6, 700);
+  const h = Math.min(rawH, boardH * 0.4, 300);
+  console.log(`[Animation] pos=${Math.round(x)},${Math.round(y)} size=${Math.round(w)}x${Math.round(h)} board=${boardW}x${boardH} scale=${s.toFixed(2)}`);
   // Duration: 0 means keep alive indefinitely (for live animations)
   const duration = cmd.duration === 0 ? 0 : (cmd.duration || 0); // default to 0 = live
 
