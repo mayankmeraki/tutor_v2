@@ -11,7 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 cd "$SCRIPT_DIR"
 
 PROJECT_ID="capacity-platform-dev"
-SERVICE="tutor-v3-stage"
+SERVICE="tutor-stage"
 REGION="us-central1"
 
 # Resolve tag

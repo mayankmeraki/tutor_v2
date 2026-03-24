@@ -1,5 +1,5 @@
 substitutions:
-  _SERVICE_NAME: tutor-v3-stage
+  _SERVICE_NAME: tutor-stage
   _DEPLOY_REGION: us-central1
   _AR_HOSTNAME: us-central1-docker.pkg.dev
   _AR_REPOSITORY: cloud-run-source-deploy
