@@ -8164,6 +8164,19 @@ const bdActiveAnimations = [];
 // Element registry — tracks drawn elements by ID for referencing/scrolling
 const bdElementRegistry = {}; // { id: { cmd, x, y, w, h } }
 
+// Content bottom tracker — tracks the lowest Y coordinate of drawn content
+// Used to auto-offset new voice scene beats below previous content
+let bdContentBottomY = 0; // virtual coords
+
+function bdUpdateContentBottom(y, h) {
+  const bottom = (y || 0) + (h || 20);
+  if (bottom > bdContentBottomY) bdContentBottomY = bottom;
+}
+
+function bdResetContentBottom() {
+  bdContentBottomY = 0;
+}
+
 function bdRegisterElement(cmd) {
   if (!cmd || !cmd.id) return;
   const entry = { cmd: cmd.cmd, x: cmd.x || 0, y: cmd.y || 0 };
@@ -8195,6 +8208,34 @@ function bdControlAnimation(params) {
   if (entry.p5Instance && typeof entry.p5Instance._onControl === 'function') {
     entry.p5Instance._onControl(params);
   }
+}
+
+function bdZoomPulse(elementId) {
+  // Zoom-pulse effect: briefly scale up the area around an element, then back
+  const entry = bdElementRegistry[elementId];
+  if (!entry) return;
+  const wrap = document.getElementById('bd-canvas-wrap');
+  const content = document.getElementById('spotlight-content');
+  if (!wrap || !content) return;
+
+  const bd = state.boardDraw;
+  const s = bd.scale;
+  const cx = (entry.x + (entry.w || 0) / 2) * s;
+  const cy = (entry.y + (entry.h || 0) / 2) * s;
+
+  // Use CSS transform on the canvas wrap for a smooth zoom effect
+  wrap.style.transition = 'transform 0.4s ease';
+  wrap.style.transformOrigin = `${cx}px ${cy}px`;
+  wrap.style.transform = 'scale(1.15)';
+
+  setTimeout(() => {
+    wrap.style.transform = 'scale(1)';
+    setTimeout(() => {
+      wrap.style.transition = '';
+      wrap.style.transformOrigin = '';
+      wrap.style.transform = '';
+    }, 400);
+  }, 1200);
 }
 
 function bdClearElementRegistry() {
@@ -8952,6 +8993,8 @@ function bdClearBoard() {
   if (!bd.ctx) return;
   bd.currentH = BD_INITIAL_H;
   bdClearElementRegistry();
+  bdResetContentBottom();
+  state._voiceSceneYOffset = 0;
   bdClearAllAnimations();
   bdResizeCanvas();
   bd.ctx.fillStyle = '#1a1d2e';
@@ -8969,6 +9012,14 @@ async function bdRunCommand(cmd) {
   // Enforce minimum left margin so text doesn't get cut off
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
+
+  // Track content bottom for continuous board positioning
+  const cmdH = cmd.h || cmd.size || cmd.r || 20;
+  if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
+  if (cmd.y1 !== undefined) bdUpdateContentBottom(cmd.y1, cmdH);
+  if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
+  if (cmd.cy !== undefined) bdUpdateContentBottom(cmd.cy, (cmd.r || 20) * 2);
+
   // Register element by ID for referencing/scrolling
   if (cmd.id) bdRegisterElement(cmd);
   // Hand cursor disabled — was causing positioning issues
@@ -10416,6 +10467,7 @@ function voiceStopCurrent() {
 
 function voiceCleanText(text) {
   return text
+    .replace(/\{ref:[^}]+\}/g, '')  // strip {ref:elementId} markers
     .replace(/\*\*(.+?)\*\*/g, '$1').replace(/\*(.+?)\*/g, '$1')
     .replace(/`(.+?)`/g, '$1').replace(/<[^>]+>/g, '')
     .replace(/\$\$[\s\S]+?\$\$/g, '').replace(/\$(.+?)\$/g, '$1')
@@ -10893,27 +10945,32 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats`);
 
-  // Continuous board — don't clear between scenes, just keep drawing below.
-  // This eliminates scroll/reference issues and creates one scrollable session.
+  // Continuous board — each scene draws below the previous one.
+  // The Y-offset ensures no overlapping even if tutor uses same Y coords.
   if (!state.boardDraw.canvas) {
-    // First scene: open the board
+    // First scene: open the board, start at Y=0
     openBoardDrawSpotlight(title, null, { clear: true });
+    state._voiceSceneYOffset = 0;
+    bdResetContentBottom();
   } else {
-    // Subsequent scenes: update title, add a visual separator, continue below
+    // Subsequent scenes: offset below previous content + add separator
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
-    // Draw a subtle separator line + section title on the board
+
+    // Set Y-offset to below all previous content + gap
+    state._voiceSceneYOffset = bdContentBottomY + 40; // 40px gap between scenes
+
+    // Draw separator line at the gap
     const bd = state.boardDraw;
-    const separatorY = bd.currentH - 40; // near the bottom of current content
-    bdExpandIfNeeded(separatorY + 60);
+    const sepY = state._voiceSceneYOffset - 20; // midpoint of gap
+    bdExpandIfNeeded(sepY + 30);
     const s = bd.scale;
     if (bd.ctx) {
-      // Separator line
-      bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      bd.ctx.strokeStyle = 'rgba(255,255,255,0.06)';
       bd.ctx.lineWidth = 1;
       bd.ctx.beginPath();
-      bd.ctx.moveTo(40 * s, separatorY * s);
-      bd.ctx.lineTo((BD_VIRTUAL_W - 40) * s, separatorY * s);
+      bd.ctx.moveTo(60 * s, sepY * s);
+      bd.ctx.lineTo((BD_VIRTUAL_W - 60) * s, sepY * s);
       bd.ctx.stroke();
     }
   }
@@ -11067,10 +11124,17 @@ async function executeDraw(drawCmds) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // Execute each draw command through the existing board-draw engine
+  // Apply Y-offset for continuous board: shift all commands below previous content
+  const yOffset = state._voiceSceneYOffset || 0;
   for (const cmd of drawCmds) {
     if (!cmd || !cmd.cmd) continue;
-    // Enqueue and process
+    // Offset Y coordinates so draws appear below previous scene content
+    if (yOffset > 0) {
+      if (cmd.y !== undefined) cmd.y += yOffset;
+      if (cmd.y1 !== undefined) cmd.y1 += yOffset;
+      if (cmd.y2 !== undefined) cmd.y2 += yOffset;
+      if (cmd.cy !== undefined) cmd.cy += yOffset;
+    }
     state.boardDraw.commandQueue.push(cmd);
   }
 
@@ -11111,8 +11175,8 @@ async function executeSay(text, prefetchedResp) {
         if (!bdElementRegistry[refId]) return;
         // Scroll to the referenced element
         bdScrollToElement(refId);
-        // Apply glow highlight
-        voiceAnnotate('glow', refId, { color: '#5eead4', duration: 1800 });
+        // Zoom-pulse: scale up the area around the element, then back
+        bdZoomPulse(refId);
 
         // After glow fades, scroll back to where we were (latest content)
         setTimeout(() => {
