@@ -8286,12 +8286,12 @@ function bdGetFontScale() {
 // The LLM outputs "center", "below", "row-start", "beside:id" etc.
 // The engine tracks a cursor and resolves deterministically.
 
-const BD_MARGIN = 30;
-const BD_ROW_GAP = 12;
-const BD_SIDE_GAP = 18;
+const BD_MARGIN = 25;
+const BD_ROW_GAP = 10;
+const BD_SIDE_GAP = 15;
 
 const bdLayout = {
-  cursorY: 15,
+  cursorY: 12,
   inRow: false,
   rowY: 0,
   rowX: BD_MARGIN,
@@ -8299,7 +8299,7 @@ const bdLayout = {
 };
 
 function bdLayoutReset() {
-  bdLayout.cursorY = 15;
+  bdLayout.cursorY = 12;
   bdLayout.inRow = false;
   bdLayout.rowY = 0;
   bdLayout.rowX = BD_MARGIN;
@@ -8322,17 +8322,21 @@ function bdLayoutResolve(placement, estW, estH) {
   if (!placement || placement === 'below') {
     if (bdLayout.inRow) bdLayoutEndRow();
     x = BD_MARGIN; y = bdLayout.cursorY;
+
   } else if (placement === 'center') {
     if (bdLayout.inRow) bdLayoutEndRow();
     x = BD_MARGIN + Math.max(0, (usable - estW) / 2);
     y = bdLayout.cursorY;
+
   } else if (placement === 'right') {
     if (bdLayout.inRow) bdLayoutEndRow();
-    x = BD_VIRTUAL_W - BD_MARGIN - estW;
+    x = Math.max(BD_MARGIN, BD_VIRTUAL_W - BD_MARGIN - estW);
     y = bdLayout.cursorY;
+
   } else if (placement === 'full-width') {
     if (bdLayout.inRow) bdLayoutEndRow();
     x = BD_MARGIN; y = bdLayout.cursorY;
+
   } else if (placement === 'row-start') {
     if (bdLayout.inRow) bdLayoutEndRow();
     bdLayout.inRow = true;
@@ -8340,6 +8344,7 @@ function bdLayoutResolve(placement, estW, estH) {
     bdLayout.rowX = BD_MARGIN;
     bdLayout.rowH = 0;
     x = BD_MARGIN; y = bdLayout.cursorY;
+
   } else if (placement === 'row-next') {
     if (!bdLayout.inRow) {
       bdLayout.inRow = true;
@@ -8347,35 +8352,74 @@ function bdLayoutResolve(placement, estW, estH) {
       bdLayout.rowX = BD_MARGIN;
       bdLayout.rowH = 0;
     }
+    // Auto-wrap: if element would exceed board width, start new row
+    if (bdLayout.rowX + estW > BD_VIRTUAL_W - BD_MARGIN) {
+      bdLayoutEndRow();
+      bdLayout.inRow = true;
+      bdLayout.rowY = bdLayout.cursorY;
+      bdLayout.rowX = BD_MARGIN;
+      bdLayout.rowH = 0;
+    }
     x = bdLayout.rowX; y = bdLayout.rowY;
+
   } else if (placement === 'indent') {
     if (bdLayout.inRow) bdLayoutEndRow();
-    x = BD_MARGIN + 25; y = bdLayout.cursorY;
+    x = BD_MARGIN + 20; y = bdLayout.cursorY;
+
   } else if (placement.startsWith('beside:')) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
-    if (ref) { x = ref.x + ref.w + BD_SIDE_GAP; y = ref.y; }
-    else { x = BD_VIRTUAL_W / 2; y = bdLayout.cursorY; }
+    if (ref) {
+      x = ref.x + ref.w + BD_SIDE_GAP;
+      y = ref.y;
+      // If beside would go off-screen, place below instead
+      if (x + estW > BD_VIRTUAL_W - BD_MARGIN) {
+        x = ref.x;
+        y = ref.y + ref.h + 6;
+      }
+    } else {
+      // Ref not found — fall back to below cursor
+      if (bdLayout.inRow) bdLayoutEndRow();
+      x = BD_MARGIN; y = bdLayout.cursorY;
+    }
+
   } else if (placement.startsWith('below:')) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
-    if (ref) { x = ref.x; y = ref.y + ref.h + 6; }
-    else { x = BD_MARGIN; y = bdLayout.cursorY; }
+    if (ref) {
+      x = ref.x;
+      y = ref.y + ref.h + 6;
+    } else {
+      // Ref not found — fall back to below cursor
+      if (bdLayout.inRow) bdLayoutEndRow();
+      x = BD_MARGIN; y = bdLayout.cursorY;
+    }
+
   } else {
-    // Fallback — treat as "below"
     if (bdLayout.inRow) bdLayoutEndRow();
     x = BD_MARGIN; y = bdLayout.cursorY;
   }
+
+  // Clamp X to valid range
+  x = Math.max(BD_MARGIN, Math.min(x, BD_VIRTUAL_W - BD_MARGIN - 20));
+  // Ensure Y never goes negative
+  y = Math.max(0, y);
 
   return { x, y };
 }
 
 function bdLayoutCommit(x, y, w, h) {
+  const bottom = y + h + BD_ROW_GAP;
   if (bdLayout.inRow) {
     bdLayout.rowX = x + w + BD_SIDE_GAP;
     bdLayout.rowH = Math.max(bdLayout.rowH, h);
   } else {
-    bdLayout.cursorY = y + h + BD_ROW_GAP;
+    bdLayout.cursorY = bottom;
+  }
+  // Always keep cursorY at least at this element's bottom
+  // (handles beside:/below: placements that skip the cursor)
+  if (bottom > bdLayout.cursorY && !bdLayout.inRow) {
+    bdLayout.cursorY = bottom;
   }
 }
 
