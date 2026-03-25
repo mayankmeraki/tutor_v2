@@ -204,7 +204,9 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     teaching_overrides = _compile_teaching_overrides(context_data)
 
     # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students in same mode)
-    tutor_prompt = build_tutor_system_prompt()
+    teaching_mode = context_data.get("teachingMode", "text")
+    is_voice = teaching_mode == "voice"
+    tutor_prompt = build_tutor_system_prompt(voice_mode=is_voice)
     static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
     scenario_skill = context_data.get("scenarioSkill")
@@ -212,9 +214,7 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         static_parts.append(scenario_skill)
 
     # Voice mode instructions go in STATIC block (mode is locked for entire session)
-    # This enables prompt caching — the ~3K token voice block is cached, not re-sent each turn
-    teaching_mode = context_data.get("teachingMode", "text")
-    if teaching_mode == "voice":
+    if is_voice:
         static_parts.append(_get_voice_mode_prompt())
 
     static_prompt = "\n".join(static_parts)

@@ -27,12 +27,16 @@ from .sections import (
 )
 
 
-def build_tutor_system_prompt() -> str:
+def build_tutor_system_prompt(voice_mode: bool = False) -> str:
     """Assemble the full tutor system prompt from sections.
 
     All sections here are STATIC (same for every student, every turn).
     Per-student teaching overrides are injected into the DYNAMIC context
     block by build_tutor_prompt() to maximize prompt caching.
+
+    In voice mode, SECTION_SPOTLIGHT_AND_MEDIA is excluded because it
+    contains coordinate-based layout examples that conflict with the
+    placement engine. Voice mode board rules are in the voice prompt.
 
     Returns:
         Complete tutor system prompt string.
@@ -43,9 +47,12 @@ def build_tutor_system_prompt() -> str:
         SECTION_PEDAGOGY,
         SECTION_LEARNING_MODEL,
         SECTION_STUDENT_ADAPTATION,
-        SECTION_SPOTLIGHT_AND_MEDIA,
-        SECTION_EXECUTION,
     ]
+
+    if not voice_mode:
+        parts.append(SECTION_SPOTLIGHT_AND_MEDIA)
+
+    parts.append(SECTION_EXECUTION)
 
     return "\n\n".join(parts)
 

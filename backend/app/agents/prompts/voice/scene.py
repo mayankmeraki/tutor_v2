@@ -91,7 +91,7 @@ RULES:
   - When comparing two things, reference one then the other in sequence.
 
 Example:
-  <vb draw='{"cmd":"text","text":"F = ma","x":50,"y":100,"id":"eq-f","size":"text"}' say="Newton's second law." cursor="write" />
+  <vb draw='{"cmd":"text","text":"F = ma","placement":"center","id":"eq-f","size":"text"}' say="Newton's second law." cursor="write" />
   <vb say="Force drives acceleration. {ref:eq-f}" pause="0.8" />
   ... later ...
   <vb say="Remember this? {ref:eq-f} Same idea, quantum version." />
