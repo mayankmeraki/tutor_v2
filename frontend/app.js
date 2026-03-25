@@ -9463,7 +9463,9 @@ async function bdRunCommand(cmd) {
   // ── Placement engine: ALL commands go through the layout resolver ──
   // If no placement specified, default to "below" (sequential flow)
   {
-    if (!cmd.placement && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
+    // All positionable commands get auto-placement if none specified
+    const positionable = ['text', 'latex', 'animation', 'rect', 'fillrect', 'circle', 'arc', 'line', 'arrow', 'dashed', 'dot', 'freehand', 'curvedarrow', 'matrix', 'brace'];
+    if (!cmd.placement && positionable.includes(cmd.cmd)) {
       cmd.placement = 'below';
     }
 
@@ -9473,24 +9475,50 @@ async function bdRunCommand(cmd) {
         if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.4;
         return 22;
       };
-      let estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
-      let estH;
-      if (cmd.cmd === 'animation') {
-        // Responsive: animation fills available width, height proportional
-        const availVW = bdLayout.inRow
-          ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN
-          : BD_VIRTUAL_W - BD_MARGIN * 2;
-        estW = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.85);
-        const ratio = (cmd.h && cmd.w) ? cmd.h / cmd.w : 0.5;
-        estH = cmd.h ? Math.min(cmd.h, Math.round(estW * ratio)) : Math.round(estW * ratio);
-      } else {
-        estH = cmd.h || resolveH(cmd.size);
-      }
-      const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
 
+      // Estimate dimensions based on command type
+      let estW, estH;
+      if (cmd.cmd === 'text' || cmd.cmd === 'latex') {
+        estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
+        estH = cmd.h || resolveH(cmd.size);
+      } else if (cmd.cmd === 'animation') {
+        const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
+        estW = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.7);
+        // Fixed aspect ratio — animations are typically wider than tall
+        estH = Math.min(cmd.h || 160, 160);
+      } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
+        estW = (cmd.r || 30) * 2; estH = (cmd.r || 30) * 2;
+      } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed' || cmd.cmd === 'curvedarrow') {
+        estW = Math.abs((cmd.x2 || 0) - (cmd.x1 || 0)) || 100;
+        estH = Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 20;
+      } else {
+        estW = cmd.w || 100; estH = cmd.h || 30;
+      }
+
+      const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
       const yOffset = state._voiceSceneYOffset || 0;
-      cmd.x = x;
-      cmd.y = y + yOffset;
+
+      // Map placement to the correct coordinate fields per command type
+      if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
+        cmd.cx = x + (cmd.r || 30);
+        cmd.cy = y + yOffset + (cmd.r || 30);
+      } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed') {
+        const dx = (cmd.x2 || 0) - (cmd.x1 || 0);
+        const dy = (cmd.y2 || 0) - (cmd.y1 || 0);
+        cmd.x1 = x; cmd.y1 = y + yOffset;
+        cmd.x2 = x + dx; cmd.y2 = y + yOffset + dy;
+      } else if (cmd.cmd === 'curvedarrow') {
+        const dx2 = (cmd.x2 || 0) - (cmd.x1 || 0);
+        const dy2 = (cmd.y2 || 0) - (cmd.y1 || 0);
+        const dcx = (cmd.cx || 0) - (cmd.x1 || 0);
+        const dcy = (cmd.cy || 0) - (cmd.y1 || 0);
+        cmd.x1 = x; cmd.y1 = y + yOffset;
+        cmd.x2 = x + dx2; cmd.y2 = y + yOffset + dy2;
+        cmd.cx = x + dcx; cmd.cy = y + yOffset + dcy;
+      } else {
+        cmd.x = x;
+        cmd.y = y + yOffset;
+      }
 
       bdLayoutCommit(x, y, estW, estH);
     }
