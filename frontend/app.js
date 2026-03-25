@@ -9598,6 +9598,14 @@ async function bdRunCommand(cmd) {
   // if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
   // Auto-scroll to keep new content visible
   bdAutoScrollToCmd(cmd);
+
+  // Skip raw shape commands without placement — they use LLM's raw coords which are wrong
+  const rawShapes = ['line', 'arrow', 'rect', 'circle', 'arc', 'freehand', 'dashed', 'dot', 'curvedarrow', 'fillrect', 'brace'];
+  if (rawShapes.includes(cmd.cmd) && !cmd._hasPlacement) {
+    console.log(`[Layout] Skipping raw shape: ${cmd.cmd} (no placement — would create artifacts)`);
+    return;
+  }
+
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
     case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
