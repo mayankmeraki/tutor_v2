@@ -60,7 +60,12 @@ async def get_sessions_for_student(course_id: int, student_name: str) -> list[di
     """Return all sessions for a student+course, newest first."""
     cursor = _sessions().find(
         {"courseId": course_id, "studentName": student_name},
-    ).sort("startedAt", -1)
+        {
+            "backendState.messages": 0,
+            "backendState.conversationSummary": 0,
+            "generatedVisuals": 0,
+        },
+    ).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
@@ -69,10 +74,19 @@ async def get_sessions_for_student(course_id: int, student_name: str) -> list[di
 
 
 async def get_sessions_for_user(course_id: int, user_email: str) -> list[dict]:
-    """Return all sessions for a user (by email) + course, newest first."""
+    """Return all sessions for a user (by email) + course, newest first.
+
+    Uses projection to exclude heavy fields (backendState.messages, generatedVisuals)
+    that can be megabytes per session and cause timeouts on large collections.
+    """
     cursor = _sessions().find(
         {"courseId": course_id, "userEmail": user_email},
-    ).sort("startedAt", -1)
+        {
+            "backendState.messages": 0,
+            "backendState.conversationSummary": 0,
+            "generatedVisuals": 0,
+        },
+    ).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
