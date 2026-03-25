@@ -9457,17 +9457,16 @@ async function bdRunCommand(cmd) {
         if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.4;
         return 22;
       };
-      const estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
-      let estW2 = estW, estH;
+      let estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
+      let estH;
       if (cmd.cmd === 'animation') {
         // Responsive: animation fills available width, height proportional
         const availVW = bdLayout.inRow
           ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN
           : BD_VIRTUAL_W - BD_MARGIN * 2;
-        estW2 = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.85);
+        estW = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.85);
         const ratio = (cmd.h && cmd.w) ? cmd.h / cmd.w : 0.5;
-        estH = cmd.h ? Math.min(cmd.h, Math.round(estW2 * ratio)) : Math.round(estW2 * ratio);
-        estW = estW2;
+        estH = cmd.h ? Math.min(cmd.h, Math.round(estW * ratio)) : Math.round(estW * ratio);
       } else {
         estH = cmd.h || resolveH(cmd.size);
       }
