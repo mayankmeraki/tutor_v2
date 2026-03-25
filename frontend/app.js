@@ -9458,10 +9458,16 @@ async function bdRunCommand(cmd) {
         return 22;
       };
       const estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
-      let estH;
+      let estW2 = estW, estH;
       if (cmd.cmd === 'animation') {
-        // Animation heights are clamped by the renderer — use the clamped value
-        estH = Math.min(cmd.h || 200, 180);
+        // Responsive: animation fills available width, height proportional
+        const availVW = bdLayout.inRow
+          ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN
+          : BD_VIRTUAL_W - BD_MARGIN * 2;
+        estW2 = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.85);
+        const ratio = (cmd.h && cmd.w) ? cmd.h / cmd.w : 0.5;
+        estH = cmd.h ? Math.min(cmd.h, Math.round(estW2 * ratio)) : Math.round(estW2 * ratio);
+        estW = estW2;
       } else {
         estH = cmd.h || resolveH(cmd.size);
       }
@@ -9481,7 +9487,6 @@ async function bdRunCommand(cmd) {
 
   // Track content bottom for continuous board positioning
   let cmdH = cmd.h || cmd.size || cmd.r || 20;
-  if (cmd.cmd === 'animation') cmdH = Math.min(cmdH, 180); // match layout engine cap
   if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
   if (cmd.y1 !== undefined) bdUpdateContentBottom(cmd.y1, cmdH);
   if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
@@ -9632,24 +9637,33 @@ async function bdRunAnimation(cmd) {
   if (!layer) return;
 
   const s = bd.scale || 1;
-  // Guard: if canvas not ready, use sensible defaults
   const wrap = document.getElementById('bd-canvas-wrap');
   const boardW = (wrap && wrap.clientWidth > 0) ? wrap.clientWidth : 800;
   const boardH = (wrap && wrap.clientHeight > 0) ? wrap.clientHeight : 500;
-  // Position uses virtual coords * scale
+
+  // Position from placement engine (virtual coords * scale)
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
-  // Size: virtual * scale, clamped to reasonable bounds
-  const rawW = (cmd.w || 350) * s;
-  const rawH = (cmd.h || 200) * s;
-  const maxW = Math.max(200, boardW - x - 10, 200);
-  const w = Math.max(150, Math.min(rawW, maxW, boardW * 0.6, 700));
-  const h = Math.max(100, Math.min(rawH, boardH * 0.45, 350));
+
+  // Responsive sizing — board determines dimensions based on available space
+  // If in a row, use remaining row width. Otherwise use most of the board width.
+  const availW = bdLayout.inRow
+    ? boardW - (bdLayout.rowX * s) - (BD_MARGIN * s)
+    : boardW - x - (BD_MARGIN * s);
+
+  // Width: fill available space, respect cmd.w as a hint (not absolute)
+  const hintW = cmd.w ? cmd.w * s : availW * 0.85;
+  const w = Math.max(120, Math.min(hintW, availW));
+
+  // Height: proportional to width, capped to viewport fraction
+  const aspectRatio = (cmd.h && cmd.w) ? cmd.h / cmd.w : 0.5;
+  const hintH = cmd.h ? cmd.h * s : w * aspectRatio;
+  const h = Math.max(80, Math.min(hintH, boardH * 0.4));
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
 
-  bdExpandIfNeeded((cmd.y || 0) + (cmd.h || 200));
+  bdExpandIfNeeded((cmd.y || 0) + h / s + 10);
 
   if (!cmd.code) {
     console.warn('Board animation: no "code" field provided');
