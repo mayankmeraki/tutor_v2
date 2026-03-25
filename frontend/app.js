@@ -9683,7 +9683,9 @@ async function bdCompoundEquation(cmd) {
       eqTotalH = size * 1.4 + noteSize * 1.4 + 4;
     }
   }
-  // NOTE: bdLayoutCommit already called by placement resolver — don't double-commit
+  // Correct cursor if note wrapped below and extended past estimate
+  const actualBottom = y + eqTotalH + BD_ROW_GAP;
+  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
 }
 
 async function bdCompoundCompare(cmd) {
@@ -9741,6 +9743,9 @@ async function bdCompoundCompare(cmd) {
 
   const totalH = curY - y;
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: BD_VIRTUAL_W - BD_MARGIN * 2, h: totalH };
+  // Correct cursor if actual height exceeds estimated
+  const actualBottom = y + totalH + BD_ROW_GAP;
+  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
 }
 
 async function bdCompoundStep(cmd) {
@@ -9844,6 +9849,8 @@ async function bdCompoundList(cmd) {
 
   const totalH = curY - y;
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: totalH };
+  const actualBottom = y + totalH + BD_ROW_GAP;
+  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
 }
 
 async function bdCompoundDivider(cmd) {
@@ -9916,6 +9923,8 @@ async function bdCompoundResult(cmd) {
   }
 
   if (cmd.id) bdElementRegistry[cmd.id] = { x: boxX, y, w: boxW, h: boxH };
+  const actualBottom = y + boxH + BD_ROW_GAP;
+  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
 }
 
 // ── p5.js Animation Engine ──
@@ -10038,9 +10047,13 @@ async function bdRunAnimation(cmd) {
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
 
-  // Use layout engine's resolved dimensions (synchronized — no mismatch)
-  const w = (cmd._layoutW || cmd.w || 300) * s;
-  const h = (cmd._layoutH || cmd.h || 140) * s;
+  // Use layout engine's resolved dimensions, with hard safety caps
+  const maxW = Math.min(boardW * 0.5, 500);  // never more than 50% of board or 500px
+  const maxH = Math.min(boardH * 0.3, 250);  // never more than 30% of viewport or 250px
+  const rawW = (cmd._layoutW || cmd.w || 300) * s;
+  const rawH = (cmd._layoutH || cmd.h || 120) * s;
+  const w = Math.min(rawW, maxW);
+  const h = Math.min(rawH, maxH);
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
