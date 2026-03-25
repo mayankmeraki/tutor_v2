@@ -10043,13 +10043,9 @@ async function bdRunAnimation(cmd) {
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
 
-  // Use layout engine's resolved dimensions, with hard safety caps
-  const maxW = Math.min(boardW * 0.5, 500);  // never more than 50% of board or 500px
-  const maxH = Math.min(boardH * 0.3, 250);  // never more than 30% of viewport or 250px
-  const rawW = (cmd._layoutW || cmd.w || 300) * s;
-  const rawH = (cmd._layoutH || cmd.h || 120) * s;
-  const w = Math.min(rawW, maxW);
-  const h = Math.min(rawH, maxH);
+  // Use layout engine's resolved dimensions — already capped by the layout estimator
+  const w = (cmd._layoutW || cmd.w || 300) * s;
+  const h = (cmd._layoutH || cmd.h || 120) * s;
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
@@ -10132,14 +10128,6 @@ async function bdRunAnimation(cmd) {
       p.setup = function() {
         if (userSetup) userSetup.call(p);
         p.textFont('Caveat');
-        // Sync container to actual canvas size (p5 may create differently than our estimate)
-        requestAnimationFrame(() => {
-          const c = container.querySelector('canvas');
-          if (c) {
-            container.style.width = c.offsetWidth + 'px';
-            container.style.height = c.offsetHeight + 'px';
-          }
-        });
       };
     }, container);
   } catch (e) {
