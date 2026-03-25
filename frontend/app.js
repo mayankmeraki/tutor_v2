@@ -12755,9 +12755,9 @@ function submitVoiceBarInput() {
   if (!field || !field.value.trim()) return;
   const text = field.value.trim();
   field.value = '';
+  field.style.height = 'auto'; // reset textarea height
   field.placeholder = 'Type or hold Space to talk...';
   voiceHideSubtitle();
-  // Hide send button
   const sendBtn = $('#voice-bar-send');
   if (sendBtn) sendBtn.classList.remove('visible');
   streamADK(text);
@@ -12768,12 +12768,17 @@ document.addEventListener('input', (e) => {
   if (e.target.id === 'voice-bar-input') {
     const sendBtn = $('#voice-bar-send');
     if (sendBtn) sendBtn.classList.toggle('visible', e.target.value.trim().length > 0);
+    // Auto-grow textarea
+    e.target.style.height = 'auto';
+    e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
+    e.target.style.overflowY = e.target.scrollHeight > 120 ? 'auto' : 'hidden';
   }
 });
 
 // ── Enter key handler ───────────────────────────────────────
 document.addEventListener('keydown', (e) => {
   if (e.key === 'Enter' && document.activeElement?.id === 'voice-bar-input') {
+    if (e.shiftKey) return; // Shift+Enter = newline
     e.preventDefault();
     submitVoiceBarInput();
   }

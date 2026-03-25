@@ -4359,6 +4359,9 @@ body {
   flex: 1; background: none; border: none; outline: none;
   color: var(--text); font-size: 14px; font-family: var(--font-sans);
   padding: 8px 0; min-width: 0;
+  resize: none; overflow-y: hidden;
+  max-height: 120px; line-height: 1.4;
+  field-sizing: content; /* Chrome 123+ auto-grows */
 }
 .voice-bar-input::placeholder { color: var(--text-dim); }
 .voice-bar-input.transcript { color: var(--text-muted); font-style: italic; }

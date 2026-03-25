@@ -826,8 +826,8 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
       <!-- Voice input bar — one unified pill -->
       <div id="voice-mic-float" class="voice-bar-wrap hidden">
         <div class="voice-bar" id="voice-bar-main">
-          <input type="text" class="voice-bar-input" id="voice-bar-input"
-                 placeholder="Type or hold Space to talk..." autocomplete="off">
+          <textarea class="voice-bar-input" id="voice-bar-input" rows="1"
+                 placeholder="Type or hold Space to talk..." autocomplete="off"></textarea>
           <button class="voice-bar-send" id="voice-bar-send" onclick="submitVoiceBarInput()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </button>
