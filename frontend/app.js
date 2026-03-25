@@ -8271,9 +8271,9 @@ function handleDroppedFile(file) {
 // ═══════════════════════════════════════════════════════════
 
 const BD_COLORS = {
-  white: '#e8e8e0', yellow: '#f5d97a', green: '#7ed99a',
+  white: '#e8e8e0', yellow: '#f5d97a', gold: '#fbbf24', green: '#7ed99a',
   blue: '#7eb8da', red: '#ff6b6b', cyan: '#53d8fb',
-  dim: 'rgba(255,255,255,0.15)',
+  dim: '#94a3b8',
 };
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
@@ -9508,7 +9508,7 @@ async function bdRunCommand(cmd) {
   // If no placement specified, default to "below" (sequential flow)
   {
     // All positionable commands get auto-placement if none specified
-    const positionable = ['text', 'latex', 'animation', 'rect', 'fillrect', 'circle', 'arc', 'line', 'arrow', 'dashed', 'dot', 'freehand', 'curvedarrow', 'matrix', 'brace'];
+    const positionable = ['text', 'latex', 'animation', 'rect', 'fillrect', 'circle', 'arc', 'line', 'arrow', 'dashed', 'dot', 'freehand', 'curvedarrow', 'matrix', 'brace', 'equation', 'compare', 'step', 'check', 'cross', 'callout', 'list', 'divider', 'result'];
     if (!cmd.placement && positionable.includes(cmd.cmd)) {
       cmd.placement = 'below';
     }
@@ -9528,13 +9528,30 @@ async function bdRunCommand(cmd) {
       } else if (cmd.cmd === 'animation') {
         const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
         estW = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.7);
-        // Fixed aspect ratio — animations are typically wider than tall
         estH = Math.min(cmd.h || 160, 160);
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
         estW = (cmd.r || 30) * 2; estH = (cmd.r || 30) * 2;
       } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed' || cmd.cmd === 'curvedarrow') {
         estW = Math.abs((cmd.x2 || 0) - (cmd.x1 || 0)) || 100;
         estH = Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 20;
+      } else if (cmd.cmd === 'equation') {
+        estW = BD_VIRTUAL_W - BD_MARGIN * 2;
+        estH = cmd.note ? 45 : 25;
+      } else if (cmd.cmd === 'compare') {
+        const itemCount = Math.max((cmd.left?.items?.length || 0), (cmd.right?.items?.length || 0));
+        estW = BD_VIRTUAL_W - BD_MARGIN * 2;
+        estH = 30 + itemCount * 22 + 10;
+      } else if (cmd.cmd === 'step' || cmd.cmd === 'check' || cmd.cmd === 'cross') {
+        estW = 400; estH = 24;
+      } else if (cmd.cmd === 'callout') {
+        estW = 500; estH = resolveH(cmd.size) * 1.6 + 8;
+      } else if (cmd.cmd === 'list') {
+        estW = 400; estH = (cmd.items?.length || 1) * 22;
+      } else if (cmd.cmd === 'divider') {
+        estW = BD_VIRTUAL_W - BD_MARGIN * 2; estH = 18;
+      } else if (cmd.cmd === 'result') {
+        estW = BD_VIRTUAL_W - BD_MARGIN * 2;
+        estH = resolveH(cmd.size) * 1.6 + 20;
       } else {
         estW = cmd.w || 100; estH = cmd.h || 30;
       }
@@ -9573,11 +9590,15 @@ async function bdRunCommand(cmd) {
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
   // Track content bottom for continuous board positioning
-  let cmdH = cmd.h || cmd.size || cmd.r || 20;
-  if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
-  if (cmd.y1 !== undefined) bdUpdateContentBottom(cmd.y1, cmdH);
-  if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
-  if (cmd.cy !== undefined) bdUpdateContentBottom(cmd.cy, (cmd.r || 20) * 2);
+  // Compound commands track their own height internally
+  const isCompound = ['equation','compare','step','check','cross','callout','list','divider','result'].includes(cmd.cmd);
+  if (!isCompound) {
+    let cmdH = cmd.h || cmd.size || cmd.r || 20;
+    if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
+    if (cmd.y1 !== undefined) bdUpdateContentBottom(cmd.y1, cmdH);
+    if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
+    if (cmd.cy !== undefined) bdUpdateContentBottom(cmd.cy, (cmd.r || 20) * 2);
+  }
 
   // Register element for referencing/scrolling AND collision detection
   if (cmd.id) {
@@ -9609,7 +9630,300 @@ async function bdRunCommand(cmd) {
       break;
     case 'pause': await bdSleep(cmd.ms || 500); break;
     case 'clear': bdClearBoard(); break;
+
+    // ── Compound commands — expand into primitives ──
+
+    case 'equation': await bdCompoundEquation(cmd); break;
+    case 'compare': await bdCompoundCompare(cmd); break;
+    case 'step': await bdCompoundStep(cmd); break;
+    case 'check': await bdCompoundCheckCross(cmd, true); break;
+    case 'cross': await bdCompoundCheckCross(cmd, false); break;
+    case 'callout': await bdCompoundCallout(cmd); break;
+    case 'list': await bdCompoundList(cmd); break;
+    case 'divider': await bdCompoundDivider(cmd); break;
+    case 'result': await bdCompoundResult(cmd); break;
   }
+}
+
+// ═══ Compound Command Renderers ═══
+// Each decomposes a single semantic command into multiple canvas draws.
+// They use the CURRENT layout cursor position (cmd.x, cmd.y already resolved).
+
+async function bdCompoundEquation(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const size = bdResolveSize(cmd.size || 'text');
+  const fontScale = bdGetFontScale();
+  const fs = size * fontScale;
+  const x = cmd.x, y = cmd.y;
+  const color = cmd.color || 'cyan';
+
+  bdExpandIfNeeded(y + size + 10);
+  await bdAnimText(cmd.text, x, y, color, cmd.size || 'text', cmd.charDelay);
+
+  let eqTotalH = size * 1.4;
+  if (cmd.note) {
+    const eqWidth = bd.ctx.measureText(cmd.text).width / s + 15;
+    const noteX = x + eqWidth + BD_SIDE_GAP;
+    const noteY = y + 2;
+    const noteSize = bdResolveSize('small');
+    if (noteX + 100 < BD_VIRTUAL_W - BD_MARGIN) {
+      bdExpandIfNeeded(noteY + noteSize);
+      await bdAnimText('← ' + cmd.note, noteX, noteY, 'dim', 'small', 25);
+      if (cmd.id) {
+        bdElementRegistry[cmd.id] = { x, y, w: eqWidth + BD_SIDE_GAP + 150, h: size * 1.4 };
+      }
+    } else {
+      const belowY = y + size * 1.4 + 4;
+      bdExpandIfNeeded(belowY + noteSize);
+      await bdAnimText(cmd.note, x + 10, belowY, 'dim', 'small', 25);
+      eqTotalH = size * 1.4 + noteSize * 1.4 + 4;
+    }
+  }
+  bdUpdateContentBottom(y, eqTotalH);
+}
+
+async function bdCompoundCompare(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const x = cmd.x, y = cmd.y;
+  const left = cmd.left || {}; const right = cmd.right || {};
+  const colW = (BD_VIRTUAL_W - BD_MARGIN * 2 - 30) / 2;
+  const leftX = x; const rightX = x + colW + 30;
+  const leftColor = left.color || 'green';
+  const rightColor = right.color || 'red';
+  let curY = y;
+
+  // Headers
+  if (left.title) {
+    bdExpandIfNeeded(curY + 20);
+    await bdAnimText(left.title, leftX, curY, leftColor, 'h2', 30);
+  }
+  if (right.title) {
+    bdExpandIfNeeded(curY + 20);
+    await bdAnimText(right.title, rightX, curY, rightColor, 'h2', 30);
+  }
+  curY += 30;
+
+  // Separator line between columns
+  const s = bd.scale;
+  const sepX = x + colW + 15;
+  bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  bd.ctx.lineWidth = 1;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(sepX * s, (curY - 5) * s);
+
+  const leftItems = left.items || []; const rightItems = right.items || [];
+  const maxItems = Math.max(leftItems.length, rightItems.length);
+  const itemSpacing = 22;
+
+  // Draw items row by row
+  for (let i = 0; i < maxItems; i++) {
+    if (bd.cancelFlag) return;
+    bdExpandIfNeeded(curY + 16);
+    if (i < leftItems.length) {
+      const marker = left.check ? '✓ ' : '• ';
+      await bdAnimText(marker + leftItems[i], leftX + 5, curY, leftColor, 'text', 25);
+    }
+    if (i < rightItems.length) {
+      const marker = right.check === false ? '✗ ' : '• ';
+      await bdAnimText(marker + rightItems[i], rightX + 5, curY, rightColor, 'text', 25);
+    }
+    curY += itemSpacing;
+  }
+
+  // Finish separator line
+  bd.ctx.lineTo(sepX * s, (curY - 5) * s);
+  bd.ctx.stroke();
+
+  const totalH = curY - y;
+  bdLayoutCommit(x, y, BD_VIRTUAL_W - BD_MARGIN * 2, totalH);
+  bdUpdateContentBottom(y, totalH);
+  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: BD_VIRTUAL_W - BD_MARGIN * 2, h: totalH };
+}
+
+async function bdCompoundStep(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const x = cmd.x, y = cmd.y;
+  const n = cmd.n || 1;
+  const color = cmd.color || 'cyan';
+  const circleR = 10;
+  const circleX = x + circleR;
+  const circleY = y + circleR;
+
+  bdExpandIfNeeded(y + 25);
+
+  // Draw circled number
+  bd.ctx.strokeStyle = (BD_COLORS[color] || color) ;
+  bd.ctx.lineWidth = 1.5 * s;
+  bd.ctx.beginPath();
+  bd.ctx.arc(circleX * s, circleY * s, circleR * s, 0, Math.PI * 2);
+  bd.ctx.stroke();
+  const numFS = 11 * bdGetFontScale();
+  bd.ctx.font = `${numFS}px 'Caveat', cursive`;
+  bd.ctx.fillStyle = BD_COLORS[color] || color;
+  bd.ctx.textAlign = 'center';
+  bd.ctx.textBaseline = 'middle';
+  bd.ctx.fillText(String(n), circleX * s, circleY * s);
+  bd.ctx.textAlign = 'start';
+  bd.ctx.textBaseline = 'alphabetic';
+  bdClearShadow();
+
+  // Draw step text beside the circle
+  const textX = x + circleR * 2 + 8;
+  await bdAnimText(cmd.text, textX, y + 3, 'white', cmd.size || 'text', cmd.charDelay);
+
+  bdUpdateContentBottom(y, 24);
+  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: 22 };
+}
+
+async function bdCompoundCheckCross(cmd, isCheck) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const x = cmd.x, y = cmd.y;
+  const marker = isCheck ? '✓' : '✗';
+  const markerColor = isCheck ? 'green' : 'red';
+  const textColor = cmd.color || 'white';
+
+  bdExpandIfNeeded(y + 18);
+  await bdAnimText(marker, x, y, markerColor, cmd.size || 'text', 0);
+  await bdAnimText(' ' + cmd.text, x + 18, y, textColor, cmd.size || 'text', cmd.charDelay || 25);
+  bdUpdateContentBottom(y, 22);
+  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 350, h: 20 };
+}
+
+async function bdCompoundCallout(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const x = cmd.x, y = cmd.y;
+  const color = cmd.color || 'gold';
+  const borderColor = BD_COLORS[color] || color;
+  const textSize = bdResolveSize(cmd.size || 'text');
+  const lineH = textSize * 1.6;
+  const padL = 12;
+
+  bdExpandIfNeeded(y + lineH + 4);
+
+  // Draw left border accent
+  bd.ctx.strokeStyle = borderColor;
+  bd.ctx.lineWidth = 3 * s;
+  bd.ctx.lineCap = 'round';
+  bd.ctx.beginPath();
+  bd.ctx.moveTo((x + 2) * s, (y - 2) * s);
+  bd.ctx.lineTo((x + 2) * s, (y + lineH + 2) * s);
+  bd.ctx.stroke();
+  bdClearShadow();
+
+  // Draw text after the border
+  await bdAnimText(cmd.text, x + padL, y + 2, color, cmd.size || 'text', cmd.charDelay);
+  bdUpdateContentBottom(y, lineH + 4);
+  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 500, h: lineH };
+}
+
+async function bdCompoundList(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const x = cmd.x, y = cmd.y;
+  const items = cmd.items || [];
+  const style = cmd.style || 'bullet';
+  const color = cmd.color || 'white';
+  const itemSpacing = 22;
+  let curY = y;
+
+  for (let i = 0; i < items.length; i++) {
+    if (bd.cancelFlag) return;
+    bdExpandIfNeeded(curY + 16);
+    let prefix;
+    if (style === 'number') prefix = `${i + 1}. `;
+    else if (style === 'check') prefix = '✓ ';
+    else prefix = '• ';
+    await bdAnimText(prefix + items[i], x + 5, curY, color, cmd.size || 'text', 25);
+    curY += itemSpacing;
+  }
+
+  const totalH = curY - y;
+  bdUpdateContentBottom(y, totalH);
+  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: totalH };
+  bdLayoutCommit(x, y, 400, totalH);
+}
+
+async function bdCompoundDivider(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const y = cmd.y || bdLayout.cursorY;
+  const lineY = y + 6;
+  bdExpandIfNeeded(lineY + 4);
+
+  bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  bd.ctx.lineWidth = 1;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(BD_MARGIN * s, lineY * s);
+  bd.ctx.lineTo((BD_VIRTUAL_W - BD_MARGIN) * s, lineY * s);
+  bd.ctx.stroke();
+
+  bdLayout.cursorY = lineY + 12;
+  bdUpdateContentBottom(y, 18);
+}
+
+async function bdCompoundResult(cmd) {
+  const bd = state.boardDraw;
+  if (bd.cancelFlag) return;
+  const s = bd.scale;
+  const x = cmd.x, y = cmd.y;
+  const color = cmd.color || 'gold';
+  const borderColor = BD_COLORS[color] || color;
+  const textSize = bdResolveSize(cmd.size || 'text');
+  const fontScale = bdGetFontScale();
+  const fs = textSize * fontScale;
+  bd.ctx.font = `${fs}px 'Caveat', cursive`;
+  const textW = bd.ctx.measureText(cmd.text).width / s;
+  const padX = 16, padY = 8;
+  const boxW = textW + padX * 2;
+  const boxH = textSize * 1.6 + padY * 2;
+  const boxX = x + Math.max(0, ((BD_VIRTUAL_W - BD_MARGIN * 2) - boxW) / 2);
+
+  bdExpandIfNeeded(y + boxH + 4);
+
+  // Draw subtle bordered box
+  bd.ctx.strokeStyle = borderColor;
+  bd.ctx.lineWidth = 1.5 * s;
+  bd.ctx.globalAlpha = 0.4;
+  bd.ctx.strokeRect((boxX) * s, (y) * s, boxW * s, boxH * s);
+  bd.ctx.globalAlpha = 1.0;
+
+  // Optional label badge
+  if (cmd.label) {
+    const labelFS = 9 * fontScale;
+    bd.ctx.font = `${labelFS}px 'Caveat', cursive`;
+    bd.ctx.fillStyle = 'rgba(26,29,46,1)';
+    const labelW = bd.ctx.measureText(cmd.label).width / s + 8;
+    bd.ctx.fillRect((boxX + 8) * s, (y - 5) * s, labelW * s, 11 * s);
+    bd.ctx.fillStyle = borderColor;
+    bd.ctx.globalAlpha = 0.7;
+    bd.ctx.font = `${labelFS}px 'Caveat', cursive`;
+    bd.ctx.fillText(cmd.label, (boxX + 12) * s, (y + 4) * s);
+    bd.ctx.globalAlpha = 1.0;
+  }
+
+  // Draw the main text centered in the box
+  await bdAnimText(cmd.text, boxX + padX, y + padY + 2, color, cmd.size || 'text', cmd.charDelay);
+
+  // Note beside the box
+  if (cmd.note) {
+    const noteX = boxX + boxW + BD_SIDE_GAP;
+    if (noteX + 80 < BD_VIRTUAL_W - BD_MARGIN) {
+      await bdAnimText('← ' + cmd.note, noteX, y + padY + 4, 'dim', 'small', 20);
+    }
+  }
+
+  const totalH = boxH + 4;
+  bdLayoutCommit(x, y, BD_VIRTUAL_W - BD_MARGIN * 2, totalH);
+  if (cmd.id) bdElementRegistry[cmd.id] = { x: boxX, y, w: boxW, h: boxH };
 }
 
 // ── p5.js Animation Engine ──

@@ -62,21 +62,46 @@ DRAW AND ANIMATE, DON'T WRITE:
   BOARD HIERARCHY (prefer top):
     1. ANIMATION — anything that moves, oscillates, transforms, flows
     2. DRAWING — line, arrow, circle, rect, arc, freehand, path
-    3. EQUATION — latex (1-2 per board max)
-    4. LABEL — short labels (2-5 words) next to drawings
-    5. TITLE — one yellow title at top
+    3. COMPOUND COMMANDS — equation, compare, step, result, callout, check/cross, list
+    4. EQUATION — latex (1-2 per board max)
+    5. LABEL — short labels (2-5 words) next to drawings
+    6. TITLE — one yellow title at top
 
-  GOOD: Title + diagram + animation + 3 labels + 1 equation
+  GOOD: Title + diagram + animation + equation (annotated) + callout
   BAD: Title + 8 lines of text + 1 equation
-  BAD: Title + equation + 5 lines interpreting it
+  BAD: Title + equation + 5 centered text lines
 
-  WHAT TO DRAW vs WRITE:
-    "Stores range sums" -> DRAW the tree with nodes
-    "Wave oscillates" -> ANIMATE with p5.js
-    "Force points down" -> DRAW arrow, label "F = mg"
-    "Field between charges" -> ANIMATE field lines
+COMPOUND COMMANDS — USE THESE IN BOARD-DRAW:
+  These are JSONL commands alongside text, line, animation etc.
+  They produce richer visuals with fewer lines.
 
-  RATIO: 60%+ visual (shapes, arrows, animations), 40% max text (title+labels+equation).
+  {"cmd":"equation","text":"F = ma","note":"force = mass × accel","color":"cyan","id":"eq1"}
+  → equation LEFT, "← force = mass × accel" auto-placed beside it.
+
+  {"cmd":"compare","left":{"title":"Before","items":["Static","Cold"],"color":"green"},"right":{"title":"After","items":["Dynamic","Hot"],"color":"red"},"id":"cmp"}
+  → two-column layout with headers and bullet items.
+
+  {"cmd":"step","n":1,"text":"Initialize array","id":"s1"}
+  → circled number + text. Use for algorithms, derivations.
+
+  {"cmd":"check","text":"Property holds","id":"c1"} / {"cmd":"cross","text":"Property fails","id":"c2"}
+  → green ✓ / red ✗ prefix. Use for true/false, property lists.
+
+  {"cmd":"callout","text":"Key: energy is conserved","color":"gold","id":"k1"}
+  → accent-bordered emphasis. Use for takeaways.
+
+  {"cmd":"result","text":"E = mc²","note":"mass-energy equivalence","label":"Key Result","color":"gold","id":"r1"}
+  → boxed highlight with optional badge + note.
+
+  {"cmd":"list","items":["Fast","Scalable","Simple"],"style":"bullet","id":"lst"}
+  → bullet/number/check list.
+
+  {"cmd":"divider"}
+  → section separator line.
+
+  PREFER compound commands over raw text. An "equation" with "note" is better
+  than text + a separate beside-annotation text. A "compare" is better than
+  manually laying out row-start/row-next text pairs.
 
 MULTIPLE BOARD-DRAWS per topic:
   First: setup/diagram. Second: equation/graph. Third (clear="false"): add next step.

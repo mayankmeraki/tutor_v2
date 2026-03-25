@@ -5,58 +5,158 @@ how the hand cursor follows elements, and ephemeral annotations.
 """
 
 VOICE_BOARD_RULES = r"""
-═══ BOARD LAYOUT — PLACEMENT ENGINE ═══
+═══ BOARD — WRITE LIKE A REAL TEACHER ═══
 
-Every drawn element MUST have an "id" for referencing and a "placement" for positioning.
-DO NOT use raw x,y coordinates. The engine handles ALL positioning.
+The board is a chalkboard, not a slide deck. Write on it like a teacher would:
+messy-but-structured, equations with scribbled annotations, diagrams beside
+explanations, arrows connecting ideas. NOT a centered vertical document.
 
-PLACEMENT TAGS — use these instead of x,y:
-  "below"       — below last content, left-aligned (DEFAULT if omitted)
-  "center"      — centered horizontally, below last content
-  "right"       — right-aligned, below last content
-  "indent"      — indented left, below last content
-  "row-start"   — start a new side-by-side row
-  "row-next"    — next item in the current row
-  "beside:ID"   — to the right of element with that ID
-  "below:ID"    — directly below element with that ID
-  "full-width"  — span the entire board width
+PLACEMENT TAGS (no raw x,y — engine positions everything):
+  "below"       — left-aligned, next line (DEFAULT — most content goes here)
+  "center"      — centered (ONLY for titles — max 1 per scene)
+  "indent"      — indented — for sub-steps, because..., therefore...
+  "beside:ID"   — to the RIGHT of element ID — for annotations, labels
+  "below:ID"    — directly BELOW element ID — for stacking related items
+  "row-start"   — start side-by-side — for comparisons, pairs
+  "row-next"    — next item in row
+  "right"       — right-aligned (rare)
 
-EXAMPLE:
-  draw='{"cmd":"text","text":"Title","placement":"center","size":"h1","id":"title","color":"#fbbf24"}'
-  draw='{"cmd":"text","text":"F = ma","placement":"center","size":"text","id":"eq-f"}'
-  draw='{"cmd":"text","text":"← force","placement":"beside:eq-f","size":"small","id":"label-f"}'
+EVERY element MUST have an "id" for {ref:} and beside:/below: references.
 
-SIDE-BY-SIDE LAYOUT:
-  draw='{"cmd":"text","text":"Left item","placement":"row-start","id":"left"}'
-  draw='{"cmd":"text","text":"Right item","placement":"row-next","id":"right"}'
+═══ COMPOUND COMMANDS — USE THESE INSTEAD OF RAW TEXT ═══
 
-The engine automatically:
-  - Flows content downward (no gaps, no overlap)
-  - Manages side-by-side rows
-  - Centers elements when asked
-  - Stacks labels beside their targets
+Compound commands produce richer visuals with fewer tokens. They handle
+layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 
-FONT SIZES — semantic names (engine auto-scales to screen):
-  "h1" — titles   "h2" — subtitles   "text" — equations/content
-  "small" — annotations   "label" — axis labels/captions
+1. EQUATION — auto-annotated equation (replaces text+beside pattern):
+   {"cmd":"equation","text":"Ĥψ = Eψ","note":"λ is the eigenvalue","placement":"below","color":"cyan","size":"text","id":"eq1"}
+   → draws equation LEFT, scribbles "← λ is the eigenvalue" to its right.
+   EVERY equation should use this. The note is mandatory for teaching.
 
-ELEMENT IDs — ALWAYS provide descriptive IDs:
-  Use: "title-main", "eq-schrodinger", "label-lhs", "anim-wave"
-  IDs enable {ref:id} highlights and beside:/below: placements.
+2. COMPARE — side-by-side two-column contrast:
+   {"cmd":"compare","left":{"title":"Classical","items":["Deterministic","Continuous","F = ma"],"color":"green"},"right":{"title":"Quantum","items":["Probabilistic","Discrete","Ĥψ = Eψ"],"color":"red"},"placement":"below","id":"cmp1"}
+   → two columns with headers, separator line, bullet items. Use for ANY contrast.
+
+3. STEP — numbered step in a sequence:
+   {"cmd":"step","n":1,"text":"Write the unperturbed equation","placement":"below","id":"s1"}
+   {"cmd":"step","n":2,"text":"Add the perturbation term","placement":"below","id":"s2"}
+   → circled number + text. Use for derivations, procedures, algorithms.
+
+4. CHECK / CROSS — right/wrong, true/false, property list:
+   {"cmd":"check","text":"Unitary: preserves norm","placement":"below","id":"c1"}
+   {"cmd":"cross","text":"NOT reversible after measurement","placement":"below","id":"c2"}
+   → green ✓ or red ✗ prefix. Use for property lists, misconception correction.
+
+5. CALLOUT — bordered emphasis block:
+   {"cmd":"callout","text":"Key insight: energy is quantized","placement":"below","color":"gold","id":"key1"}
+   → left accent border + emphasized text. Use for takeaways, warnings, key points.
+
+6. RESULT — boxed key result with optional note:
+   {"cmd":"result","text":"Eₙ = n²π²ℏ²/2mL²","note":"grows as n²","label":"Key Result","placement":"below","color":"gold","id":"r1"}
+   → bordered box with optional badge label + annotation. Use for final answers.
+
+7. LIST — bulleted, numbered, or check-marked list:
+   {"cmd":"list","items":["Linear","Hermitian","Unitary"],"style":"bullet","placement":"below","color":"white","id":"props"}
+   → styles: "bullet" (•), "number" (1. 2. 3.), "check" (✓)
+
+8. DIVIDER — section separator:
+   {"cmd":"divider","placement":"below"}
+   → subtle line across the board. Use between topic sections.
+
+═══ ANTI-PATTERN: THE CENTERED COLUMN (NEVER DO THIS) ═══
+
+❌ THIS IS WRONG — every line centered, single column, no annotations:
+  <vb draw='{"cmd":"text","text":"Title","placement":"center","size":"h1",...}' />
+  <vb draw='{"cmd":"text","text":"equation 1","placement":"center","size":"text",...}' />
+  <vb draw='{"cmd":"text","text":"explanation","placement":"center",...}' />
+  <vb draw='{"cmd":"text","text":"equation 2","placement":"center",...}' />
+  <vb draw='{"cmd":"text","text":"another explanation","placement":"center",...}' />
+
+This is a PowerPoint slide, not a board. The student feels like reading a document.
+
+✅ THIS IS RIGHT — mixed layout, annotations beside, visual variety:
+  <vb draw='{"cmd":"text","text":"Time Evolution","placement":"center","size":"h1","color":"#fbbf24","id":"title"}' say="Let's look at time evolution." />
+  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"Hamiltonian drives time change","placement":"below","color":"cyan","id":"se"}' say="The Schrödinger equation." pause="0.5" />
+  <vb draw='{"cmd":"callout","text":"Ĥ encodes ALL the physics","placement":"below","color":"gold","id":"key"}' say="Everything the system knows is inside {ref:se}" />
+  <vb draw='{"cmd":"equation","text":"Ĥψ = Eψ, then: iℏ ∂ψ/∂t = Eψ","note":"energy eigenstate → simple time evolution","placement":"below","color":"cyan","id":"se2"}' say="If we know the energy, time dependence is trivial." pause="0.8" />
+
+═══ LAYOUT PATTERNS — HOW TEACHERS ACTUALLY USE BOARDS ═══
+
+PATTERN 1 — Equation + Annotation (most common):
+  Use "equation" compound. Note appears beside it automatically.
+  <vb draw='{"cmd":"equation","text":"Ôψ = λψ","note":"same shape back!","placement":"below","color":"#fbbf24","id":"eq1"}' say="The eigenvalue equation." />
+
+PATTERN 2 — Derivation Steps:
+  <vb draw='{"cmd":"text","text":"Perturbation Theory","placement":"center","size":"h1","color":"#fbbf24","id":"title"}' />
+  <vb draw='{"cmd":"step","n":1,"text":"Write the unperturbed equation","placement":"below","id":"s1"}' say="Start with what we know." />
+  <vb draw='{"cmd":"equation","text":"Ĥ₀|n⟩ = Eₙ|n⟩","note":"already solved","placement":"indent","color":"cyan","id":"s1eq"}' />
+  <vb draw='{"cmd":"step","n":2,"text":"Add perturbation","placement":"below","id":"s2"}' say="Now add the small correction." />
+  <vb draw='{"cmd":"equation","text":"Ĥ = Ĥ₀ + λV","note":"λ ≪ 1","placement":"indent","color":"cyan","id":"s2eq"}' />
+
+PATTERN 3 — Comparison:
+  <vb draw='{"cmd":"compare","left":{"title":"Evolution","items":["Deterministic","Reversible","Continuous"],"color":"green"},"right":{"title":"Measurement","items":["Probabilistic","Irreversible","Discrete"],"color":"red"},"placement":"below","id":"cmp"}' say="These are fundamentally different processes." />
+
+PATTERN 4 — Animation + Legend:
+  <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","w":350,"h":160,"code":"..."}' say="Watch the wave evolve." />
+  <vb draw='{"cmd":"text","text":"blue = V(x)","placement":"row-next","size":"small","color":"#60a5fa","id":"l1"}' />
+  <vb draw='{"cmd":"text","text":"green = ψ(x)","placement":"below:l1","size":"small","color":"#34d399","id":"l2"}' />
+
+PATTERN 5 — Key Result:
+  <vb draw='{"cmd":"result","text":"Eₙ = n²π²ℏ²/2mL²","note":"grows as n²","label":"Key Result","placement":"below","color":"gold","id":"res"}' say="Here's the energy spectrum." />
+
+PATTERN 6 — Properties:
+  <vb draw='{"cmd":"text","text":"Properties of Ĥ","placement":"below","size":"h2","color":"#34d399","id":"props-title"}' />
+  <vb draw='{"cmd":"check","text":"Hermitian: real eigenvalues","placement":"below","id":"p1"}' say="Hermitian means we get real measurements." />
+  <vb draw='{"cmd":"check","text":"Linear: superposition works","placement":"below","id":"p2"}' say="Linearity lets us add solutions." />
+  <vb draw='{"cmd":"cross","text":"NOT bounded: infinite spectrum","placement":"below","id":"p3"}' say="But the spectrum can be infinite." />
+
+PATTERN 7 — Topic Transition:
+  <vb draw='{"cmd":"divider","placement":"below"}' />
+  <vb draw='{"cmd":"text","text":"Now: Time Dependence","placement":"below","size":"h2","color":"#34d399","id":"next-topic"}' say="Let's move on." />
+
+═══ BOARD RULES ═══
+
+1. CENTER sparingly. ONLY the h1 title. Everything else uses below, indent,
+   beside:, row-start/row-next. If you center more than 1 element, you're wrong.
+
+2. EVERY equation uses cmd:"equation" with a "note". Never orphan an equation.
+   Raw cmd:"text" for equations is WRONG — use cmd:"equation" so annotations
+   are automatic.
+
+3. Use FULL WIDTH. Equations left + annotations right. Comparisons side-by-side.
+   If everything is in a narrow center column, rewrite using left+beside layout.
+
+4. VARY commands. A good scene mixes: text → equation → step → callout → compare.
+   Monotone scenes (all "text" commands) are bad. Use at least 3 different
+   command types per scene.
+
+5. VISUAL RICHNESS per scene. A good scene has:
+   - 1 title (h1, centered)
+   - 2-3 equations (with notes)
+   - 1 callout or result
+   - Steps OR compare OR check/cross list
+   - 1+ animation when applicable
+
+6. Color carries meaning:
+   Gold (#fbbf24) — titles, key results, callouts
+   Green (#34d399) — correct, results, checks
+   Cyan (#53d8fb) — equations, secondary content
+   Red (#ff6b6b) — wrong, warnings, crosses
+   Dim (#94a3b8) — annotations, notes (auto-applied by equation's note)
+
+FONT SIZES:
+  "h1" — title (ONE per scene, centered)
+  "h2" — subtopic heading (left-aligned)
+  "text" — equations, content (bulk of writing)
+  "small" — annotations, labels
+  "label" — tiny captions
 
 CURSOR — uses element IDs:
-  cursor="write"              — auto-follows the draw in this beat
-  cursor="tap:id:eq-main"     — tap center (pulse + scroll)
-  cursor="point:id:eq-main"   — hover at center
-  cursor="rest"               — hide cursor
+  cursor="write" — follows current draw
+  cursor="tap:id:X" — taps element (pulse)
+  cursor="rest" — hidden
 
-═══ EPHEMERAL ANNOTATIONS ═══
-
-Like a teacher circling on the whiteboard — appears then fades:
-  annotate="circle:id:eq-main"     — hand-drawn circle
-  annotate="underline:id:label-1"  — wavy underline
-  annotate="box:id:eq-schrodinger" — rectangle highlight
-  annotate="glow:id:wave-anim"     — soft glow
-
-Optional: annotate-color="#fbbf24" annotate-duration="3000"
+ANNOTATIONS — teacher circling on the board:
+  annotate="circle:id:eq1" — circles it
+  annotate="underline:id:eq1" — underlines it
 """

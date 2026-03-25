@@ -1,0 +1,357 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Organic Board — Real Teacher Style</title>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Kalam:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0d1117;color:#e2e8f0;font-family:-apple-system,sans-serif;display:flex;height:100vh}
+  #sidebar{width:240px;background:#161b22;border-right:1px solid rgba(255,255,255,0.06);overflow-y:auto;padding:10px;flex-shrink:0}
+  .test-btn{display:block;width:100%;text-align:left;padding:6px 10px;margin:3px 0;border:none;background:rgba(255,255,255,0.03);color:#e2e8f0;font-size:12px;border-radius:4px;cursor:pointer}
+  .test-btn:hover{background:rgba(52,211,153,0.08)}
+  .test-btn.on{background:rgba(52,211,153,0.12);color:#34d399}
+  #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+  #board-wrap{flex:1;position:relative;overflow:auto;background:#111614}
+  canvas{display:block}
+  #sub{position:fixed;bottom:68px;left:50%;transform:translateX(-50%);max-width:560px;width:80%;background:rgba(13,17,23,0.93);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:10px 18px;text-align:center;font-size:13px;line-height:1.5;backdrop-filter:blur(14px);opacity:0;transition:opacity 0.25s;z-index:50}
+  #sub.vis{opacity:1}
+  #vbar{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);max-width:420px;width:85%;z-index:55}
+  .vb-p{background:rgba(17,20,19,0.92);border:1px solid rgba(52,211,153,0.13);border-radius:26px;padding:4px 4px 4px 14px;display:flex;align-items:center;gap:5px;backdrop-filter:blur(12px);box-shadow:0 3px 16px rgba(0,0,0,0.3)}
+  .vb-p input{flex:1;background:none;border:none;outline:none;color:#e2e8f0;font-size:13px;padding:7px 0}
+  .vb-p input::placeholder{color:#94a3b8}
+  .vb-mic{width:34px;height:34px;border-radius:50%;background:rgba(52,211,153,0.1);border:1.5px solid rgba(52,211,153,0.25);color:#34d399;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+</style>
+</head>
+<body>
+
+<div id="sidebar">
+  <div style="padding:4px;font-size:13px;font-weight:600;color:#34d399">Real Teacher Board</div>
+  <button class="test-btn on" onclick="run('operators')">Operators & Eigenvalues</button>
+  <button class="test-btn" onclick="run('schrodinger')">Schrödinger Equation</button>
+  <button class="test-btn" onclick="run('perturbation')">Perturbation Theory</button>
+  <button class="test-btn" onclick="run('twoProcesses')">Evolution vs Measurement</button>
+</div>
+
+<div id="main">
+  <div id="board-wrap"><canvas id="cv"></canvas></div>
+</div>
+<div id="sub"></div>
+<div id="vbar"><div class="vb-p"><input placeholder="Type or hold Space to talk..." disabled><div class="vb-mic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div></div></div>
+
+<script>
+const VW=800,M=25,RG=10,SG=15;
+const cv=document.getElementById('cv'),ctx=cv.getContext('2d'),wrap=document.getElementById('board-wrap'),subEl=document.getElementById('sub');
+let S=1,dpr=Math.min(window.devicePixelRatio||1,3),cH=800;
+const SIZES={h1:28,h2:22,h3:18,text:16,small:13,label:12};
+const C={white:'#e2e8f0',gold:'#fbbf24',green:'#34d399',blue:'#60a5fa',red:'#f87171',cyan:'#53d8fb',pink:'#f472b6',purple:'#a78bfa',dim:'#94a3b8'};
+const rc=c=>C[c]||c||C.white,rs=s=>(typeof s==='string'?SIZES[s.toLowerCase()]:s)||16;
+
+const L={cy:12,inRow:false,ry:0,rx:M,rh:0};const els={};
+function Lr(){L.cy=12;L.inRow=false;L.ry=0;L.rx=M;L.rh=0;Object.keys(els).forEach(k=>delete els[k]);}
+function Le(){if(L.inRow){L.cy=L.ry+L.rh+RG;L.inRow=false;L.rx=M;L.rh=0;}}
+function Lp(p,w,h){const u=VW-M*2;let x,y;
+if(!p||p==='below'){if(L.inRow)Le();x=M;y=L.cy;}
+else if(p==='center'){if(L.inRow)Le();x=M+Math.max(0,(u-w)/2);y=L.cy;}
+else if(p==='right'){if(L.inRow)Le();x=Math.max(M,VW-M-w);y=L.cy;}
+else if(p==='row-start'){if(L.inRow)Le();L.inRow=true;L.ry=L.cy;L.rx=M;L.rh=0;x=M;y=L.cy;}
+else if(p==='row-next'){if(!L.inRow){L.inRow=true;L.ry=L.cy;L.rx=M;L.rh=0;}if(L.rx+w>VW-M){Le();L.inRow=true;L.ry=L.cy;L.rx=M;L.rh=0;}x=L.rx;y=L.ry;}
+else if(p==='indent'){if(L.inRow)Le();x=M+20;y=L.cy;}
+else if(p.startsWith('beside:')){const r=els[p.split(':')[1]];if(r){x=r.x+r.w+SG;y=r.y;if(x+w>VW-M){x=r.x;y=r.y+r.h+5;}}else{if(L.inRow)Le();x=M;y=L.cy;}}
+else if(p.startsWith('below:')){const r=els[p.split(':')[1]];if(r){x=r.x;y=r.y+r.h+5;}else{if(L.inRow)Le();x=M;y=L.cy;}}
+else{if(L.inRow)Le();x=M;y=L.cy;}
+return{x:Math.max(M,Math.min(x,VW-M-20)),y:Math.max(0,y)};}
+function Lc(x,y,w,h,id){if(id)els[id]={x,y,w,h};const b=y+h+RG;
+if(L.inRow){L.rx=x+w+SG;L.rh=Math.max(L.rh,h);}else{L.cy=b;}if(b>L.cy&&!L.inRow)L.cy=b;}
+
+function setup(){S=wrap.clientWidth/VW;const w=wrap.clientWidth,h=Math.max(cH*S,wrap.clientHeight);
+cv.width=Math.round(w*dpr);cv.height=Math.round(h*dpr);cv.style.width=w+'px';cv.style.height=h+'px';
+ctx.setTransform(dpr,0,0,dpr,0,0);ctx.fillStyle='#111614';ctx.fillRect(0,0,w,h);
+ctx.strokeStyle='rgba(255,255,255,0.025)';ctx.lineWidth=0.5;
+for(let x=40*S;x<w;x+=40*S){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+for(let y=40*S;y<h;y+=40*S){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}}
+function expand(ny){if(ny>cH-60){cH=ny+200;const w=wrap.clientWidth,h=cH*S;
+const o=ctx.getImageData(0,0,cv.width,cv.height);cv.height=Math.round(h*dpr);cv.style.height=h+'px';
+ctx.setTransform(dpr,0,0,dpr,0,0);ctx.putImageData(o,0,0);ctx.fillStyle='#111614';ctx.fillRect(0,o.height/dpr,w,h-o.height/dpr);
+ctx.strokeStyle='rgba(255,255,255,0.025)';ctx.lineWidth=0.5;
+for(let x=40*S;x<w;x+=40*S){ctx.beginPath();ctx.moveTo(x,o.height/dpr);ctx.lineTo(x,h);ctx.stroke();}
+for(let y=Math.ceil(o.height/dpr/(40*S))*40*S;y<h;y+=40*S){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}}}
+function scr(y){const p=y*S,vb=wrap.scrollTop+wrap.clientHeight;if(p>vb-40)wrap.scrollTo({top:Math.max(0,p-wrap.clientHeight*.65),behavior:'smooth'});}
+
+// Chalk text — returns measured dimensions
+async function dT(t,x,y,c,sz){const s=rs(sz),b=(sz==='h1'||sz==='h2')?'700':'400';
+ctx.font=`${b} ${s*S}px Caveat,cursive`;ctx.fillStyle=rc(c);ctx.shadowColor=rc(c);ctx.shadowBlur=2;
+// Character animation
+const baseX=x*S, baseY=(y+s*.85)*S;
+let cx=baseX;const delay=sz==='h1'?25:sz==='h2'?20:15;
+for(let i=0;i<t.length;i++){ctx.fillText(t[i],cx,baseY);cx+=ctx.measureText(t[i]).width;await new Promise(r=>setTimeout(r,delay));}
+ctx.shadowBlur=0;return{w:(cx-baseX)/S+5,h:s*1.2};}
+
+function dSep(y){ctx.strokeStyle='rgba(255,255,255,0.06)';ctx.lineWidth=1;
+ctx.beginPath();ctx.moveTo(60*S,y*S);ctx.lineTo((VW-60)*S,y*S);ctx.stroke();}
+
+function dAnim(x,y,w,h,label){ctx.fillStyle='rgba(167,139,250,0.05)';ctx.fillRect(x*S,y*S,w*S,h*S);
+ctx.strokeStyle='rgba(167,139,250,0.15)';ctx.lineWidth=1*S;ctx.strokeRect(x*S,y*S,w*S,h*S);
+ctx.font=`${11*S}px Kalam,cursive`;ctx.fillStyle='rgba(167,139,250,0.4)';ctx.fillText(label||'p5.js animation',x*S+4,(y+h/2+4)*S);}
+
+// Command executor
+async function exec(cmd){
+  const p=cmd.placement||'below';
+  if(cmd.cmd==='separator'){const{x,y}=Lp('below',VW-M*2,8);dSep(y+4);Lc(x,y,VW-M*2,8);return;}
+  if(cmd.cmd==='animation'){
+    const aw=cmd.w||Math.round((VW-M*2)*.7),ah=Math.min(cmd.h||140,160);
+    const{x,y}=Lp(p,aw,ah);expand(y+ah);dAnim(x,y,aw,ah,cmd.label||cmd.id);Lc(x,y,aw,ah,cmd.id);scr(y+ah);return;}
+  // Text
+  ctx.font=`400 ${rs(cmd.size)*S}px Caveat,cursive`;
+  const ew=cmd.w||ctx.measureText(cmd.text||'').width/S+10,eh=rs(cmd.size)*1.3;
+  const{x,y}=Lp(p,ew,eh);expand(y+eh);
+  await dT(cmd.text||'',x,y,cmd.color,cmd.size);
+  Lc(x,y,ew,eh,cmd.id);scr(y+eh);
+}
+
+// Beat system
+let bQ=[],bR=false;
+function addB(b){bQ.push(b);if(!bR)drain();}
+async function drain(){bR=true;while(bQ.length)await xB(bQ.shift());bR=false;}
+async function xB(b){
+  if(b.say){subEl.textContent=b.say.replace(/\{ref:[^}]+\}/g,'');subEl.classList.add('vis');}
+  if(b.cmds)for(const c of b.cmds)await exec(c);
+  const dur=b.pause!==undefined?b.pause:(b.say?Math.max(.5,b.say.length*.02):.2);
+  await new Promise(r=>setTimeout(r,dur*1000));
+  if(b.say&&!b.question){subEl.classList.remove('vis');await new Promise(r=>setTimeout(r,80));}
+}
+
+// ═══════════════════════════════════════════════════════════
+// SCENES — Written like a REAL teacher on a board
+// ═══════════════════════════════════════════════════════════
+
+function reset(){Lr();cH=800;bQ=[];bR=false;subEl.classList.remove('vis');setup();
+document.querySelectorAll('.test-btn').forEach(b=>b.classList.remove('on'));
+if(event&&event.target)event.target.classList.add('on');}
+
+const T={
+  operators:()=>{
+    // Title centered — then everything LEFT
+    addB({cmds:[{cmd:'text',text:'Operators in Quantum Mechanics',size:'h1',color:'gold',placement:'center',id:'title'}],
+      say:'Let me show you what operators really are.'});
+
+    // Core idea — left, with annotation beside
+    addB({cmds:[{cmd:'text',text:'An operator Ô acts on functions:',size:'text',color:'dim',placement:'below',id:'intro'}],
+      say:'An operator is like a machine.'});
+
+    addB({cmds:[{cmd:'text',text:'Ôψ  →  new function',size:'text',color:'cyan',placement:'below',id:'op-idea'}],
+      say:'You feed it a function, it gives you a different function back.'});
+    addB({cmds:[{cmd:'text',text:'(function in, function out)',size:'small',color:'dim',placement:'beside:op-idea'}],pause:.3});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    // Three operators — side by side, THEN details below each
+    addB({cmds:[{cmd:'text',text:'The Big Three:',size:'h2',color:'green',placement:'below',id:'big3'}],
+      say:'Three operators you need to know.'});
+
+    addB({cmds:[{cmd:'text',text:'x̂  (position)',size:'text',color:'cyan',placement:'row-start',id:'op-x'}],
+      say:'Position.'});
+    addB({cmds:[{cmd:'text',text:'p̂  (momentum)',size:'text',color:'pink',placement:'row-next',id:'op-p'}],
+      say:'Momentum.'});
+    addB({cmds:[{cmd:'text',text:'Ĥ  (energy)',size:'text',color:'gold',placement:'row-next',id:'op-h'}],
+      say:'And energy — the Hamiltonian.'});
+
+    // Details below each — using beside: and below:
+    addB({cmds:[{cmd:'text',text:'x̂ψ = xψ(x)',size:'text',color:'cyan',placement:'below',id:'xeq'}],
+      say:'Position just multiplies by x.'});
+    addB({cmds:[{cmd:'text',text:'← multiply by x',size:'small',color:'dim',placement:'beside:xeq'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'p̂ψ = -iℏ dψ/dx',size:'text',color:'pink',placement:'below',id:'peq'}],
+      say:'Momentum takes a derivative.'});
+    addB({cmds:[{cmd:'text',text:'← take derivative',size:'small',color:'dim',placement:'beside:peq'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'Ĥψ = Eψ',size:'text',color:'gold',placement:'below',id:'heq'}],
+      say:'Energy — and THIS is the Schrödinger equation.'});
+    addB({cmds:[{cmd:'text',text:'← THE big one!',size:'small',color:'red',placement:'beside:heq'}],pause:.3});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    // Eigenvalue equation — left with annotation
+    addB({cmds:[{cmd:'text',text:'The eigenvalue equation:',size:'h2',color:'gold',placement:'below'}],
+      say:'Now the key structure.'});
+
+    addB({cmds:[{cmd:'text',text:'Ôψ = λψ',size:'h2',color:'gold',placement:'below',id:'eigen'}],
+      say:'When the operator gives you back the SAME function, just scaled — that\'s an eigenstate.'});
+    addB({cmds:[{cmd:'text',text:'same shape back!',size:'small',color:'green',placement:'beside:eigen'}],
+      say:'Same shape. Just bigger or smaller.'});
+
+    addB({cmds:[{cmd:'text',text:'λ = eigenvalue',size:'text',color:'cyan',placement:'below',id:'eval'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'(the number you measure)',size:'small',color:'dim',placement:'beside:eval'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'ψ = eigenfunction',size:'text',color:'green',placement:'below',id:'efun'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'(the special state)',size:'small',color:'dim',placement:'beside:efun'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'Most functions are NOT eigenfunctions!',size:'text',color:'red',placement:'below'}],
+      say:'But here\'s the thing — most functions don\'t have this property. Only special ones.',question:true,pause:0});
+  },
+
+  schrodinger:()=>{
+    addB({cmds:[{cmd:'text',text:'The Schrödinger Equation',size:'h1',color:'gold',placement:'center',id:'title'}],
+      say:'The most important equation in quantum mechanics.'});
+
+    addB({cmds:[{cmd:'text',text:'iℏ ∂ψ/∂t = Ĥψ',size:'h2',color:'cyan',placement:'below',id:'se'}],
+      say:'Here it is.'});
+    addB({cmds:[{cmd:'text',text:'energy governs time evolution',size:'small',color:'dim',placement:'beside:se'}],pause:.3});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'Left side:',size:'h2',color:'green',placement:'below'}],
+      say:'Let me break it into two sides.'});
+    addB({cmds:[{cmd:'text',text:'iℏ ∂ψ/∂t',size:'text',color:'cyan',placement:'indent',id:'lhs'}],
+      say:'The left side — how psi changes in time.'});
+    addB({cmds:[{cmd:'text',text:'← rate of change of ψ',size:'small',color:'dim',placement:'beside:lhs'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'Right side:',size:'h2',color:'green',placement:'below'}],
+      say:'The right side.'});
+    addB({cmds:[{cmd:'text',text:'Ĥψ',size:'text',color:'gold',placement:'indent',id:'rhs'}],
+      say:'The Hamiltonian acting on psi — total energy.'});
+    addB({cmds:[{cmd:'text',text:'← energy operator on ψ',size:'small',color:'dim',placement:'beside:rhs'}],pause:.2});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'What Ĥ contains:',size:'h2',color:'gold',placement:'below'}],
+      say:'What\'s inside the Hamiltonian?'});
+    addB({cmds:[{cmd:'text',text:'Ĥ = T̂ + V̂',size:'text',color:'gold',placement:'below',id:'ham-split'}],
+      say:'Kinetic plus potential energy.'});
+    addB({cmds:[{cmd:'text',text:'kinetic',size:'small',color:'cyan',placement:'beside:ham-split',id:'kin-label'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'+ potential',size:'small',color:'green',placement:'beside:kin-label'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'T̂ = -ℏ²/2m · d²/dx²',size:'text',color:'cyan',placement:'below',id:'kinetic'}],
+      say:'Kinetic energy is a second derivative.'});
+    addB({cmds:[{cmd:'text',text:'← how much ψ curves',size:'small',color:'dim',placement:'beside:kinetic'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'V̂ = V(x)',size:'text',color:'green',placement:'below',id:'potential'}],
+      say:'Potential is just the landscape — the environment.'});
+    addB({cmds:[{cmd:'text',text:'← the landscape',size:'small',color:'dim',placement:'beside:potential'}],pause:.2});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'The Born Rule:',size:'h2',color:'gold',placement:'below'}],
+      say:'And what does psi actually mean physically?'});
+    addB({cmds:[{cmd:'text',text:'|ψ(x)|² dx = probability near x',size:'text',color:'gold',placement:'below',id:'born'}],
+      say:'Psi squared is probability. The Born rule.'});
+    addB({cmds:[{cmd:'text',text:'← what you actually measure',size:'small',color:'green',placement:'beside:born'}],pause:.3});
+
+    addB({cmds:[{cmd:'text',text:'ψ itself is NOT observable',size:'text',color:'red',placement:'below'}],
+      say:'You never see psi directly. Only its square.',question:true,pause:0});
+  },
+
+  perturbation:()=>{
+    addB({cmds:[{cmd:'text',text:'Perturbation Theory',size:'h1',color:'gold',placement:'center',id:'title'}],
+      say:'What if we can\'t solve the equation exactly?'});
+
+    addB({cmds:[{cmd:'text',text:'Idea: start with something solvable, add a small correction',size:'text',color:'green',placement:'below',id:'idea'}],
+      say:'Start with what you CAN solve.'});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'1. The solved system:',size:'text',color:'gold',placement:'below',id:'s1'}],
+      say:'Step one — the solved system.'});
+    addB({cmds:[{cmd:'text',text:'Ĥ₀|n⁰⟩ = Eₙ⁰|n⁰⟩',size:'text',color:'cyan',placement:'indent',id:'solved-eq'}],
+      say:'We already know these eigenvalues and eigenstates.'});
+    addB({cmds:[{cmd:'text',text:'✓ known',size:'small',color:'green',placement:'beside:solved-eq'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'2. Add perturbation:',size:'text',color:'gold',placement:'below',id:'s2'}],
+      say:'Step two — add the perturbation.'});
+    addB({cmds:[{cmd:'text',text:'Ĥ = Ĥ₀ + λV',size:'text',color:'green',placement:'indent',id:'pert-h'}],
+      say:'Lambda V is the small addition.'});
+    addB({cmds:[{cmd:'text',text:'λ ≪ 1',size:'small',color:'red',placement:'beside:pert-h'}],
+      say:'Lambda is small — that\'s the whole point.'});
+
+    addB({cmds:[{cmd:'text',text:'3. Expand:',size:'text',color:'gold',placement:'below',id:'s3'}],
+      say:'Step three — expand everything.'});
+
+    addB({cmds:[{cmd:'text',text:'|n⟩ = |n⁰⟩ + λ|n¹⟩ + λ²|n²⟩ + ...',size:'text',color:'cyan',placement:'indent',id:'state-exp'}],
+      say:'The state gets corrections at each order.'});
+    addB({cmds:[{cmd:'text',text:'corrections →',size:'small',color:'dim',placement:'beside:state-exp'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'Eₙ = Eₙ⁰ + λEₙ¹ + λ²Eₙ² + ...',size:'text',color:'gold',placement:'below',id:'energy-exp'}],
+      say:'Same for the energy.'});
+    addB({cmds:[{cmd:'text',text:'energy shifts →',size:'small',color:'dim',placement:'beside:energy-exp'}],pause:.2});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'First-order energy:',size:'h2',color:'gold',placement:'below'}],
+      say:'The first correction.'});
+    addB({cmds:[{cmd:'text',text:'Eₙ¹ = ⟨n⁰|V|n⁰⟩',size:'h2',color:'gold',placement:'below',id:'e1'}],
+      say:'Just the expectation value of the perturbation!'});
+    addB({cmds:[{cmd:'text',text:'← expectation value!',size:'small',color:'green',placement:'beside:e1'}],pause:.3});
+
+    addB({cmds:[{cmd:'text',text:'Example: harmonic oscillator + electric field',size:'h2',color:'green',placement:'below'}],
+      say:'Let me show you a concrete example.'});
+
+    addB({cmds:[{cmd:'text',text:'V = qεx',size:'text',color:'green',placement:'below',id:'pert-v'}],
+      say:'The perturbation is an electric field — linear in x.'});
+    addB({cmds:[{cmd:'text',text:'← electric field',size:'small',color:'dim',placement:'beside:pert-v'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'Eₙ¹ = ⟨n|qεx|n⟩ = 0',size:'text',color:'gold',placement:'below',id:'e1-result'}],
+      say:'And the first order correction is... zero! By symmetry.'});
+    addB({cmds:[{cmd:'text',text:'← zero by symmetry!',size:'small',color:'red',placement:'beside:e1-result'}],
+      say:'The oscillator is symmetric — x averages to zero.',question:true,pause:0});
+  },
+
+  twoProcesses:()=>{
+    addB({cmds:[{cmd:'text',text:'Two Quantum Processes',size:'h1',color:'gold',placement:'center',id:'title'}],
+      say:'Quantum mechanics has two completely different kinds of processes.'});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    // Side by side headers
+    addB({cmds:[{cmd:'text',text:'Evolution',size:'h2',color:'green',placement:'row-start',id:'evol-h'}],
+      say:'On the left — evolution.'});
+    addB({cmds:[{cmd:'text',text:'Measurement',size:'h2',color:'red',placement:'row-next',id:'meas-h'}],
+      say:'On the right — measurement.'});
+
+    // Properties — side by side pairs
+    addB({cmds:[{cmd:'text',text:'Schrödinger equation',size:'text',color:'green',placement:'row-start',id:'e-rule'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'Born rule + collapse',size:'text',color:'red',placement:'row-next',id:'m-rule'}],pause:.3});
+
+    addB({cmds:[{cmd:'text',text:'deterministic',size:'text',color:'green',placement:'row-start'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'probabilistic',size:'text',color:'red',placement:'row-next'}],pause:.3});
+
+    addB({cmds:[{cmd:'text',text:'reversible',size:'text',color:'green',placement:'row-start'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'irreversible',size:'text',color:'red',placement:'row-next'}],pause:.3});
+
+    addB({cmds:[{cmd:'text',text:'info preserved',size:'text',color:'green',placement:'row-start'}],pause:.2});
+    addB({cmds:[{cmd:'text',text:'info lost',size:'text',color:'red',placement:'row-next'}],pause:.3});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    // Equations — left with annotations
+    addB({cmds:[{cmd:'text',text:'The evolution equation:',size:'h2',color:'green',placement:'below'}],
+      say:'Evolution is smooth — just a rotation.'});
+    addB({cmds:[{cmd:'text',text:'ψ(t) = e^(-iĤt/ℏ) ψ(0)',size:'text',color:'green',placement:'below',id:'evol-eq'}],
+      say:'Each eigenstate rotates at its own speed.'});
+    addB({cmds:[{cmd:'text',text:'← smooth rotation',size:'small',color:'dim',placement:'beside:evol-eq'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'The measurement rule:',size:'h2',color:'red',placement:'below'}],
+      say:'Measurement is the opposite.'});
+    addB({cmds:[{cmd:'text',text:'P(aₙ) = |⟨φₙ|ψ⟩|²',size:'text',color:'red',placement:'below',id:'meas-eq'}],
+      say:'Probability of outcome n is the overlap squared.'});
+    addB({cmds:[{cmd:'text',text:'← random!',size:'small',color:'red',placement:'beside:meas-eq'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'then: ψ → |φₙ⟩',size:'text',color:'red',placement:'indent',id:'collapse'}],
+      say:'And then psi collapses to that eigenstate.'});
+    addB({cmds:[{cmd:'text',text:'← collapse!',size:'small',color:'red',placement:'beside:collapse'}],pause:.3});
+
+    addB({cmds:[{cmd:'separator'}],pause:.2});
+
+    addB({cmds:[{cmd:'text',text:'"God does not play dice." — Einstein',size:'text',color:'purple',placement:'below'}],
+      say:'Einstein hated this.'});
+    addB({cmds:[{cmd:'text',text:'"Stop telling God what to do." — Bohr',size:'text',color:'purple',placement:'below'}],
+      say:'Bohr told him to deal with it.',question:true,pause:0});
+  },
+};
+
+function run(name){reset();if(T[name])T[name]();}
+setup();setTimeout(()=>run('operators'),300);
+window.addEventListener('resize',()=>{if(!bR)setup();});
+</script>
+</body>
+</html>

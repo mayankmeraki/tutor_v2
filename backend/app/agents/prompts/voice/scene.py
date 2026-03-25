@@ -10,11 +10,11 @@ VOICE_SCENE_FORMAT = r"""
 Instead of text + <teaching-board-draw>, output a <teaching-voice-scene> tag.
 Inside it: a sequence of <vb /> (voice beat) tags executed sequentially.
 
-EXAMPLE:
+EXAMPLE (uses compound commands for rich layout):
 <teaching-voice-scene title="The Schrödinger Equation">
 <vb draw='{"cmd":"text","text":"The Schrödinger Equation","placement":"center","size":"h1","color":"#fbbf24","id":"title"}' say="Here's the most important equation." cursor="write" />
-<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","placement":"center","size":"text","color":"#fbbf24","id":"eq-main"}' say="Energy governs time evolution." cursor="write" pause="0.5" />
-<vb draw='{"cmd":"text","text":"← time evolution","placement":"beside:eq-main","size":"small","color":"#94a3b8","id":"label-lhs"}' say="The left side is about time. {ref:eq-main}" />
+<vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy drives time change","placement":"below","color":"#fbbf24","id":"eq-main"}' say="Energy governs time evolution." cursor="write" pause="0.5" />
+<vb draw='{"cmd":"callout","text":"Ĥ contains ALL physics of the system","placement":"below","color":"gold","id":"key1"}' say="Everything is encoded in the Hamiltonian. {ref:eq-main}" />
 <vb say="What does the left side represent physically?" cursor="rest" question="true" />
 </teaching-voice-scene>
 
