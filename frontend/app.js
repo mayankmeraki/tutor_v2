@@ -8434,12 +8434,10 @@ const bdElementRegistry = {}; // { id: { cmd, x, y, w, h } }
 let bdContentBottomY = 0; // virtual coords
 
 function bdUpdateContentBottom(y, h) {
-  const elH = Math.min(h || 20, 250);
-  const bottom = (y || 0) + elH;
-  if (bottom > bdContentBottomY) {
-    console.log(`[ContentBottom] ${Math.round(bdContentBottomY)} → ${Math.round(bottom)} (y=${Math.round(y||0)} h=${Math.round(elH)})`);
-    bdContentBottomY = bottom;
-  }
+  // Legacy function — kept for compatibility but bdContentBottomY
+  // is now primarily synced from bdLayout.cursorY in bdRunCommand
+  const bottom = (y || 0) + (h || 20);
+  if (bottom > bdContentBottomY) bdContentBottomY = bottom;
 }
 
 function bdResetContentBottom() {
@@ -9587,7 +9585,6 @@ async function bdRunCommand(cmd) {
         cmd.y = y + yOffset;
       }
 
-      console.log(`[Layout] ${cmd.cmd} p=${cmd.placement} → (${Math.round(x)},${Math.round(y)}) ${Math.round(estW)}×${Math.round(estH)} cursor=${Math.round(bdLayout.cursorY)} ${cmd.id||''}`);
       bdLayoutCommit(x, y, estW, estH);
     }
   }
@@ -9596,10 +9593,12 @@ async function bdRunCommand(cmd) {
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
-  // Track content bottom (for voice scene Y-offset between scenes)
-  // Uses the layout engine's cursor position — single source of truth
+  // Track content bottom in ABSOLUTE coords (for voice scene Y-offset between scenes)
+  // Layout cursor is local (per-scene), yOffset converts to absolute
   if (cmd.placement) {
-    bdContentBottomY = Math.max(bdContentBottomY, bdLayout.cursorY);
+    const yOffset = state._voiceSceneYOffset || 0;
+    const absBottom = bdLayout.cursorY + yOffset;
+    if (absBottom > bdContentBottomY) bdContentBottomY = absBottom;
   }
 
   // Register element for referencing/scrolling AND collision detection
