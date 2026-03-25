@@ -8370,15 +8370,16 @@ function bdLayoutResolve(placement, estW, estH) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
     if (ref) {
+      // Registry stores ABSOLUTE coords — convert to LOCAL by subtracting yOffset
+      const yOff = state._voiceSceneYOffset || 0;
+      const refLocalY = ref.y - yOff;
       x = ref.x + ref.w + BD_SIDE_GAP;
-      y = ref.y;
-      // If beside would go off-screen, place below instead
+      y = refLocalY;
       if (x + estW > BD_VIRTUAL_W - BD_MARGIN) {
         x = ref.x;
-        y = ref.y + ref.h + 6;
+        y = refLocalY + ref.h + 6;
       }
     } else {
-      // Ref not found — fall back to below cursor
       if (bdLayout.inRow) bdLayoutEndRow();
       x = BD_MARGIN; y = bdLayout.cursorY;
     }
@@ -8387,10 +8388,11 @@ function bdLayoutResolve(placement, estW, estH) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
     if (ref) {
+      const yOff = state._voiceSceneYOffset || 0;
+      const refLocalY = ref.y - yOff;
       x = ref.x;
-      y = ref.y + ref.h + 6;
+      y = refLocalY + ref.h + 6;
     } else {
-      // Ref not found — fall back to below cursor
       if (bdLayout.inRow) bdLayoutEndRow();
       x = BD_MARGIN; y = bdLayout.cursorY;
     }
