@@ -8434,11 +8434,12 @@ const bdElementRegistry = {}; // { id: { cmd, x, y, w, h } }
 let bdContentBottomY = 0; // virtual coords
 
 function bdUpdateContentBottom(y, h) {
-  // Track the lowest point of drawn content (virtual coords).
-  // Cap per-element contribution to avoid animations inflating the gap.
-  const elH = Math.min(h || 20, 250); // don't let a single element push bottom more than 250 virtual px
+  const elH = Math.min(h || 20, 250);
   const bottom = (y || 0) + elH;
-  if (bottom > bdContentBottomY) bdContentBottomY = bottom;
+  if (bottom > bdContentBottomY) {
+    console.log(`[ContentBottom] ${Math.round(bdContentBottomY)} → ${Math.round(bottom)} (y=${Math.round(y||0)} h=${Math.round(elH)})`);
+    bdContentBottomY = bottom;
+  }
 }
 
 function bdResetContentBottom() {
@@ -9586,6 +9587,7 @@ async function bdRunCommand(cmd) {
         cmd.y = y + yOffset;
       }
 
+      console.log(`[Layout] ${cmd.cmd} p=${cmd.placement} → (${Math.round(x)},${Math.round(y)}) ${Math.round(estW)}×${Math.round(estH)} cursor=${Math.round(bdLayout.cursorY)} ${cmd.id||''}`);
       bdLayoutCommit(x, y, estW, estH);
     }
   }
@@ -9594,15 +9596,10 @@ async function bdRunCommand(cmd) {
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
-  // Track content bottom for continuous board positioning
-  // Compound commands track their own height internally
-  const isCompound = ['equation','compare','step','check','cross','callout','list','divider','result'].includes(cmd.cmd);
-  if (!isCompound) {
-    let cmdH = cmd.h || cmd.size || cmd.r || 20;
-    if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
-    if (cmd.y1 !== undefined) bdUpdateContentBottom(cmd.y1, cmdH);
-    if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
-    if (cmd.cy !== undefined) bdUpdateContentBottom(cmd.cy, (cmd.r || 20) * 2);
+  // Track content bottom (for voice scene Y-offset between scenes)
+  // Uses the layout engine's cursor position — single source of truth
+  if (cmd.placement) {
+    bdContentBottomY = Math.max(bdContentBottomY, bdLayout.cursorY);
   }
 
   // Register element for referencing/scrolling AND collision detection
@@ -9686,7 +9683,7 @@ async function bdCompoundEquation(cmd) {
       eqTotalH = size * 1.4 + noteSize * 1.4 + 4;
     }
   }
-  bdUpdateContentBottom(y, eqTotalH);
+  // NOTE: bdLayoutCommit already called by placement resolver — don't double-commit
 }
 
 async function bdCompoundCompare(cmd) {
@@ -9743,8 +9740,6 @@ async function bdCompoundCompare(cmd) {
   bd.ctx.stroke();
 
   const totalH = curY - y;
-  bdLayoutCommit(x, y, BD_VIRTUAL_W - BD_MARGIN * 2, totalH);
-  bdUpdateContentBottom(y, totalH);
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: BD_VIRTUAL_W - BD_MARGIN * 2, h: totalH };
 }
 
@@ -9781,7 +9776,6 @@ async function bdCompoundStep(cmd) {
   const textX = x + circleR * 2 + 8;
   await bdAnimText(cmd.text, textX, y + 3, 'white', cmd.size || 'text', cmd.charDelay);
 
-  bdUpdateContentBottom(y, 24);
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: 22 };
 }
 
@@ -9796,7 +9790,6 @@ async function bdCompoundCheckCross(cmd, isCheck) {
   bdExpandIfNeeded(y + 18);
   await bdAnimText(marker, x, y, markerColor, cmd.size || 'text', 0);
   await bdAnimText(' ' + cmd.text, x + 18, y, textColor, cmd.size || 'text', cmd.charDelay || 25);
-  bdUpdateContentBottom(y, 22);
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 350, h: 20 };
 }
 
@@ -9825,7 +9818,6 @@ async function bdCompoundCallout(cmd) {
 
   // Draw text after the border
   await bdAnimText(cmd.text, x + padL, y + 2, color, cmd.size || 'text', cmd.charDelay);
-  bdUpdateContentBottom(y, lineH + 4);
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 500, h: lineH };
 }
 
@@ -9851,9 +9843,7 @@ async function bdCompoundList(cmd) {
   }
 
   const totalH = curY - y;
-  bdUpdateContentBottom(y, totalH);
   if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: totalH };
-  bdLayoutCommit(x, y, 400, totalH);
 }
 
 async function bdCompoundDivider(cmd) {
@@ -9871,8 +9861,7 @@ async function bdCompoundDivider(cmd) {
   bd.ctx.lineTo((BD_VIRTUAL_W - BD_MARGIN) * s, lineY * s);
   bd.ctx.stroke();
 
-  bdLayout.cursorY = lineY + 12;
-  bdUpdateContentBottom(y, 18);
+  // Don't double-commit — placement resolver already handled it
 }
 
 async function bdCompoundResult(cmd) {
@@ -9926,8 +9915,6 @@ async function bdCompoundResult(cmd) {
     }
   }
 
-  const totalH = boxH + 4;
-  bdLayoutCommit(x, y, BD_VIRTUAL_W - BD_MARGIN * 2, totalH);
   if (cmd.id) bdElementRegistry[cmd.id] = { x: boxX, y, w: boxW, h: boxH };
 }
 
