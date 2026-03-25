@@ -9528,11 +9528,11 @@ async function bdRunCommand(cmd) {
         estH = cmd.h || resolveH(cmd.size);
       } else if (cmd.cmd === 'animation') {
         const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
-        estW = cmd.w ? Math.min(cmd.w, availVW) : Math.round(availVW * 0.55);
-        // Height: use aspect ratio from hints, or 0.45 default (wider than tall)
-        const aRatio = (cmd.h && cmd.w) ? Math.min(cmd.h / cmd.w, 0.6) : 0.45;
-        estH = Math.round(estW * aRatio);
-        // Store resolved virtual dimensions for the renderer to use
+        // Width: ~40% of available space, capped at 350 virtual px
+        estW = Math.min(cmd.w || Math.round(availVW * 0.4), 350, availVW);
+        // Height: flat ratio (3:1 default), capped at 120 virtual px
+        const aRatio = (cmd.h && cmd.w) ? Math.min(cmd.h / cmd.w, 0.4) : 0.35;
+        estH = Math.min(Math.round(estW * aRatio), 120);
         cmd._layoutW = estW;
         cmd._layoutH = estH;
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
