@@ -9732,12 +9732,19 @@ async function bdRunAnimation(cmd) {
   let inst;
   try {
     inst = new p5(p => {
-      const _origSetup = null;
       sketchFn(p, pw, ph);
       const userSetup = p.setup;
       p.setup = function() {
         if (userSetup) userSetup.call(p);
         p.textFont('Caveat');
+        // Sync container to actual canvas size (p5 may create differently than our estimate)
+        requestAnimationFrame(() => {
+          const c = container.querySelector('canvas');
+          if (c) {
+            container.style.width = c.offsetWidth + 'px';
+            container.style.height = c.offsetHeight + 'px';
+          }
+        });
       };
     }, container);
   } catch (e) {
