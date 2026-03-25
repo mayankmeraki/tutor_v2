@@ -11923,6 +11923,40 @@ function parseVoiceBeats(sceneContent) {
 }
 
 // Shared beat attribute parser — used by both eager streaming and fallback paths
+function _repairDrawJSON(s) {
+  // Fix common LLM JSON issues:
+  // 1. Unescaped quotes inside strings (Newton's → Newton\'s)
+  // 2. Truncated JSON (missing closing brace/quote)
+  // 3. Smart quotes → regular quotes
+
+  // Smart quotes
+  s = s.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+
+  // Try to close unclosed strings and braces
+  let inStr = false, braces = 0, lastQuote = -1;
+  for (let i = 0; i < s.length; i++) {
+    if (s[i] === '"' && (i === 0 || s[i-1] !== '\\')) {
+      inStr = !inStr;
+      if (inStr) lastQuote = i;
+    }
+    if (!inStr) {
+      if (s[i] === '{') braces++;
+      if (s[i] === '}') braces--;
+    }
+  }
+
+  // If string is unclosed, close it
+  if (inStr) s += '"';
+  // If braces unclosed, close them
+  while (braces > 0) { s += '}'; braces--; }
+
+  // Escape unescaped single quotes inside JSON string values
+  // (e.g., Newton's → Newton\u0027s)
+  s = s.replace(/"([^"]*?)'/g, (m, pre) => `"${pre}\\u0027`);
+
+  return s;
+}
+
 function _parseVoiceBeatAttrs(attrStr) {
     const beat = {};
 
@@ -11963,8 +11997,11 @@ function _parseVoiceBeatAttrs(attrStr) {
         beat.draw = cmds;
       } catch {
         try { beat.draw = [JSON.parse(drawStr)]; } catch (e) {
-          console.warn('[VoiceScene] Failed to parse draw:', e.message, drawStr.slice(0, 100));
-          beat.draw = null;
+          // Attempt JSON repair for common LLM issues
+          try { beat.draw = [JSON.parse(_repairDrawJSON(drawStr))]; } catch (e2) {
+            console.warn('[VoiceScene] Failed to parse draw:', e2.message, drawStr.slice(0, 100));
+            beat.draw = null;
+          }
         }
       }
     }
