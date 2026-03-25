@@ -10113,6 +10113,10 @@ async function bdRunAnimation(cmd) {
   container.style.height = Math.round(h) + 'px';
   container.style.opacity = '0';
   container.style.transition = 'opacity 0.4s';
+
+  // Loading shimmer while p5 initializes
+  container.innerHTML = `<div style="width:100%;height:100%;display:flex;align-items:center;justify-content:center;background:rgba(167,139,250,0.03);border-radius:4px"><div style="font-family:Kalam,cursive;font-size:${12*s}px;color:rgba(167,139,250,0.3);animation:pulse 1.5s ease-in-out infinite">Generating animation...</div></div>`;
+
   layer.appendChild(container);
 
   const pw = Math.round(w);
@@ -10123,18 +10127,26 @@ async function bdRunAnimation(cmd) {
   let inst;
   try {
     inst = new p5(p => {
-      sketchFn(p, pw, ph);
+      try {
+        sketchFn(p, pw, ph);
+      } catch (sketchErr) {
+        console.error('[Animation] Sketch function error:', sketchErr.message);
+        // Show error in container instead of blank
+        container.innerHTML = `<div style="padding:8px;font-size:${10*s}px;color:rgba(248,113,113,0.5);font-family:monospace;word-break:break-all">Animation error: ${sketchErr.message}</div>`;
+        return;
+      }
       const userSetup = p.setup;
       p.setup = function() {
+        // Clear loading shimmer
+        const shimmer = container.querySelector('div:not(.p5Canvas)');
+        if (shimmer) shimmer.remove();
         if (userSetup) userSetup.call(p);
         p.textFont('Caveat');
       };
     }, container);
   } catch (e) {
-    console.warn('Board animation: runtime error, queuing for silent retry', e.message);
-    if (!bd._animErrors) bd._animErrors = [];
-    bd._animErrors.push({ cmd, error: e.message });
-    container.remove();
+    console.error('[Animation] p5 init error:', e.message);
+    container.innerHTML = `<div style="padding:8px;font-size:${10*s}px;color:rgba(248,113,113,0.5);font-family:monospace">Init error: ${e.message}</div>`;
     return;
   }
 
