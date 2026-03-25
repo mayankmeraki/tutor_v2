@@ -56,15 +56,31 @@ async def update_session(session_id: str, update: dict) -> dict | None:
     return result
 
 
+# Lightweight projection for landing page session cards
+_SESSION_CARD_FIELDS = {
+    "sessionId": 1,
+    "courseId": 1,
+    "studentName": 1,
+    "userEmail": 1,
+    "startedAt": 1,
+    "status": 1,
+    "number": 1,
+    "headline": 1,
+    "headlineDescription": 1,
+    "intent": 1,
+    "durationSec": 1,
+    "metrics": 1,
+    "sections": 1,
+    "coursePosition": 1,
+    "plan.sessionObjective": 1,
+}
+
+
 async def get_sessions_for_student(course_id: int, student_name: str) -> list[dict]:
-    """Return all sessions for a student+course, newest first."""
+    """Return lightweight session cards for landing page — no heavy data."""
     cursor = _sessions().find(
         {"courseId": course_id, "studentName": student_name},
-        {
-            "backendState.messages": 0,
-            "backendState.conversationSummary": 0,
-            "generatedVisuals": 0,
-        },
+        _SESSION_CARD_FIELDS,
     ).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
@@ -74,18 +90,10 @@ async def get_sessions_for_student(course_id: int, student_name: str) -> list[di
 
 
 async def get_sessions_for_user(course_id: int, user_email: str) -> list[dict]:
-    """Return all sessions for a user (by email) + course, newest first.
-
-    Uses projection to exclude heavy fields (backendState.messages, generatedVisuals)
-    that can be megabytes per session and cause timeouts on large collections.
-    """
+    """Return lightweight session cards for landing page — no heavy data."""
     cursor = _sessions().find(
         {"courseId": course_id, "userEmail": user_email},
-        {
-            "backendState.messages": 0,
-            "backendState.conversationSummary": 0,
-            "generatedVisuals": 0,
-        },
+        _SESSION_CARD_FIELDS,
     ).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
