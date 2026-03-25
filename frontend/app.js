@@ -1206,6 +1206,9 @@ function generateId() {
 
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
   if (state.isStreaming) return;
+  const _now = Date.now();
+  if (!isSystemTrigger && state._lastChatRequestAt && _now - state._lastChatRequestAt < 1000) return;
+  state._lastChatRequestAt = _now;
   state.isStreaming = true;
   state._stopRequested = false;
   state._streamReader = null;
@@ -1800,27 +1803,40 @@ function buildContext() {
     });
   }
 
-  // Context: Active Board — what's currently drawn on board-draw (for continuity)
+  // Context: Active Board — what's currently drawn + spatial state
   if (state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
     const bd = state.boardDraw;
-    if (bd.rawContent) {
-      const boardLines = [];
-      let lastY = 0;
+    const boardLines = [];
+
+    // Build from element registry (works in both text and voice mode)
+    const regEntries = Object.entries(bdElementRegistry)
+      .filter(([id]) => !id.startsWith('_auto_'))  // skip unnamed auto-entries
+      .sort((a, b) => (a[1].y || 0) - (b[1].y || 0));
+
+    for (const [id, el] of regEntries) {
+      if (el.cmd === 'text') boardLines.push(`  y=${Math.round(el.y)}: [text] id="${id}" (w=${Math.round(el.w)})`);
+      else if (el.cmd === 'latex') boardLines.push(`  y=${Math.round(el.y)}: [equation] id="${id}"`);
+      else if (el.cmd === 'animation') boardLines.push(`  y=${Math.round(el.y)}: [animation] id="${id}" (${Math.round(el.w)}×${Math.round(el.h)})`);
+      else boardLines.push(`  y=${Math.round(el.y)}: [${el.cmd}] id="${id}"`);
+    }
+
+    // Fallback to rawContent if registry is empty
+    if (boardLines.length === 0 && bd.rawContent) {
       for (const line of bd.rawContent.split('\n')) {
         try {
           const cmd = JSON.parse(line.trim());
-          if (cmd.cmd === 'text' && cmd.text) boardLines.push(`[text] ${cmd.text}`);
-          if (cmd.cmd === 'latex' && cmd.tex) boardLines.push(`[equation] ${cmd.tex}`);
-          if (cmd.cmd === 'voice' && cmd.text) boardLines.push(`[voice] ${cmd.text}`);
-          if (cmd.y) lastY = Math.max(lastY, cmd.y + (cmd.size || 20));
+          if (cmd.cmd === 'text' && cmd.text) boardLines.push(`  [text] ${cmd.text}`);
+          if (cmd.cmd === 'latex' && cmd.tex) boardLines.push(`  [equation] ${cmd.tex}`);
         } catch {}
       }
-      if (boardLines.length > 0) {
-        items.push({
-          description: 'ACTIVE BOARD — what is drawn on the board the student sees',
-          value: `Board: "${state.spotlightInfo.title || 'Board'}"\n${boardLines.join('\n')}\nCursor y ≈ ${lastY + 40}`,
-        });
-      }
+    }
+
+    if (boardLines.length > 0) {
+      const contentBottom = Math.round(bdContentBottomY);
+      items.push({
+        description: 'BOARD STATE — elements on the board with Y positions. Use Y > contentBottom for new content.',
+        value: `Board: "${state.spotlightInfo.title || 'Board'}"\nElements (${boardLines.length}):\n${boardLines.join('\n')}\nContent bottom: y=${contentBottom}\n⚠ START NEW CONTENT AT y=${contentBottom + 20} OR HIGHER. Drawing at lower Y will overlap existing content.`,
+      });
     }
   }
 
@@ -2251,6 +2267,21 @@ function disconnectAgentEvents() {
   }
   state.runningAgents = {};
   updateAgentIndicators();
+}
+
+function cleanupActiveSession() {
+  if (state.voiceCurrentAudio) { try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {} state.voiceCurrentAudio = null; }
+  if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch(e) {} state.voiceCurrentSrc = null; }
+  if (state._currentTTSAudio) { try { state._currentTTSAudio.pause(); } catch(e) {} state._currentTTSAudio = null; }
+  if (state._streamReader) { try { state._streamReader.cancel(); } catch(e) {} state._streamReader = null; }
+  state.isStreaming = false; state._stopRequested = false; state._voiceSceneActive = false;
+  if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+  disconnectAgentEvents();
+  if (typeof bdActiveAnimations !== 'undefined') { bdActiveAnimations.forEach(e => { try { e.inst.remove(); } catch(x) {} }); bdActiveAnimations.length = 0; }
+  state._startingSession = false; state._resumingSession = false;
+  if (typeof removeStreamingIndicator === 'function') removeStreamingIndicator();
+  if (typeof voiceBarSetThinking === 'function') voiceBarSetThinking(false);
+  if (typeof hideSessionPrep === 'function') hideSessionPrep();
 }
 
 function handleAgentEvent(event) {
@@ -4256,6 +4287,7 @@ function renderConfidenceTag(tag) {
 }
 
 window.submitConfidence = function(confId) {
+  if (state.isStreaming) return;
   const slider = $(`#${confId}`);
   if (!slider) return;
   sendStudentResponse(`[Confidence: ${slider.value}%]`);
@@ -6217,6 +6249,7 @@ function dismissChatHopper() {
 // sendCanvasDrawing removed — canvas drawing now handled via notebook workspace
 
 window.submitFreetext = async function(inputId) {
+  if (state.isStreaming) return;
   const el = $(`#${inputId}`);
   if (!el) return;
   const val = el.value.trim();
@@ -6245,6 +6278,7 @@ window.toggleScribbleMode = function() {
 };
 
 window.submitFillBlank = function(fbId, count) {
+  if (state.isStreaming) return;
   const answers = [];
   for (let i = 1; i <= 10; i++) {
     const el = $(`#${fbId}-${i}`);
@@ -6826,10 +6860,7 @@ function updateCourseCardSelection(courseId) {
 
 function showSetupPanel() {
   UIHints.removeAll();
-
-  // Reset session-start and resume loading states (may be stuck from previous navigation)
-  state._startingSession = false;
-  state._resumingSession = false;
+  cleanupActiveSession();
   const _startBtn = $('#btn-start-session');
   const _dashInput = $('#student-intent-first');
   if (_startBtn) {
@@ -8262,10 +8293,8 @@ const BD_COLORS = {
 };
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
-const BD_MIN_FONT_SCALE = 1.4;
 function bdGetFontScale() {
-  const s = state.boardDraw.scale;
-  return Math.max(s, s * BD_MIN_FONT_SCALE);
+  return state.boardDraw.scale;
 }
 
 // Active p5 animation instances on the board overlay
@@ -8279,7 +8308,10 @@ const bdElementRegistry = {}; // { id: { cmd, x, y, w, h } }
 let bdContentBottomY = 0; // virtual coords
 
 function bdUpdateContentBottom(y, h) {
-  const bottom = (y || 0) + (h || 20);
+  // Track the lowest point of drawn content (virtual coords).
+  // Cap per-element contribution to avoid animations inflating the gap.
+  const elH = Math.min(h || 20, 250); // don't let a single element push bottom more than 250 virtual px
+  const bottom = (y || 0) + elH;
   if (bottom > bdContentBottomY) bdContentBottomY = bottom;
 }
 
@@ -8290,11 +8322,25 @@ function bdResetContentBottom() {
 function bdRegisterElement(cmd) {
   if (!cmd || !cmd.id) return;
   const entry = { cmd: cmd.cmd, x: cmd.x || 0, y: cmd.y || 0 };
-  // Estimate dimensions based on command type
+  const resolveSize = (s) => {
+    if (typeof s === 'number') return s;
+    if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()];
+    return typeof s === 'string' ? (parseInt(s) || 16) : 16;
+  };
   if (cmd.cmd === 'text' || cmd.cmd === 'latex') {
-    const fontSize = cmd.size || 24;
-    entry.w = (cmd.text || '').length * fontSize * 0.55;
-    entry.h = fontSize * 1.3;
+    const fontSize = resolveSize(cmd.size);
+    const text = cmd.text || cmd.tex || '';
+    // Measure width using canvas if available, else estimate
+    const bd = state.boardDraw;
+    if (bd.ctx) {
+      bd.ctx.save();
+      bd.ctx.font = `${fontSize}px Caveat, cursive`;
+      entry.w = bd.ctx.measureText(text).width / (bd.DPR || 1) + 10;
+      bd.ctx.restore();
+    } else {
+      entry.w = Math.min(text.length * fontSize * 0.65, 750);
+    }
+    entry.h = fontSize * 1.5;
   } else if (cmd.cmd === 'rect' || cmd.cmd === 'fillrect') {
     entry.w = cmd.w || 100; entry.h = cmd.h || 50;
   } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
@@ -8305,8 +8351,10 @@ function bdRegisterElement(cmd) {
     entry.w = cmd.w || 300; entry.h = cmd.h || 200;
   } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow') {
     entry.x = cmd.x1 || 0; entry.y = cmd.y1 || 0;
-    entry.w = Math.abs((cmd.x2||0) - (cmd.x1||0));
-    entry.h = Math.abs((cmd.y2||0) - (cmd.y1||0));
+    entry.w = Math.abs((cmd.x2||0) - (cmd.x1||0)) || 20;
+    entry.h = Math.abs((cmd.y2||0) - (cmd.y1||0)) || 20;
+  } else {
+    entry.w = cmd.w || 80; entry.h = cmd.h || 30;
   }
   bdElementRegistry[cmd.id] = entry;
 }
@@ -8321,51 +8369,87 @@ function bdControlAnimation(params) {
 }
 
 function bdZoomPulse(elementId) {
-  // Zoom-pulse: create a floating clone of the element area, scale it up, then fade out
   const entry = bdElementRegistry[elementId];
   if (!entry) return;
   const bd = state.boardDraw;
   if (!bd.canvas || !bd.ctx) return;
   const s = bd.scale;
+  const dpr = bd.DPR;
 
-  // Calculate element bounds in screen pixels
-  const pad = 10 * s;
-  const sx = Math.max(0, entry.x * s - pad);
-  const sy = Math.max(0, entry.y * s - pad);
-  const sw = (entry.w || 100) * s + pad * 2;
-  const sh = (entry.h || 30) * s + pad * 2;
-
-  // Capture just that region from the canvas
   const layer = document.getElementById('bd-anim-layer');
-  const wrap = document.getElementById('bd-canvas-wrap');
-  if (!layer || !wrap) return;
+  if (!layer) return;
 
-  // Create a highlight div positioned over the element
-  const highlight = document.createElement('div');
-  highlight.style.cssText = `
-    position:absolute; left:${sx}px; top:${sy}px;
-    width:${sw}px; height:${sh}px;
-    border: 2px solid rgba(94,234,212,0.5);
-    border-radius: 6px;
-    box-shadow: 0 0 20px rgba(52,211,153,0.2), inset 0 0 20px rgba(52,211,153,0.05);
-    z-index: 25; pointer-events: none;
-    transition: all 0.3s ease;
-    transform: scale(1);
+  // Element bounds in CSS pixels
+  const pad = 4 * s;
+  const ex = Math.max(0, entry.x * s - pad);
+  const ey = Math.max(0, entry.y * s - pad);
+  const ew = (entry.w || 80) * s + pad * 2;
+  const eh = (entry.h || 25) * s + pad * 2;
+
+  // For animations or large elements — use a soft glow border (no zoom-pop,
+  // because cropping a p5 canvas or large region breaks it)
+  if (entry.cmd === 'animation' || ew > 400 * s || eh > 150 * s) {
+    const glow = document.createElement('div');
+    glow.style.cssText = `
+      position:absolute; left:${ex - 3*s}px; top:${ey - 3*s}px;
+      width:${ew + 6*s}px; height:${eh + 6*s}px;
+      pointer-events:none; z-index:24; border-radius:${6*s}px;
+      box-shadow: 0 0 ${20*s}px rgba(251,191,36,0.2), inset 0 0 ${15*s}px rgba(251,191,36,0.05);
+      border: ${1.5*s}px solid rgba(251,191,36,0.25);
+      opacity:0; transition: opacity 0.4s ease;
+    `;
+    layer.appendChild(glow);
+    requestAnimationFrame(() => { glow.style.opacity = '1'; });
+    setTimeout(() => {
+      glow.style.opacity = '0';
+      setTimeout(() => glow.remove(), 500);
+    }, 1800);
+    return;
+  }
+
+  // For text/equations — zoom-pop: crop content, float clone, scale up smoothly
+  const cx = Math.round(ex * dpr);
+  const cy = Math.round(ey * dpr);
+  const cw = Math.min(Math.round(ew * dpr), bd.canvas.width - cx);
+  const ch = Math.min(Math.round(eh * dpr), bd.canvas.height - cy);
+  if (cw <= 0 || ch <= 0) return;
+
+  let imageData;
+  try { imageData = bd.ctx.getImageData(cx, cy, cw, ch); } catch(e) { return; }
+
+  const tmp = document.createElement('canvas');
+  tmp.width = cw; tmp.height = ch;
+  tmp.getContext('2d').putImageData(imageData, 0, 0);
+
+  const clone = document.createElement('div');
+  clone.style.cssText = `
+    position:absolute; left:${ex}px; top:${ey}px;
+    width:${ew}px; height:${eh}px;
+    pointer-events:none; z-index:25;
+    transform:scale(1); transform-origin:center center;
+    opacity:0;
+    transition: transform 0.4s cubic-bezier(0.25,0.1,0.25,1), opacity 0.3s ease;
+    border-radius: 3px;
   `;
-  layer.appendChild(highlight);
+  const img = document.createElement('img');
+  img.src = tmp.toDataURL();
+  img.style.cssText = 'width:100%;height:100%;display:block;border-radius:3px;';
+  clone.appendChild(img);
+  layer.appendChild(clone);
 
-  // Pulse: scale up slightly
+  // Smooth fade in + scale up
   requestAnimationFrame(() => {
-    highlight.style.transform = 'scale(1.08)';
-    highlight.style.boxShadow = '0 0 30px rgba(52,211,153,0.35), inset 0 0 30px rgba(52,211,153,0.08)';
+    clone.style.opacity = '1';
+    clone.style.transform = 'scale(1.18)';
   });
 
-  // Fade out after delay
+  // Hold, then smoothly settle back and fade out
   setTimeout(() => {
-    highlight.style.opacity = '0';
-    highlight.style.transform = 'scale(1)';
-    setTimeout(() => highlight.remove(), 300);
-  }, 1500);
+    clone.style.transition = 'transform 0.5s ease, opacity 0.5s ease';
+    clone.style.transform = 'scale(1)';
+    clone.style.opacity = '0';
+    setTimeout(() => clone.remove(), 550);
+  }, 1400);
 }
 
 function bdClearElementRegistry() {
@@ -8378,7 +8462,8 @@ function bdScrollToElement(id) {
   const wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap) return;
   const bd = state.boardDraw;
-  const targetY = entry.y * bd.scale - 40; // 40px margin above
+  const zoom = bd._zoom || 1;
+  const targetY = entry.y * bd.scale * zoom - 40;
   wrap.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
 }
 
@@ -8386,8 +8471,74 @@ function bdScrollToY(virtualY) {
   const wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap) return;
   const bd = state.boardDraw;
-  const targetY = virtualY * bd.scale - 40;
+  const zoom = bd._zoom || 1;
+  const targetY = virtualY * bd.scale * zoom - 40;
   wrap.scrollTo({ top: Math.max(0, targetY), behavior: 'smooth' });
+}
+
+function bdAutoScrollToCmd(cmd) {
+  const wrap = document.getElementById('bd-canvas-wrap');
+  const bd = state.boardDraw;
+  if (!wrap) return;
+  const forceFollow = state._voiceSceneActive || state.isStreaming;
+  if (!forceFollow && bd._studentScrolledRecently) return;
+  const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
+  if (!ys.length) return;
+  const maxCmdY = Math.max(...ys);
+  const cmdH = cmd.h || cmd.size || cmd.r || 30;
+  const zoom = bd._zoom || 1;
+  const scaledBottom = (maxCmdY + cmdH) * bd.scale * zoom;
+  const viewBottom = wrap.scrollTop + wrap.clientHeight;
+  if (scaledBottom > viewBottom - 30) {
+    wrap.scrollTo({ top: Math.max(0, scaledBottom - wrap.clientHeight * 0.7), behavior: 'smooth' });
+  } else if ((maxCmdY * bd.scale * zoom) < wrap.scrollTop) {
+    wrap.scrollTo({ top: Math.max(0, maxCmdY * bd.scale * zoom - 40), behavior: 'smooth' });
+  }
+}
+
+// ── Board Zoom + Drag-to-Pan ──────────────────────────────────
+
+function bdInitZoom() {
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap || wrap._bdZoomInit) return;
+  wrap._bdZoomInit = true;
+  const bd = state.boardDraw;
+
+  function applyZoom() {
+    const canvas = document.getElementById('bd-canvas');
+    const layer = document.getElementById('bd-anim-layer');
+    const z = bd._zoom;
+    if (canvas) { canvas.style.transformOrigin = 'top left'; canvas.style.transform = `scale(${z})`; }
+    if (layer) { layer.style.transformOrigin = 'top left'; layer.style.transform = `scale(${z})`; }
+    bdUpdateZoomSpacer();
+    const label = document.getElementById('bd-zoom-level');
+    if (label) label.textContent = Math.round(bd._zoom * 100) + '%';
+  }
+
+  // Pinch-to-zoom
+  let lastPinchDist = 0;
+  wrap.addEventListener('touchstart', e => { if (e.touches.length === 2) { lastPinchDist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); } }, { passive: true });
+  wrap.addEventListener('touchmove', e => { if (e.touches.length === 2) { const dist = Math.hypot(e.touches[0].clientX - e.touches[1].clientX, e.touches[0].clientY - e.touches[1].clientY); if (lastPinchDist > 0) { const oldZ = bd._zoom; bd._zoom = Math.max(0.4, Math.min(4, bd._zoom * dist / lastPinchDist)); const rect = wrap.getBoundingClientRect(); const cx = (e.touches[0].clientX + e.touches[1].clientX) / 2 - rect.left + wrap.scrollLeft; const cy = (e.touches[0].clientY + e.touches[1].clientY) / 2 - rect.top + wrap.scrollTop; const r = bd._zoom / oldZ; wrap.scrollLeft = cx * r - (cx - wrap.scrollLeft); wrap.scrollTop = cy * r - (cy - wrap.scrollTop); applyZoom(); } lastPinchDist = dist; } }, { passive: true });
+  wrap.addEventListener('touchend', () => { lastPinchDist = 0; }, { passive: true });
+
+  // Ctrl+scroll zoom
+  wrap.addEventListener('wheel', e => { if (e.ctrlKey || e.metaKey) { e.preventDefault(); const oldZ = bd._zoom; bd._zoom = Math.max(0.4, Math.min(4, oldZ * (1 - e.deltaY * 0.003))); const rect = wrap.getBoundingClientRect(); const cx = e.clientX - rect.left + wrap.scrollLeft; const cy = e.clientY - rect.top + wrap.scrollTop; const r = bd._zoom / oldZ; wrap.scrollLeft = cx * r - (e.clientX - rect.left); wrap.scrollTop = cy * r - (e.clientY - rect.top); applyZoom(); } }, { passive: false });
+
+  // Drag to pan (Space+drag or middle-click)
+  let isPanning = false, panSX = 0, panSY = 0, panSSX = 0, panSSY = 0, spaceHeld = false;
+  document.addEventListener('keydown', e => { if (e.code === 'Space' && !spaceHeld && bd.canvas && !['INPUT','TEXTAREA'].includes(document.activeElement?.tagName) && !bd.studentDrawing) { spaceHeld = true; wrap.style.cursor = 'grab'; } });
+  document.addEventListener('keyup', e => { if (e.code === 'Space') { spaceHeld = false; if (!isPanning) wrap.style.cursor = ''; } });
+  wrap.addEventListener('mousedown', e => { if (e.button === 1 || (spaceHeld && e.button === 0)) { e.preventDefault(); isPanning = true; panSX = e.clientX; panSY = e.clientY; panSSX = wrap.scrollLeft; panSSY = wrap.scrollTop; wrap.style.cursor = 'grabbing'; } });
+  window.addEventListener('mousemove', e => { if (isPanning) { wrap.scrollLeft = panSSX - (e.clientX - panSX); wrap.scrollTop = panSSY - (e.clientY - panSY); } });
+  window.addEventListener('mouseup', () => { if (isPanning) { isPanning = false; wrap.style.cursor = spaceHeld ? 'grab' : ''; } });
+
+  // Keyboard zoom
+  document.addEventListener('keydown', e => { if (!bd.canvas) return; const rect = wrap.getBoundingClientRect(); const cx = rect.width/2+wrap.scrollLeft, cy = rect.height/2+wrap.scrollTop; if ((e.ctrlKey||e.metaKey) && (e.key==='='||e.key==='+')) { e.preventDefault(); const oldZ=bd._zoom; bd._zoom=Math.min(4,bd._zoom*1.2); const r=bd._zoom/oldZ; wrap.scrollLeft=cx*r-rect.width/2; wrap.scrollTop=cy*r-rect.height/2; applyZoom(); } else if ((e.ctrlKey||e.metaKey) && e.key==='-') { e.preventDefault(); const oldZ=bd._zoom; bd._zoom=Math.max(0.4,bd._zoom/1.2); const r=bd._zoom/oldZ; wrap.scrollLeft=cx*r-rect.width/2; wrap.scrollTop=cy*r-rect.height/2; applyZoom(); } else if ((e.ctrlKey||e.metaKey) && e.key==='0') { e.preventDefault(); bd._zoom=1; wrap.scrollLeft=0; applyZoom(); } });
+
+  // Toolbar buttons
+  window.bdZoomIn = () => { const oldZ=bd._zoom; bd._zoom=Math.min(4,bd._zoom*1.25); const rect=wrap.getBoundingClientRect(); const cx=rect.width/2+wrap.scrollLeft,cy=rect.height/2+wrap.scrollTop; const r=bd._zoom/oldZ; wrap.scrollLeft=cx*r-rect.width/2; wrap.scrollTop=cy*r-rect.height/2; applyZoom(); };
+  window.bdZoomOut = () => { const oldZ=bd._zoom; bd._zoom=Math.max(0.4,bd._zoom/1.25); const rect=wrap.getBoundingClientRect(); const cx=rect.width/2+wrap.scrollLeft,cy=rect.height/2+wrap.scrollTop; const r=bd._zoom/oldZ; wrap.scrollLeft=cx*r-rect.width/2; wrap.scrollTop=cy*r-rect.height/2; applyZoom(); };
+  window.bdZoomReset = () => { bd._zoom=1; wrap.scrollLeft=0; applyZoom(); };
 }
 
 function bdInit(canvasEl, voiceEl) {
@@ -8403,11 +8554,13 @@ function bdInit(canvasEl, voiceEl) {
   bd.studentColor = '#22ee66';
   bd.studentStrokeW = 2.5;
   bd._studentScrolledRecently = false;
+  bd._zoom = 1;
   bdResizeCanvas();
   bdDrawGrid();
   bdInitStudentDrawing(canvasEl);
   bdInitToolbar();
   bdInitScrollDetection();
+  bdInitZoom();
   // Start processing commands that were queued during streaming
   if (bd.commandQueue.length > 0 && !bd.isProcessing) {
     bdProcessQueue();
@@ -8431,12 +8584,12 @@ function bdInitScrollDetection() {
     return origScrollTo(...args);
   };
   wrap.addEventListener('scroll', () => {
-    if (Date.now() - lastProgrammaticScroll < 200) return;
+    if (Date.now() - lastProgrammaticScroll < 800) return;
     state.boardDraw._studentScrolledRecently = true;
     clearTimeout(scrollTimer);
     scrollTimer = setTimeout(() => {
       state.boardDraw._studentScrolledRecently = false;
-    }, 3000);
+    }, 1500);
   }, { passive: true });
 }
 
@@ -8556,30 +8709,56 @@ function bdResizeCanvas() {
   const w = wrap.clientWidth;
   bd.scale = w / BD_VIRTUAL_W;
   const actualW = w;
-  // Fill available container height, but allow growth beyond if content needs it
   const containerH = wrap.clientHeight;
   const scaledH = bd.currentH * bd.scale;
   const actualH = Math.max(scaledH, containerH);
-  let oldData = null;
-  if (bd.ctx && bd.canvas.width && bd.canvas.height) {
-    oldData = bd.ctx.getImageData(0, 0, bd.canvas.width, bd.canvas.height);
+
+  const bitmapW = Math.round(actualW * bd.DPR);
+  const bitmapH = Math.round(actualH * bd.DPR);
+  const needsBitmapResize = bd.canvas.width !== bitmapW || bd.canvas.height !== bitmapH;
+
+  if (needsBitmapResize && !bd._resizeCSSOnly) {
+    let oldData = null;
+    if (bd.ctx && bd.canvas.width > 0 && bd.canvas.height > 0) {
+      try { oldData = bd.ctx.getImageData(0, 0, bd.canvas.width, bd.canvas.height); } catch(e) {}
+    }
+    bd.canvas.width = bitmapW;
+    bd.canvas.height = bitmapH;
+    bd.ctx = bd.canvas.getContext('2d', { willReadFrequently: true });
+    bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
+    bd.ctx.fillStyle = '#1a1d2e';
+    bd.ctx.fillRect(0, 0, actualW, actualH);
+    if (oldData) {
+      bd.ctx.save();
+      bd.ctx.setTransform(1, 0, 0, 1, 0, 0);
+      bd.ctx.putImageData(oldData, 0, 0);
+      bd.ctx.restore();
+    }
   }
-  bd.canvas.width = actualW * bd.DPR;
-  bd.canvas.height = actualH * bd.DPR;
+
   bd.canvas.style.width = actualW + 'px';
   bd.canvas.style.height = actualH + 'px';
-  bd.ctx = bd.canvas.getContext('2d', { willReadFrequently: true });
-  bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
-  bd.ctx.fillStyle = '#1a1d2e';
-  bd.ctx.fillRect(0, 0, actualW, actualH);
-  if (oldData) {
-    bd.ctx.save();
-    bd.ctx.setTransform(1, 0, 0, 1, 0, 0);
-    bd.ctx.putImageData(oldData, 0, 0);
-    bd.ctx.restore();
-  }
   bdSyncAnimLayer();
 }
+
+// Window resize — CSS-only, reposition overlays, update zoom spacer
+window.addEventListener('resize', () => {
+  const bd = state.boardDraw;
+  if (!bd.canvas) return;
+  bd._resizeCSSOnly = true;
+  bdResizeCanvas();
+  bd._resizeCSSOnly = false;
+  bdUpdateZoomSpacer();
+  const s = bd.scale;
+  bdActiveAnimations.forEach(entry => {
+    if (entry.container && entry.vx !== undefined) {
+      entry.container.style.left = (entry.vx * s) + 'px';
+      entry.container.style.top = (entry.vy * s) + 'px';
+      entry.container.style.width = Math.round(entry.vw * s) + 'px';
+      entry.container.style.height = Math.round(entry.vh * s) + 'px';
+    }
+  });
+});
 
 function bdExpandIfNeeded(maxY) {
   const bd = state.boardDraw;
@@ -8587,10 +8766,23 @@ function bdExpandIfNeeded(maxY) {
     bd.currentH = maxY + 200;
     bdResizeCanvas();
     bdDrawGrid();
-    // Don't auto-scroll on expansion — let the voice mode scroll logic
-    // handle it (only scrolls when content is below visible area).
-    // In text mode, the canvas is inside a scrollable container anyway.
+    // Update zoom spacer so scrollable area matches expanded content
+    bdUpdateZoomSpacer();
   }
+}
+
+function bdUpdateZoomSpacer() {
+  const bd = state.boardDraw;
+  const wrap = document.getElementById('bd-canvas-wrap');
+  const canvas = document.getElementById('bd-canvas');
+  if (!wrap || !canvas) return;
+  const z = bd._zoom || 1;
+  const h = parseFloat(canvas.style.height) || canvas.clientHeight;
+  const w = parseFloat(canvas.style.width) || canvas.clientWidth;
+  let spacer = wrap.querySelector('.bd-zoom-spacer');
+  if (!spacer) { spacer = document.createElement('div'); spacer.className = 'bd-zoom-spacer'; spacer.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;visibility:hidden;'; wrap.appendChild(spacer); }
+  spacer.style.width = Math.round(w * z) + 'px';
+  spacer.style.height = Math.round(h * z) + 'px';
 }
 
 function bdSyncAnimLayer() {
@@ -8739,7 +8931,7 @@ async function bdAnimArc(cx, cy, r, sa, ea, color, lw, duration) {
 }
 
 // Semantic size mapping — LLM can use "h1", "h2", "text", "small", "label" or numbers
-const BD_SEMANTIC_SIZES = { h1: 20, h2: 17, h3: 15, text: 14, body: 14, small: 11, label: 10, caption: 9 };
+const BD_SEMANTIC_SIZES = { h1: 26, h2: 21, h3: 18, text: 16, body: 16, small: 13, label: 12, caption: 10 };
 
 function bdResolveSize(size) {
   if (typeof size === 'string' && BD_SEMANTIC_SIZES[size.toLowerCase()]) {
@@ -9172,6 +9364,34 @@ async function bdRunCommand(cmd) {
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
+  // ── Collision avoidance: nudge elements that overlap existing content ──
+  if (cmd.y !== undefined && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
+    const resolveH = (s) => {
+      if (typeof s === 'number') return s * 1.5;
+      if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;
+      return 25;
+    };
+    const myH = cmd.h || resolveH(cmd.size);
+    const myW = cmd.w || 200;
+    const myX = cmd.x || 0;
+    let myY = cmd.y;
+
+    // Check against all registered elements for overlap
+    for (const id in bdElementRegistry) {
+      const el = bdElementRegistry[id];
+      const overlap = myY < (el.y + el.h + 5) && (myY + myH) > el.y &&
+                      myX < (el.x + el.w + 5) && (myX + myW) > el.x;
+      if (overlap) {
+        // Nudge below the conflicting element
+        const nudged = el.y + el.h + 8;
+        if (nudged > myY) myY = nudged;
+      }
+    }
+    if (myY !== cmd.y) {
+      cmd.y = myY;
+    }
+  }
+
   // Track content bottom for continuous board positioning
   const cmdH = cmd.h || cmd.size || cmd.r || 20;
   if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
@@ -9179,28 +9399,18 @@ async function bdRunCommand(cmd) {
   if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
   if (cmd.cy !== undefined) bdUpdateContentBottom(cmd.cy, (cmd.r || 20) * 2);
 
-  // Register element by ID for referencing/scrolling
-  if (cmd.id) bdRegisterElement(cmd);
+  // Register element for referencing/scrolling AND collision detection
+  if (cmd.id) {
+    bdRegisterElement(cmd);
+  } else if (cmd.y !== undefined && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
+    // Register unnamed elements too (for collision detection)
+    const autoId = `_auto_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
+    bdRegisterElement({ ...cmd, id: autoId });
+  }
   // Hand cursor disabled — was causing positioning issues
   // if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
-  // Gentle auto-scroll: only nudge down when content reaches the bottom edge.
-  // Suppressed when the student has recently scrolled manually (cooldown).
-  {
-    const wrap = document.getElementById('bd-canvas-wrap');
-    if (wrap && !state.boardDraw._studentScrolledRecently) {
-      const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
-      const maxCmdY = ys.length ? Math.max(...ys) : -1;
-      if (maxCmdY >= 0) {
-        const cmdH = cmd.h || cmd.size || cmd.r || 20;
-        const scaledBottom = (maxCmdY + cmdH) * state.boardDraw.scale;
-        const viewBottom = wrap.scrollTop + wrap.clientHeight;
-        if (scaledBottom > viewBottom - 10 && scaledBottom < viewBottom + 200) {
-          const nudge = scaledBottom - viewBottom + 40;
-          wrap.scrollBy({ top: nudge, behavior: 'smooth' });
-        }
-      }
-    }
-  }
+  // Auto-scroll to keep new content visible
+  bdAutoScrollToCmd(cmd);
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
     case 'arrow': await bdAnimArrow(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
@@ -9345,12 +9555,12 @@ async function bdRunAnimation(cmd) {
   // Position uses virtual coords * scale
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
-  // Size: virtual * scale, clamped to board bounds
+  // Size: virtual * scale, clamped to reasonable bounds
   const rawW = (cmd.w || 350) * s;
   const rawH = (cmd.h || 200) * s;
-  const maxW = Math.max(200, boardW - x - 10, 200); // at least 200px
+  const maxW = Math.max(200, boardW - x - 10, 200);
   const w = Math.max(150, Math.min(rawW, maxW, boardW * 0.6, 700));
-  const h = Math.max(100, Math.min(rawH, boardH * 0.4, 300));
+  const h = Math.max(100, Math.min(rawH, boardH * 0.45, 350));
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
@@ -10045,6 +10255,10 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
         <span class="bd-toolbar-divider"></span>
         <button class="bd-tool-btn bd-clear-btn" onclick="bdClearStudentDrawing()" title="Clear my drawing">Clear</button>
         <button class="bd-tool-btn bd-send-btn" onclick="bdSendDrawing()" title="Send board to tutor">Send &#x2192;</button>
+        <span class="bd-toolbar-divider"></span>
+        <button class="bd-tool-btn" onclick="bdZoomOut()" title="Zoom out (Ctrl+-)">&#8722;</button>
+        <button class="bd-tool-btn" onclick="bdZoomReset()" title="Reset zoom (Ctrl+0)" id="bd-zoom-level" style="min-width:36px;font-size:10px;text-align:center">100%</button>
+        <button class="bd-tool-btn" onclick="bdZoomIn()" title="Zoom in (Ctrl++)">&#43;</button>
       </div>
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
         <canvas id="bd-canvas"></canvas>
@@ -10566,7 +10780,7 @@ document.addEventListener('DOMContentLoaded', () => {
   Router.resolve(location.pathname);
 
   // Clean up agent event SSE on page unload
-  window.addEventListener('beforeunload', () => disconnectAgentEvents());
+  window.addEventListener('beforeunload', () => cleanupActiveSession());
 
   // Stale streaming recovery when tab returns from background
   document.addEventListener('visibilitychange', () => {

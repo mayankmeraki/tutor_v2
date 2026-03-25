@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Auto-Layout Board — Placement Engine Demo</title>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap" rel="stylesheet">
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { background:#0d1117; overflow:hidden; height:100vh; display:flex; flex-direction:column; font-family:-apple-system,sans-serif; }
+
+  #board-wrap {
+    flex:1; position:relative; overflow:auto;
+    background:#0f1410;
+    background-image: radial-gradient(ellipse at 30% 40%, rgba(52,211,153,0.015) 0%, transparent 60%);
+    -webkit-overflow-scrolling:touch;
+  }
+
+  #board {
+    position:relative; min-height:100%; width:100%;
+    padding: 20px 30px 120px;
+  }
+
+  /* ── Grid overlay ───────────────────────── */
+  #board::before {
+    content:''; position:absolute; inset:0; pointer-events:none;
+    background-image:
+      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
+    background-size: 40px 40px;
+  }
+
+  /* ── Board elements ─────────────────────── */
+  .be { position:relative; opacity:0; transform:translateY(4px); animation:beIn 0.35s ease forwards; }
+  @keyframes beIn { to { opacity:1; transform:translateY(0); } }
+
+  /* Row container for side-by-side */
+  .be-row { display:flex; gap:20px; align-items:flex-start; }
+  .be-row > * { flex-shrink:0; }
+
+  /* Text elements */
+  .be-h1 { font-family:'Caveat',cursive; font-size:28px; font-weight:700; color:#fbbf24; margin-bottom:4px; text-shadow:0 0 12px rgba(251,191,36,0.08); }
+  .be-h2 { font-family:'Caveat',cursive; font-size:22px; font-weight:600; color:#34d399; margin-bottom:3px; }
+  .be-text { font-family:'Kalam','Caveat',cursive; font-size:17px; color:#e2e8f0; line-height:1.5; }
+  .be-small { font-family:'Kalam',cursive; font-size:14px; color:#94a3b8; }
+  .be-label { font-family:'Kalam',cursive; font-size:13px; color:#94a3b8; font-style:italic; }
+  .be-eq { font-family:'Caveat',cursive; font-size:22px; color:#fbbf24; padding:6px 0; }
+  .be-eq-lg { font-family:'Caveat',cursive; font-size:28px; color:#fbbf24; padding:8px 0; }
+
+  /* Color classes */
+  .c-gold { color:#fbbf24; } .c-green { color:#34d399; } .c-blue { color:#60a5fa; }
+  .c-red { color:#f87171; } .c-purple { color:#a78bfa; } .c-cyan { color:#53d8fb; }
+  .c-dim { color:#94a3b8; }
+
+  /* Animation container */
+  .be-anim {
+    border-radius:6px; overflow:hidden;
+    border:1px solid rgba(255,255,255,0.05);
+    box-shadow:0 0 12px rgba(0,0,0,0.2);
+    background:#0a0d0b;
+  }
+  .be-anim canvas { display:block; width:100%!important; height:100%!important; }
+
+  /* Separator */
+  .be-sep { height:1px; background:linear-gradient(90deg, transparent, rgba(52,211,153,0.15), transparent); margin:8px 0; }
+
+  /* Highlight glow */
+  .be.highlight {
+    transition: box-shadow 0.4s ease, transform 0.4s cubic-bezier(0.25,0.1,0.25,1);
+  }
+  .be.highlight-active {
+    box-shadow: 0 0 20px rgba(251,191,36,0.15);
+    transform: scale(1.04);
+    z-index:10;
+  }
+  .be.highlight-fade {
+    box-shadow: none; transform: scale(1);
+  }
+
+  /* ── Subtitle ───────────────────────────── */
+  #sub {
+    position:fixed; bottom:68px; left:50%; transform:translateX(-50%);
+    max-width:580px; width:88%;
+    background:rgba(13,17,23,0.93); border:1px solid rgba(255,255,255,0.06);
+    border-radius:12px; padding:10px 20px;
+    text-align:center; font-size:14px; line-height:1.5; color:#e2e8f0;
+    backdrop-filter:blur(14px); opacity:0; transition:opacity 0.25s; z-index:50;
+  }
+  #sub.vis { opacity:1; }
+
+  /* ── Voice bar ──────────────────────────── */
+  #vbar {
+    position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
+    max-width:440px; width:88%; z-index:55;
+  }
+  .vb { background:rgba(17,20,19,0.92); border:1px solid rgba(52,211,153,0.13); border-radius:26px; padding:4px 4px 4px 14px; display:flex; align-items:center; gap:5px; backdrop-filter:blur(12px); box-shadow:0 3px 16px rgba(0,0,0,0.3); }
+  .vb input { flex:1; background:none; border:none; outline:none; color:#e2e8f0; font-size:13px; padding:7px 0; }
+  .vb input::placeholder { color:#94a3b8; }
+  .vb-mic { width:34px; height:34px; border-radius:50%; background:rgba(52,211,153,0.1); border:1.5px solid rgba(52,211,153,0.25); color:#34d399; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
+
+  /* ── Controls ───────────────────────────── */
+  #ctrls {
+    position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:100;
+    display:flex; gap:4px; background:rgba(13,17,23,0.88); padding:4px 6px;
+    border-radius:8px; border:1px solid rgba(255,255,255,0.05); backdrop-filter:blur(10px);
+  }
+  #ctrls button { padding:5px 10px; border-radius:5px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); color:#94a3b8; cursor:pointer; font-size:11px; }
+  #ctrls button:hover { background:rgba(52,211,153,0.08); color:#e2e8f0; }
+  #ctrls button.on { background:rgba(52,211,153,0.12); color:#34d399; border-color:rgba(52,211,153,0.25); }
+
+  /* ── Layout debug overlay ───────────────── */
+  .layout-log {
+    position:fixed; bottom:60px; right:10px; z-index:200;
+    background:rgba(0,0,0,0.85); color:#94a3b8; font-size:10px; font-family:monospace;
+    padding:8px 10px; border-radius:6px; max-width:260px; max-height:300px; overflow-y:auto;
+    border:1px solid rgba(255,255,255,0.06); line-height:1.5;
+  }
+  .layout-log b { color:#34d399; }
+  .layout-log .y-val { color:#fbbf24; }
+</style>
+</head>
+<body>
+
+<div id="board-wrap">
+  <div id="board"></div>
+</div>
+<div id="sub"></div>
+<div id="vbar"><div class="vb"><input placeholder="Type or hold Space to talk..." disabled><div class="vb-mic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div></div></div>
+
+<div id="ctrls">
+  <button onclick="runS1()" class="on">Schrödinger Eq.</button>
+  <button onclick="runS2()">Operators + Anim</button>
+  <button onclick="runS3()">Side-by-Side Compare</button>
+  <button onclick="reset()">Reset</button>
+</div>
+
+<div class="layout-log" id="log">
+  <b>Layout Engine Log</b><br>
+  <span class="c-dim">Beats will show placement resolution here</span>
+</div>
+
+<script>
+const board = document.getElementById('board');
+const subEl = document.getElementById('sub');
+const logEl = document.getElementById('log');
+
+// ── Layout Engine State ─────────────────────────────────
+const layout = {
+  cursorY: 0,        // next available Y (px)
+  elements: {},      // id → { el, y, h, w, x }
+  rowActive: false,  // currently placing items side-by-side
+  rowY: 0,           // Y of current row
+  rowX: 0,           // next X in current row
+  rowMaxH: 0,        // tallest item in current row
+};
+
+function layoutReset() {
+  layout.cursorY = 0;
+  layout.elements = {};
+  layout.rowActive = false;
+  layout.rowY = 0; layout.rowX = 0; layout.rowMaxH = 0;
+}
+
+function logPlacement(id, placement, resolved) {
+  const line = document.createElement('div');
+  line.innerHTML = `<b>${placement}</b> → y=<span class="y-val">${Math.round(resolved.y)}</span> x=${Math.round(resolved.x)} ${id ? `<span class="c-dim">#${id}</span>` : ''}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+// ── Placement Resolver ──────────────────────────────────
+// Converts placement strings to {x, y} coordinates
+
+function resolve(placement, w, h) {
+  const boardW = board.offsetWidth - 60; // usable width (minus padding)
+  let x = 0, y = layout.cursorY;
+
+  if (!placement || placement === 'below') {
+    // Default: below last content, left-aligned
+    x = 0; y = layout.cursorY;
+    if (layout.rowActive) endRow();
+
+  } else if (placement === 'center') {
+    x = Math.max(0, (boardW - (w || 300)) / 2);
+    y = layout.cursorY;
+    if (layout.rowActive) endRow();
+
+  } else if (placement === 'right') {
+    x = boardW - (w || 200);
+    y = layout.cursorY;
+    if (layout.rowActive) endRow();
+
+  } else if (placement === 'row-start') {
+    // Start a new row for side-by-side elements
+    if (layout.rowActive) endRow();
+    layout.rowActive = true;
+    layout.rowY = layout.cursorY;
+    layout.rowX = 0;
+    layout.rowMaxH = 0;
+    x = 0; y = layout.rowY;
+
+  } else if (placement === 'row-next') {
+    // Next item in the current row
+    if (!layout.rowActive) { layout.rowActive = true; layout.rowY = layout.cursorY; layout.rowX = 0; layout.rowMaxH = 0; }
+    x = layout.rowX;
+    y = layout.rowY;
+
+  } else if (placement.startsWith('right-of:')) {
+    // Place to the right of a specific element
+    const refId = placement.split(':')[1];
+    const ref = layout.elements[refId];
+    if (ref) {
+      x = ref.x + ref.w + 15;
+      y = ref.y;
+    } else {
+      x = boardW * 0.5; y = layout.cursorY;
+    }
+
+  } else if (placement.startsWith('below:')) {
+    // Place below a specific element
+    const refId = placement.split(':')[1];
+    const ref = layout.elements[refId];
+    if (ref) {
+      x = ref.x;
+      y = ref.y + ref.h + 8;
+    } else {
+      y = layout.cursorY;
+    }
+
+  } else if (placement === 'indent') {
+    x = 30; y = layout.cursorY;
+    if (layout.rowActive) endRow();
+  }
+
+  return { x, y };
+}
+
+function commitElement(id, x, y, w, h) {
+  if (id) layout.elements[id] = { x, y, w, h };
+
+  if (layout.rowActive) {
+    layout.rowX = x + w + 20;
+    layout.rowMaxH = Math.max(layout.rowMaxH, h);
+    // Don't advance cursorY — row continues
+  } else {
+    layout.cursorY = y + h + 12; // 12px gap
+  }
+}
+
+function endRow() {
+  if (layout.rowActive) {
+    layout.cursorY = layout.rowY + layout.rowMaxH + 12;
+    layout.rowActive = false;
+    layout.rowX = 0; layout.rowMaxH = 0;
+  }
+}
+
+// ── Element Creators ────────────────────────────────────
+
+function makeText(text, cls, id) {
+  const el = document.createElement('div');
+  el.className = `be ${cls} highlight`;
+  el.innerHTML = text;
+  if (id) el.id = id;
+  return el;
+}
+
+function makeAnim(w, h, launchFn) {
+  const el = document.createElement('div');
+  el.className = 'be be-anim highlight';
+  el.style.width = w + 'px'; el.style.height = h + 'px';
+  setTimeout(() => launchFn(el, w, h), 50);
+  return el;
+}
+
+function makeSep() {
+  const el = document.createElement('div');
+  el.className = 'be be-sep';
+  return el;
+}
+
+// ── Beat Executor ───────────────────────────────────────
+
+let bQ = [], bRun = false;
+function addB(b) { bQ.push(b); if (!bRun) drain(); }
+async function drain() { bRun = true; while(bQ.length) await exec(bQ.shift()); bRun = false; }
+
+async function exec(b) {
+  if (b.say) { subEl.textContent = b.say; subEl.classList.add('vis'); }
+
+  if (b.el) {
+    const placement = b.placement || 'below';
+    const elW = b.w || 400;
+    const elH = b.h || 30;
+
+    const { x, y } = resolve(placement, elW, elH);
+
+    b.el.style.marginLeft = x + 'px';
+    board.appendChild(b.el);
+
+    // Measure actual rendered size
+    const actualW = b.el.offsetWidth || elW;
+    const actualH = b.el.offsetHeight || elH;
+
+    commitElement(b.id, x, y, actualW, actualH);
+    logPlacement(b.id, placement, { x, y });
+
+    // Scroll to show new content
+    const wrap = document.getElementById('board-wrap');
+    const elBottom = board.offsetTop + layout.cursorY + 60;
+    if (elBottom > wrap.scrollTop + wrap.clientHeight - 40) {
+      wrap.scrollTo({ top: Math.max(0, elBottom - wrap.clientHeight * 0.7), behavior: 'smooth' });
+    }
+  }
+
+  // Ref highlight
+  if (b.ref) {
+    const target = document.getElementById(b.ref);
+    if (target) {
+      target.classList.add('highlight-active');
+      setTimeout(() => { target.classList.remove('highlight-active'); target.classList.add('highlight-fade'); setTimeout(() => target.classList.remove('highlight-fade'), 400); }, 1400);
+    }
+  }
+
+  const dur = b.pause !== undefined ? b.pause : (b.say ? Math.max(0.8, b.say.length * 0.028) : 0.3);
+  await new Promise(r => setTimeout(r, dur * 1000));
+  if (b.say && !b.question) { subEl.classList.remove('vis'); await new Promise(r => setTimeout(r, 120)); }
+}
+
+// ── p5 animations ───────────────────────────────────────
+
+function launchWave(c, w, h) {
+  new p5(p => { let t=0; p.setup=()=>{p.createCanvas(w,h);p.textFont('Caveat');}; p.draw=()=>{
+    p.background(10,13,11); t+=.025;
+    const cx=w*.5, sig=w*.14;
+    p.noFill(); p.stroke(52,211,153,130); p.strokeWeight(1.5); p.beginShape();
+    for(let x=0;x<w;x+=2){const e=Math.exp(-((x-cx)**2)/(2*sig*sig));p.vertex(x,h*.42-e*Math.cos(.05*x-t*3)*h*.25);}p.endShape();
+    p.stroke(251,191,36,200);p.strokeWeight(1.5);p.beginShape();
+    const s2=sig+Math.sin(t*.4)*w*.015;for(let x=0;x<w;x+=2){const pr=Math.exp(-((x-cx)**2)/(2*s2*s2))*h*.28;p.vertex(x,h*.78-pr);}p.endShape();
+    p.noStroke();p.fill(52,211,153,120);p.textSize(Math.max(10,w*.02));p.text('Re(ψ)',5,14);
+    p.fill(251,191,36,160);p.text('|ψ|²',5,h-6);
+    p.stroke(255,255,255,20);p.strokeWeight(.5);p.line(0,h*.42,w,h*.42);p.line(0,h*.78,w,h*.78);
+  };},c);
+}
+
+function launchHamiltonian(c, w, h) {
+  new p5(p => { let t=0; p.setup=()=>{p.createCanvas(w,h);p.textFont('Caveat');}; p.draw=()=>{
+    p.background(10,13,11); t+=.03;
+    // Potential well
+    p.stroke(96,165,250,100); p.strokeWeight(1.5); p.noFill();
+    p.beginShape(); for(let x=0;x<w;x+=2){const v=x<w*.2||x>w*.8?h*.3:h*.7+Math.sin(x*.02)*8;p.vertex(x,v);} p.endShape();
+    // Energy levels
+    for(let n=1;n<=4;n++){
+      const ey=h*.7-n*h*.08; p.stroke(251,191,36,80+n*20);p.strokeWeight(1);
+      p.line(w*.22,ey,w*.78,ey);
+      // Wavefunction on each level
+      p.stroke(52,211,153,100+n*25);p.strokeWeight(1.5);p.noFill();p.beginShape();
+      for(let x=w*.22;x<w*.78;x+=2){const L=w*.56;const xi=x-w*.22;
+        p.vertex(x,ey-Math.sin(n*Math.PI*xi/L)*Math.cos(t*2+n)*12);}p.endShape();
+    }
+    p.noStroke();p.fill(96,165,250,100);p.textSize(Math.max(10,w*.025));p.text('V(x)',w*.85,h*.35);
+    p.fill(251,191,36,120);p.text('E₁,E₂,E₃,E₄',w*.22,h*.25);
+  };},c);
+}
+
+// ── SCENE 1: Schrödinger Equation ───────────────────────
+
+function runS1() {
+  reset(); document.querySelectorAll('#ctrls button')[0].classList.add('on');
+
+  addB({ el: makeText('The Schrödinger Equation', 'be-h1'), placement:'center', id:'title',
+    say:"Let me show you the most important equation in quantum mechanics." });
+
+  addB({ el: makeText('iℏ ∂ψ/∂t = Ĥψ', 'be-eq-lg c-gold'), placement:'center', id:'eq-main',
+    say:"Here it is. Energy governs how the wave function evolves in time." });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ el: makeText('Breaking it down:', 'be-h2'), placement:'below', id:'breakdown',
+    say:"Let me break down each piece." });
+
+  // Side by side: left column = symbols, right = meaning
+  addB({ el: makeText('<span class="c-blue">ψ</span> — the wave function', 'be-text'), placement:'row-start', id:'psi-label', w:280,
+    say:"Psi is the wave function. It contains everything knowable about the particle." });
+
+  addB({ el: makeText('<span class="c-dim">→ complete quantum description</span>', 'be-small'), placement:'row-next', w:250, pause:0.3 });
+
+  addB({ el: makeText('<span class="c-green">Ĥ</span> — the Hamiltonian', 'be-text'), placement:'row-start', id:'h-label', w:280,
+    say:"H-hat is the Hamiltonian — the total energy operator." });
+
+  addB({ el: makeText('<span class="c-dim">→ kinetic + potential energy</span>', 'be-small'), placement:'row-next', w:250, pause:0.3 });
+
+  addB({ el: makeText('<span class="c-gold">iℏ ∂/∂t</span> — time evolution', 'be-text'), placement:'row-start', id:'time-label', w:280,
+    say:"The left side — how things change in time." });
+
+  addB({ el: makeText('<span class="c-dim">→ rate of change of ψ</span>', 'be-small'), placement:'row-next', w:250, pause:0.3 });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ el: makeText('The Analogy', 'be-h2'), placement:'below',
+    say:"Think of it like Newton's equation." });
+
+  addB({ el: makeText('<span class="c-green">Classical:</span> F = ma — force tells mass how to accelerate', 'be-text'), placement:'below', id:'newton',
+    say:"F equals m-a tells a ball how to move." });
+
+  addB({ el: makeText('<span class="c-gold">Quantum:</span> Ĥψ = iℏ∂ψ/∂t — energy tells ψ how to evolve', 'be-text'), placement:'below', id:'quantum',
+    say:"Schrödinger's equation does the same — for quantum particles.", pause:0.5 });
+
+  addB({ say:"Same philosophy. {ref:newton} {ref:quantum}", ref:'newton', pause:0.8 });
+  addB({ say:"Completely different math. {ref:quantum}", ref:'quantum', pause:0.5 });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ el: makeText('The Born Rule', 'be-h2 c-green'), placement:'below', id:'born-title',
+    say:"Now the physical meaning of psi." });
+
+  addB({ el: makeText('|ψ(x,t)|² dx = probability of finding particle near x', 'be-eq c-gold'), placement:'below', id:'born-eq',
+    say:"Psi squared gives probability. This is the Born rule." });
+
+  const animW = Math.min(board.offsetWidth - 60, 500);
+  addB({ el: makeAnim(animW, 160, launchWave), placement:'below', id:'wave-anim', w:animW, h:160,
+    say:"Green is Re(ψ) — it oscillates. Gold is the probability density." });
+
+  addB({ el: makeText('↑ Where is the particle most likely to be found?', 'be-text c-gold'), placement:'below',
+    say:"Look at the gold curve. Where is it peaked?", question:true, pause:0 });
+}
+
+// ── SCENE 2: Operators + Animation ──────────────────────
+
+function runS2() {
+  reset(); document.querySelectorAll('#ctrls button')[1].classList.add('on');
+
+  addB({ el: makeText('Operators — Math Tools for Physics', 'be-h1'), placement:'center', id:'t2',
+    say:"Let me show you what operators really are." });
+
+  addB({ el: makeText('An operator is a <span class="c-gold">machine</span> that takes a function in and gives a new function out.', 'be-text'), placement:'below', id:'op-def',
+    say:"An operator is like a machine. You feed it a function, it gives you back a different function." });
+
+  addB({ el: makeText('ψ(x)  →  <span class="c-gold">[Ĥ]</span>  →  new function', 'be-eq'), placement:'center', id:'op-flow',
+    say:"Put psi in, get a new function out." });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ el: makeText('The Hamiltonian: Ĥ = T + V', 'be-h2'), placement:'below', id:'ham-title',
+    say:"The Hamiltonian is the total energy operator." });
+
+  // Side by side: equation + animation
+  const animW = Math.min(Math.round((board.offsetWidth - 80) * 0.55), 380);
+  const textW = Math.min(Math.round((board.offsetWidth - 80) * 0.38), 300);
+
+  addB({ el: makeAnim(animW, 180, launchHamiltonian), placement:'row-start', id:'ham-anim', w:animW, h:180,
+    say:"Here's a potential well with energy levels. Watch the wavefunctions oscillate." });
+
+  addB({ el: makeText(
+    '<span class="c-blue">Blue</span> — potential V(x)<br>' +
+    '<span class="c-gold">Gold lines</span> — energy levels E₁ to E₄<br>' +
+    '<span class="c-green">Green waves</span> — ψₙ(x) eigenstates<br><br>' +
+    '<span class="c-dim">Higher n → faster oscillation → more kinetic energy</span>',
+    'be-text'), placement:'row-next', w:textW, id:'ham-legend',
+    say:"Blue is the potential well. Gold lines are energy levels. Green waves are the eigenstates." });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ el: makeText('Key insight:', 'be-h2'), placement:'below',
+    say:"Here's the key insight." });
+
+  addB({ el: makeText('Ĥψₙ = Eₙψₙ', 'be-eq-lg c-gold'), placement:'center', id:'eigenvalue',
+    say:"When H-hat acts on an eigenstate, you just get a number times the same state." });
+
+  addB({ say:"Look at the animation. {ref:ham-anim} Each wave keeps its shape — it's an eigenstate.", ref:'ham-anim' });
+
+  addB({ el: makeText('The operator <span class="c-gold">Ĥ</span> doesn\'t change the shape of ψₙ — it just multiplies by <span class="c-gold">Eₙ</span>', 'be-text'), placement:'below',
+    say:"The operator doesn't change the shape. It just scales it. That's what eigenvalue means.", question:true, pause:0 });
+}
+
+// ── SCENE 3: Side-by-Side Comparison ────────────────────
+
+function runS3() {
+  reset(); document.querySelectorAll('#ctrls button')[2].classList.add('on');
+
+  addB({ el: makeText('Two Quantum Processes', 'be-h1'), placement:'center', id:'t3',
+    say:"Quantum mechanics has two fundamentally different processes." });
+
+  const colW = Math.round((board.offsetWidth - 80) * 0.45);
+
+  // Row: two headings side by side
+  addB({ el: makeText('Evolution', 'be-h2 c-green'), placement:'row-start', id:'evol-h', w:colW,
+    say:"On the left — evolution. Smooth and predictable." });
+  addB({ el: makeText('Measurement', 'be-h2 c-red'), placement:'row-next', id:'meas-h', w:colW,
+    say:"On the right — measurement. Random and irreversible.", pause:0.4 });
+
+  // Row: descriptions
+  addB({ el: makeText(
+    'Rule: <span class="c-green">Schrödinger equation</span><br>' +
+    '• Deterministic<br>• Reversible<br>• All info preserved<br>• Ĥ acts continuously',
+    'be-text'), placement:'row-start', id:'evol-body', w:colW,
+    say:"Evolution is governed by the Schrödinger equation. Deterministic, reversible, all information preserved." });
+
+  addB({ el: makeText(
+    'Rule: <span class="c-red">Born rule + collapse</span><br>' +
+    '• <span class="c-red">Probabilistic</span><br>• <span class="c-red">Irreversible</span><br>• Info <span class="c-red">lost</span><br>• ψ jumps to eigenstate',
+    'be-text'), placement:'row-next', id:'meas-body', w:colW,
+    say:"Measurement is the opposite. Random, irreversible, information destroyed." });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ el: makeText('The evolution equation:', 'be-text c-dim'), placement:'below', pause:0.2 });
+  addB({ el: makeText('ψ(t) = e^(-iĤt/ℏ) ψ(0)', 'be-eq c-green'), placement:'center', id:'evol-eq',
+    say:"Evolution is just a rotation. Each eigenstate spins at its own speed." });
+
+  addB({ el: makeText('The measurement rule:', 'be-text c-dim'), placement:'below', pause:0.2 });
+  addB({ el: makeText('P(aₙ) = |⟨φₙ|ψ⟩|²  →  ψ collapses to |φₙ⟩', 'be-eq c-red'), placement:'center', id:'meas-eq',
+    say:"Measurement randomly picks an eigenvalue. Psi collapses. Nobody knows why." });
+
+  addB({ el: makeSep(), placement:'below', pause:0.2 });
+
+  addB({ say:"Compare these two. {ref:evol-eq} Smooth rotation.", ref:'evol-eq', pause:0.8 });
+  addB({ say:"Versus this. {ref:meas-eq} Sudden collapse. Completely different.", ref:'meas-eq', pause:0.5 });
+
+  addB({ el: makeText(
+    '<span class="c-dim" style="font-style:italic">"God does not play dice." — Einstein<br>' +
+    '"Stop telling God what to do." — Bohr</span>',
+    'be-text'), placement:'center',
+    say:"Einstein hated measurement. Bohr told him to deal with it.", question:true, pause:0 });
+}
+
+// ── Reset ───────────────────────────────────────────────
+
+function reset() {
+  board.innerHTML = ''; layoutReset();
+  subEl.classList.remove('vis');
+  bQ = []; bRun = false;
+  logEl.innerHTML = '<b>Layout Engine Log</b><br>';
+  document.querySelectorAll('#ctrls button').forEach(b => b.classList.remove('on'));
+}
+
+setTimeout(runS1, 300);
+</script>
+</body>
+</html>

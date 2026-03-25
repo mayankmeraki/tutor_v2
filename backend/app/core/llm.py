@@ -716,8 +716,13 @@ class OpenRouterLLMStream:
         return self._text_stream_gen()
 
     async def _text_stream_gen(self):
+        _first_chunk = True
         try:
             async for chunk in self._raw:
+                if _first_chunk:
+                    _first_chunk = False
+                    log.info("LLM stream TTFB", extra={"model": self._model, "ttfb_ms": round((time.monotonic() - self._start_time) * 1000)})
+
                 # Usage-only chunk (no choices)
                 if not chunk.choices:
                     if chunk.usage:

@@ -23,22 +23,21 @@ FONT SIZES — semantic names (engine auto-scales to screen):
 
 LAYOUT RULES (virtual coords 0-800 width):
   The board is ONE continuous scrollable surface growing downward.
-  The engine auto-offsets Y coordinates — just use Y starting from 20 each scene.
+  The engine auto-offsets Y coordinates — just use Y starting from 15 each scene.
 
-  KEY: Use the FULL 800-wide space. Don't cram things left.
-  - Titles: x=150-300 (centered), y=20
-  - Main equation: x=100-200 (centered), y=60-100
-  - Labels LEFT of equation: x=30-200
-  - Labels RIGHT of equation: x=450-750
-  - Annotations/explanations: x=30, y below equation
-  - Animations: x=30, w=350, h=180 (left side), text at x=400+
-    OR full width: x=20, w=750, h=200
+  USE THE FULL WIDTH. Don't cram things left.
+  - Titles: x=100-300, y=15
+  - Main equation: x=80-200, y=45-70
+  - Labels beside equations: x=400-750 (same Y as equation)
+  - Explanations: x=30, y below equation
+  - Animations: x=20, w=350, h=160 (left), text at x=400+
+    OR full width: x=20, w=750, h=180
 
-  SPACING:
-  - 30px vertical gap between elements
-  - 40px left/right margins (x=30 to x=770)
-  - Don't stack more than 3 elements side by side
-  - Leave room — whitespace is good for readability
+  TIGHT SPACING — pack content close:
+  - 15-20px vertical gap between elements (NOT 30+)
+  - 30px left/right margins (x=30 to x=770)
+  - Place labels BESIDE things, not below with big gaps
+  - The board should look full and organized, not sparse
 
 ═══ EPHEMERAL ANNOTATIONS ═══
 

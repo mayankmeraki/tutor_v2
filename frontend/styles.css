@@ -157,9 +157,7 @@ body {
 
 /* Board frame thumbnails strip */
 #board-frame-strip {
-  display: flex; gap: 4px; padding: 4px 8px; overflow-x: auto;
-  border-top: 1px solid var(--border); background: var(--bg);
-  flex-shrink: 0; max-height: 56px;
+  display: none;
 }
 #board-frame-strip:empty { display: none; }
 .board-frame-thumb {
@@ -4051,9 +4049,10 @@ body {
 .bd-send-btn:hover { opacity: 0.85; }
 .bd-canvas-wrap {
   flex: 1;
-  overflow-y: auto;
-  overflow-x: hidden;
+  overflow: auto;
   position: relative;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y pinch-zoom;
 }
 #bd-canvas {
   display: block;

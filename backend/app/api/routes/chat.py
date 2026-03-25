@@ -1566,8 +1566,11 @@ async def chat(request: Request):
             slog.info("Tutor prompt built", extra={"token_count": prompt_size // 4})
 
             # ── Step 6: Tutor agentic loop ────────────────────────────
+            import time as _time
+            _turn_start = _time.monotonic()
+            _first_text_at = None
             rounds = 0
-            _section_content_calls = 0  # cap get_section_content per turn
+            _section_content_calls = 0
             MAX_SECTION_CONTENT_CALLS = 3
 
             # Periodic student model update (every 5 turns)
@@ -1621,6 +1624,9 @@ async def chat(request: Request):
                                     message_id = str(uuid.uuid4())
                                     yield _sse({"type": "TEXT_MESSAGE_START", "messageId": message_id})
                                     text_started = True
+                                    if _first_text_at is None:
+                                        _first_text_at = _time.monotonic()
+                                        slog.info("TTFT", extra={"ttft_ms": round((_first_text_at - _turn_start) * 1000), "round": rounds})
                                 text_length += len(text)
                                 yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
 
@@ -1665,6 +1671,7 @@ async def chat(request: Request):
                         "tokens_out": message.usage.output_tokens,
                         "stop_reason": message.stop_reason,
                         "round": rounds,
+                        "turn_elapsed_ms": round((_time.monotonic() - _turn_start) * 1000),
                     },
                 )
 
@@ -2271,6 +2278,12 @@ async def chat(request: Request):
                     await sync_backend_state(session_id, session)
                 except Exception as e:
                     slog.warning("Failed to sync session state: %s", e)
+
+                slog.info("TURN COMPLETE", extra={
+                    "total_ms": round((_time.monotonic() - _turn_start) * 1000),
+                    "ttft_ms": round((_first_text_at - _turn_start) * 1000) if _first_text_at else None,
+                    "rounds": rounds,
+                })
 
                 yield _sse({"type": "RUN_FINISHED"})
                 return

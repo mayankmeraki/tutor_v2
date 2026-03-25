@@ -106,7 +106,7 @@ const Router = (() => {
       const tl = document.getElementById('teaching-layout');
       if (tl && !tl.classList.contains('hidden')) {
         tl.classList.add('hidden');
-        if (typeof disconnectAgentEvents === 'function') disconnectAgentEvents();
+        if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
         if (typeof timerInterval !== 'undefined' && timerInterval) clearInterval(timerInterval);
       }
     }
