@@ -3,539 +3,513 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Auto-Layout Board — Placement Engine Demo</title>
+<title>Board Engine v2 — Full Visual Primitives</title>
 <script src="https://cdn.jsdelivr.net/npm/p5@1.9.0/lib/p5.min.js"></script>
 <link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Kalam:wght@300;400;700&display=swap" rel="stylesheet">
 <style>
-  * { margin:0; padding:0; box-sizing:border-box; }
-  body { background:#0d1117; overflow:hidden; height:100vh; display:flex; flex-direction:column; font-family:-apple-system,sans-serif; }
-
-  #board-wrap {
-    flex:1; position:relative; overflow:auto;
-    background:#0f1410;
-    background-image: radial-gradient(ellipse at 30% 40%, rgba(52,211,153,0.015) 0%, transparent 60%);
-    -webkit-overflow-scrolling:touch;
-  }
-
-  #board {
-    position:relative; min-height:100%; width:100%;
-    padding: 20px 30px 120px;
-  }
-
-  /* ── Grid overlay ───────────────────────── */
-  #board::before {
-    content:''; position:absolute; inset:0; pointer-events:none;
-    background-image:
-      linear-gradient(rgba(255,255,255,0.02) 1px, transparent 1px),
-      linear-gradient(90deg, rgba(255,255,255,0.02) 1px, transparent 1px);
-    background-size: 40px 40px;
-  }
-
-  /* ── Board elements ─────────────────────── */
-  .be { position:relative; opacity:0; transform:translateY(4px); animation:beIn 0.35s ease forwards; }
-  @keyframes beIn { to { opacity:1; transform:translateY(0); } }
-
-  /* Row container for side-by-side */
-  .be-row { display:flex; gap:20px; align-items:flex-start; }
-  .be-row > * { flex-shrink:0; }
-
-  /* Text elements */
-  .be-h1 { font-family:'Caveat',cursive; font-size:28px; font-weight:700; color:#fbbf24; margin-bottom:4px; text-shadow:0 0 12px rgba(251,191,36,0.08); }
-  .be-h2 { font-family:'Caveat',cursive; font-size:22px; font-weight:600; color:#34d399; margin-bottom:3px; }
-  .be-text { font-family:'Kalam','Caveat',cursive; font-size:17px; color:#e2e8f0; line-height:1.5; }
-  .be-small { font-family:'Kalam',cursive; font-size:14px; color:#94a3b8; }
-  .be-label { font-family:'Kalam',cursive; font-size:13px; color:#94a3b8; font-style:italic; }
-  .be-eq { font-family:'Caveat',cursive; font-size:22px; color:#fbbf24; padding:6px 0; }
-  .be-eq-lg { font-family:'Caveat',cursive; font-size:28px; color:#fbbf24; padding:8px 0; }
-
-  /* Color classes */
-  .c-gold { color:#fbbf24; } .c-green { color:#34d399; } .c-blue { color:#60a5fa; }
-  .c-red { color:#f87171; } .c-purple { color:#a78bfa; } .c-cyan { color:#53d8fb; }
-  .c-dim { color:#94a3b8; }
-
-  /* Animation container */
-  .be-anim {
-    border-radius:6px; overflow:hidden;
-    border:1px solid rgba(255,255,255,0.05);
-    box-shadow:0 0 12px rgba(0,0,0,0.2);
-    background:#0a0d0b;
-  }
-  .be-anim canvas { display:block; width:100%!important; height:100%!important; }
-
-  /* Separator */
-  .be-sep { height:1px; background:linear-gradient(90deg, transparent, rgba(52,211,153,0.15), transparent); margin:8px 0; }
-
-  /* Highlight glow */
-  .be.highlight {
-    transition: box-shadow 0.4s ease, transform 0.4s cubic-bezier(0.25,0.1,0.25,1);
-  }
-  .be.highlight-active {
-    box-shadow: 0 0 20px rgba(251,191,36,0.15);
-    transform: scale(1.04);
-    z-index:10;
-  }
-  .be.highlight-fade {
-    box-shadow: none; transform: scale(1);
-  }
-
-  /* ── Subtitle ───────────────────────────── */
-  #sub {
-    position:fixed; bottom:68px; left:50%; transform:translateX(-50%);
-    max-width:580px; width:88%;
-    background:rgba(13,17,23,0.93); border:1px solid rgba(255,255,255,0.06);
-    border-radius:12px; padding:10px 20px;
-    text-align:center; font-size:14px; line-height:1.5; color:#e2e8f0;
-    backdrop-filter:blur(14px); opacity:0; transition:opacity 0.25s; z-index:50;
-  }
-  #sub.vis { opacity:1; }
-
-  /* ── Voice bar ──────────────────────────── */
-  #vbar {
-    position:fixed; bottom:12px; left:50%; transform:translateX(-50%);
-    max-width:440px; width:88%; z-index:55;
-  }
-  .vb { background:rgba(17,20,19,0.92); border:1px solid rgba(52,211,153,0.13); border-radius:26px; padding:4px 4px 4px 14px; display:flex; align-items:center; gap:5px; backdrop-filter:blur(12px); box-shadow:0 3px 16px rgba(0,0,0,0.3); }
-  .vb input { flex:1; background:none; border:none; outline:none; color:#e2e8f0; font-size:13px; padding:7px 0; }
-  .vb input::placeholder { color:#94a3b8; }
-  .vb-mic { width:34px; height:34px; border-radius:50%; background:rgba(52,211,153,0.1); border:1.5px solid rgba(52,211,153,0.25); color:#34d399; display:flex; align-items:center; justify-content:center; flex-shrink:0; }
-
-  /* ── Controls ───────────────────────────── */
-  #ctrls {
-    position:fixed; top:8px; left:50%; transform:translateX(-50%); z-index:100;
-    display:flex; gap:4px; background:rgba(13,17,23,0.88); padding:4px 6px;
-    border-radius:8px; border:1px solid rgba(255,255,255,0.05); backdrop-filter:blur(10px);
-  }
-  #ctrls button { padding:5px 10px; border-radius:5px; background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.06); color:#94a3b8; cursor:pointer; font-size:11px; }
-  #ctrls button:hover { background:rgba(52,211,153,0.08); color:#e2e8f0; }
-  #ctrls button.on { background:rgba(52,211,153,0.12); color:#34d399; border-color:rgba(52,211,153,0.25); }
-
-  /* ── Layout debug overlay ───────────────── */
-  .layout-log {
-    position:fixed; bottom:60px; right:10px; z-index:200;
-    background:rgba(0,0,0,0.85); color:#94a3b8; font-size:10px; font-family:monospace;
-    padding:8px 10px; border-radius:6px; max-width:260px; max-height:300px; overflow-y:auto;
-    border:1px solid rgba(255,255,255,0.06); line-height:1.5;
-  }
-  .layout-log b { color:#34d399; }
-  .layout-log .y-val { color:#fbbf24; }
+  *{margin:0;padding:0;box-sizing:border-box}
+  body{background:#0d1117;overflow:hidden;height:100vh;display:flex;flex-direction:column;font-family:-apple-system,sans-serif;color:#e2e8f0}
+  #board-wrap{flex:1;position:relative;overflow:auto;background:#111614;-webkit-overflow-scrolling:touch}
+  #canvas-board{display:block}
+  #anim-layer{position:absolute;top:0;left:0;width:100%;pointer-events:none}
+  #anim-layer .anim-box{position:absolute;border:1px solid rgba(255,255,255,0.05);border-radius:4px;overflow:hidden;box-shadow:0 0 12px rgba(0,0,0,0.2);pointer-events:auto}
+  #anim-layer .anim-box canvas{display:block}
+  #sub{position:fixed;bottom:68px;left:50%;transform:translateX(-50%);max-width:580px;width:88%;background:rgba(13,17,23,0.93);border:1px solid rgba(255,255,255,0.06);border-radius:12px;padding:10px 20px;text-align:center;font-size:14px;line-height:1.5;backdrop-filter:blur(14px);opacity:0;transition:opacity 0.25s;z-index:50}
+  #sub.vis{opacity:1}
+  #vbar{position:fixed;bottom:12px;left:50%;transform:translateX(-50%);max-width:440px;width:88%;z-index:55}
+  .vb-pill{background:rgba(17,20,19,0.92);border:1px solid rgba(52,211,153,0.13);border-radius:26px;padding:4px 4px 4px 14px;display:flex;align-items:center;gap:5px;backdrop-filter:blur(12px);box-shadow:0 3px 16px rgba(0,0,0,0.3)}
+  .vb-pill input{flex:1;background:none;border:none;outline:none;color:#e2e8f0;font-size:13px;padding:7px 0}
+  .vb-pill input::placeholder{color:#94a3b8}
+  .vb-mic{width:34px;height:34px;border-radius:50%;background:rgba(52,211,153,0.1);border:1.5px solid rgba(52,211,153,0.25);color:#34d399;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+  #ctrls{position:fixed;top:8px;left:50%;transform:translateX(-50%);z-index:100;display:flex;gap:4px;background:rgba(13,17,23,0.88);padding:4px 6px;border-radius:8px;border:1px solid rgba(255,255,255,0.05);backdrop-filter:blur(10px)}
+  #ctrls button{padding:5px 10px;border-radius:5px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);color:#94a3b8;cursor:pointer;font-size:11px}
+  #ctrls button:hover{background:rgba(52,211,153,0.08);color:#e2e8f0}
+  #ctrls button.on{background:rgba(52,211,153,0.12);color:#34d399;border-color:rgba(52,211,153,0.25)}
 </style>
 </head>
 <body>
 
 <div id="board-wrap">
-  <div id="board"></div>
+  <canvas id="canvas-board"></canvas>
+  <div id="anim-layer"></div>
 </div>
 <div id="sub"></div>
-<div id="vbar"><div class="vb"><input placeholder="Type or hold Space to talk..." disabled><div class="vb-mic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div></div></div>
+<div id="vbar"><div class="vb-pill"><input placeholder="Type or hold Space to talk..." disabled><div class="vb-mic"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg></div></div></div>
 
 <div id="ctrls">
-  <button onclick="runS1()" class="on">Schrödinger Eq.</button>
-  <button onclick="runS2()">Operators + Anim</button>
-  <button onclick="runS3()">Side-by-Side Compare</button>
+  <button onclick="runS1()" class="on">Perturbation Theory</button>
+  <button onclick="runS2()">Comparison Layout</button>
+  <button onclick="runS3()">Full Derivation</button>
   <button onclick="reset()">Reset</button>
 </div>
 
-<div class="layout-log" id="log">
-  <b>Layout Engine Log</b><br>
-  <span class="c-dim">Beats will show placement resolution here</span>
-</div>
-
 <script>
-const board = document.getElementById('board');
+const V_W = 800, MARGIN = 30, ROW_GAP = 12, SIDE_GAP = 18;
+const canvas = document.getElementById('canvas-board');
+const ctx = canvas.getContext('2d', { willReadFrequently: true });
+const wrap = document.getElementById('board-wrap');
+const animLayer = document.getElementById('anim-layer');
 const subEl = document.getElementById('sub');
-const logEl = document.getElementById('log');
 
-// ── Layout Engine State ─────────────────────────────────
-const layout = {
-  cursorY: 0,        // next available Y (px)
-  elements: {},      // id → { el, y, h, w, x }
-  rowActive: false,  // currently placing items side-by-side
-  rowY: 0,           // Y of current row
-  rowX: 0,           // next X in current row
-  rowMaxH: 0,        // tallest item in current row
-};
+let S = 1, dpr = Math.min(window.devicePixelRatio||1, 3), canvasH = 600;
+const COLORS = {white:'#e2e8f0',gold:'#fbbf24',green:'#34d399',blue:'#60a5fa',red:'#f87171',cyan:'#53d8fb',pink:'#f472b6',purple:'#a78bfa',dim:'#94a3b8',orange:'#fb923c'};
+const SIZES = {h1:28,h2:22,h3:18,text:16,small:14,label:12,caption:10};
+const rc = c => COLORS[c]||c||COLORS.white;
+const rs = s => (typeof s==='string'?SIZES[s.toLowerCase()]:s)||16;
 
-function layoutReset() {
-  layout.cursorY = 0;
-  layout.elements = {};
-  layout.rowActive = false;
-  layout.rowY = 0; layout.rowX = 0; layout.rowMaxH = 0;
+const L = { cursorY:15, els:{}, inRow:false, rowY:0, rowX:MARGIN, rowH:0 };
+
+// ── Canvas ──────────────────────────────────────────────
+
+function setup() {
+  S = wrap.clientWidth / V_W;
+  const w = wrap.clientWidth, h = Math.max(canvasH*S, wrap.clientHeight);
+  canvas.width = Math.round(w*dpr); canvas.height = Math.round(h*dpr);
+  canvas.style.width = w+'px'; canvas.style.height = h+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle = '#111614'; ctx.fillRect(0,0,w,h);
+  // Grid
+  ctx.strokeStyle='rgba(255,255,255,0.025)';ctx.lineWidth=0.5;
+  for(let x=40*S;x<w;x+=40*S){ctx.beginPath();ctx.moveTo(x,0);ctx.lineTo(x,h);ctx.stroke();}
+  for(let y=40*S;y<h;y+=40*S){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
 }
 
-function logPlacement(id, placement, resolved) {
-  const line = document.createElement('div');
-  line.innerHTML = `<b>${placement}</b> → y=<span class="y-val">${Math.round(resolved.y)}</span> x=${Math.round(resolved.x)} ${id ? `<span class="c-dim">#${id}</span>` : ''}`;
-  logEl.appendChild(line);
-  logEl.scrollTop = logEl.scrollHeight;
+function expand(needY) {
+  if(needY>canvasH-60){canvasH=needY+200;const w=wrap.clientWidth,h=canvasH*S;
+  const old=ctx.getImageData(0,0,canvas.width,canvas.height);
+  canvas.height=Math.round(h*dpr);canvas.style.height=h+'px';
+  ctx.setTransform(dpr,0,0,dpr,0,0);ctx.putImageData(old,0,0);
+  ctx.fillStyle='#111614';ctx.fillRect(0,old.height/dpr,w,h-old.height/dpr);
+  ctx.strokeStyle='rgba(255,255,255,0.025)';ctx.lineWidth=0.5;
+  for(let x=40*S;x<w;x+=40*S){ctx.beginPath();ctx.moveTo(x,old.height/dpr);ctx.lineTo(x,h);ctx.stroke();}
+  for(let y=Math.ceil(old.height/dpr/(40*S))*40*S;y<h;y+=40*S){ctx.beginPath();ctx.moveTo(0,y);ctx.lineTo(w,y);ctx.stroke();}
+  animLayer.style.height=h+'px';}
 }
 
-// ── Placement Resolver ──────────────────────────────────
-// Converts placement strings to {x, y} coordinates
+function scroll2(y){const p=y*S,vb=wrap.scrollTop+wrap.clientHeight;if(p>vb-40)wrap.scrollTo({top:Math.max(0,p-wrap.clientHeight*.65),behavior:'smooth'});}
 
-function resolve(placement, w, h) {
-  const boardW = board.offsetWidth - 60; // usable width (minus padding)
-  let x = 0, y = layout.cursorY;
+// ── Placement ───────────────────────────────────────────
 
-  if (!placement || placement === 'below') {
-    // Default: below last content, left-aligned
-    x = 0; y = layout.cursorY;
-    if (layout.rowActive) endRow();
+function endRow(){if(L.inRow){L.cursorY=L.rowY+L.rowH+ROW_GAP;L.inRow=false;L.rowX=MARGIN;L.rowH=0;}}
 
-  } else if (placement === 'center') {
-    x = Math.max(0, (boardW - (w || 300)) / 2);
-    y = layout.cursorY;
-    if (layout.rowActive) endRow();
+function place(p, w, h) {
+  const usable = V_W - MARGIN*2;
+  let x, y;
+  if(!p||p==='below'){if(L.inRow)endRow();x=MARGIN;y=L.cursorY;}
+  else if(p==='center'){if(L.inRow)endRow();x=MARGIN+Math.max(0,(usable-w)/2);y=L.cursorY;}
+  else if(p==='right'){if(L.inRow)endRow();x=V_W-MARGIN-w;y=L.cursorY;}
+  else if(p==='full-width'){if(L.inRow)endRow();x=MARGIN;y=L.cursorY;w=usable;}
+  else if(p==='row-start'){if(L.inRow)endRow();L.inRow=true;L.rowY=L.cursorY;L.rowX=MARGIN;L.rowH=0;x=MARGIN;y=L.cursorY;}
+  else if(p==='row-next'){if(!L.inRow){L.inRow=true;L.rowY=L.cursorY;L.rowX=MARGIN;L.rowH=0;}x=L.rowX;y=L.rowY;}
+  else if(p.startsWith('beside:')){const r=L.els[p.split(':')[1]];if(r){x=r.x+r.w+SIDE_GAP;y=r.y;}else{x=V_W/2;y=L.cursorY;}}
+  else if(p.startsWith('below:')){const r=L.els[p.split(':')[1]];if(r){x=r.x;y=r.y+r.h+6;}else{x=MARGIN;y=L.cursorY;}}
+  else if(p==='indent'){if(L.inRow)endRow();x=MARGIN+25;y=L.cursorY;}
+  else{x=MARGIN;y=L.cursorY;}
+  return {x,y};
+}
 
-  } else if (placement === 'right') {
-    x = boardW - (w || 200);
-    y = layout.cursorY;
-    if (layout.rowActive) endRow();
+function commit(id,x,y,w,h){if(id)L.els[id]={x,y,w,h};expand(y+h);
+  if(L.inRow){L.rowX=x+w+SIDE_GAP;L.rowH=Math.max(L.rowH,h);}else{L.cursorY=y+h+ROW_GAP;}scroll2(y+h);}
 
-  } else if (placement === 'row-start') {
-    // Start a new row for side-by-side elements
-    if (layout.rowActive) endRow();
-    layout.rowActive = true;
-    layout.rowY = layout.cursorY;
-    layout.rowX = 0;
-    layout.rowMaxH = 0;
-    x = 0; y = layout.rowY;
+// ── Drawing ─────────────────────────────────────────────
 
-  } else if (placement === 'row-next') {
-    // Next item in the current row
-    if (!layout.rowActive) { layout.rowActive = true; layout.rowY = layout.cursorY; layout.rowX = 0; layout.rowMaxH = 0; }
-    x = layout.rowX;
-    y = layout.rowY;
+function dText(text,vx,vy,color,size){
+  // Instant draw — used by boxes and labels. Returns dimensions.
+  const sz=rs(size),bold=(size==='h1'||size==='h2')?'700':'400';
+  ctx.font=`${bold} ${sz*S}px Caveat,cursive`;ctx.fillStyle=rc(color);
+  ctx.shadowColor=rc(color);ctx.shadowBlur=2;
+  ctx.fillText(text,vx*S,(vy+sz*.85)*S);ctx.shadowBlur=0;
+  return {w:ctx.measureText(text).width/S+5,h:sz*1.2};
+}
 
-  } else if (placement.startsWith('right-of:')) {
-    // Place to the right of a specific element
-    const refId = placement.split(':')[1];
-    const ref = layout.elements[refId];
-    if (ref) {
-      x = ref.x + ref.w + 15;
-      y = ref.y;
-    } else {
-      x = boardW * 0.5; y = layout.cursorY;
-    }
-
-  } else if (placement.startsWith('below:')) {
-    // Place below a specific element
-    const refId = placement.split(':')[1];
-    const ref = layout.elements[refId];
-    if (ref) {
-      x = ref.x;
-      y = ref.y + ref.h + 8;
-    } else {
-      y = layout.cursorY;
-    }
-
-  } else if (placement === 'indent') {
-    x = 30; y = layout.cursorY;
-    if (layout.rowActive) endRow();
+async function dTextAnim(text,vx,vy,color,size){
+  // Character-by-character chalk writing animation
+  const sz=rs(size),bold=(size==='h1'||size==='h2')?'700':'400';
+  ctx.font=`${bold} ${sz*S}px Caveat,cursive`;
+  ctx.fillStyle=rc(color);ctx.shadowColor=rc(color);ctx.shadowBlur=2;
+  ctx.textBaseline='middle';
+  let cx=vx*S;
+  const charDelay = sz > 20 ? 30 : 20; // faster for body text
+  for(let i=0;i<text.length;i++){
+    ctx.fillText(text[i],cx,vy*S);
+    cx+=ctx.measureText(text[i]).width;
+    await new Promise(r=>setTimeout(r,charDelay));
   }
-
-  return { x, y };
+  ctx.shadowBlur=0;ctx.textBaseline='alphabetic';
+  return {w:cx/S-vx+5,h:sz*1.2};
 }
 
-function commitElement(id, x, y, w, h) {
-  if (id) layout.elements[id] = { x, y, w, h };
+function dSep(vy,color){ctx.strokeStyle=color||'rgba(255,255,255,0.06)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(60*S,vy*S);ctx.lineTo((V_W-60)*S,vy*S);ctx.stroke();}
 
-  if (layout.rowActive) {
-    layout.rowX = x + w + 20;
-    layout.rowMaxH = Math.max(layout.rowMaxH, h);
-    // Don't advance cursorY — row continues
-  } else {
-    layout.cursorY = y + h + 12; // 12px gap
+function dBox(vx,vy,vw,vh,borderColor,fillColor){
+  ctx.fillStyle=fillColor||'rgba(255,255,255,0.02)';
+  const r=5*S;
+  ctx.beginPath();ctx.roundRect(vx*S,vy*S,vw*S,vh*S,r);ctx.fill();
+  if(borderColor){ctx.strokeStyle=borderColor;ctx.lineWidth=1.5*S;ctx.stroke();}
+}
+
+function dArrow(x1,y1,x2,y2,color){
+  const s=S;ctx.strokeStyle=rc(color);ctx.lineWidth=1.5*s;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(x1*s,y1*s);ctx.lineTo(x2*s,y2*s);ctx.stroke();
+  const angle=Math.atan2(y2-y1,x2-x1),hl=8*s;
+  ctx.beginPath();ctx.moveTo(x2*s,y2*s);
+  ctx.lineTo((x2-hl/s*Math.cos(angle-.4))*s,(y2-hl/s*Math.sin(angle-.4))*s);
+  ctx.moveTo(x2*s,y2*s);
+  ctx.lineTo((x2-hl/s*Math.cos(angle+.4))*s,(y2-hl/s*Math.sin(angle+.4))*s);
+  ctx.stroke();
+}
+
+function dStepNum(n,vx,vy,color){
+  const r=11*S;ctx.fillStyle=rc(color);ctx.globalAlpha=0.15;
+  ctx.beginPath();ctx.arc(vx*S,vy*S,r,0,Math.PI*2);ctx.fill();
+  ctx.globalAlpha=1;ctx.strokeStyle=rc(color);ctx.lineWidth=1.5*S;
+  ctx.beginPath();ctx.arc(vx*S,vy*S,r,0,Math.PI*2);ctx.stroke();
+  ctx.font=`700 ${13*S}px Caveat,cursive`;ctx.fillStyle=rc(color);ctx.textAlign='center';
+  ctx.fillText(n,vx*S,(vy+5)*S);ctx.textAlign='start';
+}
+
+function dCheckmark(vx,vy,color){
+  ctx.strokeStyle=rc(color||'green');ctx.lineWidth=2.5*S;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(vx*S,(vy+5)*S);ctx.lineTo((vx+4)*S,(vy+10)*S);ctx.lineTo((vx+12)*S,vy*S);ctx.stroke();
+}
+
+function dCross(vx,vy,color){
+  ctx.strokeStyle=rc(color||'red');ctx.lineWidth=2.5*S;ctx.lineCap='round';
+  ctx.beginPath();ctx.moveTo(vx*S,vy*S);ctx.lineTo((vx+10)*S,(vy+10)*S);ctx.stroke();
+  ctx.beginPath();ctx.moveTo((vx+10)*S,vy*S);ctx.lineTo(vx*S,(vy+10)*S);ctx.stroke();
+}
+
+// ── Command Executor ────────────────────────────────────
+
+async function exec(cmd) {
+  const p = cmd.placement||'below';
+  const sz = rs(cmd.size);
+  let estW=cmd.w||300, estH=cmd.h||sz*1.2;
+  if(cmd.cmd==='text'){ctx.font=`400 ${sz*S}px Caveat,cursive`;estW=ctx.measureText(cmd.text||'').width/S+10;estH=sz*1.2;}
+  if(cmd.cmd==='box')estH=cmd.h||60;
+  if(cmd.cmd==='separator'){estW=V_W-MARGIN*2;estH=8;}
+
+  const {x,y}=place(p,estW,estH);
+  let aw=estW,ah=estH;
+
+  switch(cmd.cmd){
+    case'text':{const m=await dTextAnim(cmd.text,x,y,cmd.color,cmd.size);aw=m.w;ah=m.h;break;}
+    case'separator':{dSep(y+4,cmd.color);aw=V_W-MARGIN*2;ah=10;break;}
+    case'box':{
+      const bw=cmd.w||(V_W-MARGIN*2);const bh=cmd.h||60;
+      dBox(x,y,bw,bh,cmd.borderColor,cmd.fillColor);
+      // Draw text inside box
+      if(cmd.text){dText(cmd.text,x+12,y+8,cmd.color,cmd.size||'text');}
+      if(cmd.label){ctx.font=`700 ${10*S}px -apple-system,sans-serif`;ctx.fillStyle=rc(cmd.labelColor||'dim');
+        ctx.fillText(cmd.label.toUpperCase(),(x+12)*S,(y-3)*S);}
+      aw=bw;ah=bh;break;}
+    case'arrow':{dArrow(cmd.x1||x,cmd.y1||y,cmd.x2||(x+100),cmd.y2||(y+30),cmd.color);aw=20;ah=20;break;}
+    case'step':{dStepNum(cmd.n,x+11,y+11,cmd.color||'gold');if(cmd.text){dText(cmd.text,x+28,y,cmd.color||'white',cmd.size||'text');}aw=300;ah=rs(cmd.size||'text')*1.2;break;}
+    case'check':{dCheckmark(x,y+2,cmd.color);if(cmd.text){dText(cmd.text,x+18,y,cmd.textColor||'white',cmd.size||'small');}aw=200;ah=16;break;}
+    case'cross':{dCross(x,y+2,cmd.color);if(cmd.text){dText(cmd.text,x+18,y,cmd.textColor||'dim',cmd.size||'small');}aw=200;ah=16;break;}
+    case'animation':{aw=cmd.w||350;ah=cmd.h||160;
+      const c=document.createElement('div');c.className='anim-box';
+      c.style.left=(x*S)+'px';c.style.top=(y*S)+'px';c.style.width=Math.round(aw*S)+'px';c.style.height=Math.round(ah*S)+'px';
+      animLayer.appendChild(c);if(cmd.launch)setTimeout(()=>cmd.launch(c,Math.round(aw*S),Math.round(ah*S)),50);break;}
+    case'spacer':{aw=1;ah=cmd.h||20;break;}
   }
+  commit(cmd.id,x,y,aw,ah);
 }
 
-function endRow() {
-  if (layout.rowActive) {
-    layout.cursorY = layout.rowY + layout.rowMaxH + 12;
-    layout.rowActive = false;
-    layout.rowX = 0; layout.rowMaxH = 0;
-  }
+// ── Beat System ─────────────────────────────────────────
+let bQ=[],bR=false;
+function addB(b){bQ.push(b);if(!bR)drain();}
+async function drain(){bR=true;while(bQ.length)await xB(bQ.shift());bR=false;}
+async function xB(b){
+  if(b.say){subEl.textContent=b.say;subEl.classList.add('vis');}
+  if(b.cmds)for(const c of b.cmds)await exec(c);
+  if(b.ref){const el=L.els[b.ref];if(el){
+    const s=S,d=dpr,pad=3*s,ex=el.x*s-pad,ey=el.y*s-pad,ew=el.w*s+pad*2,eh=el.h*s+pad*2;
+    const cx=Math.round(ex*d),cy=Math.round(ey*d),cw=Math.min(Math.round(ew*d),canvas.width-cx),ch=Math.min(Math.round(eh*d),canvas.height-cy);
+    if(cw>0&&ch>0){try{const id=ctx.getImageData(cx,cy,cw,ch);const t=document.createElement('canvas');t.width=cw;t.height=ch;
+    t.getContext('2d').putImageData(id,0,0);const cl=document.createElement('div');
+    cl.style.cssText=`position:absolute;left:${ex}px;top:${ey}px;width:${ew}px;height:${eh}px;pointer-events:none;z-index:25;transform:scale(1);transform-origin:center;opacity:0;transition:transform .4s cubic-bezier(.25,.1,.25,1),opacity .3s;border-radius:3px`;
+    const im=document.createElement('img');im.src=t.toDataURL();im.style.cssText='width:100%;height:100%;display:block;border-radius:3px';
+    cl.appendChild(im);animLayer.appendChild(cl);
+    requestAnimationFrame(()=>{cl.style.opacity='1';cl.style.transform='scale(1.18)';});
+    setTimeout(()=>{cl.style.transition='transform .5s ease,opacity .5s ease';cl.style.transform='scale(1)';cl.style.opacity='0';setTimeout(()=>cl.remove(),550);},1400);
+    scroll2(el.y+el.h);}catch(e){}}}}
+  const dur=b.pause!==undefined?b.pause:(b.say?Math.max(.7,b.say.length*.025):.3);
+  await new Promise(r=>setTimeout(r,dur*1000));
+  if(b.say&&!b.question){subEl.classList.remove('vis');await new Promise(r=>setTimeout(r,100));}
 }
 
-// ── Element Creators ────────────────────────────────────
+// ── Animations ──────────────────────────────────────────
 
-function makeText(text, cls, id) {
-  const el = document.createElement('div');
-  el.className = `be ${cls} highlight`;
-  el.innerHTML = text;
-  if (id) el.id = id;
-  return el;
-}
-
-function makeAnim(w, h, launchFn) {
-  const el = document.createElement('div');
-  el.className = 'be be-anim highlight';
-  el.style.width = w + 'px'; el.style.height = h + 'px';
-  setTimeout(() => launchFn(el, w, h), 50);
-  return el;
-}
-
-function makeSep() {
-  const el = document.createElement('div');
-  el.className = 'be be-sep';
-  return el;
-}
-
-// ── Beat Executor ───────────────────────────────────────
-
-let bQ = [], bRun = false;
-function addB(b) { bQ.push(b); if (!bRun) drain(); }
-async function drain() { bRun = true; while(bQ.length) await exec(bQ.shift()); bRun = false; }
-
-async function exec(b) {
-  if (b.say) { subEl.textContent = b.say; subEl.classList.add('vis'); }
-
-  if (b.el) {
-    const placement = b.placement || 'below';
-    const elW = b.w || 400;
-    const elH = b.h || 30;
-
-    const { x, y } = resolve(placement, elW, elH);
-
-    b.el.style.marginLeft = x + 'px';
-    board.appendChild(b.el);
-
-    // Measure actual rendered size
-    const actualW = b.el.offsetWidth || elW;
-    const actualH = b.el.offsetHeight || elH;
-
-    commitElement(b.id, x, y, actualW, actualH);
-    logPlacement(b.id, placement, { x, y });
-
-    // Scroll to show new content
-    const wrap = document.getElementById('board-wrap');
-    const elBottom = board.offsetTop + layout.cursorY + 60;
-    if (elBottom > wrap.scrollTop + wrap.clientHeight - 40) {
-      wrap.scrollTo({ top: Math.max(0, elBottom - wrap.clientHeight * 0.7), behavior: 'smooth' });
-    }
-  }
-
-  // Ref highlight
-  if (b.ref) {
-    const target = document.getElementById(b.ref);
-    if (target) {
-      target.classList.add('highlight-active');
-      setTimeout(() => { target.classList.remove('highlight-active'); target.classList.add('highlight-fade'); setTimeout(() => target.classList.remove('highlight-fade'), 400); }, 1400);
-    }
-  }
-
-  const dur = b.pause !== undefined ? b.pause : (b.say ? Math.max(0.8, b.say.length * 0.028) : 0.3);
-  await new Promise(r => setTimeout(r, dur * 1000));
-  if (b.say && !b.question) { subEl.classList.remove('vis'); await new Promise(r => setTimeout(r, 120)); }
-}
-
-// ── p5 animations ───────────────────────────────────────
-
-function launchWave(c, w, h) {
-  new p5(p => { let t=0; p.setup=()=>{p.createCanvas(w,h);p.textFont('Caveat');}; p.draw=()=>{
-    p.background(10,13,11); t+=.025;
-    const cx=w*.5, sig=w*.14;
-    p.noFill(); p.stroke(52,211,153,130); p.strokeWeight(1.5); p.beginShape();
-    for(let x=0;x<w;x+=2){const e=Math.exp(-((x-cx)**2)/(2*sig*sig));p.vertex(x,h*.42-e*Math.cos(.05*x-t*3)*h*.25);}p.endShape();
-    p.stroke(251,191,36,200);p.strokeWeight(1.5);p.beginShape();
-    const s2=sig+Math.sin(t*.4)*w*.015;for(let x=0;x<w;x+=2){const pr=Math.exp(-((x-cx)**2)/(2*s2*s2))*h*.28;p.vertex(x,h*.78-pr);}p.endShape();
-    p.noStroke();p.fill(52,211,153,120);p.textSize(Math.max(10,w*.02));p.text('Re(ψ)',5,14);
-    p.fill(251,191,36,160);p.text('|ψ|²',5,h-6);
-    p.stroke(255,255,255,20);p.strokeWeight(.5);p.line(0,h*.42,w,h*.42);p.line(0,h*.78,w,h*.78);
-  };},c);
-}
-
-function launchHamiltonian(c, w, h) {
-  new p5(p => { let t=0; p.setup=()=>{p.createCanvas(w,h);p.textFont('Caveat');}; p.draw=()=>{
-    p.background(10,13,11); t+=.03;
-    // Potential well
-    p.stroke(96,165,250,100); p.strokeWeight(1.5); p.noFill();
-    p.beginShape(); for(let x=0;x<w;x+=2){const v=x<w*.2||x>w*.8?h*.3:h*.7+Math.sin(x*.02)*8;p.vertex(x,v);} p.endShape();
+function launchPerturbedOsc(c,w,h){
+  new p5(p=>{let t=0;p.setup=()=>{p.createCanvas(w,h);p.textFont('Caveat');};p.draw=()=>{
+    p.background(15,20,16);t+=.03;const cx=w/2;
+    // Original parabola
+    p.stroke(96,165,250,60);p.strokeWeight(1);p.noFill();p.beginShape();
+    for(let x=0;x<w;x+=2){const v=((x-cx)/(w*.35))**2*h*.3+h*.55;p.vertex(x,Math.min(v,h*.9));}p.endShape();
+    // Tilted parabola (perturbed)
+    p.stroke(248,113,113,120);p.strokeWeight(1.5);p.beginShape();
+    const tilt=Math.sin(t*.5)*w*.08;
+    for(let x=0;x<w;x+=2){const v=((x-cx-tilt)/(w*.35))**2*h*.3+h*.55-(x-cx)*0.03;p.vertex(x,Math.min(v,h*.9));}p.endShape();
     // Energy levels
-    for(let n=1;n<=4;n++){
-      const ey=h*.7-n*h*.08; p.stroke(251,191,36,80+n*20);p.strokeWeight(1);
-      p.line(w*.22,ey,w*.78,ey);
-      // Wavefunction on each level
-      p.stroke(52,211,153,100+n*25);p.strokeWeight(1.5);p.noFill();p.beginShape();
-      for(let x=w*.22;x<w*.78;x+=2){const L=w*.56;const xi=x-w*.22;
-        p.vertex(x,ey-Math.sin(n*Math.PI*xi/L)*Math.cos(t*2+n)*12);}p.endShape();
-    }
-    p.noStroke();p.fill(96,165,250,100);p.textSize(Math.max(10,w*.025));p.text('V(x)',w*.85,h*.35);
-    p.fill(251,191,36,120);p.text('E₁,E₂,E₃,E₄',w*.22,h*.25);
+    for(let n=0;n<4;n++){const ey=h*.82-n*h*.065;
+    p.stroke(251,191,36,50+n*25);p.strokeWeight(1);p.line(w*.28,ey,w*.72,ey);
+    p.noFill();p.stroke(52,211,153,70+n*30);p.strokeWeight(1.5);p.beginShape();
+    for(let x=w*.28;x<w*.72;x+=2){const L2=w*.44;const xi=x-w*.28;p.vertex(x,ey-Math.sin((n+1)*Math.PI*xi/L2)*Math.cos(t*2+n)*8);}p.endShape();}
+    p.noStroke();p.fill(96,165,250,70);p.textSize(Math.max(9,w*.018));p.text('V₀(x)',w*.08,h*.48);
+    p.fill(248,113,113,100);p.text('V₀ + λV',w*.08,h*.55);
   };},c);
 }
 
-// ── SCENE 1: Schrödinger Equation ───────────────────────
-
-function runS1() {
-  reset(); document.querySelectorAll('#ctrls button')[0].classList.add('on');
-
-  addB({ el: makeText('The Schrödinger Equation', 'be-h1'), placement:'center', id:'title',
-    say:"Let me show you the most important equation in quantum mechanics." });
-
-  addB({ el: makeText('iℏ ∂ψ/∂t = Ĥψ', 'be-eq-lg c-gold'), placement:'center', id:'eq-main',
-    say:"Here it is. Energy governs how the wave function evolves in time." });
-
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
-
-  addB({ el: makeText('Breaking it down:', 'be-h2'), placement:'below', id:'breakdown',
-    say:"Let me break down each piece." });
-
-  // Side by side: left column = symbols, right = meaning
-  addB({ el: makeText('<span class="c-blue">ψ</span> — the wave function', 'be-text'), placement:'row-start', id:'psi-label', w:280,
-    say:"Psi is the wave function. It contains everything knowable about the particle." });
-
-  addB({ el: makeText('<span class="c-dim">→ complete quantum description</span>', 'be-small'), placement:'row-next', w:250, pause:0.3 });
-
-  addB({ el: makeText('<span class="c-green">Ĥ</span> — the Hamiltonian', 'be-text'), placement:'row-start', id:'h-label', w:280,
-    say:"H-hat is the Hamiltonian — the total energy operator." });
-
-  addB({ el: makeText('<span class="c-dim">→ kinetic + potential energy</span>', 'be-small'), placement:'row-next', w:250, pause:0.3 });
-
-  addB({ el: makeText('<span class="c-gold">iℏ ∂/∂t</span> — time evolution', 'be-text'), placement:'row-start', id:'time-label', w:280,
-    say:"The left side — how things change in time." });
-
-  addB({ el: makeText('<span class="c-dim">→ rate of change of ψ</span>', 'be-small'), placement:'row-next', w:250, pause:0.3 });
-
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
-
-  addB({ el: makeText('The Analogy', 'be-h2'), placement:'below',
-    say:"Think of it like Newton's equation." });
-
-  addB({ el: makeText('<span class="c-green">Classical:</span> F = ma — force tells mass how to accelerate', 'be-text'), placement:'below', id:'newton',
-    say:"F equals m-a tells a ball how to move." });
-
-  addB({ el: makeText('<span class="c-gold">Quantum:</span> Ĥψ = iℏ∂ψ/∂t — energy tells ψ how to evolve', 'be-text'), placement:'below', id:'quantum',
-    say:"Schrödinger's equation does the same — for quantum particles.", pause:0.5 });
-
-  addB({ say:"Same philosophy. {ref:newton} {ref:quantum}", ref:'newton', pause:0.8 });
-  addB({ say:"Completely different math. {ref:quantum}", ref:'quantum', pause:0.5 });
-
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
-
-  addB({ el: makeText('The Born Rule', 'be-h2 c-green'), placement:'below', id:'born-title',
-    say:"Now the physical meaning of psi." });
-
-  addB({ el: makeText('|ψ(x,t)|² dx = probability of finding particle near x', 'be-eq c-gold'), placement:'below', id:'born-eq',
-    say:"Psi squared gives probability. This is the Born rule." });
-
-  const animW = Math.min(board.offsetWidth - 60, 500);
-  addB({ el: makeAnim(animW, 160, launchWave), placement:'below', id:'wave-anim', w:animW, h:160,
-    say:"Green is Re(ψ) — it oscillates. Gold is the probability density." });
-
-  addB({ el: makeText('↑ Where is the particle most likely to be found?', 'be-text c-gold'), placement:'below',
-    say:"Look at the gold curve. Where is it peaked?", question:true, pause:0 });
+function launchEnergyCompare(c,w,h){
+  new p5(p=>{let t=0;p.setup=()=>{p.createCanvas(w,h);p.textFont('Caveat');};p.draw=()=>{
+    p.background(15,20,16);t+=.02;
+    const midX=w/2;
+    // Left: harmonic oscillator (equal spacing)
+    p.fill(255,255,255,30);p.textSize(Math.max(9,w*.02));p.textAlign(p.CENTER);
+    p.text('Harmonic Oscillator',w*.25,16);
+    for(let n=0;n<5;n++){const y=h*.85-n*h*.12;
+    p.stroke(52,211,153,80);p.strokeWeight(1);p.line(w*.08,y,w*.42,y);
+    p.noStroke();p.fill(52,211,153,100);p.textAlign(p.LEFT);p.textSize(Math.max(8,w*.015));p.text(`E${n}`,w*.43,y+4);}
+    // Right: particle in box (quadratic spacing)
+    p.fill(255,255,255,30);p.textSize(Math.max(9,w*.02));p.textAlign(p.CENTER);
+    p.text('Particle in Box',w*.75,16);
+    for(let n=1;n<=5;n++){const y=h*.85-n*n*h*.028;
+    p.stroke(251,191,36,80);p.strokeWeight(1);p.line(w*.58,y,w*.92,y);
+    p.noStroke();p.fill(251,191,36,100);p.textAlign(p.LEFT);p.textSize(Math.max(8,w*.015));p.text(`E${n}`,w*.93,y+4);}
+    p.textAlign(p.LEFT);
+    // Labels
+    p.fill(52,211,153,60);p.textSize(Math.max(8,w*.015));p.text('Equal spacing',w*.1,h-8);
+    p.fill(251,191,36,60);p.text('E ∝ n²',w*.65,h-8);
+  };},c);
 }
 
-// ── SCENE 2: Operators + Animation ──────────────────────
+// ── SCENE 1: Perturbation Theory (rich visuals) ─────────
 
-function runS2() {
-  reset(); document.querySelectorAll('#ctrls button')[1].classList.add('on');
+function runS1(){
+  reset();document.querySelectorAll('#ctrls button')[0].classList.add('on');
 
-  addB({ el: makeText('Operators — Math Tools for Physics', 'be-h1'), placement:'center', id:'t2',
-    say:"Let me show you what operators really are." });
+  addB({cmds:[{cmd:'text',text:'Perturbation Theory',placement:'center',size:'h1',color:'gold',id:'title'}],
+    say:"Let me walk you through perturbation theory — one of the most powerful tools in quantum mechanics."});
 
-  addB({ el: makeText('An operator is a <span class="c-gold">machine</span> that takes a function in and gives a new function out.', 'be-text'), placement:'below', id:'op-def',
-    say:"An operator is like a machine. You feed it a function, it gives you back a different function." });
+  addB({cmds:[{cmd:'separator'}],pause:.2});
 
-  addB({ el: makeText('ψ(x)  →  <span class="c-gold">[Ĥ]</span>  →  new function', 'be-eq'), placement:'center', id:'op-flow',
-    say:"Put psi in, get a new function out." });
+  // Key idea box
+  addB({cmds:[{cmd:'box',placement:'center',w:500,h:45,borderColor:'rgba(52,211,153,0.3)',fillColor:'rgba(52,211,153,0.04)',
+    text:'Core idea: Start with something you CAN solve, then add a small correction.',color:'green',label:'Key Insight',labelColor:'green',id:'key-box'}],
+    say:"The core idea is simple. Start with something you can solve exactly, then treat the hard part as a small correction."});
 
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
+  addB({cmds:[{cmd:'separator'}],pause:.2});
 
-  addB({ el: makeText('The Hamiltonian: Ĥ = T + V', 'be-h2'), placement:'below', id:'ham-title',
-    say:"The Hamiltonian is the total energy operator." });
+  // Step 1
+  addB({cmds:[{cmd:'step',n:'1',text:'Start with the solved system',color:'gold',placement:'below',id:'step1'}],
+    say:"Step one. Start with a Hamiltonian you already know."});
 
-  // Side by side: equation + animation
-  const animW = Math.min(Math.round((board.offsetWidth - 80) * 0.55), 380);
-  const textW = Math.min(Math.round((board.offsetWidth - 80) * 0.38), 300);
+  addB({cmds:[{cmd:'text',text:'Ĥ₀|n⁰⟩ = Eₙ⁰|n⁰⟩',placement:'indent',size:'text',color:'cyan',id:'solved-eq'}],
+    say:"H-zero acting on the unperturbed states gives you the known energies."});
 
-  addB({ el: makeAnim(animW, 180, launchHamiltonian), placement:'row-start', id:'ham-anim', w:animW, h:180,
-    say:"Here's a potential well with energy levels. Watch the wavefunctions oscillate." });
+  addB({cmds:[{cmd:'check',text:'Eigenvalues known',placement:'indent',color:'green',textColor:'dim'}],pause:.3});
+  addB({cmds:[{cmd:'check',text:'Eigenstates known',placement:'indent',color:'green',textColor:'dim'}],pause:.3});
 
-  addB({ el: makeText(
-    '<span class="c-blue">Blue</span> — potential V(x)<br>' +
-    '<span class="c-gold">Gold lines</span> — energy levels E₁ to E₄<br>' +
-    '<span class="c-green">Green waves</span> — ψₙ(x) eigenstates<br><br>' +
-    '<span class="c-dim">Higher n → faster oscillation → more kinetic energy</span>',
-    'be-text'), placement:'row-next', w:textW, id:'ham-legend',
-    say:"Blue is the potential well. Gold lines are energy levels. Green waves are the eigenstates." });
+  // Step 2
+  addB({cmds:[{cmd:'step',n:'2',text:'Add a small perturbation',color:'gold',placement:'below',id:'step2'}],
+    say:"Step two. Add the perturbation."});
 
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
+  addB({cmds:[{cmd:'text',text:'Ĥ = Ĥ₀ + λV',placement:'indent',size:'text',color:'green',id:'full-ham'}],
+    say:"The full Hamiltonian is the solved part plus lambda times V."});
 
-  addB({ el: makeText('Key insight:', 'be-h2'), placement:'below',
-    say:"Here's the key insight." });
+  addB({cmds:[{cmd:'text',text:'λ ≪ 1  (coupling is weak)',placement:'beside:full-ham',size:'small',color:'dim'}],pause:.3});
 
-  addB({ el: makeText('Ĥψₙ = Eₙψₙ', 'be-eq-lg c-gold'), placement:'center', id:'eigenvalue',
-    say:"When H-hat acts on an eigenstate, you just get a number times the same state." });
+  // Step 3
+  addB({cmds:[{cmd:'step',n:'3',text:'Expand in powers of λ',color:'gold',placement:'below',id:'step3'}],
+    say:"Step three. Expand everything as a power series in lambda."});
 
-  addB({ say:"Look at the animation. {ref:ham-anim} Each wave keeps its shape — it's an eigenstate.", ref:'ham-anim' });
+  // Two expansions side by side
+  addB({cmds:[
+    {cmd:'text',text:'|n⟩ = |n⁰⟩ + λ|n¹⟩ + λ²|n²⟩ + ...',placement:'row-start',size:'text',color:'cyan',id:'state-exp'},
+  ],say:"The state gets corrections at each order."});
 
-  addB({ el: makeText('The operator <span class="c-gold">Ĥ</span> doesn\'t change the shape of ψₙ — it just multiplies by <span class="c-gold">Eₙ</span>', 'be-text'), placement:'below',
-    say:"The operator doesn't change the shape. It just scales it. That's what eigenvalue means.", question:true, pause:0 });
+  addB({cmds:[
+    {cmd:'text',text:'Eₙ = Eₙ⁰ + λEₙ¹ + λ²Eₙ² + ...',placement:'row-next',size:'text',color:'gold',id:'energy-exp'},
+  ],say:"Same for the energy."});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  // Example with animation
+  addB({cmds:[{cmd:'text',text:'Example: Harmonic Oscillator in Electric Field',placement:'center',size:'h2',color:'gold'}],
+    say:"Let me show you a concrete example."});
+
+  addB({cmds:[
+    {cmd:'animation',placement:'row-start',w:320,h:160,id:'pot-anim',launch:launchPerturbedOsc},
+  ],say:"Watch the animation."});
+
+  addB({cmds:[
+    {cmd:'text',text:'Blue: original V₀ = ½mω²x²',placement:'row-next',size:'small',color:'blue',id:'al1'},
+  ],say:"Blue is the original parabola."});
+
+  addB({cmds:[
+    {cmd:'text',text:'Red: perturbed V₀ + qεx',placement:'below:al1',size:'small',color:'red',id:'al2'},
+  ],say:"Red shows the electric field tilting it."});
+
+  addB({cmds:[
+    {cmd:'text',text:'Green: wavefunctions shift',placement:'below:al2',size:'small',color:'green'},
+  ],pause:.3});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  // Result box
+  addB({cmds:[{cmd:'box',placement:'center',w:520,h:50,borderColor:'rgba(251,191,36,0.3)',fillColor:'rgba(251,191,36,0.04)',
+    text:'First-order energy: Eₙ¹ = ⟨n⁰|V|n⁰⟩ = 0  (by symmetry!)',color:'gold',label:'Result',labelColor:'gold',id:'result-box'}],
+    say:"And the first-order energy correction is exactly zero — by symmetry."});
+
+  addB({say:"The expectation value of x vanishes in any eigenstate. {ref:result-box}",ref:'result-box'});
+
+  addB({cmds:[{cmd:'text',text:'For the ground state, which states mix in at first order?',placement:'below',size:'text',color:'gold'}],
+    say:"Which states get mixed into the ground state correction?",question:true,pause:0});
 }
 
-// ── SCENE 3: Side-by-Side Comparison ────────────────────
+// ── SCENE 2: Comparison Layout ──────────────────────────
 
-function runS3() {
-  reset(); document.querySelectorAll('#ctrls button')[2].classList.add('on');
+function runS2(){
+  reset();document.querySelectorAll('#ctrls button')[1].classList.add('on');
 
-  addB({ el: makeText('Two Quantum Processes', 'be-h1'), placement:'center', id:'t3',
-    say:"Quantum mechanics has two fundamentally different processes." });
+  addB({cmds:[{cmd:'text',text:'Energy Level Comparison',placement:'center',size:'h1',color:'gold',id:'t2'}],
+    say:"Let me compare two quantum systems side by side."});
 
-  const colW = Math.round((board.offsetWidth - 80) * 0.45);
+  addB({cmds:[{cmd:'separator'}],pause:.2});
 
-  // Row: two headings side by side
-  addB({ el: makeText('Evolution', 'be-h2 c-green'), placement:'row-start', id:'evol-h', w:colW,
-    say:"On the left — evolution. Smooth and predictable." });
-  addB({ el: makeText('Measurement', 'be-h2 c-red'), placement:'row-next', id:'meas-h', w:colW,
-    say:"On the right — measurement. Random and irreversible.", pause:0.4 });
+  // Full-width animation comparing two systems
+  addB({cmds:[{cmd:'animation',placement:'full-width',w:V_W-MARGIN*2,h:200,id:'compare-anim',launch:launchEnergyCompare}],
+    say:"On the left, the harmonic oscillator — equally spaced levels. On the right, particle in a box — levels that spread apart."});
 
-  // Row: descriptions
-  addB({ el: makeText(
-    'Rule: <span class="c-green">Schrödinger equation</span><br>' +
-    '• Deterministic<br>• Reversible<br>• All info preserved<br>• Ĥ acts continuously',
-    'be-text'), placement:'row-start', id:'evol-body', w:colW,
-    say:"Evolution is governed by the Schrödinger equation. Deterministic, reversible, all information preserved." });
+  addB({cmds:[{cmd:'separator'}],pause:.2});
 
-  addB({ el: makeText(
-    'Rule: <span class="c-red">Born rule + collapse</span><br>' +
-    '• <span class="c-red">Probabilistic</span><br>• <span class="c-red">Irreversible</span><br>• Info <span class="c-red">lost</span><br>• ψ jumps to eigenstate',
-    'be-text'), placement:'row-next', id:'meas-body', w:colW,
-    say:"Measurement is the opposite. Random, irreversible, information destroyed." });
+  // Comparison via side-by-side boxes
+  addB({cmds:[
+    {cmd:'box',placement:'row-start',w:340,h:95,borderColor:'rgba(52,211,153,0.25)',fillColor:'rgba(52,211,153,0.03)',
+      text:'Eₙ = (n + ½)ℏω\nEqual spacing: ΔE = ℏω\nInfinite levels',color:'green',label:'Harmonic Oscillator',labelColor:'green',id:'ho-box'},
+  ],say:"The harmonic oscillator has equally spaced energy levels."});
 
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
+  addB({cmds:[
+    {cmd:'box',placement:'row-next',w:340,h:95,borderColor:'rgba(251,191,36,0.25)',fillColor:'rgba(251,191,36,0.03)',
+      text:'Eₙ = n²π²ℏ²/2mL²\nGrowing spacing: ΔE ∝ n\nInfinite levels',color:'gold',label:'Particle in Box',labelColor:'gold',id:'box-box'},
+  ],say:"The particle in a box has levels that spread apart — energy grows as n squared."});
 
-  addB({ el: makeText('The evolution equation:', 'be-text c-dim'), placement:'below', pause:0.2 });
-  addB({ el: makeText('ψ(t) = e^(-iĤt/ℏ) ψ(0)', 'be-eq c-green'), placement:'center', id:'evol-eq',
-    say:"Evolution is just a rotation. Each eigenstate spins at its own speed." });
+  addB({cmds:[{cmd:'separator'}],pause:.2});
 
-  addB({ el: makeText('The measurement rule:', 'be-text c-dim'), placement:'below', pause:0.2 });
-  addB({ el: makeText('P(aₙ) = |⟨φₙ|ψ⟩|²  →  ψ collapses to |φₙ⟩', 'be-eq c-red'), placement:'center', id:'meas-eq',
-    say:"Measurement randomly picks an eigenvalue. Psi collapses. Nobody knows why." });
+  addB({cmds:[{cmd:'text',text:'Key Differences:',placement:'below',size:'h2',color:'green'}],pause:.2});
 
-  addB({ el: makeSep(), placement:'below', pause:0.2 });
+  // Checklist comparison
+  addB({cmds:[{cmd:'text',text:'Ground state:',placement:'row-start',size:'small',color:'dim'},
+    {cmd:'text',text:'E₀ = ½ℏω ≠ 0',placement:'row-next',size:'small',color:'green'},
+    {cmd:'text',text:'E₁ = π²ℏ²/2mL² ≠ 0',placement:'row-next',size:'small',color:'gold'},
+  ],say:"Both have nonzero ground state energy — zero-point energy from the uncertainty principle."});
 
-  addB({ say:"Compare these two. {ref:evol-eq} Smooth rotation.", ref:'evol-eq', pause:0.8 });
-  addB({ say:"Versus this. {ref:meas-eq} Sudden collapse. Completely different.", ref:'meas-eq', pause:0.5 });
+  addB({cmds:[{cmd:'text',text:'Spacing:',placement:'row-start',size:'small',color:'dim'},
+    {cmd:'text',text:'constant (ℏω)',placement:'row-next',size:'small',color:'green'},
+    {cmd:'text',text:'grows with n',placement:'row-next',size:'small',color:'gold'},
+  ],pause:.3});
 
-  addB({ el: makeText(
-    '<span class="c-dim" style="font-style:italic">"God does not play dice." — Einstein<br>' +
-    '"Stop telling God what to do." — Bohr</span>',
-    'be-text'), placement:'center',
-    say:"Einstein hated measurement. Bohr told him to deal with it.", question:true, pause:0 });
+  addB({cmds:[{cmd:'text',text:'Potential:',placement:'row-start',size:'small',color:'dim'},
+    {cmd:'text',text:'V = ½kx² (smooth)',placement:'row-next',size:'small',color:'green'},
+    {cmd:'text',text:'V = 0 inside, ∞ walls',placement:'row-next',size:'small',color:'gold'},
+  ],pause:.3});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  // Key insight box
+  addB({cmds:[{cmd:'box',placement:'center',w:520,h:50,borderColor:'rgba(167,139,250,0.3)',fillColor:'rgba(167,139,250,0.04)',
+    text:'Both have E₀ > 0 — a particle can never have zero energy (Heisenberg!)',color:'purple',label:'Why?',labelColor:'purple',id:'insight'}],
+    say:"This is the uncertainty principle in action. Confine a particle and it must have kinetic energy."});
+
+  addB({say:"This is true for both systems. {ref:ho-box} {ref:box-box}",ref:'ho-box'});
+
+  addB({cmds:[{cmd:'text',text:'Which system has higher ground state energy for the same size?',placement:'below',size:'text',color:'gold'}],
+    say:"Which system has higher ground state energy — if both have the same characteristic size?",question:true,pause:0});
 }
 
-// ── Reset ───────────────────────────────────────────────
+// ── SCENE 3: Full Derivation with Steps ─────────────────
 
-function reset() {
-  board.innerHTML = ''; layoutReset();
-  subEl.classList.remove('vis');
-  bQ = []; bRun = false;
-  logEl.innerHTML = '<b>Layout Engine Log</b><br>';
-  document.querySelectorAll('#ctrls button').forEach(b => b.classList.remove('on'));
+function runS3(){
+  reset();document.querySelectorAll('#ctrls button')[2].classList.add('on');
+
+  addB({cmds:[{cmd:'text',text:'Solving the Infinite Square Well',placement:'center',size:'h1',color:'gold',id:'t3'}],
+    say:"Let me walk you through solving the particle in a box from scratch."});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  addB({cmds:[{cmd:'step',n:'1',text:'Write the Schrödinger equation inside the box',color:'gold',placement:'below'}],
+    say:"Step one. Inside the box, potential is zero."});
+
+  addB({cmds:[{cmd:'text',text:'-ℏ²/2m · d²ψ/dx² = Eψ',placement:'center',size:'text',color:'cyan',id:'se'}],
+    say:"This is just a second-order ODE."});
+
+  addB({cmds:[{cmd:'text',text:'Define k² = 2mE/ℏ²    →    d²ψ/dx² = -k²ψ',placement:'center',size:'small',color:'dim',id:'define-k'}],
+    say:"Define k-squared. Now it's the simplest differential equation."});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  addB({cmds:[{cmd:'step',n:'2',text:'General solution',color:'gold',placement:'below'}],
+    say:"Step two. The general solution."});
+
+  addB({cmds:[{cmd:'text',text:'ψ(x) = A sin(kx) + B cos(kx)',placement:'center',size:'text',color:'green',id:'general'}],
+    say:"Sine and cosine — the most general solution."});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  addB({cmds:[{cmd:'step',n:'3',text:'Apply boundary conditions',color:'gold',placement:'below'}],
+    say:"Step three. Apply the boundary conditions — this is where quantization happens."});
+
+  // Boundary conditions with checks/crosses
+  addB({cmds:[{cmd:'text',text:'ψ(0) = 0:',placement:'row-start',size:'text',color:'cyan'},
+    {cmd:'text',text:'A·0 + B·1 = 0  →  B = 0',placement:'row-next',size:'text',color:'white'},
+    {cmd:'check',text:'cosine eliminated!',placement:'row-next',color:'green',textColor:'green'},
+  ],say:"At x equals zero, psi must vanish. Sine of zero is zero — good. Cosine of zero is one — must set B to zero."});
+
+  addB({cmds:[{cmd:'text',text:'ψ(L) = 0:',placement:'row-start',size:'text',color:'cyan'},
+    {cmd:'text',text:'A sin(kL) = 0  →  kL = nπ',placement:'row-next',size:'text',color:'white'},
+  ],say:"At x equals L, sine of k-L must be zero. That means k-L is n-pi."});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  addB({cmds:[{cmd:'step',n:'4',text:'Extract the quantized energies',color:'gold',placement:'below'}],
+    say:"Step four. The punchline — quantized energy."});
+
+  // Key result in a box
+  addB({cmds:[{cmd:'box',placement:'center',w:480,h:55,borderColor:'rgba(251,191,36,0.35)',fillColor:'rgba(251,191,36,0.05)',
+    text:'Eₙ = n²π²ℏ² / 2mL²     (n = 1, 2, 3, ...)',color:'gold',label:'Quantized Energy',labelColor:'gold',id:'energy-result'}],
+    say:"Energy is quantized — it goes as n-squared. Only specific energies are allowed."});
+
+  addB({cmds:[{cmd:'box',placement:'center',w:480,h:40,borderColor:'rgba(52,211,153,0.25)',fillColor:'rgba(52,211,153,0.03)',
+    text:'ψₙ(x) = √(2/L) · sin(nπx/L)',color:'green',label:'Wavefunctions',labelColor:'green',id:'wfn-result'}],
+    say:"And the wavefunctions are sine waves — perfectly fitting inside the box."});
+
+  addB({cmds:[{cmd:'separator'}],pause:.2});
+
+  // Key observations
+  addB({cmds:[{cmd:'text',text:'Key observations:',placement:'below',size:'h2',color:'green'}],pause:.2});
+
+  addB({cmds:[{cmd:'check',text:'E₁ > 0 — zero-point energy (uncertainty principle)',placement:'below',color:'green',textColor:'white'}],
+    say:"The ground state energy is not zero. The particle always has some kinetic energy."});
+  addB({cmds:[{cmd:'check',text:'Eₙ ∝ n² — energy grows quadratically',placement:'below',color:'green',textColor:'white'}],pause:.3});
+  addB({cmds:[{cmd:'check',text:'Eₙ ∝ 1/L² — smaller box = higher energy',placement:'below',color:'green',textColor:'white'}],
+    say:"And notice — smaller box means higher energy. Squeeze a particle and it fights back."});
+  addB({cmds:[{cmd:'cross',text:'n = 0 forbidden — particle must exist!',placement:'below',color:'red',textColor:'dim'}],
+    say:"And n equals zero is forbidden. The particle must be somewhere."});
+
+  addB({say:"Look at the energy formula. {ref:energy-result} If you halve L, energy quadruples!",ref:'energy-result'});
+
+  addB({cmds:[{cmd:'text',text:'If L shrinks by half, by how much does E₁ change?',placement:'below',size:'text',color:'gold'}],
+    say:"If the box shrinks to half its size, what happens to the ground state energy?",question:true,pause:0});
 }
 
-setTimeout(runS1, 300);
+function reset(){L.cursorY=15;L.els={};L.inRow=false;L.rowX=MARGIN;L.rowH=0;canvasH=600;
+  animLayer.innerHTML='';subEl.classList.remove('vis');bQ=[];bR=false;
+  document.querySelectorAll('#ctrls button').forEach(b=>b.classList.remove('on'));setup();}
+
+window.addEventListener('resize',()=>{if(!bR)setup();});
+setup();setTimeout(runS1,300);
 </script>
 </body>
 </html>

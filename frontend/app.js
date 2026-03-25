@@ -8307,6 +8307,104 @@ function bdGetFontScale() {
   return state.boardDraw.scale;
 }
 
+// ── Placement Engine ────────────────────────────────────────
+// Resolves relative placement tags to x,y coordinates.
+// The LLM outputs "center", "below", "row-start", "beside:id" etc.
+// The engine tracks a cursor and resolves deterministically.
+
+const BD_MARGIN = 30;
+const BD_ROW_GAP = 12;
+const BD_SIDE_GAP = 18;
+
+const bdLayout = {
+  cursorY: 15,
+  inRow: false,
+  rowY: 0,
+  rowX: BD_MARGIN,
+  rowH: 0,
+};
+
+function bdLayoutReset() {
+  bdLayout.cursorY = 15;
+  bdLayout.inRow = false;
+  bdLayout.rowY = 0;
+  bdLayout.rowX = BD_MARGIN;
+  bdLayout.rowH = 0;
+}
+
+function bdLayoutEndRow() {
+  if (bdLayout.inRow) {
+    bdLayout.cursorY = bdLayout.rowY + bdLayout.rowH + BD_ROW_GAP;
+    bdLayout.inRow = false;
+    bdLayout.rowX = BD_MARGIN;
+    bdLayout.rowH = 0;
+  }
+}
+
+function bdLayoutResolve(placement, estW, estH) {
+  const usable = BD_VIRTUAL_W - BD_MARGIN * 2;
+  let x, y;
+
+  if (!placement || placement === 'below') {
+    if (bdLayout.inRow) bdLayoutEndRow();
+    x = BD_MARGIN; y = bdLayout.cursorY;
+  } else if (placement === 'center') {
+    if (bdLayout.inRow) bdLayoutEndRow();
+    x = BD_MARGIN + Math.max(0, (usable - estW) / 2);
+    y = bdLayout.cursorY;
+  } else if (placement === 'right') {
+    if (bdLayout.inRow) bdLayoutEndRow();
+    x = BD_VIRTUAL_W - BD_MARGIN - estW;
+    y = bdLayout.cursorY;
+  } else if (placement === 'full-width') {
+    if (bdLayout.inRow) bdLayoutEndRow();
+    x = BD_MARGIN; y = bdLayout.cursorY;
+  } else if (placement === 'row-start') {
+    if (bdLayout.inRow) bdLayoutEndRow();
+    bdLayout.inRow = true;
+    bdLayout.rowY = bdLayout.cursorY;
+    bdLayout.rowX = BD_MARGIN;
+    bdLayout.rowH = 0;
+    x = BD_MARGIN; y = bdLayout.cursorY;
+  } else if (placement === 'row-next') {
+    if (!bdLayout.inRow) {
+      bdLayout.inRow = true;
+      bdLayout.rowY = bdLayout.cursorY;
+      bdLayout.rowX = BD_MARGIN;
+      bdLayout.rowH = 0;
+    }
+    x = bdLayout.rowX; y = bdLayout.rowY;
+  } else if (placement === 'indent') {
+    if (bdLayout.inRow) bdLayoutEndRow();
+    x = BD_MARGIN + 25; y = bdLayout.cursorY;
+  } else if (placement.startsWith('beside:')) {
+    const refId = placement.split(':')[1];
+    const ref = bdElementRegistry[refId];
+    if (ref) { x = ref.x + ref.w + BD_SIDE_GAP; y = ref.y; }
+    else { x = BD_VIRTUAL_W / 2; y = bdLayout.cursorY; }
+  } else if (placement.startsWith('below:')) {
+    const refId = placement.split(':')[1];
+    const ref = bdElementRegistry[refId];
+    if (ref) { x = ref.x; y = ref.y + ref.h + 6; }
+    else { x = BD_MARGIN; y = bdLayout.cursorY; }
+  } else {
+    // Fallback — treat as "below"
+    if (bdLayout.inRow) bdLayoutEndRow();
+    x = BD_MARGIN; y = bdLayout.cursorY;
+  }
+
+  return { x, y };
+}
+
+function bdLayoutCommit(x, y, w, h) {
+  if (bdLayout.inRow) {
+    bdLayout.rowX = x + w + BD_SIDE_GAP;
+    bdLayout.rowH = Math.max(bdLayout.rowH, h);
+  } else {
+    bdLayout.cursorY = y + h + BD_ROW_GAP;
+  }
+}
+
 // Active p5 animation instances on the board overlay
 const bdActiveAnimations = [];
 
@@ -9354,6 +9452,7 @@ function bdClearBoard() {
   bd.currentH = BD_INITIAL_H;
   bdClearElementRegistry();
   bdResetContentBottom();
+  bdLayoutReset();
   state._voiceSceneYOffset = 0;
   bd._studentScrolledRecently = false;
   bdClearAllAnimations();
@@ -9370,12 +9469,35 @@ function bdClearBoard() {
 async function bdRunCommand(cmd) {
   const bd = state.boardDraw;
   if (bd.cancelFlag || !bd.canvas || !bd.ctx) return;
-  // Enforce minimum left margin so text doesn't get cut off
+
+  // ── Placement engine: resolve relative placement to x,y ──
+  // If cmd has "placement" field, the engine determines coordinates.
+  // If cmd has raw x,y (legacy), use those with collision avoidance.
+  if (cmd.placement) {
+    const resolveH = (s) => {
+      if (typeof s === 'number') return s * 1.5;
+      if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;
+      return 25;
+    };
+    const estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
+    const estH = cmd.h || resolveH(cmd.size);
+    const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
+
+    // Apply Y-offset for continuous board (voice scenes)
+    const yOffset = state._voiceSceneYOffset || 0;
+    cmd.x = x;
+    cmd.y = y + yOffset;
+
+    // Commit layout position (pre-offset, so layout state stays in local coords)
+    bdLayoutCommit(x, y, estW, estH);
+  }
+
+  // Enforce minimum left margin
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
-  // ── Collision avoidance: nudge elements that overlap existing content ──
-  if (cmd.y !== undefined && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
+  // ── Collision avoidance (for legacy x,y commands without placement) ──
+  if (!cmd.placement && cmd.y !== undefined && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
     const resolveH = (s) => {
       if (typeof s === 'number') return s * 1.5;
       if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;

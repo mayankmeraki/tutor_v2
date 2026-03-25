@@ -12,11 +12,13 @@ Inside it: a sequence of <vb /> (voice beat) tags executed sequentially.
 
 EXAMPLE:
 <teaching-voice-scene title="The Schrödinger Equation">
-<vb say="Let me show you the most important equation in quantum mechanics." cursor="rest" pause="0.3" />
-<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","x":150,"y":100,"color":"#fbbf24","size":"text","id":"eq-main"}' say="Here it is." cursor="write" pause="0.5" />
-<vb say="The left side — how psi changes in time." cursor="tap:id:eq-main" pause="0.8" />
+<vb draw='{"cmd":"text","text":"The Schrödinger Equation","placement":"center","size":"h1","color":"#fbbf24","id":"title"}' say="Here's the most important equation." cursor="write" />
+<vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","placement":"center","size":"text","color":"#fbbf24","id":"eq-main"}' say="Energy governs time evolution." cursor="write" pause="0.5" />
+<vb draw='{"cmd":"text","text":"← time evolution","placement":"beside:eq-main","size":"small","color":"#94a3b8","id":"label-lhs"}' say="The left side is about time. {ref:eq-main}" />
 <vb say="What does the left side represent physically?" cursor="rest" question="true" />
 </teaching-voice-scene>
+
+NOTE: Use "placement" instead of x,y in all draw commands. See BOARD LAYOUT for placement tags.
 
 ═══ <vb> ATTRIBUTES ═══
 
