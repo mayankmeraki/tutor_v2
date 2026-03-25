@@ -2275,6 +2275,7 @@ function cleanupActiveSession() {
   if (state._currentTTSAudio) { try { state._currentTTSAudio.pause(); } catch(e) {} state._currentTTSAudio = null; }
   if (state._streamReader) { try { state._streamReader.cancel(); } catch(e) {} state._streamReader = null; }
   state.isStreaming = false; state._stopRequested = false; state._voiceSceneActive = false;
+  if (typeof _eagerReset === 'function') _eagerReset();
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
   disconnectAgentEvents();
   if (typeof bdActiveAnimations !== 'undefined') { bdActiveAnimations.forEach(e => { try { e.inst.remove(); } catch(x) {} }); bdActiveAnimations.length = 0; }
@@ -2700,6 +2701,11 @@ function updateAIMessageStream(text) {
   }
   if (!state.widget.ready && text.includes('<teaching-widget') && !text.includes('<teaching-widget-update')) {
     showBoardLoadingSkeleton('widget');
+  }
+
+  // Eager voice beat detection — parse and execute beats as they stream in
+  if (state.teachingMode === 'voice' && text.includes('<vb ')) {
+    _eagerBeatWatcher(text);
   }
 
   bdProcessStreaming(text);
@@ -3293,8 +3299,12 @@ function renderTeachingTag(tag) {
       break;
     case 'teaching-voice-scene':
       if (state.teachingMode === 'voice') {
-        state._voiceSceneActive = true;
-        executeVoiceScene(tag).finally(() => { state._voiceSceneActive = false; });
+        // If eager executor is running, it already set _voiceSceneActive
+        if (!_eager.sceneInited) state._voiceSceneActive = true;
+        executeVoiceScene(tag).finally(() => {
+          state._voiceSceneActive = false;
+          _eagerReset();
+        });
       }
       // In text mode, voice scenes are ignored — tutor shouldn't generate them
       break;
@@ -11174,13 +11184,245 @@ document.addEventListener('click', (e) => {
 // ── Voice Scene Parser & Executor ───────────────────────────
 // Parses <teaching-voice-scene> tag into beats, executes them sequentially.
 
+// ── Eager Beat Execution ─────────────────────────────────────
+// Parses <vb /> tags as they stream in and executes them immediately.
+// The existing executeVoiceScene() skips if beats were already handled.
+
+const _eager = {
+  parsedCount: 0,      // how many <vb> closing tags we've seen so far
+  queue: [],            // parsed beats waiting for execution
+  running: false,       // is the executor loop active
+  sceneInited: false,   // has board been set up for this scene
+  ttsPrefetch: null,    // prefetched TTS response for next beat
+  done: false,          // scene fully executed (question reached or stream ended)
+};
+
+function _eagerReset() {
+  _eager.parsedCount = 0;
+  _eager.queue = [];
+  _eager.running = false;
+  _eager.sceneInited = false;
+  _eager.ttsPrefetch = null;
+  _eager.done = false;
+}
+
+function _eagerBeatWatcher(text) {
+  if (_eager.done) return;
+
+  // Count completed <vb ... /> tags
+  const vbRegex = /<vb\s+[\s\S]*?\/>/g;
+  let match;
+  let count = 0;
+  const newRawBeats = [];
+
+  while ((match = vbRegex.exec(text)) !== null) {
+    count++;
+    if (count > _eager.parsedCount) {
+      newRawBeats.push(match[0]);
+    }
+  }
+
+  if (newRawBeats.length === 0) return;
+  _eager.parsedCount = count;
+
+  // Parse each new beat using the existing parser
+  for (const raw of newRawBeats) {
+    const m = raw.match(/<vb\s+([\s\S]*?)\/>/);
+    if (!m) continue;
+    const beat = _parseVoiceBeatAttrs(m[1]);
+    if (beat) {
+      _eager.queue.push(beat);
+      console.log(`[EagerBeat] Parsed beat ${_eager.parsedCount}: ${beat.say?.slice(0, 40) || '(draw)'}`);
+    }
+  }
+
+  // Init scene on first beat
+  if (!_eager.sceneInited && _eager.queue.length > 0) {
+    _eager.sceneInited = true;
+    state._voiceSceneActive = true;
+
+    const titleMatch = text.match(/<teaching-voice-scene[^>]*title=['"]([^'"]*)['"]/);
+    const title = titleMatch ? titleMatch[1] : 'Teaching';
+    _eagerInitBoard(title);
+
+    // Prefetch first beat's TTS immediately
+    if (_eager.queue[0]?.say?.trim()) {
+      _eager.ttsPrefetch = voiceFetchTTS(_eager.queue[0].say);
+    }
+  }
+
+  // Start executor if not running
+  if (!_eager.running && _eager.queue.length > 0) {
+    _eager.running = true;
+    _eagerExecutorLoop();
+  }
+}
+
+function _eagerInitBoard(title) {
+  console.log(`[EagerBeat] Scene init: "${title}"`);
+
+  if (!state.boardDraw.canvas) {
+    openBoardDrawSpotlight(title, null, { clear: true });
+    state._voiceSceneYOffset = 0;
+    bdResetContentBottom();
+  } else {
+    const titleEl = $('#spotlight-title');
+    if (titleEl) titleEl.textContent = title;
+
+    state._voiceSceneYOffset = bdContentBottomY + 15;
+
+    const bd = state.boardDraw;
+    const sepY = state._voiceSceneYOffset - 8;
+    bdExpandIfNeeded(sepY + 20);
+    const s = bd.scale;
+    if (bd.ctx) {
+      bd.ctx.strokeStyle = 'rgba(255,255,255,0.05)';
+      bd.ctx.lineWidth = 1;
+      bd.ctx.beginPath();
+      bd.ctx.moveTo(80 * s, sepY * s);
+      bd.ctx.lineTo((BD_VIRTUAL_W - 80) * s, sepY * s);
+      bd.ctx.stroke();
+    }
+
+    state.boardDraw._studentScrolledRecently = false;
+    const wrap = document.getElementById('bd-canvas-wrap');
+    if (wrap) {
+      wrap.scrollTo({ top: Math.max(0, state._voiceSceneYOffset * bd.scale - 30), behavior: 'smooth' });
+    }
+  }
+}
+
+async function _eagerExecutorLoop() {
+  while (!_eager.done) {
+    if (_eager.queue.length > 0) {
+      const beat = _eager.queue.shift();
+
+      // Get prefetched TTS (may be null for first beat if not ready yet)
+      let myPrefetch = null;
+      if (_eager.ttsPrefetch) {
+        try { myPrefetch = await _eager.ttsPrefetch; } catch(e) {}
+        _eager.ttsPrefetch = null;
+      }
+
+      // Prefetch NEXT beat's TTS while this one executes
+      const nextBeat = _eager.queue[0];
+      if (nextBeat?.say?.trim()) {
+        _eager.ttsPrefetch = voiceFetchTTS(nextBeat.say);
+      }
+
+      // Execute the beat — reuse exact same logic as executeVoiceScene
+      await _eagerExecBeat(beat, myPrefetch);
+
+      // If this was a question beat, stop
+      if (beat.question) {
+        _eager.done = true;
+        break;
+      }
+    } else if (state.isStreaming) {
+      // Queue empty but stream still going — wait for more beats
+      await new Promise(r => setTimeout(r, 80));
+    } else {
+      // Stream ended and queue empty — we're done
+      break;
+    }
+
+    if (state._stopRequested) { _eager.done = true; break; }
+  }
+
+  _eager.running = false;
+
+  // If not stopped by question, hide hand and subtitle
+  if (!_eager.done) {
+    voiceHideHand();
+    voiceHideSubtitle();
+  }
+
+  // Clean up voice scene state when stream ends naturally
+  if (!state.isStreaming) {
+    state._voiceSceneActive = false;
+  }
+}
+
+async function _eagerExecBeat(beat, prefetchedTTS) {
+  // Scroll to ref
+  if (beat.scrollTo) {
+    bdScrollToElement(beat.scrollTo.replace(/^id:/, ''));
+    await voiceSleep(300);
+  }
+
+  // Cursor
+  executeCursor(beat.cursor, beat.draw);
+
+  // Animation control
+  if (beat.animControl) bdControlAnimation(beat.animControl);
+
+  // Annotation
+  if (beat.annotate) {
+    const parts = beat.annotate.split(':');
+    if (parts.length >= 3 && parts[1] === 'id') {
+      voiceAnnotate(parts[0], parts.slice(2).join(':'), {
+        color: beat.annotateColor || '#34d399',
+        duration: beat.annotateDuration || 2000,
+      });
+    }
+  }
+
+  // Video
+  if (beat.videoLesson) {
+    renderTeachingTag({ name: 'teaching-video', attrs: { lesson: beat.videoLesson, start: beat.videoStart || '0', end: beat.videoEnd || '' }, content: '' });
+    if (beat.say) await executeSay(beat.say, prefetchedTTS);
+    await voiceBeatGap(beat.pause);
+    return;
+  }
+
+  // Simulation
+  if (beat.simulation) {
+    renderTeachingTag({ name: 'teaching-simulation', attrs: { id: beat.simulation }, content: '' });
+    if (beat.say) await executeSay(beat.say, prefetchedTTS);
+    await voiceBeatGap(beat.pause);
+    return;
+  }
+
+  // Widget
+  if (beat.widgetTitle && beat.widgetCode) {
+    renderTeachingTag({ name: 'teaching-widget', attrs: { title: beat.widgetTitle }, content: beat.widgetCode });
+    if (beat.say) await executeSay(beat.say, prefetchedTTS);
+    await voiceBeatGap(beat.pause);
+    return;
+  }
+
+  // Draw + say in parallel
+  await Promise.all([
+    executeDraw(beat.draw),
+    executeSay(beat.say, prefetchedTTS),
+  ]);
+
+  // Inter-beat gap
+  if (!beat.question) {
+    await voiceBeatGap(beat.pause);
+  }
+
+  // Question — show input
+  if (beat.question) {
+    voiceHideHand();
+    const qText = beat.say || 'What do you think?';
+    voiceShowBoardQuestion(typeof renderLatex === 'function' ? renderLatex(qText) : qText);
+  }
+}
+
 function parseVoiceBeats(sceneContent) {
   const beats = [];
-  // Match <vb ... /> self-closing tags
   const vbRegex = /<vb\s+([\s\S]*?)\/>/g;
   let match;
   while ((match = vbRegex.exec(sceneContent)) !== null) {
-    const attrStr = match[1];
+    const beat = _parseVoiceBeatAttrs(match[1]);
+    if (beat) beats.push(beat);
+  }
+  return beats;
+}
+
+// Shared beat attribute parser — used by both eager streaming and fallback paths
+function _parseVoiceBeatAttrs(attrStr) {
     const beat = {};
 
     // Parse say attribute (can contain quotes, so use careful extraction)
@@ -11290,32 +11532,26 @@ function parseVoiceBeats(sceneContent) {
     const annDurMatch = attrStr.match(/annotate-duration='([^']*)'|annotate-duration="([^"]*)"/);
     if (annDurMatch) beat.annotateDuration = parseInt(annDurMatch[1] || annDurMatch[2]) || 2000;
 
-    // Debug: summarize what this beat has
-    const beatParts = [];
-    if (beat.say) beatParts.push(`say="${beat.say.slice(0, 40)}..."`);
-    if (beat.draw) beatParts.push(`draw=${beat.draw.length} cmds`);
-    if (beat.cursor) beatParts.push(`cursor=${beat.cursor}`);
-    if (beat.pause) beatParts.push(`pause=${beat.pause}s`);
-    if (beat.question) beatParts.push('QUESTION');
-    if (beat.animControl) beatParts.push('anim-control');
-    if (beat.annotate) beatParts.push(`annotate=${beat.annotate}`);
-    if (beat.videoLesson) beatParts.push(`video=${beat.videoLesson}`);
-    if (beat.simulation) beatParts.push(`sim=${beat.simulation}`);
-    console.log(`[VoiceScene] Parsed beat ${beats.length + 1}: ${beatParts.join(' | ') || '(empty beat)'}`);
-
-    beats.push(beat);
-  }
-  return beats;
+    return beat;
 }
 
 // Execute a voice scene — the main orchestration loop
 async function executeVoiceScene(sceneTag) {
+  // If eager executor already handled beats during streaming, skip
+  if (_eager.parsedCount > 0) {
+    console.log(`[VoiceScene] Skipping — ${_eager.parsedCount} beats already executed eagerly`);
+    // Wait for eager executor to finish if still running
+    while (_eager.running) await new Promise(r => setTimeout(r, 50));
+    _eagerReset();
+    return;
+  }
+
   const title = sceneTag.attrs?.title || 'Teaching';
   const beats = parseVoiceBeats(sceneTag.content || '');
 
   if (beats.length === 0) return;
 
-  console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats`);
+  console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats (fallback path)`);
 
   // Continuous board — each scene draws just below the previous content.
   if (!state.boardDraw.canvas) {
