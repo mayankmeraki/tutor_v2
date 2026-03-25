@@ -11743,6 +11743,9 @@ function _eagerBeatWatcher(text) {
 function _eagerInitBoard(title) {
   console.log(`[EagerBeat] Scene init: "${title}"`);
 
+  // Reset layout cursor for new scene — yOffset handles absolute positioning
+  bdLayoutReset();
+
   if (!state.boardDraw.canvas) {
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
@@ -12071,6 +12074,9 @@ async function executeVoiceScene(sceneTag) {
   if (beats.length === 0) return;
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats (fallback path)`);
+
+  // Reset layout cursor for new scene — yOffset handles absolute positioning
+  bdLayoutReset();
 
   // Continuous board — each scene draws just below the previous content.
   if (!state.boardDraw.canvas) {
