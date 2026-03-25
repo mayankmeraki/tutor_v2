@@ -9536,8 +9536,8 @@ async function bdRunCommand(cmd) {
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
         estW = (cmd.r || 30) * 2; estH = (cmd.r || 30) * 2;
       } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed' || cmd.cmd === 'curvedarrow') {
-        estW = Math.abs((cmd.x2 || 0) - (cmd.x1 || 0)) || 100;
-        estH = Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 20;
+        estW = Math.min(Math.abs((cmd.x2 || 0) - (cmd.x1 || 0)) || 100, 300);
+        estH = Math.min(Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 20, 100);
       } else if (cmd.cmd === 'equation') {
         estW = BD_VIRTUAL_W - BD_MARGIN * 2;
         estH = cmd.note ? 45 : 25;
@@ -9568,8 +9568,11 @@ async function bdRunCommand(cmd) {
         cmd.cx = x + (cmd.r || 30);
         cmd.cy = y + yOffset + (cmd.r || 30);
       } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed') {
-        const dx = (cmd.x2 || 0) - (cmd.x1 || 0);
-        const dy = (cmd.y2 || 0) - (cmd.y1 || 0);
+        let dx = (cmd.x2 || 0) - (cmd.x1 || 0);
+        let dy = (cmd.y2 || 0) - (cmd.y1 || 0);
+        // Cap delta to prevent massive diagonal lines from LLM coordinate guessing
+        dx = Math.max(-300, Math.min(dx, 300));
+        dy = Math.max(-100, Math.min(dy, 100));
         cmd.x1 = x; cmd.y1 = y + yOffset;
         cmd.x2 = x + dx; cmd.y2 = y + yOffset + dy;
       } else if (cmd.cmd === 'curvedarrow') {
@@ -9586,6 +9589,10 @@ async function bdRunCommand(cmd) {
       }
 
       bdLayoutCommit(x, y, estW, estH);
+
+      // ── DEBUG: trace every layout decision ──
+      const yOff = state._voiceSceneYOffset || 0;
+      console.log(`[Layout] ${cmd.cmd} "${(cmd.text||cmd.id||'').slice(0,30)}" p=${cmd.placement} local=(${Math.round(x)},${Math.round(y)}) abs=(${Math.round(x)},${Math.round(y+yOff)}) ${Math.round(estW)}×${Math.round(estH)} cursor=${Math.round(bdLayout.cursorY)} yOff=${Math.round(yOff)} contentBot=${Math.round(bdContentBottomY)}`);
     }
   }
 
@@ -11753,7 +11760,7 @@ function _eagerBeatWatcher(text) {
 }
 
 function _eagerInitBoard(title) {
-  console.log(`[EagerBeat] Scene init: "${title}"`);
+  console.log(`[EagerBeat] Scene init: "${title}" | contentBottomY=${Math.round(bdContentBottomY)} | cursor=${Math.round(bdLayout.cursorY)}`);
 
   // Reset layout cursor for new scene — yOffset handles absolute positioning
   bdLayoutReset();
@@ -11767,6 +11774,7 @@ function _eagerInitBoard(title) {
     if (titleEl) titleEl.textContent = title;
 
     state._voiceSceneYOffset = bdContentBottomY + 15;
+    console.log(`[SceneOffset] yOffset=${Math.round(state._voiceSceneYOffset)} contentBot=${Math.round(bdContentBottomY)}`);
 
     const bd = state.boardDraw;
     const sepY = state._voiceSceneYOffset - 8;
@@ -12101,6 +12109,7 @@ async function executeVoiceScene(sceneTag) {
 
     // Offset = just below last drawn content + small gap (15px virtual)
     state._voiceSceneYOffset = bdContentBottomY + 15;
+    console.log(`[SceneOffset] yOffset=${Math.round(state._voiceSceneYOffset)} contentBot=${Math.round(bdContentBottomY)}`);
 
     // Draw a subtle separator line
     const bd = state.boardDraw;
