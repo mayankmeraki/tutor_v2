@@ -9453,12 +9453,18 @@ async function bdRunCommand(cmd) {
 
     if (cmd.placement) {
       const resolveH = (s) => {
-        if (typeof s === 'number') return s * 1.5;
-        if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;
-        return 25;
+        if (typeof s === 'number') return s * 1.4;
+        if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.4;
+        return 22;
       };
       const estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
-      const estH = cmd.h || resolveH(cmd.size);
+      let estH;
+      if (cmd.cmd === 'animation') {
+        // Animation heights are clamped by the renderer — use the clamped value
+        estH = Math.min(cmd.h || 200, 180);
+      } else {
+        estH = cmd.h || resolveH(cmd.size);
+      }
       const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
 
       const yOffset = state._voiceSceneYOffset || 0;
@@ -9474,7 +9480,8 @@ async function bdRunCommand(cmd) {
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
   // Track content bottom for continuous board positioning
-  const cmdH = cmd.h || cmd.size || cmd.r || 20;
+  let cmdH = cmd.h || cmd.size || cmd.r || 20;
+  if (cmd.cmd === 'animation') cmdH = Math.min(cmdH, 180); // match layout engine cap
   if (cmd.y !== undefined) bdUpdateContentBottom(cmd.y, cmdH);
   if (cmd.y1 !== undefined) bdUpdateContentBottom(cmd.y1, cmdH);
   if (cmd.y2 !== undefined) bdUpdateContentBottom(cmd.y2, cmdH);
