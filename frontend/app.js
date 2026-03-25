@@ -8562,18 +8562,34 @@ function bdAutoScrollToCmd(cmd) {
   const wrap = document.getElementById('bd-canvas-wrap');
   const bd = state.boardDraw;
   if (!wrap) return;
+
+  // Respect student's manual scroll — unless tutor is actively teaching
   const forceFollow = state._voiceSceneActive || state.isStreaming;
   if (!forceFollow && bd._studentScrolledRecently) return;
+
   const ys = [cmd.y, cmd.y1, cmd.y2, cmd.cy].filter(v => v != null);
   if (!ys.length) return;
+
+  const minCmdY = Math.min(...ys);
   const maxCmdY = Math.max(...ys);
   const cmdH = cmd.h || cmd.size || cmd.r || 30;
   const zoom = bd._zoom || 1;
-  const scaledBottom = (maxCmdY + cmdH) * bd.scale * zoom;
-  const viewBottom = wrap.scrollTop + wrap.clientHeight;
-  if (scaledBottom > viewBottom - 30) {
-    wrap.scrollTo({ top: Math.max(0, scaledBottom - wrap.clientHeight * 0.7), behavior: 'smooth' });
-  } else if ((maxCmdY * bd.scale * zoom) < wrap.scrollTop) {
+  const s = bd.scale * zoom;
+
+  const contentTop = minCmdY * s;
+  const contentBottom = (maxCmdY + cmdH) * s;
+  const viewTop = wrap.scrollTop;
+  const viewBottom = viewTop + wrap.clientHeight;
+
+  // Content is fully within viewport — don't scroll
+  if (contentTop >= viewTop && contentBottom <= viewBottom) return;
+
+  // Content is below viewport — scroll down to show it
+  if (contentBottom > viewBottom) {
+    wrap.scrollTo({ top: Math.max(0, contentBottom - wrap.clientHeight * 0.7), behavior: 'smooth' });
+  }
+  // Content is above viewport — scroll up to show it
+  else if (contentTop < viewTop) {
     wrap.scrollTo({ top: Math.max(0, maxCmdY * bd.scale * zoom - 40), behavior: 'smooth' });
   }
 }
