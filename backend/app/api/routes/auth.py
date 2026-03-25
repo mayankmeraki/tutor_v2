@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from jose import jwt, JWTError
 
 from app.core.config import settings
-from app.core.rate_limit import check_rate_limit
+from app.core.rate_limit import check_rate_limit_auth as check_rate_limit
 from app.services.user_service import create_user, get_user_by_email, verify_password
 
 log = logging.getLogger(__name__)

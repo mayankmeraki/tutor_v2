@@ -140,7 +140,23 @@ async def get_config():
 
 @app.post("/api/tts")
 async def tts_proxy(request: Request):
-    """Proxy TTS requests to ElevenLabs — keeps API key server-side."""
+    """Proxy TTS requests to ElevenLabs — keeps API key server-side.
+    Requires auth + rate limited to prevent quota abuse.
+    """
+    # Auth check
+    from app.api.routes.auth import get_current_user
+    try:
+        await get_current_user(request)
+    except Exception:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
+    # Rate limit
+    from app.core.rate_limit import check_rate_limit_tts
+    try:
+        await check_rate_limit_tts(request)
+    except Exception as e:
+        return JSONResponse(status_code=429, content={"error": str(e.detail) if hasattr(e, 'detail') else "Rate limited"})
+
     if not settings.ELEVENLABS_API_KEY:
         return JSONResponse(status_code=503, content={"error": "TTS not configured"})
 

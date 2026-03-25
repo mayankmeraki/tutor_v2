@@ -31,7 +31,7 @@ from app.core.llm import (
 from app.core.logging_config import SessionLogger
 from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_byo_tutor_prompt, build_assessment_prompt
 from app.agents.prompts.teaching_delegate import build_delegation_prompt
-from app.agents.session import get_or_create_session
+from app.agents.session import get_or_create_session, get_session_lock
 from app.services.knowledge_state import (
     get_or_init_knowledge_state,
     format_knowledge_state,
@@ -53,11 +53,15 @@ from app.tools import (
     execute_mql_tool,
 )
 
-from app.core.rate_limit import check_rate_limit as _check_rate_limit
+from app.core.rate_limit import check_rate_limit_chat as _check_rate_limit
 from app.api.routes import sse as _sse
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
+
+def _sse_raw(data: dict) -> str:
+    """Format a single SSE event as a string (for non-generator error responses)."""
+    return f"data: {json.dumps(data)}\n\n"
 
 MAX_ROUNDS = 6  # cap tutor tool rounds — prevents content-gathering loops
 MAX_RETRIES = 3
@@ -1265,14 +1269,37 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
 
 @router.post("/api/chat", dependencies=[Depends(_check_rate_limit)])
 async def chat(request: Request):
-    body = await request.json()
+    # ── Request validation ────────────────────────────────
+    try:
+        body = await request.json()
+    except Exception:
+        return StreamingResponse(
+            iter([_sse_raw({"type": "RUN_ERROR", "message": "Invalid request body"})]),
+            media_type="text/event-stream",
+        )
+
     messages = body.get("messages")
     context = body.get("context")
     req_session_id = body.get("sessionId")
     is_session_start = body.get("isSessionStart", False)
 
+    if not req_session_id or not isinstance(req_session_id, str) or len(req_session_id) > 100:
+        return StreamingResponse(
+            iter([_sse_raw({"type": "RUN_ERROR", "message": "Invalid session ID"})]),
+            media_type="text/event-stream",
+        )
+
     context_data = extract_context(context)
     session, session_id = await get_or_create_session(req_session_id)
+
+    # ── Session lock — prevent concurrent requests for same session ──
+    lock = get_session_lock(session_id)
+    if lock.locked():
+        # Another request is already processing this session
+        return StreamingResponse(
+            iter([_sse_raw({"type": "RUN_ERROR", "message": "Session busy — please wait for the current response"})]),
+            media_type="text/event-stream",
+        )
 
     # Server-side message history is the source of truth.
     # Frontend sends the latest user message; we append it to server history.
@@ -2345,8 +2372,16 @@ async def chat(request: Request):
             slog.error("Chat error: %s", e, exc_info=True)
             yield _sse({"type": "RUN_ERROR", "message": "Something went wrong. Please try again."})
 
+    async def locked_generate():
+        await lock.acquire()
+        try:
+            async for chunk in generate():
+                yield chunk
+        finally:
+            lock.release()
+
     return StreamingResponse(
-        generate(),
+        locked_generate(),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
