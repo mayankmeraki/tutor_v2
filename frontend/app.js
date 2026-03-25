@@ -11128,7 +11128,9 @@ function voiceShowSubtitle(text) {
   const el = $('#voice-subtitle-text');
   if (!el) return;
   let display = text
-    .replace(/\[[^\]]*\]\s*/g, '') // strip emotion tags like [excited], [thoughtfully]
+    .replace(/\{ref:[^}]+\}/g, '')  // strip {ref:elementId} markers
+    .replace(/\[[^\]]*\]\s*/g, '')  // strip emotion tags like [excited], [thoughtfully]
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/g, '<em>$1</em>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/\$[^$]+\$/g, '')
