@@ -10105,6 +10105,9 @@ async function bdRunAnimation(cmd) {
   // Auto-scale hardcoded text sizes and stroke weights in the AI-generated code
   code = code.replace(/p\.textSize\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.textSize(${n} * S)`);
   code = code.replace(/p\.strokeWeight\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.strokeWeight(Math.max(1, ${n} * S))`);
+  // Strip re-declarations of W, H, S that conflict with function params / injected bridge
+  code = code.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
+  code = code.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
   code = controlBridge + '\n' + code;
   let sketchFn;
   try {
