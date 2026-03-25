@@ -8370,14 +8370,12 @@ function bdLayoutResolve(placement, estW, estH) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
     if (ref) {
-      // Registry stores ABSOLUTE coords — convert to LOCAL by subtracting yOffset
-      const yOff = state._voiceSceneYOffset || 0;
-      const refLocalY = ref.y - yOff;
+      // Registry stores LOCAL coords — use directly
       x = ref.x + ref.w + BD_SIDE_GAP;
-      y = refLocalY;
+      y = ref.y;
       if (x + estW > BD_VIRTUAL_W - BD_MARGIN) {
         x = ref.x;
-        y = refLocalY + ref.h + 6;
+        y = ref.y + ref.h + 6;
       }
     } else {
       if (bdLayout.inRow) bdLayoutEndRow();
@@ -8388,10 +8386,8 @@ function bdLayoutResolve(placement, estW, estH) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
     if (ref) {
-      const yOff = state._voiceSceneYOffset || 0;
-      const refLocalY = ref.y - yOff;
       x = ref.x;
-      y = refLocalY + ref.h + 6;
+      y = ref.y + ref.h + 6;
     } else {
       if (bdLayout.inRow) bdLayoutEndRow();
       x = BD_MARGIN; y = bdLayout.cursorY;
@@ -9508,9 +9504,10 @@ async function bdRunCommand(cmd) {
   // ── Placement engine: ALL commands go through the layout resolver ──
   // If no placement specified, default to "below" (sequential flow)
   {
-    // All positionable commands get auto-placement if none specified
-    const positionable = ['text', 'latex', 'animation', 'rect', 'fillrect', 'circle', 'arc', 'line', 'arrow', 'dashed', 'dot', 'freehand', 'curvedarrow', 'matrix', 'brace', 'equation', 'compare', 'step', 'check', 'cross', 'callout', 'list', 'divider', 'result'];
-    if (!cmd.placement && positionable.includes(cmd.cmd)) {
+    // Content commands get auto-placement. Decorative shapes (circle, line, arrow) DON'T —
+    // they're drawn at the current cursor position but don't advance it.
+    const contentCmds = ['text', 'latex', 'animation', 'equation', 'compare', 'step', 'check', 'cross', 'callout', 'list', 'divider', 'result'];
+    if (!cmd.placement && contentCmds.includes(cmd.cmd)) {
       cmd.placement = 'below';
     }
 
@@ -9536,10 +9533,11 @@ async function bdRunCommand(cmd) {
         cmd._layoutW = estW;
         cmd._layoutH = estH;
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
-        estW = (cmd.r || 30) * 2; estH = (cmd.r || 30) * 2;
+        const r = Math.min(cmd.r || 30, 40); // cap radius at 40 virtual px
+        estW = r * 2; estH = r * 2;
       } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed' || cmd.cmd === 'curvedarrow') {
-        estW = Math.min(Math.abs((cmd.x2 || 0) - (cmd.x1 || 0)) || 100, 300);
-        estH = Math.min(Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 20, 100);
+        estW = Math.min(Math.abs((cmd.x2 || 0) - (cmd.x1 || 0)) || 40, 200);
+        estH = Math.min(Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 15, 50);
       } else if (cmd.cmd === 'equation') {
         estW = BD_VIRTUAL_W - BD_MARGIN * 2;
         estH = cmd.note ? 45 : 25;
@@ -9563,38 +9561,25 @@ async function bdRunCommand(cmd) {
       }
 
       const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
-      const yOffset = state._voiceSceneYOffset || 0;
 
-      // Map placement to the correct coordinate fields per command type
-      if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
-        cmd.cx = x + (cmd.r || 30);
-        cmd.cy = y + yOffset + (cmd.r || 30);
-      } else if (cmd.cmd === 'line' || cmd.cmd === 'arrow' || cmd.cmd === 'dashed') {
-        let dx = (cmd.x2 || 0) - (cmd.x1 || 0);
-        let dy = (cmd.y2 || 0) - (cmd.y1 || 0);
-        // Cap delta to prevent massive diagonal lines from LLM coordinate guessing
-        dx = Math.max(-300, Math.min(dx, 300));
-        dy = Math.max(-100, Math.min(dy, 100));
-        cmd.x1 = x; cmd.y1 = y + yOffset;
-        cmd.x2 = x + dx; cmd.y2 = y + yOffset + dy;
-      } else if (cmd.cmd === 'curvedarrow') {
-        const dx2 = (cmd.x2 || 0) - (cmd.x1 || 0);
-        const dy2 = (cmd.y2 || 0) - (cmd.y1 || 0);
-        const dcx = (cmd.cx || 0) - (cmd.x1 || 0);
-        const dcy = (cmd.cy || 0) - (cmd.y1 || 0);
-        cmd.x1 = x; cmd.y1 = y + yOffset;
-        cmd.x2 = x + dx2; cmd.y2 = y + yOffset + dy2;
-        cmd.cx = x + dcx; cmd.cy = y + yOffset + dcy;
-      } else {
-        cmd.x = x;
-        cmd.y = y + yOffset;
-      }
-
+      // Commit to layout in LOCAL coords — layout engine never sees yOffset
       bdLayoutCommit(x, y, estW, estH);
 
-      // ── DEBUG: trace every layout decision ──
-      const yOff = state._voiceSceneYOffset || 0;
-      console.log(`[Layout] ${cmd.cmd} "${(cmd.text||cmd.id||'').slice(0,30)}" p=${cmd.placement} local=(${Math.round(x)},${Math.round(y)}) abs=(${Math.round(x)},${Math.round(y+yOff)}) ${Math.round(estW)}×${Math.round(estH)} cursor=${Math.round(bdLayout.cursorY)} yOff=${Math.round(yOff)} contentBot=${Math.round(bdContentBottomY)}`);
+      // Register element in LOCAL coords for beside:/below: refs
+      if (cmd.id) {
+        bdElementRegistry[cmd.id] = { x, y, w: estW, h: estH, cmd: cmd.cmd };
+      }
+
+      // Apply yOffset ONCE for rendering — this is the ONLY place it's added
+      const yOffset = state._voiceSceneYOffset || 0;
+      cmd.x = x;
+      cmd.y = y + yOffset;
+
+      // Sync contentBottomY in absolute coords (for scene transitions)
+      const absBottom = bdLayout.cursorY + yOffset;
+      if (absBottom > bdContentBottomY) bdContentBottomY = absBottom;
+
+      console.log(`[Layout] ${cmd.cmd} "${(cmd.text||cmd.id||'').slice(0,25)}" p=${cmd.placement} local=(${Math.round(x)},${Math.round(y)}) abs_y=${Math.round(y+yOffset)} ${Math.round(estW)}×${Math.round(estH)} cursor=${Math.round(bdLayout.cursorY)} yOff=${Math.round(yOffset)}`);
     }
   }
 
@@ -9602,16 +9587,11 @@ async function bdRunCommand(cmd) {
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
 
-  // Track content bottom in ABSOLUTE coords (for voice scene Y-offset between scenes)
-  // Layout cursor is local (per-scene), yOffset converts to absolute
-  if (cmd.placement) {
-    const yOffset = state._voiceSceneYOffset || 0;
-    const absBottom = bdLayout.cursorY + yOffset;
-    if (absBottom > bdContentBottomY) bdContentBottomY = absBottom;
-  }
+  // contentBottomY sync handled inside placement resolver above
 
-  // Register element for referencing/scrolling AND collision detection
-  if (cmd.id) {
+  // Element registration handled by placement resolver above (in LOCAL coords)
+  // Only register non-placement commands here (decorative shapes)
+  if (cmd.id && !cmd.placement) {
     bdRegisterElement(cmd);
   }
   // Hand cursor disabled — was causing positioning issues
