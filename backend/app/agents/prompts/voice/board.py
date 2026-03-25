@@ -74,45 +74,53 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 
 This is a PowerPoint slide, not a board. The student feels like reading a document.
 
-✅ THIS IS RIGHT — mixed layout, annotations beside, visual variety:
+✅ THIS IS RIGHT — content spread across BOTH halves:
   <vb draw='{"cmd":"text","text":"Time Evolution","placement":"center","size":"h1","color":"#fbbf24","id":"title"}' say="Let's look at time evolution." />
-  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"Hamiltonian drives time change","placement":"below","color":"cyan","id":"se"}' say="The Schrödinger equation." pause="0.5" />
-  <vb draw='{"cmd":"callout","text":"Ĥ encodes ALL the physics","placement":"below","color":"gold","id":"key"}' say="Everything the system knows is inside {ref:se}" />
-  <vb draw='{"cmd":"equation","text":"Ĥψ = Eψ, then: iℏ ∂ψ/∂t = Eψ","note":"energy eigenstate → simple time evolution","placement":"below","color":"cyan","id":"se2"}' say="If we know the energy, time dependence is trivial." pause="0.8" />
+  <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","placement":"row-start","size":"text","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
+  <vb draw='{"cmd":"text","text":"energy drives time change","placement":"row-next","size":"text","color":"#e2e8f0"}' say="Energy governs how psi evolves." />
+  <vb draw='{"cmd":"callout","text":"Ĥ encodes ALL the physics of the system","placement":"below","color":"gold","id":"key"}' say="Everything is in the Hamiltonian. {ref:se}" />
+  <vb draw='{"cmd":"text","text":"If Ĥψ = Eψ:","placement":"row-start","size":"text","color":"#fbbf24","id":"if-eigen"}' say="If psi is an eigenstate..." />
+  <vb draw='{"cmd":"text","text":"ψ(t) = ψ(0) · e^(-iEt/ℏ)","placement":"row-next","size":"text","color":"#34d399","id":"time-sol"}' say="Time evolution is just a phase rotation!" />
 
-═══ LAYOUT PATTERNS — HOW TEACHERS ACTUALLY USE BOARDS ═══
+═══ LAYOUT PATTERNS — USE THE FULL BOARD WIDTH ═══
 
-PATTERN 1 — Equation + Annotation (most common):
-  Use "equation" compound. Note appears beside it automatically.
-  <vb draw='{"cmd":"equation","text":"Ôψ = λψ","note":"same shape back!","placement":"below","color":"#fbbf24","id":"eq1"}' say="The eigenvalue equation." />
+⚠️ KEY RULE: Use row-start/row-next to spread content across BOTH halves.
+Don't let the right half stay empty. A good board has content edge to edge.
 
-PATTERN 2 — Derivation Steps:
-  <vb draw='{"cmd":"text","text":"Perturbation Theory","placement":"center","size":"h1","color":"#fbbf24","id":"title"}' />
-  <vb draw='{"cmd":"step","n":1,"text":"Write the unperturbed equation","placement":"below","id":"s1"}' say="Start with what we know." />
-  <vb draw='{"cmd":"equation","text":"Ĥ₀|n⟩ = Eₙ|n⟩","note":"already solved","placement":"indent","color":"cyan","id":"s1eq"}' />
-  <vb draw='{"cmd":"step","n":2,"text":"Add perturbation","placement":"below","id":"s2"}' say="Now add the small correction." />
-  <vb draw='{"cmd":"equation","text":"Ĥ = Ĥ₀ + λV","note":"λ ≪ 1","placement":"indent","color":"cyan","id":"s2eq"}' />
+PATTERN 1 — Math left, meaning right (THE DEFAULT LAYOUT):
+  LEFT half: the equation.  RIGHT half: what it means in words.
+  <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t = Ĥψ","placement":"row-start","size":"text","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
+  <vb draw='{"cmd":"text","text":"energy tells ψ how to evolve","placement":"row-next","size":"text","color":"#e2e8f0","id":"se-m"}' say="Energy drives time evolution." />
 
-PATTERN 3 — Comparison:
-  <vb draw='{"cmd":"compare","left":{"title":"Evolution","items":["Deterministic","Reversible","Continuous"],"color":"green"},"right":{"title":"Measurement","items":["Probabilistic","Irreversible","Discrete"],"color":"red"},"placement":"below","id":"cmp"}' say="These are fundamentally different processes." />
+PATTERN 2 — Two-column breakdown:
+  <vb draw='{"cmd":"text","text":"Left side: iℏ∂ψ/∂t","placement":"row-start","size":"text","color":"#53d8fb","id":"lhs"}' say="The left side." />
+  <vb draw='{"cmd":"text","text":"Right side: Ĥψ","placement":"row-next","size":"text","color":"#fbbf24","id":"rhs"}' say="The right side." />
+  <vb draw='{"cmd":"text","text":"= how ψ changes","placement":"row-start","size":"small","color":"#94a3b8"}' />
+  <vb draw='{"cmd":"text","text":"= total energy acting","placement":"row-next","size":"small","color":"#94a3b8"}' />
 
-PATTERN 4 — Animation + Legend:
-  <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","w":350,"h":160,"code":"..."}' say="Watch the wave evolve." />
-  <vb draw='{"cmd":"text","text":"blue = V(x)","placement":"row-next","size":"small","color":"#60a5fa","id":"l1"}' />
-  <vb draw='{"cmd":"text","text":"green = ψ(x)","placement":"below:l1","size":"small","color":"#34d399","id":"l2"}' />
+PATTERN 3 — Equation with note (for single equations):
+  <vb draw='{"cmd":"equation","text":"Ôψ = λψ","note":"same shape back, scaled by λ","placement":"below","color":"#fbbf24","id":"eq1"}' />
 
-PATTERN 5 — Key Result:
-  <vb draw='{"cmd":"result","text":"Eₙ = n²π²ℏ²/2mL²","note":"grows as n²","label":"Key Result","placement":"below","color":"gold","id":"res"}' say="Here's the energy spectrum." />
+PATTERN 4 — Steps with results on the right:
+  <vb draw='{"cmd":"step","n":1,"text":"Write the equation","placement":"row-start","id":"s1"}' />
+  <vb draw='{"cmd":"text","text":"Ĥ₀|n⟩ = Eₙ|n⟩  ✓ known","placement":"row-next","size":"text","color":"#53d8fb","id":"s1r"}' />
+  <vb draw='{"cmd":"step","n":2,"text":"Add perturbation","placement":"row-start","id":"s2"}' />
+  <vb draw='{"cmd":"text","text":"Ĥ = Ĥ₀ + λV  (λ ≪ 1)","placement":"row-next","size":"text","color":"#34d399","id":"s2r"}' />
 
-PATTERN 6 — Properties:
-  <vb draw='{"cmd":"text","text":"Properties of Ĥ","placement":"below","size":"h2","color":"#34d399","id":"props-title"}' />
-  <vb draw='{"cmd":"check","text":"Hermitian: real eigenvalues","placement":"below","id":"p1"}' say="Hermitian means we get real measurements." />
-  <vb draw='{"cmd":"check","text":"Linear: superposition works","placement":"below","id":"p2"}' say="Linearity lets us add solutions." />
-  <vb draw='{"cmd":"cross","text":"NOT bounded: infinite spectrum","placement":"below","id":"p3"}' say="But the spectrum can be infinite." />
+PATTERN 5 — Side-by-side comparison:
+  <vb draw='{"cmd":"compare","left":{"title":"Evolution","items":["Deterministic","Reversible","Info preserved"],"color":"green"},"right":{"title":"Measurement","items":["Probabilistic","Irreversible","Info lost"],"color":"red"},"placement":"below","id":"cmp"}' />
 
-PATTERN 7 — Topic Transition:
-  <vb draw='{"cmd":"divider","placement":"below"}' />
-  <vb draw='{"cmd":"text","text":"Now: Time Dependence","placement":"below","size":"h2","color":"#34d399","id":"next-topic"}' say="Let's move on." />
+PATTERN 6 — Animation + legend spread across:
+  <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","w":350,"h":140,"code":"..."}' />
+  <vb draw='{"cmd":"text","text":"What you see:","placement":"row-next","size":"h3","color":"#fbbf24","id":"lh"}' />
+  <vb draw='{"cmd":"text","text":"green = Re(ψ)","placement":"below:lh","size":"small","color":"#34d399","id":"l1"}' />
+  <vb draw='{"cmd":"text","text":"gold = |ψ|²","placement":"below:l1","size":"small","color":"#fbbf24"}' />
+
+PATTERN 7 — Properties in two columns:
+  <vb draw='{"cmd":"check","text":"Hermitian","placement":"row-start","id":"p1"}' />
+  <vb draw='{"cmd":"text","text":"→ real eigenvalues","placement":"row-next","size":"small","color":"#94a3b8"}' />
+  <vb draw='{"cmd":"check","text":"Linear","placement":"row-start","id":"p2"}' />
+  <vb draw='{"cmd":"text","text":"→ superposition works","placement":"row-next","size":"small","color":"#94a3b8"}' />
 
 ═══ BOARD RULES ═══
 
