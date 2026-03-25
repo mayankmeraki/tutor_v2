@@ -1803,39 +1803,13 @@ function buildContext() {
     });
   }
 
-  // Context: Active Board — what's currently drawn + spatial state
+  // Context: Active Board — element IDs on the board (for beside:/below: references)
   if (state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
-    const bd = state.boardDraw;
-    const boardLines = [];
-
-    // Build from element registry (works in both text and voice mode)
-    const regEntries = Object.entries(bdElementRegistry)
-      .filter(([id]) => !id.startsWith('_auto_'))  // skip unnamed auto-entries
-      .sort((a, b) => (a[1].y || 0) - (b[1].y || 0));
-
-    for (const [id, el] of regEntries) {
-      if (el.cmd === 'text') boardLines.push(`  y=${Math.round(el.y)}: [text] id="${id}" (w=${Math.round(el.w)})`);
-      else if (el.cmd === 'latex') boardLines.push(`  y=${Math.round(el.y)}: [equation] id="${id}"`);
-      else if (el.cmd === 'animation') boardLines.push(`  y=${Math.round(el.y)}: [animation] id="${id}" (${Math.round(el.w)}×${Math.round(el.h)})`);
-      else boardLines.push(`  y=${Math.round(el.y)}: [${el.cmd}] id="${id}"`);
-    }
-
-    // Fallback to rawContent if registry is empty
-    if (boardLines.length === 0 && bd.rawContent) {
-      for (const line of bd.rawContent.split('\n')) {
-        try {
-          const cmd = JSON.parse(line.trim());
-          if (cmd.cmd === 'text' && cmd.text) boardLines.push(`  [text] ${cmd.text}`);
-          if (cmd.cmd === 'latex' && cmd.tex) boardLines.push(`  [equation] ${cmd.tex}`);
-        } catch {}
-      }
-    }
-
-    if (boardLines.length > 0) {
-      const contentBottom = Math.round(bdContentBottomY);
+    const ids = Object.keys(bdElementRegistry).filter(id => !id.startsWith('_auto_'));
+    if (ids.length > 0) {
       items.push({
-        description: 'BOARD STATE — elements on the board with Y positions. Use Y > contentBottom for new content.',
-        value: `Board: "${state.spotlightInfo.title || 'Board'}"\nElements (${boardLines.length}):\n${boardLines.join('\n')}\nContent bottom: y=${contentBottom}\n⚠ START NEW CONTENT AT y=${contentBottom + 20} OR HIGHER. Drawing at lower Y will overlap existing content.`,
+        description: 'BOARD — element IDs currently on the board. Use beside:ID or below:ID to place content relative to these.',
+        value: `Board: "${state.spotlightInfo.title || 'Board'}"\nElement IDs: ${ids.join(', ')}\nNew content auto-flows below existing content. Use placement tags, not coordinates.`,
       });
     }
   }
@@ -9470,59 +9444,34 @@ async function bdRunCommand(cmd) {
   const bd = state.boardDraw;
   if (bd.cancelFlag || !bd.canvas || !bd.ctx) return;
 
-  // ── Placement engine: resolve relative placement to x,y ──
-  // If cmd has "placement" field, the engine determines coordinates.
-  // If cmd has raw x,y (legacy), use those with collision avoidance.
-  if (cmd.placement) {
-    const resolveH = (s) => {
-      if (typeof s === 'number') return s * 1.5;
-      if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;
-      return 25;
-    };
-    const estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
-    const estH = cmd.h || resolveH(cmd.size);
-    const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
+  // ── Placement engine: ALL commands go through the layout resolver ──
+  // If no placement specified, default to "below" (sequential flow)
+  {
+    if (!cmd.placement && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
+      cmd.placement = 'below';
+    }
 
-    // Apply Y-offset for continuous board (voice scenes)
-    const yOffset = state._voiceSceneYOffset || 0;
-    cmd.x = x;
-    cmd.y = y + yOffset;
+    if (cmd.placement) {
+      const resolveH = (s) => {
+        if (typeof s === 'number') return s * 1.5;
+        if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;
+        return 25;
+      };
+      const estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
+      const estH = cmd.h || resolveH(cmd.size);
+      const { x, y } = bdLayoutResolve(cmd.placement, estW, estH);
 
-    // Commit layout position (pre-offset, so layout state stays in local coords)
-    bdLayoutCommit(x, y, estW, estH);
+      const yOffset = state._voiceSceneYOffset || 0;
+      cmd.x = x;
+      cmd.y = y + yOffset;
+
+      bdLayoutCommit(x, y, estW, estH);
+    }
   }
 
   // Enforce minimum left margin
   if (cmd.x !== undefined && cmd.x < 15) cmd.x = 15;
   if (cmd.x1 !== undefined && cmd.x1 < 10) cmd.x1 = 10;
-
-  // ── Collision avoidance (for legacy x,y commands without placement) ──
-  if (!cmd.placement && cmd.y !== undefined && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
-    const resolveH = (s) => {
-      if (typeof s === 'number') return s * 1.5;
-      if (typeof s === 'string' && BD_SEMANTIC_SIZES[s.toLowerCase()]) return BD_SEMANTIC_SIZES[s.toLowerCase()] * 1.5;
-      return 25;
-    };
-    const myH = cmd.h || resolveH(cmd.size);
-    const myW = cmd.w || 200;
-    const myX = cmd.x || 0;
-    let myY = cmd.y;
-
-    // Check against all registered elements for overlap
-    for (const id in bdElementRegistry) {
-      const el = bdElementRegistry[id];
-      const overlap = myY < (el.y + el.h + 5) && (myY + myH) > el.y &&
-                      myX < (el.x + el.w + 5) && (myX + myW) > el.x;
-      if (overlap) {
-        // Nudge below the conflicting element
-        const nudged = el.y + el.h + 8;
-        if (nudged > myY) myY = nudged;
-      }
-    }
-    if (myY !== cmd.y) {
-      cmd.y = myY;
-    }
-  }
 
   // Track content bottom for continuous board positioning
   const cmdH = cmd.h || cmd.size || cmd.r || 20;
@@ -9534,10 +9483,6 @@ async function bdRunCommand(cmd) {
   // Register element for referencing/scrolling AND collision detection
   if (cmd.id) {
     bdRegisterElement(cmd);
-  } else if (cmd.y !== undefined && (cmd.cmd === 'text' || cmd.cmd === 'latex' || cmd.cmd === 'animation')) {
-    // Register unnamed elements too (for collision detection)
-    const autoId = `_auto_${Date.now()}_${Math.random().toString(36).slice(2,6)}`;
-    bdRegisterElement({ ...cmd, id: autoId });
   }
   // Hand cursor disabled — was causing positioning issues
   // if (typeof voiceHandFollowCommand === 'function') voiceHandFollowCommand(cmd);
