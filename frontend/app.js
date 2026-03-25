@@ -12734,17 +12734,22 @@ function stopGeneration() {
   if (state._streamReader) {
     try { state._streamReader.cancel(); } catch (e) {}
   }
-  // Stop any active voice scene
+  // Stop any active voice scene and eager beats
   if (state._voiceSceneActive) {
     state._voiceSceneActive = false;
-    // Stop TTS audio
     if (state._currentTTSAudio) {
       try { state._currentTTSAudio.pause(); state._currentTTSAudio = null; } catch (e) {}
     }
   }
+  if (state.voiceCurrentAudio) {
+    try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {}
+    state.voiceCurrentAudio = null;
+  }
+  if (typeof _eagerReset === 'function') _eagerReset();
   // Immediate UI feedback
   voiceBarSetThinking(false);
   removeStreamingIndicator();
+  voiceHideSubtitle();
 }
 
 // ── Unified voice bar submit ────────────────────────────────
@@ -12755,12 +12760,36 @@ function submitVoiceBarInput() {
   if (!field || !field.value.trim()) return;
   const text = field.value.trim();
   field.value = '';
-  field.style.height = 'auto'; // reset textarea height
+  field.style.height = 'auto';
   field.placeholder = 'Type or hold Space to talk...';
-  voiceHideSubtitle();
+
+  // Show "You: ..." in subtitle so student knows their message was sent
+  const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
+  voiceShowSubtitle('You: ' + preview);
+
   const sendBtn = $('#voice-bar-send');
   if (sendBtn) sendBtn.classList.remove('visible');
-  streamADK(text);
+
+  // Auto-attach board images if student drew on the board
+  const bd = state.boardDraw;
+  if (bd.studentDrawing && bd.canvas) {
+    const parts = [];
+    if (bd.tutorSnapshot) {
+      const tutorBase64 = bd.tutorSnapshot.split(',')[1];
+      parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: tutorBase64 } });
+      parts.push({ type: 'text', text: '[BOARD — BEFORE] Tutor\'s original board.' });
+    }
+    const boardImages = typeof bdCaptureViewportChunks === 'function' ? bdCaptureViewportChunks() : [];
+    for (let i = 0; i < boardImages.length; i++) {
+      parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: boardImages[i] } });
+      parts.push({ type: 'text', text: boardImages.length > 1 ? `[BOARD — AFTER ${i+1}/${boardImages.length}]` : '[BOARD — AFTER] With student annotations.' });
+    }
+    parts.push({ type: 'text', text: text });
+    bd.studentDrawing = false;
+    streamADK(parts);
+  } else {
+    streamADK(text);
+  }
 }
 
 // Show/hide send button based on input content
