@@ -8507,9 +8507,7 @@ function bdZoomPulse(elementId) {
   const bd = state.boardDraw;
   const s = bd.scale || 1;
 
-  // Determine which container to place the highlight in
-  // If element is in a snapshot scene, use that scene's overlay
-  // If element is in the live scene, use the anim layer
+  // Find the right container for the highlight
   let highlightParent;
   if (entry.scene !== undefined && entry.scene < _sceneSnapshots.length) {
     highlightParent = _sceneSnapshots[entry.scene]?.element?.querySelector('.bd-scene-highlight-overlay');
@@ -8519,41 +8517,81 @@ function bdZoomPulse(elementId) {
   }
   if (!highlightParent) return;
 
-  const pad = 4 * s;
-  const ex = Math.max(0, entry.x * s - pad);
-  const ey = Math.max(0, entry.y * s - pad);
-  const ew = (entry.w || 80) * s + pad * 2;
-  const eh = (entry.h || 25) * s + pad * 2;
+  const pad = 8 * s;
+  const cx = entry.x * s + (entry.w || 80) * s / 2;
+  const cy = entry.y * s + (entry.h || 25) * s / 2;
+  const rx = (entry.w || 80) * s / 2 + pad;
+  const ry = (entry.h || 25) * s / 2 + pad;
 
-  // Universal glow highlight — works on both live canvas and snapshots
-  const glow = document.createElement('div');
-  glow.style.cssText = `
-    position:absolute; left:${ex}px; top:${ey}px;
-    width:${ew}px; height:${eh}px;
-    pointer-events:none; z-index:24; border-radius:${4*s}px;
-    box-shadow: 0 0 ${16*s}px rgba(251,191,36,0.25), inset 0 0 ${10*s}px rgba(251,191,36,0.06);
-    border: ${1.5*s}px solid rgba(251,191,36,0.3);
-    opacity:0; transition: opacity 0.3s ease, transform 0.3s ease;
-    transform: scale(1);
-  `;
-  highlightParent.appendChild(glow);
-  requestAnimationFrame(() => { glow.style.opacity = '1'; glow.style.transform = 'scale(1.05)'; });
+  // Hand-drawn circle annotation — like a teacher circling on the board
+  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  const svgW = rx * 2 + 10 * s;
+  const svgH = ry * 2 + 10 * s;
+  svg.setAttribute('width', svgW);
+  svg.setAttribute('height', svgH);
+  svg.style.cssText = `position:absolute;left:${cx - rx - 5*s}px;top:${cy - ry - 5*s}px;pointer-events:none;z-index:24;opacity:0;transition:opacity 0.3s ease;overflow:visible;`;
+
+  // Wobbly ellipse path for hand-drawn feel
+  const points = [];
+  const startAngle = -0.1 + Math.random() * 0.2;
+  for (let i = 0; i <= 68; i++) {
+    const t = i / 64;
+    const angle = startAngle + t * Math.PI * 2.06;
+    const wobble = 1 + Math.sin(angle * 6.7) * 0.035 + Math.sin(angle * 14) * 0.015;
+    const px = svgW / 2 + Math.cos(angle) * rx * wobble;
+    const py = svgH / 2 + Math.sin(angle) * ry * wobble;
+    points.push(`${i === 0 ? 'M' : 'L'}${px.toFixed(1)},${py.toFixed(1)}`);
+  }
+
+  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  path.setAttribute('d', points.join(' '));
+  path.setAttribute('fill', 'none');
+  path.setAttribute('stroke', 'rgba(251,191,36,0.5)');
+  path.setAttribute('stroke-width', `${2 * s}`);
+  path.setAttribute('stroke-linecap', 'round');
+
+  // Animate the circle drawing
+  const pathLen = path.getTotalLength ? 500 : 500;
+  path.style.cssText = `stroke-dasharray:${pathLen};stroke-dashoffset:${pathLen};transition:stroke-dashoffset 0.5s ease;`;
+
+  svg.appendChild(path);
+  highlightParent.appendChild(svg);
+
+  // Fade in + draw the circle
+  requestAnimationFrame(() => {
+    svg.style.opacity = '1';
+    path.style.strokeDashoffset = '0';
+  });
+
+  // Hold for 2s, then fade out
   setTimeout(() => {
-    glow.style.opacity = '0'; glow.style.transform = 'scale(1)';
-    setTimeout(() => glow.remove(), 400);
-  }, 1500);
+    svg.style.opacity = '0';
+    setTimeout(() => svg.remove(), 400);
+  }, 2200);
 
-  // Scroll to the element
+  // Scroll to element with margin above and below — show context
   const wrap = document.getElementById('bd-canvas-wrap');
-  if (wrap && entry.scene !== undefined && entry.scene < _sceneSnapshots.length) {
-    // Element is in a snapshot — scroll to that snapshot
+  if (!wrap) return;
+
+  let scrollTarget;
+  if (entry.scene !== undefined && entry.scene < _sceneSnapshots.length) {
     const snapEl = _sceneSnapshots[entry.scene].element;
-    if (snapEl) {
-      const snapTop = snapEl.offsetTop + ey;
-      const viewBottom = wrap.scrollTop + wrap.clientHeight;
-      if (snapTop < wrap.scrollTop || snapTop > viewBottom) {
-        wrap.scrollTo({ top: Math.max(0, snapTop - wrap.clientHeight * 0.3), behavior: 'smooth' });
-      }
+    if (snapEl) scrollTarget = snapEl.offsetTop + entry.y * s;
+  } else {
+    const scenesStack = document.getElementById('bd-scenes-stack');
+    const stackH = scenesStack ? scenesStack.offsetHeight : 0;
+    scrollTarget = stackH + entry.y * s;
+  }
+
+  if (scrollTarget !== undefined) {
+    // Position so element is at ~35% from top — leaves margin above AND below
+    const targetScroll = scrollTarget - wrap.clientHeight * 0.35;
+    const viewTop = wrap.scrollTop;
+    const viewBottom = viewTop + wrap.clientHeight;
+    const elTop = scrollTarget;
+
+    if (elTop < viewTop + 50 || elTop > viewBottom - 50) {
+      wrap.scrollTo({ top: Math.max(0, targetScroll), behavior: 'smooth' });
     }
   }
 }
@@ -12702,6 +12740,11 @@ function closeInlineMedia() {
 }
 
 function voiceAnnotate(type, targetId, options = {}) {
+  // All annotation types now use the same hand-drawn circle highlight
+  // (simplified from circle/underline/box/glow — circle is the most natural)
+  bdZoomPulse(targetId);
+  return;
+  // Legacy code below kept for reference but not executed
   const el = bdElementRegistry[targetId];
   if (!el) return;
   const bd = state.boardDraw;
