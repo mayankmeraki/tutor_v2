@@ -10373,32 +10373,87 @@ function bdRasterizeAllAnimations() {
 window.bdToggleAnimSize = function(btn) {
   const box = btn.closest('.bd-anim-box');
   if (!box) return;
-  const isExpanded = box.dataset.expanded === 'true';
 
-  if (isExpanded) {
-    // Restore to compact
-    box.style.width = box.dataset.compactW + 'px';
-    box.style.height = box.dataset.compactH + 'px';
-    box.dataset.expanded = 'false';
-    btn.textContent = '⛶';
-    btn.title = 'Expand animation';
-  } else {
-    // Expand to larger size
-    box.style.width = box.dataset.expandedW + 'px';
-    box.style.height = box.dataset.expandedH + 'px';
-    box.dataset.expanded = 'true';
-    btn.textContent = '⊟';
-    btn.title = 'Minimize animation';
+  // Open fullscreen modal with the animation
+  let modal = document.getElementById('bd-anim-modal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'bd-anim-modal';
+    modal.style.cssText = `
+      position:fixed;inset:0;z-index:500;
+      background:rgba(0,0,0,0.85);
+      display:flex;align-items:center;justify-content:center;
+      backdrop-filter:blur(8px);
+      opacity:0;transition:opacity 0.25s ease;
+    `;
+    modal.innerHTML = `
+      <div id="bd-anim-modal-content" style="position:relative;width:85vw;height:75vh;background:#0f1410;border:1px solid rgba(255,255,255,0.1);border-radius:12px;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+        <button id="bd-anim-modal-close" style="position:absolute;top:10px;right:10px;z-index:10;width:36px;height:36px;border-radius:8px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.8);cursor:pointer;font-size:18px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:all 0.15s" onmouseover="this.style.background='rgba(248,113,113,0.3)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'">✕</button>
+        <div id="bd-anim-modal-canvas" style="width:100%;height:100%"></div>
+      </div>
+    `;
+    document.body.appendChild(modal);
+    document.getElementById('bd-anim-modal-close').onclick = () => bdCloseAnimModal();
+    modal.onclick = (e) => { if (e.target === modal) bdCloseAnimModal(); };
   }
 
-  // Resize p5 canvas to match new container
-  const newW = parseInt(box.style.width);
-  const newH = parseInt(box.style.height);
+  // Move the p5 canvas wrapper into the modal
+  const canvasWrap = box.querySelector('.bd-anim-canvas-wrap');
+  if (!canvasWrap) return;
+
+  const modalCanvas = document.getElementById('bd-anim-modal-canvas');
+  modal._sourceBox = box;
+  modal._sourceCanvasWrap = canvasWrap;
+
+  // Store original size
+  canvasWrap._origWidth = canvasWrap.style.width;
+  canvasWrap._origHeight = canvasWrap.style.height;
+
+  // Move canvas to modal
+  modalCanvas.innerHTML = '';
+  modalCanvas.appendChild(canvasWrap);
+  canvasWrap.style.width = '100%';
+  canvasWrap.style.height = '100%';
+
+  // Resize p5 to fill modal
   const inst = box._p5Instance;
   if (inst && typeof inst.resizeCanvas === 'function') {
-    try { inst.resizeCanvas(newW, newH); } catch(e) {}
+    requestAnimationFrame(() => {
+      const rect = modalCanvas.getBoundingClientRect();
+      try { inst.resizeCanvas(Math.round(rect.width), Math.round(rect.height)); } catch(e) {}
+    });
   }
+
+  // Show modal
+  modal.style.display = 'flex';
+  requestAnimationFrame(() => { modal.style.opacity = '1'; });
 };
+
+function bdCloseAnimModal() {
+  const modal = document.getElementById('bd-anim-modal');
+  if (!modal) return;
+
+  const box = modal._sourceBox;
+  const canvasWrap = modal._sourceCanvasWrap;
+
+  if (box && canvasWrap) {
+    // Move canvas back to the original box
+    box.appendChild(canvasWrap);
+    canvasWrap.style.width = canvasWrap._origWidth || '100%';
+    canvasWrap.style.height = canvasWrap._origHeight || '100%';
+
+    // Resize p5 back to compact
+    const inst = box._p5Instance;
+    if (inst && typeof inst.resizeCanvas === 'function') {
+      const compactW = parseInt(box.dataset.compactW) || parseInt(box.style.width);
+      const compactH = parseInt(box.dataset.compactH) || parseInt(box.style.height);
+      try { inst.resizeCanvas(compactW, compactH); } catch(e) {}
+    }
+  }
+
+  modal.style.opacity = '0';
+  setTimeout(() => { modal.style.display = 'none'; }, 250);
+}
 
 function bdClearAllAnimations() {
   [...bdActiveAnimations].forEach(entry => bdRemoveAnimation(entry));
