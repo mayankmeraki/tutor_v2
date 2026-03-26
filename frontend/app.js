@@ -1436,10 +1436,19 @@ function handleSSEEvent(event) {
 
     case 'TEXT_MESSAGE_CONTENT':
       state.accumulatedText += event.delta || '';
-      updateAIMessageStream(state.accumulatedText);
+      // Debounce re-parsing — don't parse on every 10-char delta
+      if (!state._streamUpdateTimer) {
+        state._streamUpdateTimer = setTimeout(() => {
+          state._streamUpdateTimer = null;
+          updateAIMessageStream(state.accumulatedText);
+        }, 80);
+      }
       break;
 
     case 'TEXT_MESSAGE_END':
+      // Clear debounced stream update and do final parse
+      if (state._streamUpdateTimer) { clearTimeout(state._streamUpdateTimer); state._streamUpdateTimer = null; }
+      updateAIMessageStream(state.accumulatedText); // final parse
       state.totalAssistantTurns++;
       finalizeAIMessage(state.accumulatedText);
       state.messages.push({
@@ -8860,9 +8869,13 @@ function bdResizeCanvas() {
   const needsBitmapResize = bd.canvas.width !== bitmapW || bd.canvas.height !== bitmapH;
 
   if (needsBitmapResize && !bd._resizeCSSOnly) {
-    let oldData = null;
-    if (bd.ctx && bd.canvas.width > 0 && bd.canvas.height > 0) {
-      try { oldData = bd.ctx.getImageData(0, 0, bd.canvas.width, bd.canvas.height); } catch(e) {}
+    // Use drawImage (GPU-accelerated) instead of getImageData/putImageData (CPU, O(n²))
+    let oldCanvas = null;
+    if (bd.canvas.width > 0 && bd.canvas.height > 0) {
+      oldCanvas = document.createElement('canvas');
+      oldCanvas.width = bd.canvas.width;
+      oldCanvas.height = bd.canvas.height;
+      oldCanvas.getContext('2d').drawImage(bd.canvas, 0, 0);
     }
     bd.canvas.width = bitmapW;
     bd.canvas.height = bitmapH;
@@ -8870,11 +8883,12 @@ function bdResizeCanvas() {
     bd.ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
     bd.ctx.fillStyle = '#1a1d2e';
     bd.ctx.fillRect(0, 0, actualW, actualH);
-    if (oldData) {
+    if (oldCanvas) {
       bd.ctx.save();
       bd.ctx.setTransform(1, 0, 0, 1, 0, 0);
-      bd.ctx.putImageData(oldData, 0, 0);
+      bd.ctx.drawImage(oldCanvas, 0, 0); // GPU-accelerated copy
       bd.ctx.restore();
+      oldCanvas = null; // free memory
     }
   }
 
@@ -11381,11 +11395,13 @@ function applyTeachingMode() {
 // Stop whichever TTS playback source is active
 function voiceStopCurrent() {
   if (state.voiceCurrentSrc) {
+    try { state.voiceCurrentSrc.disconnect(); } catch {}
     try { state.voiceCurrentSrc.stop(); } catch {}
     state.voiceCurrentSrc = null;
   }
   if (state.voiceCurrentAudio) {
-    try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch {}
+    try { state.voiceCurrentAudio.pause(); } catch {}
+    try { state.voiceCurrentAudio.src = ''; state.voiceCurrentAudio.load(); } catch {} // release media resources
     state.voiceCurrentAudio = null;
   }
 }
