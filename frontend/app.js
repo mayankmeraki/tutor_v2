@@ -10111,9 +10111,16 @@ function bdSanitizeAnimCode(code) {
   code = code.replace(/[\u2018\u2019\u201A\u2032]/g, "'");
   code = code.replace(/[\u201C\u201D\u201E\u2033]/g, '"');
   // Replace en/em dashes with minus
-  code = code.replace(/[\u2013\u2014]/g, '-');
+  code = code.replace(/[\u2013\u2014\u2212]/g, '-');
   // Remove zero-width characters
   code = code.replace(/[\u200B\u200C\u200D\uFEFF]/g, '');
+  // Replace Unicode math operators with JS equivalents
+  code = code.replace(/\u00D7/g, '*');  // × → *
+  code = code.replace(/\u00F7/g, '/');  // ÷ → /
+  code = code.replace(/\u2264/g, '<='); // ≤ → <=
+  code = code.replace(/\u2265/g, '>='); // ≥ → >=
+  code = code.replace(/\u2260/g, '!='); // ≠ → !=
+  code = code.replace(/\u03C0/g, 'Math.PI'); // π → Math.PI
   // Replace non-breaking spaces with regular spaces
   code = code.replace(/\u00A0/g, ' ');
   // Strip markdown code fence wrappers if AI accidentally included them
@@ -10216,10 +10223,20 @@ async function bdRunAnimation(cmd) {
   try {
     sketchFn = new Function('p', 'W', 'H', code);
   } catch (e) {
-    console.warn('Board animation compile error:', e.message, '\nCode (first 500):', code.slice(0, 500));
-    if (!bd._animErrors) bd._animErrors = [];
-    bd._animErrors.push({ cmd: { ...cmd, code }, error: e.message });
-    return;
+    // Try stripping non-ASCII chars from code (LLM sometimes outputs Unicode in variable names)
+    const asciiCode = code.replace(/[^\x00-\x7F]/g, c => {
+      // Keep common math symbols in strings but strip from code
+      return '';
+    });
+    try {
+      sketchFn = new Function('p', 'W', 'H', asciiCode);
+      console.info('Board animation recovered by stripping non-ASCII');
+    } catch (e2) {
+      console.warn('Board animation compile error:', e.message, '\nCode (first 500):', code.slice(0, 500));
+      if (!bd._animErrors) bd._animErrors = [];
+      bd._animErrors.push({ cmd: { ...cmd, code }, error: e.message });
+      return;
+    }
   }
 
   // Animation container with expand/minimize controls
@@ -10545,7 +10562,7 @@ function bdSnapshotCurrentScene() {
     cropCanvas.height = actualCropH;
     const cropCtx = cropCanvas.getContext('2d');
     cropCtx.drawImage(bd.canvas, 0, 0, canvasW, actualCropH, 0, 0, canvasW, actualCropH);
-    dataUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
+    dataUrl = cropCanvas.toDataURL('image/jpeg', 0.92);
   } catch (e) {
     console.warn('[Snapshot] Failed to capture canvas:', e.message);
     return;
