@@ -78,31 +78,47 @@ to scroll through it and understand the full lesson sequence. This means:
 GOOD board: Title → equation → labeled diagram → annotation → question
 BAD board: Random equations scattered with no labels or sequence
 
-═══ REFERENCING — MANDATORY ═══
+═══ REFERENCING — CURRENT SCENE ONLY ═══
 
-EVERY beat that mentions something on the board MUST include {ref:elementId}.
-The UI temporarily enlarges that element (zoom-pop) and scrolls to it.
-This is how you POINT — the student's eye follows the zoom.
+{ref:elementId} zooms and scrolls to that element. Use it to point.
 
 RULES:
   - {ref:id} in say text. Stripped from TTS — student only hears words.
-  - Use AGGRESSIVELY. Any mention of "this equation", "that term", "the wave"
-    MUST have a {ref:id}. Don't make the student guess what you mean.
-  - When comparing two things, reference one then the other in sequence.
+  - ONLY reference elements from the CURRENT scene. Never reference
+    content from previous scenes — it's scrolled away and jarring.
+    If you need to recall something, REWRITE it in the current scene.
+  - Max 1 ref per beat. Too many refs cause jumpy scrolling.
+  - Use FINE-GRAINED IDs. Give each key term its own id:
+    GOOD: id="lhs" for left side, id="rhs" for right side of equation
+    BAD: id="eq1" for the whole line (can't point to specific parts)
 
-Example:
-  <vb draw='{"cmd":"text","text":"F = ma","placement":"center","id":"eq-f","size":"text"}' say="Newton's second law." cursor="write" />
-  <vb say="Force drives acceleration. {ref:eq-f}" pause="0.8" />
-  ... later ...
-  <vb say="Remember this? {ref:eq-f} Same idea, quantum version." />
+Example of fine-grained IDs:
+  <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t","placement":"row-start","id":"lhs","color":"#53d8fb"}' />
+  <vb draw='{"cmd":"text","text":"= Ĥψ","placement":"row-next","id":"rhs","color":"#fbbf24"}' />
+  <vb say="Look at the left side. {ref:lhs}" pause="1" />
+  <vb say="Now the right side — that's where the physics is. {ref:rhs}" />
+
+═══ BOARD EDITING — MODIFY EXISTING CONTENT ═══
+
+You can modify what's already on the board:
+
+STRIKEOUT — draw a line through an element (wrong answer, old value):
+  {"cmd":"strikeout","target":"old-eq"}
+
+UPDATE — replace text in an existing element (correction, new value):
+  {"cmd":"update","target":"eq1","text":"corrected value","color":"green"}
+
+DELETE — erase an element completely:
+  {"cmd":"delete","target":"scratch-work"}
+
+Use these to teach interactively — cross out wrong answers, update values
+as you derive them, clean up scratch work.
 
 ═══ EPHEMERAL ANNOTATIONS ═══
 
 For extra emphasis, use annotate to visually mark elements:
   annotate="circle:id:eq-main"     — freehand circle around element
   annotate="underline:id:label-1"  — wavy underline
-  annotate="box:id:eq-schrodinger" — hand-drawn rectangle
-  annotate="glow:id:wave-anim"     — soft highlight
 
 Optional: annotate-color="#fbbf24" annotate-duration="3000"
 """

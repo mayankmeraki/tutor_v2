@@ -8552,12 +8552,12 @@ function bdZoomPulse(elementId) {
   // Fade in
   requestAnimationFrame(() => { ring.style.opacity = '1'; });
 
-  // Hold 2s, then fade out smoothly
+  // Hold 3.5s, then fade out smoothly — gives student time to look
   setTimeout(() => {
-    ring.style.transition = 'opacity 0.6s ease-out';
+    ring.style.transition = 'opacity 0.8s ease-out';
     ring.style.opacity = '0';
-    setTimeout(() => ring.remove(), 650);
-  }, 2000);
+    setTimeout(() => ring.remove(), 850);
+  }, 3500);
 
   // Scroll to element with margin above and below — show context
   const wrap = document.getElementById('bd-canvas-wrap');
@@ -9734,6 +9734,11 @@ async function bdRunCommand(cmd) {
     case 'list': await bdCompoundList(cmd); break;
     case 'divider': await bdCompoundDivider(cmd); break;
     case 'result': await bdCompoundResult(cmd); break;
+
+    // ── Board editing commands — modify existing content ──
+    case 'strikeout': bdStrikeoutElement(cmd); break;
+    case 'update': await bdUpdateElement(cmd); break;
+    case 'delete': bdDeleteElement(cmd); break;
   }
 
   // Sync contentBottomY AFTER render (compound commands may have corrected cursor)
@@ -10055,6 +10060,65 @@ async function bdCompoundResult(cmd) {
 
   _registerElement(cmd.id, boxX, y, boxW, boxH);
   _correctCursor(y, boxH);
+}
+
+// ── Board Editing Commands ──
+
+function bdStrikeoutElement(cmd) {
+  // Draw a diagonal line through a referenced element: {"cmd":"strikeout","target":"eq1"}
+  const bd = state.boardDraw;
+  if (!bd.ctx || !cmd.target) return;
+  const ref = bdElementRegistry[cmd.target];
+  if (!ref) return;
+  const s = bd.scale;
+  const yOff = state._voiceSceneYOffset || 0;
+  const x = ref.x * s, y = (ref.y + yOff) * s;
+  const w = (ref.w || 80) * s, h = (ref.h || 20) * s;
+  bd.ctx.save();
+  bd.ctx.strokeStyle = 'rgba(255, 107, 107, 0.7)';
+  bd.ctx.lineWidth = 2.5 * s;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(x - 4 * s, y + h * 0.5);
+  bd.ctx.lineTo(x + w + 4 * s, y + h * 0.5);
+  bd.ctx.stroke();
+  bd.ctx.restore();
+}
+
+async function bdUpdateElement(cmd) {
+  // Overwrite an existing element with new text: {"cmd":"update","target":"eq1","text":"new text","color":"green"}
+  const bd = state.boardDraw;
+  if (!bd.ctx || !cmd.target || !cmd.text) return;
+  const ref = bdElementRegistry[cmd.target];
+  if (!ref) return;
+  const s = bd.scale;
+  const yOff = state._voiceSceneYOffset || 0;
+  const x = ref.x * s, y = (ref.y + yOff) * s;
+  const w = (ref.w || 80) * s, h = (ref.h || 20) * s;
+  // Clear the old content area
+  bd.ctx.save();
+  bd.ctx.fillStyle = '#1a1d2e';
+  bd.ctx.fillRect(x - 2 * s, y - h * 0.3, w + 4 * s, h * 1.3);
+  bd.ctx.restore();
+  // Draw the new text in place
+  await bdAnimText(cmd.text, ref.x, ref.y + yOff, cmd.color || 'green', cmd.size || 'text', 20);
+}
+
+function bdDeleteElement(cmd) {
+  // Clear an element from the board: {"cmd":"delete","target":"eq1"}
+  const bd = state.boardDraw;
+  if (!bd.ctx || !cmd.target) return;
+  const ref = bdElementRegistry[cmd.target];
+  if (!ref) return;
+  const s = bd.scale;
+  const yOff = state._voiceSceneYOffset || 0;
+  const x = ref.x * s, y = (ref.y + yOff) * s;
+  const w = (ref.w || 80) * s, h = (ref.h || 20) * s;
+  bd.ctx.save();
+  bd.ctx.fillStyle = '#1a1d2e';
+  bd.ctx.fillRect(x - 4 * s, y - h * 0.4, w + 8 * s, h * 1.5);
+  bd.ctx.restore();
+  bdDrawGrid(); // redraw grid over cleared area
+  delete bdElementRegistry[cmd.target];
 }
 
 // ── p5.js Animation Engine ──
