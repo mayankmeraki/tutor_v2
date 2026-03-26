@@ -10182,10 +10182,10 @@ async function bdRunAnimation(cmd) {
   container.dataset.compactW = containerW;
   container.dataset.expandedW = expandedW;
 
-  // Expand/minimize button
+  // Expand/minimize button — visible, accessible
   const controls = document.createElement('div');
-  controls.style.cssText = 'position:absolute;top:4px;right:4px;z-index:10;display:flex;gap:3px;';
-  controls.innerHTML = `<button onclick="bdToggleAnimSize(this)" style="width:22px;height:22px;border-radius:4px;border:1px solid rgba(255,255,255,0.15);background:rgba(0,0,0,0.4);color:rgba(255,255,255,0.6);cursor:pointer;font-size:11px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(4px)" title="Expand animation">⛶</button>`;
+  controls.style.cssText = 'position:absolute;top:6px;right:6px;z-index:10;';
+  controls.innerHTML = `<button onclick="bdToggleAnimSize(this)" style="width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.7);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:all 0.15s" onmouseover="this.style.background='rgba(52,211,153,0.3)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'" title="Expand animation">⛶</button>`;
 
   // Canvas wrapper (p5 renders inside this)
   const canvasWrap = document.createElement('div');
@@ -10367,22 +10367,27 @@ function bdRasterizeAllAnimations() {
 window.bdToggleAnimSize = function(btn) {
   const box = btn.closest('.bd-anim-box');
   if (!box) return;
-  const compactW = parseInt(box.dataset.compactW);
-  const compactH = parseInt(box.dataset.compactH);
-  const expandedW = parseInt(box.dataset.expandedW);
-  const expandedH = parseInt(box.dataset.expandedH);
   const isExpanded = box.dataset.expanded === 'true';
 
-  const newW = isExpanded ? compactW : expandedW;
-  const newH = isExpanded ? compactH : expandedH;
+  if (isExpanded) {
+    // Restore to compact
+    box.style.width = box.dataset.compactW + 'px';
+    box.style.height = box.dataset.compactH + 'px';
+    box.dataset.expanded = 'false';
+    btn.textContent = '⛶';
+    btn.title = 'Expand animation';
+  } else {
+    // Expand to larger size
+    box.style.width = box.dataset.expandedW + 'px';
+    box.style.height = box.dataset.expandedH + 'px';
+    box.dataset.expanded = 'true';
+    btn.textContent = '⊟';
+    btn.title = 'Minimize animation';
+  }
 
-  box.style.width = newW + 'px';
-  box.style.height = newH + 'px';
-  box.dataset.expanded = isExpanded ? 'false' : 'true';
-  btn.textContent = isExpanded ? '⛶' : '⊟';
-  btn.title = isExpanded ? 'Expand animation' : 'Minimize animation';
-
-  // Resize p5 canvas to fill the new container
+  // Resize p5 canvas to match new container
+  const newW = parseInt(box.style.width);
+  const newH = parseInt(box.style.height);
   const inst = box._p5Instance;
   if (inst && typeof inst.resizeCanvas === 'function') {
     try { inst.resizeCanvas(newW, newH); } catch(e) {}
