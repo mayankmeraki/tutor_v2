@@ -9601,7 +9601,8 @@ async function bdRunCommand(cmd) {
         const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
         const isRow = bdLayout.inRow || (cmd.placement && cmd.placement === 'row-start');
         if (isRow) {
-          estW = Math.min(Math.round(availVW * 0.48), 360);
+          // Leave enough room for legend beside animation (at least 40% for text)
+          estW = Math.min(Math.round(availVW * 0.42), 320);
         } else {
           estW = Math.min(Math.round(availVW * 0.55), 420);
         }
@@ -10373,6 +10374,13 @@ async function bdRunAnimation(cmd) {
   }
 
   requestAnimationFrame(() => { container.style.opacity = '1'; });
+
+  // Correct layout cursor if actual animation height > estimated height
+  // This prevents subsequent content from overlapping the animation
+  const actualVirtualH = h / s;
+  if (cmd._yOffset !== undefined) {
+    _correctCursor(cmd.y, actualVirtualH);
+  }
 
   // Store p5 instance reference for runtime control
   container._p5Instance = inst;
