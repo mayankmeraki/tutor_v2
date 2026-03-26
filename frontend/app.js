@@ -9645,7 +9645,10 @@ async function bdRunCommand(cmd) {
   // diagonal line artifacts and gaps. The tutor should use compound commands
   // (compare, equation, callout, etc.) for all visual structure.
   const skipShapes = ['line', 'arrow', 'rect', 'circle', 'arc', 'freehand', 'dashed', 'dot', 'curvedarrow', 'fillrect', 'brace', 'matrix'];
-  if (skipShapes.includes(cmd.cmd)) return;
+  if (skipShapes.includes(cmd.cmd)) {
+    console.log(`[Skip] Blocked shape: ${cmd.cmd} at (${cmd.x1||cmd.cx||cmd.x},${cmd.y1||cmd.cy||cmd.y})`);
+    return;
+  }
 
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
@@ -9763,13 +9766,9 @@ async function bdCompoundCompare(cmd) {
   }
   curY += 30;
 
-  // Separator line between columns
   const s = bd.scale;
   const sepX = x + colW + 15;
-  bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-  bd.ctx.lineWidth = 1;
-  bd.ctx.beginPath();
-  bd.ctx.moveTo(sepX * s, (curY - 5) * s);
+  const sepStartY = curY - 5;
 
   const leftItems = left.items || []; const rightItems = right.items || [];
   const maxItems = Math.max(leftItems.length, rightItems.length);
@@ -9790,7 +9789,11 @@ async function bdCompoundCompare(cmd) {
     curY += itemSpacing;
   }
 
-  // Finish separator line
+  // Draw separator line AFTER all text (fresh path — text draws break context path)
+  bd.ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+  bd.ctx.lineWidth = 1;
+  bd.ctx.beginPath();
+  bd.ctx.moveTo(sepX * s, sepStartY * s);
   bd.ctx.lineTo(sepX * s, (curY - 5) * s);
   bd.ctx.stroke();
 
@@ -10436,12 +10439,12 @@ function bdSnapshotCurrentScene() {
   // Create snapshot container — same width as live canvas
   const sceneDiv = document.createElement('div');
   sceneDiv.className = 'bd-scene-snapshot';
-  sceneDiv.style.cssText = `position:relative;width:${wrapWidth}px;`;
+  sceneDiv.style.cssText = `position:relative;width:100%;`;
   sceneDiv.dataset.sceneIndex = _sceneSnapshots.length;
 
   const img = document.createElement('img');
   img.src = dataUrl;
-  img.style.cssText = `width:${wrapWidth}px;display:block;`;
+  img.style.cssText = `width:100%;display:block;`;
   sceneDiv.appendChild(img);
 
   // MOVE (not clone) animation containers into the snapshot div
