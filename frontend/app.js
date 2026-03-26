@@ -1415,7 +1415,8 @@ function handleSSEEvent(event) {
     case 'TEXT_MESSAGE_START':
       state.currentMessageId = event.messageId || event.message_id;
       state.accumulatedText = '';
-      state.boardDraw.active = false;
+      // DON'T reset boardDraw.active — board panel stays open across turns
+      // Only reset the streaming parse state for the new message
       state.boardDraw.processedLines = 0;
       state.boardDraw.contentStartIdx = 0;
       state.boardDraw.complete = false;
