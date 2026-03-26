@@ -10224,10 +10224,25 @@ async function bdRunAnimation(cmd) {
         p.drawingContext.shadowBlur = 0;
       }
     }
-    // Polyfill common Canvas2D methods LLMs call on p instead of p.drawingContext
-    if (!p.setLineDash) p.setLineDash = function(a) { try { p.drawingContext.setLineDash(a || []); } catch(e){} };
-    if (!p.getLineDash) p.getLineDash = function() { try { return p.drawingContext.getLineDash(); } catch(e){ return []; } };
-    if (!p.lineDashOffset) Object.defineProperty(p, 'lineDashOffset', { set: function(v) { try { p.drawingContext.lineDashOffset = v; } catch(e){} }, get: function() { return 0; } });
+    // ── SAFETY NET: proxy unknown methods to drawingContext ──
+    // LLMs often call native Canvas2D methods (setLineDash, clip, save, etc.)
+    // directly on p instead of p.drawingContext. Instead of polyfilling each one,
+    // use a Proxy-like approach: intercept property access and delegate.
+    var _p5Proto = Object.getPrototypeOf(p);
+    var _origGet = p.__proto__;
+    var _proxied = new Set();
+    function _ensureMethod(name) {
+      if (_proxied.has(name)) return;
+      _proxied.add(name);
+      if (typeof p[name] === 'undefined' && p.drawingContext && typeof p.drawingContext[name] === 'function') {
+        p[name] = function() { return p.drawingContext[name].apply(p.drawingContext, arguments); };
+      }
+    }
+    // Pre-proxy the most common Canvas2D methods LLMs use
+    ['setLineDash','getLineDash','setTransform','resetTransform','clip','clearRect',
+     'createLinearGradient','createRadialGradient','measureText','isPointInPath',
+     'fillRect','strokeRect','roundRect','moveTo','lineTo','quadraticCurveTo','bezierCurveTo',
+     'arcTo','closePath','getImageData','putImageData','createPattern'].forEach(_ensureMethod);
     ${isWebGL ? `
     // WEBGL safe wrappers — p.text() and p.textFont() require loadFont() in WEBGL.
     // Silently no-op these calls so animations don't break or spam console.
@@ -10321,10 +10336,26 @@ async function bdRunAnimation(cmd) {
         canvasWrap.innerHTML = `<div style="padding:8px;font-size:${10*s}px;color:rgba(248,113,113,0.5);font-family:monospace;word-break:break-all">Animation error: ${sketchErr.message}</div>`;
         return;
       }
+      // ── SAFETY NET: wrap draw() in error boundary ──
+      // Any runtime error in draw() would spam 60x/sec forever.
+      // Catch errors, log ONCE, let animation continue running.
+      const userDraw = p.draw;
+      if (userDraw) {
+        let _drawErrors = 0;
+        p.draw = function() {
+          try {
+            userDraw.call(p);
+          } catch (drawErr) {
+            _drawErrors++;
+            if (_drawErrors === 1) console.warn('[Animation] draw() error (will suppress repeats):', drawErr.message);
+            if (_drawErrors >= 60) { p.noLoop(); console.warn('[Animation] Too many draw errors — stopped'); }
+            // Don't re-throw — let animation keep trying (some errors are transient)
+          }
+        };
+      }
       const userSetup = p.setup;
       p.setup = function() {
         if (userSetup) userSetup.call(p);
-        // Only set textFont in 2D mode — WEBGL requires loadFont() with a file URL
         try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch(e) {}
       };
     }, canvasWrap);
