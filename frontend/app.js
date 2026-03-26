@@ -10404,10 +10404,31 @@ async function bdRunAnimation(cmd) {
         if (r > 30 || g > 35 || b > 30) nonBgCount++;
       }
       if (nonBgCount < 2) {
-        // Animation is blank — trigger silent retry immediately
-        console.warn('[Animation] Blank detected — triggering retry:', cmd.id);
-        const blankError = [{ cmd: { ...cmd, code: cmd.code }, error: 'Animation rendered blank — no visible content drawn. The code compiled but produced only a black canvas. Rewrite the drawing logic with simple, working p5.js code.' }];
-        bdSilentAnimRetry(blankError);
+        // Animation is blank — call Haiku to fix (fast, cheap)
+        console.warn('[Animation] Blank detected — calling Haiku fix:', cmd.id);
+        fetch(`${state.apiUrl}/api/fix-animation`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+          body: JSON.stringify({
+            code: cmd.code,
+            error: 'Animation rendered blank — compiled OK but canvas is all black. The draw() loop runs without errors but produces no visible output. Fix the drawing logic so shapes/lines are actually visible. Check: correct coordinates (use W,H not hardcoded), correct colors (not black on black), stroke/fill actually called before shapes.'
+          }),
+        })
+        .then(r => r.ok ? r.json() : null)
+        .then(data => {
+          if (!data || !data.code) return;
+          // Stop old animation, replace with fixed one
+          try { entry.inst.remove(); } catch(e) {}
+          const fixedCmd = { ...cmd, code: data.code };
+          // Remove old container
+          if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
+          const idx = bdActiveAnimations.indexOf(entry);
+          if (idx >= 0) bdActiveAnimations.splice(idx, 1);
+          // Run the fixed animation
+          bdRunAnimation(fixedCmd);
+          console.info('[Animation] Blank fix succeeded:', cmd.id);
+        })
+        .catch(() => {}); // silent fail — animation stays as-is
       }
     } catch (e) { /* ignore sampling errors */ }
   }, 1500);
