@@ -90,14 +90,20 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 
 ═══ LAYOUT PATTERNS — HOW REAL TEACHERS USE BOARDS ═══
 
-⚠️ MANDATORY: At least 50% of your content beats MUST use row-start/row-next
-or beside:/below: placement. If you find yourself writing 4+ consecutive "below"
-placements, STOP — you're making a waterfall. Restructure.
+⚠️ THE #1 RULE: USE THE FULL BOARD WIDTH
+The cmd:"equation" automatically spreads equation LEFT and note RIGHT.
+For everything else, use row-start + row-next to put content side-by-side.
+NEVER write 3+ consecutive "below" placements — the board looks like a document.
+A GOOD board has content on BOTH sides of every "row".
 
-PATTERN 1 — Equation left + meaning right (THE WORKHORSE):
-  Like a professor writing the equation, then scribbling what it means beside it.
-  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy drives time change","placement":"row-start","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
-  <vb draw='{"cmd":"text","text":"LHS = how ψ changes in time","placement":"row-next","size":"small","color":"#94a3b8","id":"se-meaning"}' say="Left side tells us about change." />
+DEFAULT PATTERN — equation (already spreads across full width):
+  The note appears on the RIGHT automatically. Just use cmd:"equation":
+  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy drives time change","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
+
+PATTERN 1 — Two things side-by-side (THE WORKHORSE):
+  ALWAYS pair content: equation+meaning, step+result, property+consequence:
+  <vb draw='{"cmd":"text","text":"Left side: iℏ∂ψ/∂t","placement":"row-start","color":"#53d8fb","id":"lhs"}' say="The left side." />
+  <vb draw='{"cmd":"text","text":"= how ψ changes in time","placement":"row-next","color":"#94a3b8","id":"lhs-meaning"}' say="How the state evolves." />
 
 PATTERN 2 — Scatter-write across the top (TOPIC OVERVIEW):
   Like a professor writing three related keywords across the full board width

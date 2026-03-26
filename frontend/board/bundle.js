@@ -1132,8 +1132,11 @@ function autoScroll() {
   var wrapRect = wrap.getBoundingClientRect();
   var elRect = lastEl.getBoundingClientRect();
 
-  if (elRect.bottom > wrapRect.bottom - 20) {
-    lastEl.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  // Only scroll if the new element is near or below the bottom of the viewport
+  if (elRect.top > wrapRect.bottom - 100) {
+    // Scroll so the element appears at ~60% down the viewport (room above AND below)
+    var targetScrollTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.4;
+    wrap.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
   }
 }
 
