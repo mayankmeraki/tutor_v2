@@ -8287,7 +8287,8 @@ const BD_COLORS = {
 const BD_VIRTUAL_W = 800;
 const BD_INITIAL_H = 500;
 function bdGetFontScale() {
-  return state.boardDraw.scale;
+  // Floor at 0.7 — prevents illegible text on small screens (400px → 8px body)
+  return Math.max(state.boardDraw.scale, 0.7);
 }
 
 // ── Placement Engine ────────────────────────────────────────
@@ -8919,10 +8920,11 @@ window.addEventListener('resize', () => {
 function bdExpandIfNeeded(maxY) {
   const bd = state.boardDraw;
   if (maxY > bd.currentH - 60) {
-    bd.currentH = maxY + 200;
+    // Cap canvas height to prevent GPU texture overflow (max ~16384px bitmap)
+    const maxBitmapH = 16000 / bd.DPR / bd.scale;
+    bd.currentH = Math.min(maxY + 200, maxBitmapH);
     bdResizeCanvas();
     bdDrawGrid();
-    // Update zoom spacer so scrollable area matches expanded content
     bdUpdateZoomSpacer();
   }
 }
