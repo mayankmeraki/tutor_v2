@@ -1814,7 +1814,7 @@ function buildContext() {
 
   // Context: Active Board — element IDs on the board (for beside:/below: references)
   if (state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
-    const ids = Object.keys(bdElementRegistry).filter(id => !id.startsWith('_auto_'));
+    const ids = Array.from(BoardEngine.state.elements.keys()).filter(id => !id.startsWith('_auto_'));
     if (ids.length > 0) {
       items.push({
         description: 'BOARD — element IDs currently on the board. Use beside:ID or below:ID to place content relative to these.',
@@ -2261,8 +2261,8 @@ function cleanupActiveSession() {
   if (typeof _eagerReset === 'function') _eagerReset();
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
   disconnectAgentEvents();
-  if (typeof bdActiveAnimations !== 'undefined') { bdActiveAnimations.forEach(e => { try { e.inst.remove(); } catch(x) {} }); bdActiveAnimations.length = 0; }
-  // Reset board canvas ref so next session triggers fresh bdInit
+  if (typeof BoardEngine !== 'undefined') BoardEngine.cleanup();
+  // Reset board canvas ref so next session triggers fresh BoardEngine.init
   if (state.boardDraw) {
     state.boardDraw.canvas = null;
     state.boardDraw.ctx = null;
@@ -8521,15 +8521,16 @@ function bdRegisterElement(cmd) {
 }
 
 function bdControlAnimation(params) {
-  // Send control params to the most recent active animation
-  if (bdActiveAnimations.length === 0) return;
-  const entry = bdActiveAnimations[bdActiveAnimations.length - 1];
-  if (entry.p5Instance && typeof entry.p5Instance._onControl === 'function') {
-    entry.p5Instance._onControl(params);
+  // Send control params to the most recent active animation (via BoardEngine)
+  const anims = BoardEngine.state.animations;
+  if (!anims || anims.length === 0) return;
+  const entry = anims[anims.length - 1];
+  if (entry.instance && typeof entry.instance._onControl === 'function') {
+    entry.instance._onControl(params);
   }
 }
 
-function bdZoomPulse(elementId) {
+function bdZoomPulse_LEGACY(elementId) {
   const entry = bdElementRegistry[elementId];
   if (!entry) {
     console.warn('[Ref] Element not found in registry:', elementId, '— available:', Object.keys(bdElementRegistry).join(', '));
@@ -8610,7 +8611,7 @@ function bdClearElementRegistry() {
   Object.keys(bdElementRegistry).forEach(k => delete bdElementRegistry[k]);
 }
 
-function bdScrollToElement(id) {
+function bdScrollToElement_LEGACY(id) {
   const entry = bdElementRegistry[id];
   if (!entry) return;
   const wrap = document.getElementById('bd-canvas-wrap');
@@ -8921,23 +8922,10 @@ function bdResizeCanvas() {
   bdSyncAnimLayer();
 }
 
-// Window resize — CSS-only, reposition overlays, update zoom spacer
+// Window resize — DOM board handles layout automatically via CSS flow.
+// No canvas resize or animation repositioning needed.
 window.addEventListener('resize', () => {
-  const bd = state.boardDraw;
-  if (!bd.canvas) return;
-  bd._resizeCSSOnly = true;
-  bdResizeCanvas();
-  bd._resizeCSSOnly = false;
-  bdUpdateZoomSpacer();
-  const s = bd.scale;
-  bdActiveAnimations.forEach(entry => {
-    if (entry.container && entry.vx !== undefined) {
-      entry.container.style.left = (entry.vx * s) + 'px';
-      entry.container.style.top = (entry.vy * s) + 'px';
-      entry.container.style.width = Math.round(entry.vw * s) + 'px';
-      entry.container.style.height = Math.round(entry.vh * s) + 'px';
-    }
-  });
+  // Nothing to do — DOM engine handles responsive layout via CSS
 });
 
 function bdExpandIfNeeded(maxY) {
@@ -10178,7 +10166,7 @@ function bdDeleteElement(cmd) {
 
 function bdRecoverMissedAnimations(bd) {
   // Check if any animation commands are already in the queue
-  const hasAnim = bd.commandQueue.some(c => c.cmd === 'animation');
+  const hasAnim = BoardEngine.state.commandQueue.some(c => c.cmd === 'animation');
   if (hasAnim) return; // already got them
 
   // Scan raw content for animation commands using bracket-matching
@@ -10219,9 +10207,8 @@ function bdRecoverMissedAnimations(bd) {
     try {
       const parsed = JSON.parse(jsonStr);
       if (parsed.cmd === 'animation' && parsed.code) {
-        // Insert animation at the right position in the queue (after existing commands)
-        bd.commandQueue.push(parsed);
-        // recovered animation command from raw content
+        // Queue recovered animation command via BoardEngine
+        BoardEngine.queueCommand(parsed);
       }
     } catch (e) {
       // Try to fix: the code field might have unescaped newlines
@@ -10230,8 +10217,7 @@ function bdRecoverMissedAnimations(bd) {
       try {
         const parsed = JSON.parse(fixed);
         if (parsed.cmd === 'animation' && parsed.code) {
-          bd.commandQueue.push(parsed);
-          // recovered animation command (fixed newlines)
+          BoardEngine.queueCommand(parsed);
         }
       } catch (e2) {
         console.warn('Board: could not recover animation command:', e2.message);
@@ -10674,7 +10660,7 @@ async function bdSilentAnimRetry(errors) {
     bd._animErrors = null; // clear so retried failures don't re-trigger
     for (const cmd of corrected) {
       if (bd.cancelFlag || !bd.canvas) break;
-      await bdRunAnimation(cmd);
+      BoardEngine.queueCommand(cmd);
     }
   } catch (e) {
     console.warn('Silent animation retry failed:', e.message);
@@ -10893,7 +10879,7 @@ function bdClearAllAnimations() {
 
 let _sceneSnapshots = []; // track snapshot elements for ref highlighting
 
-function bdSnapshotCurrentScene() {
+function bdSnapshotCurrentScene_LEGACY() {
   const bd = state.boardDraw;
   if (!bd.canvas || !bd.ctx) return;
 
@@ -11033,74 +11019,36 @@ function _onBoardScroll() {
 }
 
 async function bdProcessQueue() {
+  // Delegate all command processing to BoardEngine
+  await BoardEngine.processQueue();
+
   const bd = state.boardDraw;
-  if (bd.isProcessing) return;
-  bd.isProcessing = true;
-
-  // If _instantReplayCount is set, replay those commands instantly (no animation)
-  if (bd._instantReplayCount > 0 && bd.commandQueue.length > 0) {
-    const count = Math.min(bd._instantReplayCount, bd.commandQueue.length);
-    const instantCmds = bd.commandQueue.splice(0, count);
-    bd._instantReplayCount = Math.max(0, bd._instantReplayCount - count);
-    bdReplayCommandsInstant(instantCmds);
-  }
-  bd._instantReplayCount = 0;
-
-  // Process remaining commands with normal animation
-  while (bd.commandQueue.length > 0) {
-    if (bd.cancelFlag) break;
-    await bdRunCommand(bd.commandQueue.shift());
-  }
-  bd.isProcessing = false;
-
-  // Resume if new commands arrived during animation (streaming added more)
-  if (bd.commandQueue.length > 0 && !bd.cancelFlag) {
-    bdProcessQueue();
-    return;
-  }
 
   // Voice mode: hide hand cursor when drawing queue finishes
   if (typeof voiceHideHand === 'function') voiceHideHand();
-
-  // Silent retry: if any animation commands had syntax/runtime errors, ask AI to fix
-  if (!bd.cancelFlag && bd.complete && bd._animErrors && bd._animErrors.length > 0) {
-    const errors = bd._animErrors.splice(0);
-    bdSilentAnimRetry(errors);
-  }
 
   // Board animation finished — glow the last AI message to draw student's attention
   if (!bd.cancelFlag && bd.complete && state.spotlightActive) {
     highlightLastChatMessage();
   }
-  // Capture tutor-only snapshot after all commands finish (before student draws)
+
+  // Capture tutor-only snapshot after all commands finish (DOM-based — use html2canvas if available)
   if (!bd.cancelFlag && bd.canvas && !bd.tutorSnapshot) {
-    if (bdActiveAnimations.length > 0) {
-      // Voice mode: DON'T rasterize — keep animations alive
-      // Just capture canvas + overlay as-is for snapshot
-      if (state.teachingMode === 'voice') {
-        setTimeout(() => {
-          try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
-        }, 500);
-      } else {
-        // Text mode: rasterize animations onto canvas for clean snapshot
-        setTimeout(() => {
-          bdRasterizeAllAnimations();
-          try { bd.tutorSnapshot = bd.canvas.toDataURL('image/png'); } catch (e) {}
-        }, 500);
-      }
-    } else {
-      try {
-        bd.tutorSnapshot = bd.canvas.toDataURL('image/png');
-      } catch (e) {
-        console.warn('Could not capture tutor snapshot:', e);
-      }
+    const liveScene = document.getElementById('bd-live-scene');
+    if (liveScene && typeof html2canvas !== 'undefined') {
+      setTimeout(() => {
+        try {
+          html2canvas(liveScene, { backgroundColor: '#1a1d2e', scale: 1 }).then(canvas => {
+            bd.tutorSnapshot = canvas.toDataURL('image/png');
+          }).catch(() => {});
+        } catch (e) {}
+      }, 500);
     }
   }
 }
 
 function bdEnqueueCommand(cmd) {
-  state.boardDraw.commandQueue.push(cmd);
-  if (state.boardDraw.canvas && !state.boardDraw.isProcessing) bdProcessQueue();
+  BoardEngine.queueCommand(cmd);
 }
 
 function bdProcessStreaming(fullText) {
@@ -11116,12 +11064,12 @@ function bdProcessStreaming(fullText) {
 
     // If a canvas already exists from a previous board-draw and we should clear,
     // wipe it NOW so new commands don't draw on top of old content
-    if (bd.canvas && bd.ctx && bd.clearBoard) {
-      bd.cancelFlag = true; // stop any in-progress queue
+    if (bd.canvas && bd.clearBoard) {
+      BoardEngine.cancel();
+      BoardEngine.clearAll();
+      bd.cancelFlag = false;
       bd.commandQueue = [];
       bd.isProcessing = false;
-      bd.cancelFlag = false;
-      bdClearBoard(); // clear canvas pixels, redraw grid
       bd.tutorSnapshot = null;
     }
 
@@ -11155,7 +11103,7 @@ function bdProcessStreaming(fullText) {
     const ln = lines[i].trim();
     if (!ln) continue;
     try {
-      bd.commandQueue.push(JSON.parse(ln));
+      BoardEngine.queueCommand(JSON.parse(ln));
     } catch (e) {
       if (ln.includes('"animation"') || ln.includes('"cmd":"animation"')) {
         console.warn('Board: failed to parse animation JSONL, will retry on completion.\nLine:', ln.slice(0, 300), '\nError:', e.message);
@@ -11165,10 +11113,6 @@ function bdProcessStreaming(fullText) {
     }
   }
   bd.processedLines = count;
-  // If canvas already exists (e.g. clear=false append), start processing queued commands
-  if (bd.canvas && bd.commandQueue.length > 0 && !bd.isProcessing) {
-    bdProcessQueue();
-  }
   if (closeIdx >= 0) {
     bd.complete = true;
     bd.rawContent = fullText.slice(bd.contentStartIdx, closeIdx);
@@ -11500,9 +11444,8 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
         <div id="bd-board-content">
           <div id="bd-scenes-stack"></div>
-          <div id="bd-live-scene" style="position:relative">
-            <canvas id="bd-canvas"></canvas>
-            <div id="bd-anim-layer"></div>
+          <div id="bd-live-scene" class="bd-scene">
+            <div class="bd-grid-bg"></div>
           </div>
         </div>
       </div>
@@ -11523,9 +11466,14 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
   }
 
   setTimeout(() => {
-    const c = document.getElementById('bd-canvas');
+    hideBoardLoadingSkeleton();
+    BoardEngine.init(state.apiUrl);
+    // Mark canvas-compat flag so streaming/voice code knows the board is ready
+    state.boardDraw.canvas = document.getElementById('bd-live-scene');
+    state.boardDraw.ctx = true; // truthy sentinel — no real 2D context needed
+    state.boardDraw.active = true;
     const v = document.getElementById('bd-voice-text');
-    if (c) bdInit(c, v);
+    state.boardDraw.voiceEl = v;
     // Ensure new board starts scrolled to the top
     const initWrap = document.getElementById('bd-canvas-wrap');
     if (initWrap) initWrap.scrollTop = 0;
@@ -11551,7 +11499,7 @@ function bdCleanup() {
   bd._streamingHandled = false;
   bd.commandQueue = [];
   bd.isProcessing = false;
-  bdClearAllAnimations();
+  BoardEngine.cleanup();
   bd.canvas = null;
   bd.ctx = null;
   bd.voiceEl = null;
@@ -11814,80 +11762,47 @@ function bdReplayCommandsInstant(cmds) {
 }
 
 function bdCaptureBoard() {
-  const bd = state.boardDraw;
-  if (!bd.canvas) return null;
-  // In voice mode, don't destroy animations — just capture current frame
-  if (state.teachingMode !== 'voice') {
-    bdRasterizeAllAnimations();
-  }
-  const ctx = bd.ctx;
-  const w = bd.canvas.width;
-  const h = bd.canvas.height;
-  let imageData;
+  // DOM board capture — use html2canvas to screenshot the board content
+  const boardContent = document.getElementById('bd-board-content');
+  if (!boardContent) return null;
+
+  // html2canvas is async, but this function is called sync.
+  // Use a synchronous fallback: render to an offscreen clone.
+  if (typeof html2canvas === 'undefined') return null;
+
+  // Return a promise-like: caller (bdCaptureAndSend) will be updated to handle async
+  let result = null;
   try {
-    imageData = ctx.getImageData(0, 0, w, h);
+    // Create a temporary clone to capture
+    const tempCanvas = document.createElement('canvas');
+    const rect = boardContent.getBoundingClientRect();
+    tempCanvas.width = Math.round(rect.width);
+    tempCanvas.height = Math.round(rect.height);
+    // html2canvas is loaded — use it asynchronously
+    // Store the promise on state for the caller to await
+    state.boardDraw._capturePromise = html2canvas(boardContent, {
+      backgroundColor: '#1a1d2e',
+      scale: Math.min(2, 800 / rect.width),
+      useCORS: true,
+    }).then(canvas => {
+      return canvas.toDataURL('image/png');
+    }).catch(() => null);
   } catch (e) {
-    console.warn('Canvas tainted, using toDataURL fallback');
-    try { return bd.canvas.toDataURL('image/png'); } catch (e2) { return null; }
+    return null;
   }
-  const data = imageData.data;
-  const bgR = 0x1a, bgG = 0x1d, bgB = 0x2e;
-  let minX = w, minY = h, maxX = 0, maxY = 0;
-  for (let y = 0; y < h; y++) {
-    for (let x = 0; x < w; x++) {
-      const i = (y * w + x) * 4;
-      const dr = data[i] - bgR, dg = data[i + 1] - bgG, db = data[i + 2] - bgB;
-      if (Math.sqrt(dr * dr + dg * dg + db * db) > 30) {
-        if (x < minX) minX = x;
-        if (x > maxX) maxX = x;
-        if (y < minY) minY = y;
-        if (y > maxY) maxY = y;
-      }
-    }
-  }
-  if (maxX <= minX || maxY <= minY) return null;
-  const pad = 20;
-  minX = Math.max(0, minX - pad);
-  minY = Math.max(0, minY - pad);
-  maxX = Math.min(w - 1, maxX + pad);
-  maxY = Math.min(h - 1, maxY + pad);
-  const cropW = maxX - minX + 1;
-  const cropH = maxY - minY + 1;
-
-  // Create output canvas with white background
-  const out = document.createElement('canvas');
-  out.width = cropW;
-  out.height = cropH;
-  const outCtx = out.getContext('2d');
-  outCtx.fillStyle = '#ffffff';
-  outCtx.fillRect(0, 0, cropW, cropH);
-  const cropped = ctx.getImageData(minX, minY, cropW, cropH);
-  const cd = cropped.data;
-  for (let i = 0; i < cd.length; i += 4) {
-    const dr = cd[i] - bgR, dg = cd[i + 1] - bgG, db = cd[i + 2] - bgB;
-    if (Math.sqrt(dr * dr + dg * dg + db * db) > 30) {
-      // Keep the original colors for contrast
-    } else {
-      cd[i] = 255; cd[i + 1] = 255; cd[i + 2] = 255; cd[i + 3] = 255;
-    }
-  }
-  outCtx.putImageData(cropped, 0, 0);
-
-  const quality = Math.min(1, 800 / Math.max(cropW, cropH));
-  if (quality < 1) {
-    const scaled = document.createElement('canvas');
-    scaled.width = Math.round(cropW * quality);
-    scaled.height = Math.round(cropH * quality);
-    const sCtx = scaled.getContext('2d');
-    sCtx.drawImage(out, 0, 0, scaled.width, scaled.height);
-    return scaled.toDataURL('image/png');
-  }
-  return out.toDataURL('image/png');
+  return null; // async result via state.boardDraw._capturePromise
 }
 
-function bdCaptureAndSend() {
-  const combinedUrl = bdCaptureBoard();
+async function bdCaptureAndSend() {
+  // Trigger async capture
+  bdCaptureBoard();
+  const capturePromise = state.boardDraw._capturePromise;
+  if (!capturePromise) return;
+
+  const combinedUrl = await capturePromise;
+  state.boardDraw._capturePromise = null;
   if (!combinedUrl) return;
+
   const combinedBase64 = combinedUrl.split(',')[1];
   renderUserMessage('[Board drawing sent to tutor]');
 
@@ -11923,12 +11838,13 @@ function captureSpotlightSnapshot() {
   const info = state.spotlightInfo;
 
   if (info.type === 'board-draw') {
-    const dataUrl = bdCaptureBoard();
-    if (dataUrl) {
+    // Use cached tutor snapshot if available (DOM board — async capture)
+    const bd = state.boardDraw;
+    if (bd.tutorSnapshot) {
       return {
         type: 'board-draw',
         title: info.title,
-        base64: dataUrl.split(',')[1],
+        base64: bd.tutorSnapshot.split(',')[1],
         mediaType: 'image/png',
         description: `[SPOTLIGHT SNAPSHOT — Board: "${info.title}"] This is what the student currently sees on the shared drawing board.`,
       };
@@ -12497,21 +12413,17 @@ function _eagerBeatWatcher(text) {
 function _eagerInitBoard(title) {
   console.log(`[EagerBeat] Scene init: "${title}"`);
 
-  if (!state.boardDraw.canvas) {
+  if (!state.boardDraw.active) {
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
-    bdResetContentBottom();
-    bdLayoutReset();
   } else {
-    // Snapshot the current scene → JPEG image, clear canvas for new scene
-    bdSnapshotCurrentScene();
+    // Snapshot the current scene — DOM elements move to stack (no JPEG)
+    BoardEngine.snapshotScene();
 
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
 
-    // No yOffset needed — snapshots stack via CSS, canvas always starts at y=0
     state._voiceSceneYOffset = 0;
-    bdResetContentBottom();
 
     // Scroll to the fresh canvas (bottom of the stack)
     state.boardDraw._studentScrolledRecently = false;
@@ -12578,7 +12490,7 @@ async function _eagerExecutorLoop() {
 async function _eagerExecBeat(beat, prefetchedTTS) {
   // Scroll to ref
   if (beat.scrollTo) {
-    bdScrollToElement(beat.scrollTo.replace(/^id:/, ''));
+    BoardEngine.scrollToElement(beat.scrollTo.replace(/^id:/, ''));
     await voiceSleep(300);
   }
 
@@ -12850,20 +12762,17 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats (fallback path)`);
 
-  if (!state.boardDraw.canvas) {
+  if (!state.boardDraw.active) {
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
-    bdResetContentBottom();
-    bdLayoutReset();
   } else {
-    // Snapshot current scene → JPEG, clear canvas for new scene
-    bdSnapshotCurrentScene();
+    // Snapshot current scene — DOM move (no JPEG)
+    BoardEngine.snapshotScene();
 
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
 
     state._voiceSceneYOffset = 0;
-    bdResetContentBottom();
 
     state.boardDraw._studentScrolledRecently = false;
     const wrap = document.getElementById('bd-canvas-wrap');
@@ -12912,7 +12821,7 @@ async function executeVoiceScene(sceneTag) {
     // 0b. Scroll to referenced element
     if (beat.scrollTo) {
       const idRef = beat.scrollTo.replace(/^id:/, '');
-      bdScrollToElement(idRef);
+      BoardEngine.scrollToElement(idRef);
       await voiceSleep(300);
     }
 
@@ -13023,21 +12932,15 @@ async function executeDraw(drawCmds) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // Clone commands to prevent mutation. yOffset handled in bdRunCommand.
+  // Queue commands via BoardEngine
   for (const origCmd of drawCmds) {
     if (!origCmd || !origCmd.cmd) continue;
-    state.boardDraw.commandQueue.push({ ...origCmd });
+    BoardEngine.queueCommand({ ...origCmd });
   }
 
-  // Process the queue — wait for it to fully drain so bdContentBottomY
-  // is accurate before the next beat/scene reads it.
+  // Wait for the queue to fully drain before next beat/scene
   if (state.boardDraw.canvas) {
-    if (state.boardDraw.isProcessing) {
-      // Queue is already running — wait for it to finish (includes our new commands)
-      await bdWaitForQueueDrain();
-    } else {
-      await bdProcessQueue();
-    }
+    await bdWaitForQueueDrain();
   }
 }
 
@@ -13045,10 +12948,10 @@ async function executeDraw(drawCmds) {
 function bdWaitForQueueDrain() {
   return new Promise(resolve => {
     const check = () => {
-      const bd = state.boardDraw;
-      if (!bd.isProcessing && bd.commandQueue.length === 0) {
+      const bs = BoardEngine.state;
+      if (!bs.isProcessing && bs.commandQueue.length === 0) {
         resolve();
-      } else if (bd.cancelFlag) {
+      } else if (bs.cancelFlag) {
         resolve();
       } else {
         setTimeout(check, 50);
@@ -13084,32 +12987,9 @@ async function executeSay(text, prefetchedResp) {
 
     refs.forEach((refId, i) => {
       setTimeout(() => {
-        if (!bdElementRegistry[refId]) return;
-        // Scroll to the referenced element
-        bdScrollToElement(refId);
-        // Zoom-pulse: scale up the area around the element, then back
-        bdZoomPulse(refId);
-
-        // After glow fades, scroll back to where we were (latest content)
-        setTimeout(() => {
-          if (wrap) {
-            // Scroll to the bottom of drawn content (latest), not to the saved position
-            // This handles the case where new content was drawn during the highlight
-            const bd = state.boardDraw;
-            if (bd.canvas) {
-              const contentBottom = (bd.currentH - 60) * bd.scale;
-              const viewH = wrap.clientHeight;
-              const targetScroll = Math.max(0, contentBottom - viewH + 40);
-              // Only scroll back if we're still looking at the old reference
-              const currentScroll = wrap.scrollTop;
-              const refEntry = bdElementRegistry[refId];
-              const refY = refEntry ? refEntry.y * bd.scale : 0;
-              if (Math.abs(currentScroll - refY + 40) < 100) {
-                wrap.scrollTo({ top: targetScroll, behavior: 'smooth' });
-              }
-            }
-          }
-        }, 2000); // wait for glow to fade + small buffer
+        if (!BoardEngine.state.elements.has(refId)) return;
+        // Scroll to the referenced element and highlight with glow
+        BoardEngine.zoomPulse(refId);
       }, interval * (i + 1));
     });
   }
@@ -13122,18 +13002,35 @@ async function executeSay(text, prefetchedResp) {
 
 // ── Cursor System (ID-based, deterministic) ────────────────
 
-// Resolve an element ID to its center position (virtual coords)
+// Resolve an element ID to its center position (virtual coords for hand cursor)
 function resolveElementPos(id) {
-  const el = bdElementRegistry[id];
-  if (!el) return null;
-  return { x: el.x + (el.w || 0) / 2, y: el.y + (el.h || 0) / 2 };
+  const entry = BoardEngine.state.elements.get(id);
+  if (!entry || !entry.element || !entry.element.isConnected) return null;
+  // Convert DOM rect to virtual coords that voiceMoveHand expects
+  const boardContent = document.getElementById('bd-board-content');
+  if (!boardContent) return null;
+  const bRect = boardContent.getBoundingClientRect();
+  const elRect = entry.element.getBoundingClientRect();
+  const virtualW = 800;
+  const virtualH = state.boardDraw.currentH || 500;
+  const x = ((elRect.left + elRect.width / 2) - bRect.left) / bRect.width * virtualW;
+  const y = ((elRect.top + elRect.height / 2) - bRect.top) / bRect.height * virtualH;
+  return { x, y };
 }
 
 // Get bottom-center of an element (for cursor below text)
 function resolveElementBottom(id) {
-  const el = bdElementRegistry[id];
-  if (!el) return null;
-  return { x: el.x + (el.w || 0) / 2, y: el.y + (el.h || 0) + 5 };
+  const entry = BoardEngine.state.elements.get(id);
+  if (!entry || !entry.element || !entry.element.isConnected) return null;
+  const boardContent = document.getElementById('bd-board-content');
+  if (!boardContent) return null;
+  const bRect = boardContent.getBoundingClientRect();
+  const elRect = entry.element.getBoundingClientRect();
+  const virtualW = 800;
+  const virtualH = state.boardDraw.currentH || 500;
+  const x = ((elRect.left + elRect.width / 2) - bRect.left) / bRect.width * virtualW;
+  const y = ((elRect.bottom + 5) - bRect.top) / bRect.height * virtualH;
+  return { x, y };
 }
 
 // Execute cursor from beat attribute
@@ -13159,7 +13056,7 @@ function executeCursor(cursorStr, drawCmds) {
   const writeIdMatch = cursorStr.match(/^write:id:(.+)$/);
   if (writeIdMatch) {
     const pos = resolveElementBottom(writeIdMatch[1]);
-    if (pos) { voiceMoveHand(pos.x, pos.y, true); bdScrollToElement(writeIdMatch[1]); }
+    if (pos) { voiceMoveHand(pos.x, pos.y, true); BoardEngine.scrollToElement(writeIdMatch[1]); }
     return;
   }
 
@@ -13167,7 +13064,7 @@ function executeCursor(cursorStr, drawCmds) {
   const tapIdMatch = cursorStr.match(/^tap:id:(.+)$/);
   if (tapIdMatch) {
     const pos = resolveElementPos(tapIdMatch[1]);
-    if (pos) { voiceTapAt(pos.x, pos.y); bdScrollToElement(tapIdMatch[1]); }
+    if (pos) { voiceTapAt(pos.x, pos.y); BoardEngine.scrollToElement(tapIdMatch[1]); }
     return;
   }
 
@@ -13175,7 +13072,7 @@ function executeCursor(cursorStr, drawCmds) {
   const pointIdMatch = cursorStr.match(/^point:id:(.+)$/);
   if (pointIdMatch) {
     const pos = resolveElementPos(pointIdMatch[1]);
-    if (pos) { voiceMoveHand(pos.x, pos.y, false); bdScrollToElement(pointIdMatch[1]); }
+    if (pos) { voiceMoveHand(pos.x, pos.y, false); BoardEngine.scrollToElement(pointIdMatch[1]); }
     return;
   }
 
@@ -13283,7 +13180,7 @@ function closeInlineMedia() {
 function voiceAnnotate(type, targetId, options = {}) {
   // All annotation types now use the same hand-drawn circle highlight
   // (simplified from circle/underline/box/glow — circle is the most natural)
-  bdZoomPulse(targetId);
+  BoardEngine.zoomPulse(targetId);
   return;
   // Legacy code below kept for reference but not executed
   const el = bdElementRegistry[targetId];
@@ -13372,7 +13269,7 @@ function voiceAnnotate(type, targetId, options = {}) {
   }, duration);
 
   // Scroll to the annotated element
-  bdScrollToElement(targetId);
+  BoardEngine.scrollToElement(targetId);
 }
 
 // ── Hook into finalizeAIMessage for voice mode ──────────────
