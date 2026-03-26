@@ -12360,7 +12360,7 @@ function voiceShowBoardQuestion(questionText) {
 function voiceHideBoardQuestion() {
   const field = $('#voice-bar-input');
   if (field) {
-    field.placeholder = 'Type or hold Space to talk...';
+    field.placeholder = 'Type your response...';
     field.value = '';
     field.blur();
   }
@@ -13447,7 +13447,7 @@ function voiceBarSetThinking(isThinking) {
     }
   } else {
     bar.classList.remove('thinking');
-    if (input) { input.disabled = false; input.placeholder = 'Type or hold Space to talk...'; }
+    if (input) { input.disabled = false; input.placeholder = 'Type your response...'; }
     if (micBtn) {
       if (micBtn._origHTML) micBtn.innerHTML = micBtn._origHTML;
       micBtn.title = 'Hold to talk';
@@ -13490,7 +13490,7 @@ function submitVoiceBarInput() {
   const text = field.value.trim();
   field.value = '';
   field.style.height = 'auto';
-  field.placeholder = 'Type or hold Space to talk...';
+  field.placeholder = 'Type your response...';
 
   // Show "You: ..." in subtitle so student knows their message was sent
   const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
@@ -13547,29 +13547,27 @@ document.addEventListener('keydown', (e) => {
 let _pttRecognition = null;
 let _pttActive = false;
 
-document.addEventListener('keydown', (e) => {
-  if (state.teachingMode !== 'voice') return;
-  if (e.code !== 'Space') return;
-  // Don't capture Space if typing in an input
-  if (document.activeElement?.tagName === 'INPUT' || document.activeElement?.tagName === 'TEXTAREA') return;
-  if (_pttActive) return;
-  e.preventDefault();
-  startPushToTalk();
-});
+// Voice recording is click-based only — no keyboard shortcut needed
 
-document.addEventListener('keyup', (e) => {
-  if (e.code !== 'Space' || !_pttActive) return;
-  e.preventDefault();
-  stopPushToTalk();
-});
+// ── Voice Input — Click-to-record flow ──
+// 1. Click mic → recording starts, mic becomes ✓ button, waveform shows
+// 2. Click ✓ → recording stops, transcript fills text box
+// 3. User edits text → presses Enter/Send to submit
 
-function startPushToTalk() {
+function startVoiceRecording() {
   if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
   _pttActive = true;
 
   const bar = $('#voice-bar-main');
+  const micBtn = $('#voice-mic-btn');
+  const field = $('#voice-bar-input');
   if (bar) bar.classList.add('recording');
-  voiceShowIndicator('listening');
+  // Change mic icon → tick (✓) icon
+  if (micBtn) {
+    micBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
+    micBtn.title = 'Done recording';
+  }
+  if (field) { field.placeholder = 'Listening...'; field.value = ''; }
 
   const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
   _pttRecognition = new SpeechRecognition();
@@ -13577,51 +13575,68 @@ function startPushToTalk() {
   _pttRecognition.interimResults = true;
   _pttRecognition.lang = 'en-US';
 
-  let transcript = '';
   _pttRecognition.onresult = (e) => {
-    transcript = Array.from(e.results).map(r => r[0].transcript).join('');
-    // Show transcript in the input field
-    const field = $('#voice-bar-input');
-    if (field) { field.value = transcript; field.classList.add('transcript'); }
+    let final = '', interim = '';
+    for (let i = 0; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    if (field) {
+      field.value = final + interim;
+      field.classList.add('transcript');
+    }
   };
-  _pttRecognition.onerror = () => { stopPushToTalk(); };
+  _pttRecognition.onerror = () => { stopVoiceRecording(); };
   _pttRecognition.onend = () => {
-    if (_pttActive) stopPushToTalk();
+    // Speech recognition auto-stops after silence — restart if still recording
+    if (_pttActive && _pttRecognition) {
+      try { _pttRecognition.start(); } catch(e) {}
+    }
   };
   _pttRecognition.start();
 }
 
-function stopPushToTalk() {
+function stopVoiceRecording() {
   _pttActive = false;
   const bar = $('#voice-bar-main');
+  const micBtn = $('#voice-mic-btn');
+  const field = $('#voice-bar-input');
   if (bar) bar.classList.remove('recording');
-  voiceHideIndicator();
+
+  // Restore mic icon
+  if (micBtn) {
+    micBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
+    micBtn.title = 'Click to record';
+  }
 
   if (_pttRecognition) {
+    _pttRecognition.onend = null; // prevent restart loop
     _pttRecognition.stop();
-    setTimeout(() => {
-      const field = $('#voice-bar-input');
-      const text = field?.value?.trim();
-      if (field) field.classList.remove('transcript');
-      if (text && text.length > 1) {
-        voiceHideBoardQuestion();
-        field.value = '';
-        streamADK(text);
-      }
-      _pttRecognition = null;
-    }, 300);
+    _pttRecognition = null;
+  }
+
+  // Put transcript into text field for review — DON'T auto-send
+  if (field) {
+    field.classList.remove('transcript');
+    field.placeholder = 'Type your response...';
+    // Focus the field so user can edit and press Enter
+    if (field.value.trim()) {
+      field.focus();
+      // Auto-resize textarea to fit content
+      field.style.height = 'auto';
+      field.style.height = field.scrollHeight + 'px';
+    }
   }
 }
 
-// Floating mic button click handler
+// Floating mic button — toggle click (not hold)
 document.addEventListener('DOMContentLoaded', () => {
   const micBtn = document.getElementById('voice-mic-btn');
   if (micBtn) {
-    micBtn.addEventListener('mousedown', () => { if (!_pttActive) startPushToTalk(); });
-    micBtn.addEventListener('mouseup', () => { if (_pttActive) stopPushToTalk(); });
-    micBtn.addEventListener('mouseleave', () => { if (_pttActive) stopPushToTalk(); });
-    // Touch support
-    micBtn.addEventListener('touchstart', (e) => { e.preventDefault(); if (!_pttActive) startPushToTalk(); });
-    micBtn.addEventListener('touchend', (e) => { e.preventDefault(); if (_pttActive) stopPushToTalk(); });
+    micBtn.addEventListener('click', (e) => {
+      e.preventDefault();
+      if (_pttActive) stopVoiceRecording();
+      else startVoiceRecording();
+    });
   }
 });

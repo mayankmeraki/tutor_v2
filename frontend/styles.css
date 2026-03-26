@@ -4384,13 +4384,37 @@ body {
 }
 .voice-bar-mic svg { width: 18px; height: 18px; }
 
-/* Recording state */
-.voice-bar.recording { border-color: rgba(248,113,113,0.4); }
-.voice-bar.recording .voice-bar-mic {
-  background: var(--red); border-color: var(--red); color: white;
-  animation: vb-mic-pulse 1.5s ease-in-out infinite;
+/* Recording state — waveform dots + green tick button */
+.voice-bar.recording {
+  border-color: rgba(52,211,153,0.4);
 }
-@keyframes vb-mic-pulse { 0%,100%{box-shadow:0 0 8px rgba(248,113,113,0.2)} 50%{box-shadow:0 0 16px rgba(248,113,113,0.4)} }
+.voice-bar.recording::before {
+  content: '';
+  position: absolute; top: 6px; left: 16px; right: 80px; height: 4px;
+  background: repeating-linear-gradient(
+    90deg,
+    rgba(52,211,153,0.6) 0px, rgba(52,211,153,0.6) 2px,
+    transparent 2px, transparent 6px
+  );
+  border-radius: 2px;
+  animation: vb-waveform 0.8s ease-in-out infinite alternate;
+}
+@keyframes vb-waveform {
+  0% { opacity: 0.3; transform: scaleY(0.5); }
+  50% { opacity: 0.8; transform: scaleY(1.5); }
+  100% { opacity: 0.5; transform: scaleY(0.8); }
+}
+.voice-bar.recording .voice-bar-input {
+  opacity: 0.7; color: rgba(52,211,153,0.8); font-style: italic;
+}
+.voice-bar.recording .voice-bar-mic {
+  background: rgba(52,211,153,0.2); border-color: rgba(52,211,153,0.5); color: var(--accent);
+  animation: vb-tick-pulse 1.5s ease-in-out infinite;
+}
+.voice-bar.recording .voice-bar-mic:hover {
+  background: rgba(52,211,153,0.35); border-color: rgba(52,211,153,0.7);
+}
+@keyframes vb-tick-pulse { 0%,100%{box-shadow:0 0 6px rgba(52,211,153,0.15)} 50%{box-shadow:0 0 14px rgba(52,211,153,0.35)} }
 
 /* Speaking state */
 .voice-bar.speaking .voice-bar-mic {
