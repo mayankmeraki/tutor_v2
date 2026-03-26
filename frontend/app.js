@@ -8723,6 +8723,9 @@ function bdInitScrollDetection() {
     return origScrollTo(...args);
   };
   wrap.addEventListener('scroll', () => {
+    // Update animation visibility on scroll (pause off-screen, resume visible)
+    _onBoardScroll();
+
     if (Date.now() - lastProgrammaticScroll < 800) return;
     state.boardDraw._studentScrolledRecently = true;
     clearTimeout(scrollTimer);
@@ -10307,6 +10310,44 @@ function bdClearAllAnimations() {
   [...bdActiveAnimations].forEach(entry => bdRemoveAnimation(entry));
 }
 
+function bdUpdateAnimationVisibility() {
+  // Pause animations not in viewport, resume ones that are.
+  // Only visible animations run draw() — saves CPU after many scenes.
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap) return;
+  const viewTop = wrap.scrollTop;
+  const viewBottom = viewTop + wrap.clientHeight;
+  const margin = 200; // keep running slightly outside viewport for smooth scroll
+
+  for (const entry of bdActiveAnimations) {
+    if (!entry.container || !entry.inst) continue;
+    const rect = entry.container.getBoundingClientRect();
+    const wrapRect = wrap.getBoundingClientRect();
+    const elTop = rect.top - wrapRect.top + viewTop;
+    const elBottom = elTop + rect.height;
+
+    const isVisible = elBottom > (viewTop - margin) && elTop < (viewBottom + margin);
+
+    if (isVisible && entry._paused) {
+      entry.inst.loop();
+      entry._paused = false;
+    } else if (!isVisible && !entry._paused) {
+      entry.inst.noLoop();
+      entry._paused = true;
+    }
+  }
+}
+
+// Throttled scroll listener for animation visibility
+let _animVisTimer = null;
+function _onBoardScroll() {
+  if (_animVisTimer) return;
+  _animVisTimer = setTimeout(() => {
+    _animVisTimer = null;
+    bdUpdateAnimationVisibility();
+  }, 200);
+}
+
 async function bdProcessQueue() {
   const bd = state.boardDraw;
   if (bd.isProcessing) return;
@@ -11765,17 +11806,11 @@ function _eagerBeatWatcher(text) {
 function _eagerInitBoard(title) {
   console.log(`[EagerBeat] Scene init: "${title}" | contentBottomY=${Math.round(bdContentBottomY)} | cursor=${Math.round(bdLayout.cursorY)}`);
 
-  // Cleanup old animations to prevent CPU buildup — keep last 2 max
-  while (bdActiveAnimations.length > 2) {
-    const old = bdActiveAnimations[0];
-    try { old.inst.remove(); } catch(e) {}
-    try { old.container.remove(); } catch(e) {}
-    if (old._timer) clearTimeout(old._timer);
-    bdActiveAnimations.shift();
-  }
-
   // Reset layout cursor for new scene — yOffset handles absolute positioning
   bdLayoutReset();
+
+  // Pause off-screen animations, resume visible ones (viewport-aware)
+  bdUpdateAnimationVisibility();
 
   if (!state.boardDraw.canvas) {
     openBoardDrawSpotlight(title, null, { clear: true });
@@ -12107,15 +12142,7 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats (fallback path)`);
 
-  // Cleanup old animations to prevent CPU buildup
-  while (bdActiveAnimations.length > 2) {
-    const old = bdActiveAnimations[0];
-    try { old.inst.remove(); } catch(e) {}
-    try { old.container.remove(); } catch(e) {}
-    if (old._timer) clearTimeout(old._timer);
-    bdActiveAnimations.shift();
-  }
-
+  bdUpdateAnimationVisibility();
   bdLayoutReset();
 
   // Continuous board — each scene draws just below the previous content.
