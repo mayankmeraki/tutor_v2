@@ -185,6 +185,41 @@ function placeElement(element, placement, cmd) {
     registerElement(cmd.id, element);
   }
 
+  // ── PERCENTAGE-BASED ABSOLUTE POSITIONING ──
+  // If cmd has x/y (0-100), position absolutely within the scene.
+  // This gives the LLM free spatial control like a real chalkboard.
+  if (typeof cmd.x === 'number' && typeof cmd.y === 'number') {
+    // Clamp to safe range (2-95% to prevent edge clipping)
+    var px = Math.max(2, Math.min(95, cmd.x));
+    var py = Math.max(2, Math.min(95, cmd.y));
+
+    // Ensure scene has positioned context
+    scene.style.position = 'relative';
+    if (!scene.style.minHeight || parseInt(scene.style.minHeight) < 500) {
+      scene.style.minHeight = '500px';
+    }
+
+    element.style.position = 'absolute';
+    element.style.left = px + '%';
+    element.style.top = py + '%';
+    element.style.maxWidth = (100 - px - 2) + '%'; // prevent right overflow
+    element.style.zIndex = '2';
+    element.classList.add('bd-positioned');
+
+    scene.appendChild(element);
+
+    // Auto-grow scene height if element extends beyond
+    requestAnimationFrame(function() {
+      var elRect = element.getBoundingClientRect();
+      var sceneRect = scene.getBoundingClientRect();
+      var elBottom = elRect.bottom - sceneRect.top;
+      if (elBottom > scene.offsetHeight - 20) {
+        scene.style.minHeight = (elBottom + 40) + 'px';
+      }
+    });
+    return;
+  }
+
   // ── Zone-based placement (left/right spatial positioning) ──
   if (placement === 'left' || placement === 'right') {
     endCurrentRowIfNeeded(placement);
@@ -1276,18 +1311,22 @@ function autoScroll() {
   var wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap || !board.liveScene) return;
 
-  var lastEl = board.liveScene.lastElementChild;
-  if (!lastEl || lastEl.classList.contains('bd-grid-bg')) return;
+  // Find the bottommost visible element (flow or positioned)
+  var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid');
+  if (!allEls.length) return;
+  var lastEl = allEls[allEls.length - 1];
 
-  var wrapRect = wrap.getBoundingClientRect();
-  var elRect = lastEl.getBoundingClientRect();
+  // Use requestAnimationFrame to ensure layout is settled
+  requestAnimationFrame(function() {
+    var wrapRect = wrap.getBoundingClientRect();
+    var elRect = lastEl.getBoundingClientRect();
 
-  // Only scroll if the new element is near or below the bottom of the viewport
-  if (elRect.top > wrapRect.bottom - 100) {
-    // Scroll so the element appears at ~60% down the viewport (room above AND below)
-    var targetScrollTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.4;
-    wrap.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
-  }
+    // Scroll if element is below 70% of the viewport
+    if (elRect.bottom > wrapRect.top + wrapRect.height * 0.7) {
+      var targetScrollTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.35;
+      wrap.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+    }
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════

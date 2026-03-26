@@ -156,6 +156,23 @@
   padding-left: 20px;
 }
 
+/* ── Percentage-positioned elements — free-form spatial placement ── */
+.bd-positioned {
+  transition: none; /* no animation on placement — appears instantly */
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+/* Mobile fallback: revert to flow layout on small screens */
+@media (max-width: 600px) {
+  .bd-positioned {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    max-width: 100% !important;
+    margin-top: var(--bd-el-gap);
+  }
+}
+
 /* ── Zone-based placement — spatial positioning like a real board ── */
 .bd-zone-grid {
   display: grid;

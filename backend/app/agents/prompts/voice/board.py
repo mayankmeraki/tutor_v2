@@ -17,26 +17,39 @@ Study how MIT professors use a chalkboard:
 The board is a chalkboard, not a slide deck. Think LANDSCAPE, not PORTRAIT.
 The right half of the board should NEVER be empty.
 
-PLACEMENT TAGS (engine positions everything — think SPATIALLY):
+POSITIONING — TWO MODES:
 
-  FLOW placements (vertical):
-    "below"       — next line (DEFAULT — omit for normal flow)
-    "center"      — centered (ONLY for scene title)
-    "indent"      — indented sub-step
+1. FREE POSITIONING (preferred — makes board feel alive):
+   Add "x" and "y" to ANY draw command (0-100, percentage of board):
+     "x":5, "y":20   → left side, 20% down
+     "x":55, "y":20  → right side, same height
+     "x":30, "y":80  → center-bottom
 
-  SPATIAL placements (use the full board):
-    "left"        — place on LEFT half of the board
-    "right"       — place on RIGHT half of the board
-    "row-start"   — start a side-by-side pair
-    "row-next"    — second item in the pair
+   Example — equation left, meaning right, SAME HEIGHT:
+     {"cmd":"equation","text":"Ĥψ = Eψ","note":"eigenvalue","x":3,"y":15,"id":"eq1"}
+     {"cmd":"text","text":"→ same shape back, scaled by λ","x":55,"y":17,"id":"meaning"}
 
-  THINK like a teacher: "equation on the LEFT, meaning on the RIGHT"
-  NOT "equation below, meaning below." Use "left"/"right" for spatial layout.
+   SPATIAL RULES:
+   - Title: x:20-40, y:2-5 (top area)
+   - Left content: x:3-10
+   - Right content: x:50-60
+   - Bottom results: y:75-90
+   - Keep y values close for items that should be on the SAME LINE
+   - Increment y by 10-15 for each new vertical row
 
-CONNECTION ARROWS (draw relationships between elements):
+2. FLOW POSITIONING (simple — for sequential content):
+   "below"       — next line (DEFAULT)
+   "center"      — centered title
+   "row-start"   — start side-by-side pair
+   "row-next"    — second item in pair
+
+Use FREE positioning to scatter content like a real chalkboard.
+Use FLOW positioning for simple sequential derivations.
+MIX BOTH in the same scene — some elements positioned, some flowing.
+
+CONNECTION ARROWS (draw relationships):
   {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
-  Draws an arrow from one element to another with an optional label.
-  Use to show: derivation flow, cause→effect, "this leads to that".
+  Draws an arrow between elements. Use liberally to show relationships.
 
 EVERY element MUST have an "id" for {ref:} and connections.
 
@@ -116,22 +129,20 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 
 ═══ LAYOUT PATTERNS — HOW REAL TEACHERS USE BOARDS ═══
 
-⚠️ THE #1 RULE: USE THE BOARD SPATIALLY
-Place things WHERE they belong — equation left, meaning right, diagram in the
-center, consequences below. NEVER stack 3+ items vertically on the left side.
+⚠️ THE #1 RULE: USE x,y TO SCATTER CONTENT LIKE A REAL BOARD
+Don't stack everything vertically. Place equation LEFT (x:5), meaning RIGHT (x:55),
+diagram CENTER (x:25), result BOTTOM (y:80). Connect with arrows.
 
-PATTERN 1 — Spatial layout (LEFT + RIGHT):
-  Put related content on opposite sides of the board:
-  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy drives time change","placement":"left","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
-  <vb draw='{"cmd":"text","text":"Energy tells ψ how to evolve","placement":"right","size":"text","color":"#e2e8f0","id":"se-meaning"}' say="Energy drives evolution." />
-  <vb draw='{"cmd":"connect","from":"se","to":"se-meaning","label":"means"}' />
+PATTERN 1 — Equation left + meaning right (SPATIAL):
+  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy → time","x":3,"y":15,"color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
+  <vb draw='{"cmd":"text","text":"Energy tells ψ how to evolve","x":55,"y":17,"size":"text","color":"#e2e8f0","id":"meaning"}' say="Energy drives evolution." />
+  <vb draw='{"cmd":"connect","from":"se","to":"meaning","label":"means"}' />
 
-PATTERN 2 — Flowchart / derivation chain:
-  Place steps spatially and CONNECT them with arrows:
-  <vb draw='{"cmd":"text","text":"Start: Ĥ₀ψ = Eψ","placement":"left","color":"#53d8fb","id":"start"}' />
-  <vb draw='{"cmd":"text","text":"Add perturbation","placement":"right","color":"#fbbf24","id":"step2"}' />
+PATTERN 2 — Derivation flow with arrows:
+  <vb draw='{"cmd":"equation","text":"Ĥ₀ψ = Eψ","note":"known","x":3,"y":15,"color":"#53d8fb","id":"start"}' />
+  <vb draw='{"cmd":"text","text":"Add perturbation λV","x":55,"y":15,"color":"#fbbf24","id":"step2"}' />
   <vb draw='{"cmd":"connect","from":"start","to":"step2","label":"then","color":"gold"}' />
-  <vb draw='{"cmd":"result","text":"Eₙ ≈ Eₙ⁰ + λ⟨n|V|n⟩","label":"Result","color":"gold","id":"result"}' />
+  <vb draw='{"cmd":"result","text":"Eₙ ≈ Eₙ⁰ + λ⟨n|V|n⟩","label":"Result","x":20,"y":50,"color":"gold","id":"result"}' />
   <vb draw='{"cmd":"connect","from":"step2","to":"result","label":"gives"}' />
 
 PATTERN 2 — Scatter-write across the top (TOPIC OVERVIEW):
