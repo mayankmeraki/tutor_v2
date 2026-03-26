@@ -8665,11 +8665,12 @@ function bdInitZoom() {
   const bd = state.boardDraw;
 
   function applyZoom() {
-    const canvas = document.getElementById('bd-canvas');
-    const layer = document.getElementById('bd-anim-layer');
     const z = bd._zoom;
-    if (canvas) { canvas.style.transformOrigin = 'top left'; canvas.style.transform = `scale(${z})`; }
-    if (layer) { layer.style.transformOrigin = 'top left'; layer.style.transform = `scale(${z})`; }
+    // Apply zoom to ALL board content — snapshots + live canvas + anim layer
+    const scenesStack = document.getElementById('bd-scenes-stack');
+    const liveScene = document.getElementById('bd-live-scene');
+    if (scenesStack) { scenesStack.style.transformOrigin = 'top left'; scenesStack.style.transform = `scale(${z})`; }
+    if (liveScene) { liveScene.style.transformOrigin = 'top left'; liveScene.style.transform = `scale(${z})`; }
     bdUpdateZoomSpacer();
     const label = document.getElementById('bd-zoom-level');
     if (label) label.textContent = Math.round(bd._zoom * 100) + '%';
@@ -8941,15 +8942,17 @@ function bdExpandIfNeeded(maxY) {
 function bdUpdateZoomSpacer() {
   const bd = state.boardDraw;
   const wrap = document.getElementById('bd-canvas-wrap');
-  const canvas = document.getElementById('bd-canvas');
-  if (!wrap || !canvas) return;
+  if (!wrap) return;
   const z = bd._zoom || 1;
-  const h = parseFloat(canvas.style.height) || canvas.clientHeight;
-  const w = parseFloat(canvas.style.width) || canvas.clientWidth;
+  // Total content height = snapshots + live canvas
+  const scenesStack = document.getElementById('bd-scenes-stack');
+  const liveScene = document.getElementById('bd-live-scene');
+  const totalH = (scenesStack ? scenesStack.scrollHeight : 0) + (liveScene ? liveScene.scrollHeight : 0);
+  const totalW = wrap.clientWidth;
   let spacer = wrap.querySelector('.bd-zoom-spacer');
   if (!spacer) { spacer = document.createElement('div'); spacer.className = 'bd-zoom-spacer'; spacer.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;visibility:hidden;'; wrap.appendChild(spacer); }
-  spacer.style.width = Math.round(w * z) + 'px';
-  spacer.style.height = Math.round(h * z) + 'px';
+  spacer.style.width = Math.round(totalW * z) + 'px';
+  spacer.style.height = Math.round(totalH * z) + 'px';
 }
 
 function bdSyncAnimLayer() {
@@ -12491,19 +12494,10 @@ async function executeDraw(drawCmds) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // Apply Y-offset for continuous board: shift all commands below previous content.
-  // CLONE each command before mutating — prevents double-offset if objects are reused.
-  const yOffset = state._voiceSceneYOffset || 0;
+  // Clone commands to prevent mutation. yOffset handled in bdRunCommand.
   for (const origCmd of drawCmds) {
     if (!origCmd || !origCmd.cmd) continue;
-    const cmd = { ...origCmd };
-    if (yOffset > 0) {
-      if (cmd.y !== undefined) cmd.y += yOffset;
-      if (cmd.y1 !== undefined) cmd.y1 += yOffset;
-      if (cmd.y2 !== undefined) cmd.y2 += yOffset;
-      if (cmd.cy !== undefined) cmd.cy += yOffset;
-    }
-    state.boardDraw.commandQueue.push(cmd);
+    state.boardDraw.commandQueue.push({ ...origCmd });
   }
 
   // Process the queue — wait for it to fully drain so bdContentBottomY
