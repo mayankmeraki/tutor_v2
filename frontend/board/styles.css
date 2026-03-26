@@ -156,6 +156,20 @@
   align-items: flex-start;
 }
 
+/* Vertical column inside a row — for stacking items (e.g., legend beside animation) */
+.bd-column {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Items inside a column don't need top margin (parent handles gap) */
+.bd-column > .bd-el {
+  margin-top: 0;
+}
+
 
 /* ═══════════════════════════════════════════════════════════
    4. Chalk Color Classes
@@ -465,13 +479,15 @@
    ═══════════════════════════════════════════════════════════ */
 
 .bd-anim-box {
-  display: inline-block;
+  display: block;
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 4px;
   overflow: hidden;
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(15, 20, 16, 1);
   position: relative;
   box-shadow: 0 0 16px rgba(0, 0, 0, 0.25);
+  min-height: 200px;
+  aspect-ratio: 3 / 2;
 }
 
 /* Animation box inside a row — constrained width */

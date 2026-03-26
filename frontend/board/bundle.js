@@ -268,11 +268,28 @@ function placeElement(element, placement, cmd) {
     var refId = placement.split(':')[1];
     var refEl = getElement(refId);
     if (refEl) {
-      var insertAfter = refEl.closest('.bd-row') || refEl;
-      if (insertAfter.nextSibling) {
-        insertAfter.parentNode.insertBefore(element, insertAfter.nextSibling);
+      // If ref is inside a .bd-row, create a vertical column wrapper
+      // so stacked items stay in the row (e.g., legend items beside animation)
+      var parentRow = refEl.closest('.bd-row');
+      if (parentRow) {
+        // Check if ref is already in a column wrapper
+        var col = refEl.closest('.bd-column');
+        if (!col) {
+          // Wrap the ref element in a column
+          col = document.createElement('div');
+          col.className = 'bd-column';
+          refEl.parentNode.insertBefore(col, refEl);
+          col.appendChild(refEl);
+        }
+        // Append new element to the same column
+        col.appendChild(element);
       } else {
-        insertAfter.parentNode.appendChild(element);
+        // Not in a row — insert after the ref element normally
+        if (refEl.nextSibling) {
+          refEl.parentNode.insertBefore(element, refEl.nextSibling);
+        } else {
+          refEl.parentNode.appendChild(element);
+        }
       }
     } else {
       scene.appendChild(element);
@@ -477,13 +494,21 @@ function createAnimation(cmd) {
 
   var canvasWrap = document.createElement('div');
   canvasWrap.className = 'bd-anim-canvas-wrap';
+  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;border-radius:4px;';
   el.appendChild(canvasWrap);
+
+  // Set explicit dimensions BEFORE placing in DOM — prevents 0-height collapse
+  var animH = cmd.h || 280;
+  var animW = cmd.w || 420;
+  el.style.minHeight = animH + 'px';
+  el.style.aspectRatio = (animW / animH).toFixed(3);
 
   placeElement(el, cmd.placement, cmd);
 
+  // Now measure actual rendered size
   var elRect = el.getBoundingClientRect();
-  var pw = Math.round(elRect.width) || 300;
-  var ph = Math.round(elRect.height) || 200;
+  var pw = Math.round(elRect.width) || animW;
+  var ph = Math.round(elRect.height) || animH;
 
   var isWebGL = /p\.WEBGL|,\s*WEBGL/.test(cmd.code);
   var scale = pw / 300;
