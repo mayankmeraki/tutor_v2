@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.routes.auth import get_optional_user
 from app.core.database import get_db
 from app.services.content_service import (
     get_course_concepts,
@@ -13,7 +14,7 @@ router = APIRouter(prefix="/api/v1/content", tags=["content"])
 
 
 @router.get("/courses/{course_id}")
-async def course_map(course_id: int, db: AsyncSession = Depends(get_db)):
+async def course_map(course_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_optional_user)):
     result = await get_course_with_hierarchy(db, course_id)
     if not result:
         raise HTTPException(status_code=404, detail="Course not found")
@@ -21,12 +22,12 @@ async def course_map(course_id: int, db: AsyncSession = Depends(get_db)):
 
 
 @router.get("/lessons/{lesson_id}/sections")
-async def lesson_sections(lesson_id: int):
+async def lesson_sections(lesson_id: int, user: dict = Depends(get_optional_user)):
     return await get_lesson_sections_lightweight(lesson_id)
 
 
 @router.get("/sections/{lesson_id}/{section_index}")
-async def section_detail(lesson_id: int, section_index: int):
+async def section_detail(lesson_id: int, section_index: int, user: dict = Depends(get_optional_user)):
     doc = await get_section_full(lesson_id, section_index)
     if not doc:
         raise HTTPException(status_code=404, detail="Section not found")
@@ -34,5 +35,5 @@ async def section_detail(lesson_id: int, section_index: int):
 
 
 @router.get("/courses/{course_id}/concepts")
-async def course_concepts(course_id: int):
+async def course_concepts(course_id: int, user: dict = Depends(get_optional_user)):
     return await get_course_concepts(course_id)

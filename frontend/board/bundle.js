@@ -760,7 +760,7 @@ function detectBlank(canvasWrap, entry, cmd, retryKey, attempt) {
 
     fetch(board.apiUrl + '/api/fix-animation', {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: Object.assign({ 'Content-Type': 'application/json' }, board.getAuthHeaders ? board.getAuthHeaders() : {}),
       body: JSON.stringify({ code: cmd.code, error: 'Canvas all black. Fix drawing logic.' }),
     })
       .then(function(r) { return r.ok ? r.json() : null; })
@@ -791,7 +791,7 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
 
   fetch(board.apiUrl + '/api/fix-animation', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: Object.assign({ 'Content-Type': 'application/json' }, board.getAuthHeaders ? board.getAuthHeaders() : {}),
     body: JSON.stringify({ code: cmd.code, error: errorMsg }),
   })
     .then(function(r) { return r.ok ? r.json() : null; })
@@ -1496,8 +1496,15 @@ function autoScroll() {
 // 9. INDEX — Public API + init/zoom
 // ═══════════════════════════════════════════════════════════════
 
-function init(apiUrl) {
+function init(apiUrl, authHeadersFn) {
   board.apiUrl = apiUrl || window.location.origin || '';
+  board.getAuthHeaders = authHeadersFn || function() {
+    // Try to use AuthManager if available on window
+    if (typeof AuthManager !== 'undefined' && AuthManager.authHeaders) {
+      return AuthManager.authHeaders();
+    }
+    return {};
+  };
   board.cancelFlag = false;
 
   var liveScene = document.getElementById('bd-live-scene');

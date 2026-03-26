@@ -143,13 +143,12 @@ async def tts_proxy(request: Request):
     """Proxy TTS requests to ElevenLabs — keeps API key server-side.
     Requires auth + rate limited to prevent quota abuse.
     """
-    # Auth check (soft — warn but don't block, to support local dev without login)
-    from app.api.routes.auth import get_current_user
+    # Auth check — required
+    from app.api.routes.auth import get_optional_user
     try:
-        await get_current_user(request)
+        await get_optional_user(request)
     except Exception:
-        import logging
-        logging.getLogger(__name__).warning("TTS request without valid auth — allowing for dev")
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
 
     # Rate limit
     from app.core.rate_limit import check_rate_limit_tts
@@ -215,6 +214,12 @@ async def fix_animation(request: Request):
     """Fix broken p5.js animation code using Haiku (fast, cheap).
     Takes broken code + error, returns fixed code.
     """
+    from app.api.routes.auth import get_optional_user
+    try:
+        await get_optional_user(request)
+    except Exception:
+        return JSONResponse(status_code=401, content={"error": "Authentication required"})
+
     body = await request.json()
     broken_code = body.get("code", "")
     error_msg = body.get("error", "")

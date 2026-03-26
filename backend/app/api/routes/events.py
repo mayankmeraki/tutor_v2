@@ -10,8 +10,10 @@ from __future__ import annotations
 import asyncio
 import logging
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
+
+from app.api.routes.auth import get_optional_user
 
 from app.agents.agent_runtime import AgentRuntime
 from app.agents.session import get_or_create_session
@@ -25,7 +27,7 @@ HEARTBEAT_INTERVAL = 15  # seconds
 
 
 @router.get("/api/events/{session_id}")
-async def agent_events(session_id: str, request: Request):
+async def agent_events(session_id: str, request: Request, user: dict = Depends(get_optional_user)):
     session, _ = await get_or_create_session(session_id)
 
     # Ensure the session has an AgentRuntime (may not exist yet if no agents spawned)

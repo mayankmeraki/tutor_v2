@@ -15,8 +15,10 @@ import logging
 import uuid
 from datetime import datetime
 
-from fastapi import APIRouter, File, Form, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, Request, UploadFile
 from fastapi.responses import JSONResponse
+
+from app.api.routes.auth import get_optional_user
 
 from app.core.mongodb import get_mongo_db
 from app.services.pipeline.orchestrator import (
@@ -32,7 +34,7 @@ router = APIRouter(prefix="/api/v1/collections", tags=["ingestion"])
 # ── Collection CRUD ──────────────────────────────────────────────────────────
 
 @router.post("")
-async def create_new_collection(request: Request):
+async def create_new_collection(request: Request, user: dict = Depends(get_optional_user)):
     """Create a new BYO content collection.
 
     Body: { title: str, userId: str }
@@ -50,7 +52,7 @@ async def create_new_collection(request: Request):
 
 
 @router.get("")
-async def list_collections(request: Request):
+async def list_collections(request: Request, user: dict = Depends(get_optional_user)):
     """List collections for a user.
 
     Query: ?userId=...

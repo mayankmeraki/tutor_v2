@@ -55,6 +55,7 @@ from app.tools import (
 
 from app.core.rate_limit import check_rate_limit_chat as _check_rate_limit
 from app.api.routes import sse as _sse
+from app.api.routes.auth import get_optional_user
 
 log = logging.getLogger(__name__)
 router = APIRouter(tags=["chat"])
@@ -1268,7 +1269,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
 # ── Chat Route ───────────────────────────────────────────────────────────────
 
 @router.post("/api/chat", dependencies=[Depends(_check_rate_limit)])
-async def chat(request: Request):
+async def chat(request: Request, user: dict = Depends(get_optional_user)):
     # ── Request validation ────────────────────────────────
     try:
         body = await request.json()

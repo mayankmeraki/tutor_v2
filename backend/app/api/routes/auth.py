@@ -49,11 +49,15 @@ async def get_current_user(request: Request) -> dict:
 
 
 async def get_optional_user(request: Request) -> dict:
-    """Auth dependency that falls back to anonymous for local dev."""
+    """Auth dependency — requires auth in production, soft fallback for local dev only."""
     try:
         return await get_current_user(request)
     except HTTPException:
-        return {"email": "dev@local", "name": "Dev User", "role": "student"}
+        # Only allow anonymous in local dev (no CORS_ORIGINS = no production deployment)
+        import os
+        if not os.environ.get("CORS_ORIGINS"):
+            return {"email": "dev@local", "name": "Dev User", "role": "student"}
+        raise
 
 
 # ─── Routes ──────────────────────────────────────────────
