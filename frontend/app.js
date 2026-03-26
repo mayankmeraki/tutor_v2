@@ -8297,7 +8297,7 @@ function bdGetFontScale() {
 // The engine tracks a cursor and resolves deterministically.
 
 const BD_MARGIN = 25;
-const BD_ROW_GAP = 8;
+const BD_ROW_GAP = 12;
 const BD_SIDE_GAP = 12;
 
 const bdLayout = {
@@ -9092,7 +9092,7 @@ function bdResolveSize(size) {
 
 async function bdAnimText(text, x, y, color, size, charDelay) {
   const bd = state.boardDraw;
-  if (bd.cancelFlag) return;
+  if (bd.cancelFlag) return 0;
   const s = bd.scale;
   size = bdResolveSize(size);
   const fontScale = bdGetFontScale();
@@ -9103,6 +9103,7 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   // Adaptive char delay — faster when CPU is constrained (many animations or late in session)
   const animLoad = bdActiveAnimations.length;
   const queueLen = bd.commandQueue?.length || 0;
+  let linesRendered = 1;
   if (queueLen > 5 || animLoad > 4) {
     // Queue backed up or too many animations — instant text (no animation)
     bdChalkStyle(color, 1);
@@ -9119,6 +9120,7 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
         bd.ctx.fillText(line, x * s, curY * s);
         line = word;
         curY += lineH;
+        linesRendered++;
         bdExpandIfNeeded(curY + size);
       } else {
         line = testLine;
@@ -9126,7 +9128,7 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
     }
     if (line) bd.ctx.fillText(line, x * s, curY * s);
     bdClearShadow();
-    return;
+    return linesRendered;
   }
   charDelay = charDelay || (animLoad > 2 ? 15 : animLoad > 0 ? 25 : 35);
   bdChalkStyle(color, 1);
@@ -9135,12 +9137,13 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   let cx = x * s;
   let curY = y;
   for (let i = 0; i < text.length; i++) {
-    if (bd.cancelFlag) return;
+    if (bd.cancelFlag) return linesRendered;
     const charW = bd.ctx.measureText(text[i]).width;
     // Wrap at word boundary (space) or hard-wrap if single word exceeds width
     if (cx + charW > maxX && text[i] === ' ') {
       cx = x * s;
       curY += lineH;
+      linesRendered++;
       bdExpandIfNeeded(curY + size);
       continue; // skip the space at line break
     }
@@ -9149,6 +9152,7 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
     await bdSleep(charDelay);
   }
   bdClearShadow();
+  return linesRendered;
 }
 
 // LaTeX to readable Unicode text for canvas rendering (avoids SVG foreignObject which taints canvas)
@@ -9575,8 +9579,13 @@ async function bdRunCommand(cmd) {
       // Estimate dimensions based on command type
       let estW, estH;
       if (cmd.cmd === 'text' || cmd.cmd === 'latex') {
-        estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
-        estH = cmd.h || resolveH(cmd.size);
+        const charW = bdResolveSize(cmd.size) * 0.55;
+        const textPixelW = cmd.text ? (cmd.text.length || 10) * charW : 300;
+        const usableTextW = BD_VIRTUAL_W - BD_MARGIN * 2;
+        estW = cmd.w || Math.min(textPixelW, usableTextW);
+        // Estimate wrapped lines: if text exceeds usable width, it wraps
+        const estLines = Math.max(1, Math.ceil(textPixelW / usableTextW));
+        estH = cmd.h || (resolveH(cmd.size) * estLines);
       } else if (cmd.cmd === 'animation') {
         // Engine owns sizing — AI w/h ignored. Size derived from layout context.
         const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
@@ -9669,7 +9678,16 @@ async function bdRunCommand(cmd) {
     case 'rect': await bdAnimRect(cmd.x, cmd.y, cmd.w, cmd.h, cmd.color, cmd.lw); break;
     case 'circle': await bdAnimCircle(cmd.cx, cmd.cy, cmd.r, cmd.color, cmd.lw, cmd.dur); break;
     case 'arc': await bdAnimArc(cmd.cx, cmd.cy, cmd.r, cmd.sa, cmd.ea, cmd.color, cmd.lw, cmd.dur); break;
-    case 'text': await bdAnimText(cmd.text, cmd.x, cmd.y, cmd.color, cmd.size, cmd.charDelay); break;
+    case 'text': {
+      const lines = await bdAnimText(cmd.text, cmd.x, cmd.y, cmd.color, cmd.size, cmd.charDelay);
+      // Correct cursor if text wrapped to multiple lines (estimator assumes single line)
+      if (lines > 1 && cmd._yOffset !== undefined) {
+        const size = bdResolveSize(cmd.size);
+        const actualH = lines * size * 1.4;
+        _correctCursor(cmd.y, actualH);
+      }
+      break;
+    }
     case 'latex': await bdAnimLatex(cmd.tex, cmd.x, cmd.y, cmd.color, cmd.size); break;
     case 'freehand': await bdAnimFreehand(cmd.pts, cmd.color, cmd.w, cmd.dur); break;
     case 'dashed': await bdAnimDashed(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w); break;
@@ -9846,10 +9864,10 @@ async function bdCompoundStep(cmd) {
 
   // Draw step text beside the circle
   const textX = x + circleR * 2 + 8;
-  await bdAnimText(cmd.text, textX, y + 3, 'white', cmd.size || 'text', cmd.charDelay);
-
-  _registerElement(cmd.id, x, y, 400, 22);
-  _correctCursor(y, 24);
+  const stepLines = await bdAnimText(cmd.text, textX, y + 3, 'white', cmd.size || 'text', cmd.charDelay);
+  const stepH = stepLines > 1 ? stepLines * bdResolveSize(cmd.size || 'text') * 1.4 : 22;
+  _registerElement(cmd.id, x, y, 400, stepH);
+  _correctCursor(y, stepH + 2);
 }
 
 async function bdCompoundCheckCross(cmd, isCheck) {
@@ -9862,9 +9880,10 @@ async function bdCompoundCheckCross(cmd, isCheck) {
 
   bdExpandIfNeeded(y + 18);
   await bdAnimText(marker, x, y, markerColor, cmd.size || 'text', 0);
-  await bdAnimText(' ' + cmd.text, x + 18, y, textColor, cmd.size || 'text', cmd.charDelay || 25);
-  _registerElement(cmd.id, x, y, 350, 20);
-  _correctCursor(y, 22);
+  const chkLines = await bdAnimText(' ' + cmd.text, x + 18, y, textColor, cmd.size || 'text', cmd.charDelay || 25);
+  const chkH = chkLines > 1 ? chkLines * bdResolveSize(cmd.size || 'text') * 1.4 : 20;
+  _registerElement(cmd.id, x, y, 350, chkH);
+  _correctCursor(y, chkH + 2);
 }
 
 async function bdCompoundCallout(cmd) {
@@ -9891,9 +9910,21 @@ async function bdCompoundCallout(cmd) {
   bdClearShadow();
 
   // Draw text after the border
-  await bdAnimText(cmd.text, x + padL, y + 2, color, cmd.size || 'text', cmd.charDelay);
-  _registerElement(cmd.id, x, y, 500, lineH);
-  _correctCursor(y, lineH + 4);
+  const calloutLines = await bdAnimText(cmd.text, x + padL, y + 2, color, cmd.size || 'text', cmd.charDelay);
+  const actualCalloutH = calloutLines > 1 ? calloutLines * textSize * 1.4 + 4 : lineH;
+  // Extend border for wrapped text
+  if (calloutLines > 1) {
+    bd.ctx.strokeStyle = borderColor;
+    bd.ctx.lineWidth = 3 * s;
+    bd.ctx.lineCap = 'round';
+    bd.ctx.beginPath();
+    bd.ctx.moveTo((x + 2) * s, (y + lineH + 2) * s);
+    bd.ctx.lineTo((x + 2) * s, (y + actualCalloutH + 2) * s);
+    bd.ctx.stroke();
+    bdClearShadow();
+  }
+  _registerElement(cmd.id, x, y, 500, actualCalloutH);
+  _correctCursor(y, actualCalloutH + 4);
 }
 
 async function bdCompoundList(cmd) {

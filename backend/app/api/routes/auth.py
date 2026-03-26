@@ -48,6 +48,14 @@ async def get_current_user(request: Request) -> dict:
     return {"email": claims["sub"], "name": claims.get("name", ""), "role": claims.get("role", "")}
 
 
+async def get_optional_user(request: Request) -> dict:
+    """Auth dependency that falls back to anonymous for local dev."""
+    try:
+        return await get_current_user(request)
+    except HTTPException:
+        return {"email": "dev@local", "name": "Dev User", "role": "student"}
+
+
 # ─── Routes ──────────────────────────────────────────────
 
 @router.post("/login")
