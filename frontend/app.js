@@ -8390,8 +8390,8 @@ function bdLayoutResolve(placement, estW, estH) {
   } else if (placement.startsWith('beside:')) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
-    if (ref) {
-      // Registry stores LOCAL coords — use directly
+    // Only use refs from current scene (scene index matches current snapshot count)
+    if (ref && ref.scene === _sceneSnapshots.length) {
       x = ref.x + ref.w + BD_SIDE_GAP;
       y = ref.y;
       if (x + estW > BD_VIRTUAL_W - BD_MARGIN) {
@@ -8406,9 +8406,8 @@ function bdLayoutResolve(placement, estW, estH) {
   } else if (placement.startsWith('below:')) {
     const refId = placement.split(':')[1];
     const ref = bdElementRegistry[refId];
-    if (ref) {
+    if (ref && ref.scene === _sceneSnapshots.length) {
       x = ref.x;
-      // Use the LATER of: ref bottom or current cursor (prevents overlap with previous below: on same ref)
       y = Math.max(ref.y + ref.h + 6, bdLayout.cursorY);
     } else {
       if (bdLayout.inRow) bdLayoutEndRow();
@@ -9606,7 +9605,9 @@ async function bdRunCommand(cmd) {
         } else {
           estW = Math.min(Math.round(availVW * 0.55), 420);
         }
-        estH = Math.min(Math.round(estW * 0.6), 250);
+        // Match renderer caps: min 150/s, max boardH*0.55/s (use conservative estimate)
+        const animMinH = Math.ceil(150 / Math.max(bd.scale || 1, 0.7));
+        estH = Math.max(Math.min(Math.round(estW * 0.6), 250), animMinH);
         cmd._layoutW = estW;
         cmd._layoutH = estH;
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
@@ -9617,17 +9618,23 @@ async function bdRunCommand(cmd) {
         estH = Math.min(Math.abs((cmd.y2 || 0) - (cmd.y1 || 0)) || 15, 50);
       } else if (cmd.cmd === 'equation') {
         estW = BD_VIRTUAL_W - BD_MARGIN * 2;
-        estH = cmd.note ? 45 : 25;
+        // Match renderer: size*1.4 without note, size*1.4 + noteSize*1.4 + 4 with note below
+        const eqSize = bdResolveSize(cmd.size || 'text');
+        estH = cmd.note ? eqSize * 1.4 + bdResolveSize('small') * 1.4 + 4 : eqSize * 1.4;
       } else if (cmd.cmd === 'compare') {
         const itemCount = Math.max((cmd.left?.items?.length || 0), (cmd.right?.items?.length || 0));
         estW = BD_VIRTUAL_W - BD_MARGIN * 2;
-        estH = 30 + itemCount * 22; // no extra padding — match renderer exactly
+        estH = 30 + itemCount * 22;
       } else if (cmd.cmd === 'step' || cmd.cmd === 'check' || cmd.cmd === 'cross') {
         estW = 400; estH = 24;
       } else if (cmd.cmd === 'callout') {
-        // Use bdResolveSize directly (not resolveH which adds 1.4x) — match renderer's lineH
-        estW = 500; estH = bdResolveSize(cmd.size || 'text') * 1.6 + 8;
+        // Estimate wrapping: rough chars-per-line based on available width
+        const calloutSize = bdResolveSize(cmd.size || 'text');
+        const calloutCharsPerLine = Math.floor((BD_VIRTUAL_W - BD_MARGIN * 2 - 12) / (calloutSize * 0.55));
+        const calloutLines = Math.max(1, Math.ceil((cmd.text?.length || 20) / calloutCharsPerLine));
+        estW = 500; estH = calloutLines * calloutSize * 1.4 + 8;
       } else if (cmd.cmd === 'list') {
+        // Renderer advances curY by itemSpacing(22) for each item, totalH = items * 22
         estW = 400; estH = (cmd.items?.length || 1) * 22;
       } else if (cmd.cmd === 'divider') {
         estW = BD_VIRTUAL_W - BD_MARGIN * 2; estH = 18;
