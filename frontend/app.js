@@ -9608,11 +9608,8 @@ async function bdRunCommand(cmd) {
       cmd.x = x;
       cmd.y = y + yOffset;
 
-      // Sync contentBottomY in absolute coords (for scene transitions)
-      const absBottom = bdLayout.cursorY + yOffset;
-      if (absBottom > bdContentBottomY) bdContentBottomY = absBottom;
-
-      console.log(`[Layout] ${cmd.cmd} "${(cmd.text||cmd.id||'').slice(0,25)}" p=${cmd.placement} local=(${Math.round(x)},${Math.round(y)}) abs_y=${Math.round(y+yOffset)} ${Math.round(estW)}×${Math.round(estH)} cursor=${Math.round(bdLayout.cursorY)} yOff=${Math.round(yOffset)}`);
+      // contentBottomY synced AFTER command executes (see below switch block)
+      cmd._yOffset = yOffset; // store for post-render sync
     }
   }
 
@@ -9672,6 +9669,12 @@ async function bdRunCommand(cmd) {
     case 'list': await bdCompoundList(cmd); break;
     case 'divider': await bdCompoundDivider(cmd); break;
     case 'result': await bdCompoundResult(cmd); break;
+  }
+
+  // Sync contentBottomY AFTER render (compound commands may have corrected cursor)
+  if (cmd._yOffset !== undefined) {
+    const absBottom = bdLayout.cursorY + cmd._yOffset;
+    if (absBottom > bdContentBottomY) bdContentBottomY = absBottom;
   }
 }
 
