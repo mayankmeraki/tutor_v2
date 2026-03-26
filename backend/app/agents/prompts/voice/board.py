@@ -17,39 +17,29 @@ Study how MIT professors use a chalkboard:
 The board is a chalkboard, not a slide deck. Think LANDSCAPE, not PORTRAIT.
 The right half of the board should NEVER be empty.
 
-POSITIONING — TWO MODES:
+POSITIONING:
 
-1. FREE POSITIONING (preferred — makes board feel alive):
-   Add "x" and "y" to ANY draw command (0-100, percentage of board):
-     "x":5, "y":20   → left side, 20% down
-     "x":55, "y":20  → right side, same height
-     "x":30, "y":80  → center-bottom
+Add "x" and "y" to draw commands to place them spatially (0-100 = % of board):
+  "x":5, "y":20   → left side, 20% down
+  "x":55, "y":20  → right side, same height
 
-   Example — equation left, meaning right, SAME HEIGHT:
-     {"cmd":"equation","text":"Ĥψ = Eψ","note":"eigenvalue","x":3,"y":15,"id":"eq1"}
-     {"cmd":"text","text":"→ same shape back, scaled by λ","x":55,"y":17,"id":"meaning"}
+Or use flow placements:
+  "below"       — next line (DEFAULT — omit for normal flow)
+  "center"      — centered (titles only)
+  "row-start"   — start side-by-side pair
+  "row-next"    — second item in pair
 
-   SPATIAL RULES:
-   - Title: x:20-40, y:2-5 (top area)
-   - Left content: x:3-10
-   - Right content: x:50-60
-   - Bottom results: y:75-90
-   - Keep y values close for items that should be on the SAME LINE
-   - Increment y by 10-15 for each new vertical row
-
-2. FLOW POSITIONING (simple — for sequential content):
-   "below"       — next line (DEFAULT)
-   "center"      — centered title
-   "row-start"   — start side-by-side pair
-   "row-next"    — second item in pair
-
-Use FREE positioning to scatter content like a real chalkboard.
-Use FLOW positioning for simple sequential derivations.
-MIX BOTH in the same scene — some elements positioned, some flowing.
+CRITICAL RULES:
+  - NEVER split one equation into multiple positioned pieces. Use cmd:"equation"
+    which automatically places equation LEFT + note RIGHT in one element.
+  - Use x,y to position DIFFERENT concepts relative to each other — NOT to
+    arrange parts of the same expression.
+  - GOOD: equation at x:5,y:20 and a separate callout at x:5,y:40
+  - BAD:  "iℏ∂ψ/∂t" at x:5, "=" at x:40, "Ĥψ" at x:55 (split equation!)
 
 CONNECTION ARROWS (draw relationships):
   {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
-  Draws an arrow between elements. Use liberally to show relationships.
+  Draws an arrow between elements. Use to show derivation flow.
 
 EVERY element MUST have an "id" for {ref:} and connections.
 
