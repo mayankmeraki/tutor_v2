@@ -202,16 +202,36 @@ function placeElement(element, placement, cmd) {
     element.style.position = 'absolute';
     element.style.left = px + '%';
     element.style.top = py + '%';
-    element.style.maxWidth = (100 - px - 2) + '%'; // prevent right overflow
+    element.style.maxWidth = Math.min(50, 100 - px - 2) + '%'; // cap width, prevent overflow
     element.style.zIndex = '2';
     element.classList.add('bd-positioned');
 
     scene.appendChild(element);
 
-    // Auto-grow scene height if element extends beyond
+    // After layout settles: check for overlaps + auto-grow scene
     requestAnimationFrame(function() {
       var elRect = element.getBoundingClientRect();
       var sceneRect = scene.getBoundingClientRect();
+
+      // Overlap prevention — nudge down if colliding with existing positioned elements
+      var positioned = scene.querySelectorAll('.bd-positioned');
+      for (var pi = 0; pi < positioned.length; pi++) {
+        var other = positioned[pi];
+        if (other === element) continue;
+        var otherRect = other.getBoundingClientRect();
+        // Check overlap
+        var overlapX = elRect.left < otherRect.right && elRect.right > otherRect.left;
+        var overlapY = elRect.top < otherRect.bottom && elRect.bottom > otherRect.top;
+        if (overlapX && overlapY) {
+          // Nudge this element below the overlapping one
+          var nudgeY = otherRect.bottom - sceneRect.top + 8;
+          element.style.top = (nudgeY / sceneRect.height * 100).toFixed(1) + '%';
+          // Re-check rect after nudge
+          elRect = element.getBoundingClientRect();
+        }
+      }
+
+      // Auto-grow scene height
       var elBottom = elRect.bottom - sceneRect.top;
       if (elBottom > scene.offsetHeight - 20) {
         scene.style.minHeight = (elBottom + 40) + 'px';
@@ -983,35 +1003,60 @@ function renderSvgDot(cmd) {
 // ── CONNECT: draw an SVG arrow between two elements ──
 function renderConnect(cmd) {
   if (!cmd.from || !cmd.to) return;
+
+  // Defer rendering to ensure layout is settled
+  requestAnimationFrame(function() { _drawConnect(cmd); });
+}
+
+function _drawConnect(cmd) {
   var fromEntry = board.elements.get(cmd.from);
   var toEntry = board.elements.get(cmd.to);
-  if (!fromEntry || !toEntry) {
-    console.warn('[Board] Connect: element not found', cmd.from, cmd.to);
-    return;
-  }
+  if (!fromEntry || !toEntry) return; // silently skip if elements not found
   var fromEl = fromEntry.element;
   var toEl = toEntry.element;
   if (!fromEl || !toEl || !fromEl.isConnected || !toEl.isConnected) return;
 
-  // Get positions relative to the live scene
   var scene = board.liveScene;
   if (!scene) return;
   var sceneRect = scene.getBoundingClientRect();
   var fromRect = fromEl.getBoundingClientRect();
   var toRect = toEl.getBoundingClientRect();
 
-  // Calculate connection points (center-bottom of FROM → center-top of TO)
-  var x1 = fromRect.left + fromRect.width / 2 - sceneRect.left;
-  var y1 = fromRect.bottom - sceneRect.top;
-  var x2 = toRect.left + toRect.width / 2 - sceneRect.left;
-  var y2 = toRect.top - sceneRect.top;
+  // Skip if elements have no size yet (not rendered)
+  if (fromRect.width === 0 || toRect.width === 0) return;
 
-  // If elements are side-by-side, connect right edge → left edge
-  if (Math.abs(y1 - (toRect.top + toRect.height/2 - sceneRect.top)) < fromRect.height) {
-    x1 = fromRect.right - sceneRect.left;
-    y1 = fromRect.top + fromRect.height / 2 - sceneRect.top;
-    x2 = toRect.left - sceneRect.left;
-    y2 = toRect.top + toRect.height / 2 - sceneRect.top;
+  // Find NEAREST EDGES to connect — not fixed center-bottom/center-top
+  var fromCX = fromRect.left + fromRect.width / 2 - sceneRect.left;
+  var fromCY = fromRect.top + fromRect.height / 2 - sceneRect.top;
+  var toCX = toRect.left + toRect.width / 2 - sceneRect.left;
+  var toCY = toRect.top + toRect.height / 2 - sceneRect.top;
+
+  var dx = toCX - fromCX;
+  var dy = toCY - fromCY;
+  var x1, y1, x2, y2;
+
+  if (Math.abs(dx) > Math.abs(dy)) {
+    // Horizontal connection — use right/left edges
+    if (dx > 0) {
+      x1 = fromRect.right - sceneRect.left + 4;
+      x2 = toRect.left - sceneRect.left - 4;
+    } else {
+      x1 = fromRect.left - sceneRect.left - 4;
+      x2 = toRect.right - sceneRect.left + 4;
+    }
+    y1 = fromCY;
+    y2 = toCY;
+  } else {
+    // Vertical connection — use bottom/top edges
+    if (dy > 0) {
+      y1 = fromRect.bottom - sceneRect.top + 4;
+      y2 = toRect.top - sceneRect.top - 4;
+    } else {
+      y1 = fromRect.top - sceneRect.top - 4;
+      y2 = toRect.bottom - sceneRect.top + 4;
+    }
+    x1 = fromCX;
+    x2 = toCX;
   }
 
   var color = resolveColor(cmd.color || 'dim');
