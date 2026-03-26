@@ -10402,51 +10402,52 @@ async function bdRunAnimation(cmd) {
   }
   bdActiveAnimations.push(entry);
 
-  // Blank animation detection — check if anything was actually drawn after 1.5s
-  setTimeout(() => {
-    try {
-      const p5c = canvasWrap.querySelector('canvas');
-      if (!p5c || p5c.width === 0) return;
-      const ctx2 = p5c.getContext('2d');
-      if (!ctx2) return;
-      // Sample 20 random pixels across the canvas
-      const data = ctx2.getImageData(0, 0, p5c.width, p5c.height).data;
-      const step = Math.max(4, Math.floor(data.length / 80)) & ~3; // ~20 samples, aligned to 4
-      let nonBgCount = 0;
-      for (let i = 0; i < data.length; i += step) {
-        const r = data[i], g = data[i+1], b = data[i+2];
-        // Background is ~(15,20,16) — anything brighter is content
-        if (r > 30 || g > 35 || b > 30) nonBgCount++;
-      }
-      if (nonBgCount < 2) {
-        // Animation is blank — call Haiku to fix (fast, cheap)
-        console.warn('[Animation] Blank detected — calling Haiku fix:', cmd.id);
+  // Blank animation detection — max 2 attempts, then give up and remove
+  const retryKey = cmd.id || 'anon';
+  if (!bd._animRetries) bd._animRetries = {};
+  const attemptNum = bd._animRetries[retryKey] || 0;
+  if (attemptNum < 2) {
+    setTimeout(() => {
+      try {
+        const p5c = canvasWrap.querySelector('canvas');
+        if (!p5c || p5c.width === 0) return;
+        // Sample pixels — check if canvas is all near-black
+        const ctx2 = p5c.getContext('2d');
+        if (!ctx2) return;
+        const data = ctx2.getImageData(0, 0, p5c.width, p5c.height).data;
+        const step = Math.max(4, Math.floor(data.length / 80)) & ~3;
+        let nonBgCount = 0;
+        for (let i = 0; i < data.length; i += step) {
+          if (data[i] > 30 || data[i+1] > 35 || data[i+2] > 30) nonBgCount++;
+        }
+        if (nonBgCount >= 2) return; // has content — animation is working
+
+        bd._animRetries[retryKey] = attemptNum + 1;
+        console.warn(`[Animation] Blank detected (attempt ${attemptNum + 1}/2):`, retryKey);
         fetch(`${state.apiUrl}/api/fix-animation`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-          body: JSON.stringify({
-            code: cmd.code,
-            error: 'Animation rendered blank — compiled OK but canvas is all black. The draw() loop runs without errors but produces no visible output. Fix the drawing logic so shapes/lines are actually visible. Check: correct coordinates (use W,H not hardcoded), correct colors (not black on black), stroke/fill actually called before shapes.'
-          }),
+          body: JSON.stringify({ code: cmd.code, error: 'Canvas all black. Fix drawing logic: use W,H for coords, visible colors, call stroke/fill before shapes.' }),
         })
         .then(r => r.ok ? r.json() : null)
-        .then(data => {
-          if (!data || !data.code) return;
-          // Stop old animation, replace with fixed one
+        .then(fixData => {
+          if (!fixData || !fixData.code) throw new Error('No code');
           try { entry.inst.remove(); } catch(e) {}
-          const fixedCmd = { ...cmd, code: data.code };
-          // Remove old container
-          if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
+          if (entry.container?.parentNode) entry.container.parentNode.removeChild(entry.container);
           const idx = bdActiveAnimations.indexOf(entry);
           if (idx >= 0) bdActiveAnimations.splice(idx, 1);
-          // Run the fixed animation
-          bdRunAnimation(fixedCmd);
-          console.info('[Animation] Blank fix succeeded:', cmd.id);
+          bdRunAnimation({ ...cmd, code: fixData.code });
         })
-        .catch(() => {}); // silent fail — animation stays as-is
-      }
-    } catch (e) { /* ignore sampling errors */ }
-  }, 1500);
+        .catch(() => {
+          // Fix failed — remove animation, show fallback
+          bdAnimGiveUp(entry, container, retryKey);
+        });
+      } catch (e) { /* ignore */ }
+    }, 1500);
+  } else if (attemptNum >= 2) {
+    // Already tried 2 times — give up immediately
+    setTimeout(() => bdAnimGiveUp(entry, container, retryKey), 1500);
+  }
 
   if (duration > 0) {
     await new Promise(resolve => {
@@ -10464,6 +10465,25 @@ async function bdSilentAnimRetry(errors) {
   if (!bd.canvas || bd.cancelFlag) return;
   if (bd._retryInFlight) return;
   bd._retryInFlight = true;
+
+function bdAnimGiveUp(entry, container, retryKey) {
+  console.warn('[Animation] Giving up after max retries:', retryKey);
+  // Stop p5 instance
+  try { entry.inst.remove(); } catch(e) {}
+  // Remove from active list
+  const idx = bdActiveAnimations.indexOf(entry);
+  if (idx >= 0) bdActiveAnimations.splice(idx, 1);
+  // Replace container with fallback text
+  if (container && container.parentNode) {
+    const s = state.boardDraw.scale || 1;
+    container.innerHTML = `
+      <div style="width:100%;height:100%;background:rgba(15,20,16,0.6);display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,0.1);border-radius:6px">
+        <div style="color:rgba(255,255,255,0.2);font-size:${13*s}px;font-family:'Caveat',cursive;text-align:center;padding:12px">
+          Animation could not render<br><span style="font-size:${10*s}px">visual description in legend →</span>
+        </div>
+      </div>`;
+  }
+}
 
   const errorDescs = errors.map((e, i) => {
     const c = e.cmd;
