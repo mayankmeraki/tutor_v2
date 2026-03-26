@@ -842,7 +842,9 @@ const state = {
 // ═══════════════════════════════════════════════════════════
 
 async function fetchJSON(path) {
-  const res = await fetch(`${state.apiUrl}/api/v1/content${path}`);
+  const res = await fetch(`${state.apiUrl}/api/v1/content${path}`, {
+    headers: AuthManager.authHeaders()
+  });
   if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
   return res.json();
 }
