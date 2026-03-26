@@ -4415,6 +4415,19 @@ body {
 .voice-bar.recording .voice-bar-mic:hover {
   background: rgba(52,211,153,0.35); border-color: rgba(52,211,153,0.7);
 }
+/* Cancel button during recording */
+.voice-bar-cancel {
+  width: 32px; height: 32px; border-radius: 50%;
+  background: transparent; border: 1px solid rgba(255,255,255,0.15);
+  color: rgba(255,255,255,0.5); cursor: pointer;
+  font-size: 18px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  flex-shrink: 0; transition: all 0.15s; margin-right: 6px;
+}
+.voice-bar-cancel:hover {
+  background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.4);
+  color: rgba(248,113,113,0.8);
+}
 @keyframes vb-tick-pulse { 0%,100%{box-shadow:0 0 6px rgba(52,211,153,0.15)} 50%{box-shadow:0 0 14px rgba(52,211,153,0.35)} }
 
 /* Speaking state */

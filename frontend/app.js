@@ -13570,10 +13570,18 @@ function startVoiceRecording() {
   const micBtn = $('#voice-mic-btn');
   const field = $('#voice-bar-input');
   if (bar) bar.classList.add('recording');
-  // Change mic icon → tick (✓) icon
+  // Change mic icon → tick (✓) + add cancel (×) button
   if (micBtn) {
     micBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
     micBtn.title = 'Done recording';
+    // Add cancel button before the mic/tick button
+    const cancelBtn = document.createElement('button');
+    cancelBtn.id = 'voice-rec-cancel';
+    cancelBtn.className = 'voice-bar-cancel';
+    cancelBtn.innerHTML = '×';
+    cancelBtn.title = 'Cancel recording';
+    cancelBtn.addEventListener('click', (e) => { e.preventDefault(); cancelVoiceRecording(); });
+    micBtn.parentNode.insertBefore(cancelBtn, micBtn);
   }
   if (field) { field.placeholder = 'Listening...'; field.value = ''; }
 
@@ -13604,36 +13612,46 @@ function startVoiceRecording() {
   _pttRecognition.start();
 }
 
-function stopVoiceRecording() {
-  _pttActive = false;
+function _restoreMicButton() {
   const bar = $('#voice-bar-main');
   const micBtn = $('#voice-mic-btn');
-  const field = $('#voice-bar-input');
+  const cancelBtn = $('#voice-rec-cancel');
   if (bar) bar.classList.remove('recording');
-
-  // Restore mic icon
+  if (cancelBtn) cancelBtn.remove();
   if (micBtn) {
     micBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
     micBtn.title = 'Click to record';
   }
-
   if (_pttRecognition) {
-    _pttRecognition.onend = null; // prevent restart loop
+    _pttRecognition.onend = null;
     _pttRecognition.stop();
     _pttRecognition = null;
   }
+}
 
-  // Put transcript into text field for review — DON'T auto-send
+function stopVoiceRecording() {
+  _pttActive = false;
+  _restoreMicButton();
+  const field = $('#voice-bar-input');
   if (field) {
     field.classList.remove('transcript');
     field.placeholder = 'Type your response...';
-    // Focus the field so user can edit and press Enter
     if (field.value.trim()) {
       field.focus();
-      // Auto-resize textarea to fit content
       field.style.height = 'auto';
       field.style.height = field.scrollHeight + 'px';
     }
+  }
+}
+
+function cancelVoiceRecording() {
+  _pttActive = false;
+  _restoreMicButton();
+  const field = $('#voice-bar-input');
+  if (field) {
+    field.value = '';
+    field.classList.remove('transcript');
+    field.placeholder = 'Type your response...';
   }
 }
 
