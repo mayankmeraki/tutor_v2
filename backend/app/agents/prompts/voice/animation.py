@@ -65,14 +65,14 @@ Everything else should be 2D (graphs, energy levels, wave functions, etc.)
   Rose:   p.stroke(251, 113, 133)  — #fb7185
   Axes:   p.stroke(80, 80, 80)     — dim gray
 
-═══ ANIMATION + LEGEND PATTERN (always use this) ═══
+═══ ANIMATION + LEGEND (self-contained — ONE command) ═══
 
-Every animation MUST have a legend beside it explaining what each color means:
+Every animation MUST include a "legend" array that describes each visual element.
+The legend renders automatically beside the animation — no separate text commands needed:
 
-  <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","code":"..."}' say="Watch this." />
-  <vb draw='{"cmd":"text","text":"Legend:","placement":"row-next","size":"h3","color":"#fbbf24","id":"leg"}' />
-  <vb draw='{"cmd":"text","text":"Green = ψ(x)","placement":"below:leg","size":"small","color":"#34d399","id":"l1"}' />
-  <vb draw='{"cmd":"text","text":"Gold = |ψ|²","placement":"below:l1","size":"small","color":"#fbbf24","id":"l2"}' />
+  <vb draw='{"cmd":"animation","id":"wave","code":"...","legend":[{"text":"Green = ψ(x)","color":"#34d399"},{"text":"Gold = |ψ|²","color":"#fbbf24"}]}' say="Watch the wave function." />
+
+This ONE command creates the animation + legend sidebar. No row-start/row-next needed.
 
 ═══ ANIMATION CONTROL (runtime parameter changes) ═══
 

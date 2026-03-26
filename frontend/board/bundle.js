@@ -478,7 +478,15 @@ function buildControlBridge(scale, isWebGL) {
 function createAnimation(cmd) {
   if (!cmd.code) return;
 
-  var el = createElement('div', cmd, 'bd-anim-box');
+  // If animation has a legend property, wrap in a row with legend sidebar
+  var wrapper = null;
+  if (cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0) {
+    wrapper = document.createElement('div');
+    wrapper.className = 'bd-row';
+    if (cmd.id) wrapper.id = cmd.id + '-wrap';
+  }
+
+  var el = createElement('div', { id: cmd.id, cmd: cmd.cmd }, 'bd-anim-box');
 
   var controls = document.createElement('div');
   controls.className = 'bd-anim-controls';
@@ -503,7 +511,32 @@ function createAnimation(cmd) {
   el.style.minHeight = animH + 'px';
   el.style.aspectRatio = (animW / animH).toFixed(3);
 
-  placeElement(el, cmd.placement, cmd);
+  // Place: if has legend, use wrapper row; otherwise place directly
+  if (wrapper) {
+    wrapper.appendChild(el);
+
+    // Build legend column
+    var legendCol = document.createElement('div');
+    legendCol.className = 'bd-column bd-anim-legend';
+    var legendTitle = document.createElement('div');
+    legendTitle.className = 'bd-el bd-chalk-gold bd-size-h3';
+    legendTitle.textContent = 'Legend:';
+    legendTitle.style.marginTop = '0';
+    legendCol.appendChild(legendTitle);
+
+    cmd.legend.forEach(function(item) {
+      var li = document.createElement('div');
+      li.className = 'bd-el bd-size-small ' + colorClass(item.color);
+      li.textContent = item.text || item;
+      li.style.marginTop = '4px';
+      legendCol.appendChild(li);
+    });
+
+    wrapper.appendChild(legendCol);
+    placeElement(wrapper, cmd.placement, cmd);
+  } else {
+    placeElement(el, cmd.placement, cmd);
+  }
 
   // Now measure actual rendered size
   var elRect = el.getBoundingClientRect();

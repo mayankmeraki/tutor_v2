@@ -18,16 +18,16 @@ The board is a chalkboard, not a slide deck. Think LANDSCAPE, not PORTRAIT.
 The right half of the board should NEVER be empty.
 
 PLACEMENT TAGS (no raw x,y — engine positions everything):
-  "below"       — left-aligned, next line (DEFAULT — most content goes here)
-  "center"      — centered (ONLY for the scene title — max 1 per scene)
-  "indent"      — indented — for sub-steps, because..., therefore...
-  "beside:ID"   — to the RIGHT of element ID — for annotations, labels
-  "below:ID"    — directly BELOW element ID — for stacking related items
-  "row-start"   — start side-by-side row — for spreading content across width
+  "below"       — next line, left-aligned (DEFAULT — omit for normal flow)
+  "center"      — centered (ONLY for scene title — max 1 per scene)
+  "indent"      — indented — for sub-steps, therefore...
+  "row-start"   — start side-by-side row (equation left + meaning right)
   "row-next"    — next item in the same row
-  "right"       — right-aligned (rare)
 
-EVERY element MUST have an "id" for {ref:} and beside:/below: references.
+That's it — just 4 placements. Content flows top-to-bottom by default.
+Use row-start/row-next to spread content across BOTH halves of the board.
+
+EVERY element MUST have an "id" for {ref:} references.
 
 ═══ COMPOUND COMMANDS — USE THESE INSTEAD OF RAW TEXT ═══
 
@@ -106,13 +106,9 @@ PATTERN 2 — Scatter-write across the top (TOPIC OVERVIEW):
   <vb draw='{"cmd":"text","text":"EOM","placement":"row-next","size":"h2","color":"#fbbf24","id":"eom"}' say="Second: equations of motion." />
   <vb draw='{"cmd":"text","text":"dynamical variables","placement":"row-next","size":"h2","color":"#fbbf24","id":"dyn"}' say="Third: dynamical variables." />
 
-PATTERN 3 — Diagram/animation + stacked definitions (THE VISUAL LAYOUT):
-  Like the complex plane drawn on the left side, with z = a+ib, Re(z)=a, Im(z)=b
-  stacked neatly on the right:
-  <vb draw='{"cmd":"animation","placement":"row-start","id":"diagram","code":"..."}' say="Here's the complex plane." />
-  <vb draw='{"cmd":"equation","text":"z = a + ib","note":"a,b ∈ ℝ","placement":"row-next","color":"#53d8fb","id":"def1"}' say="z is a plus ib." />
-  <vb draw='{"cmd":"text","text":"Re(z) = a,  Im(z) = b","placement":"below:def1","size":"text","color":"#e2e8f0","id":"def2"}' say="Real part is a, imaginary is b." />
-  <vb draw='{"cmd":"equation","text":"z* = a − ib","note":"complex conjugate","placement":"below:def2","color":"#fbbf24","id":"conj"}' say="The conjugate flips the sign." />
+PATTERN 3 — Animation with built-in legend (SELF-CONTAINED):
+  The animation command includes a "legend" array — renders animation + legend side-by-side automatically:
+  <vb draw='{"cmd":"animation","id":"diagram","code":"...","legend":[{"text":"Green = Re(z)","color":"#34d399"},{"text":"Gold = Im(z)","color":"#fbbf24"}]}' say="Here's the complex plane." />
 
 PATTERN 4 — Derivation chain → boxed result (THE BUILD-UP):
   Like a professor building from axiom to theorem, then boxing the final result.
@@ -141,19 +137,16 @@ PATTERN 7 — Properties in two columns:
   <vb draw='{"cmd":"check","text":"Linear","placement":"row-start","id":"p2"}' say="It's linear." />
   <vb draw='{"cmd":"text","text":"→ superposition works","placement":"row-next","size":"small","color":"#94a3b8"}' say="So superposition applies." />
 
-PATTERN 8 — Animation + legend spread across (WITH ANIMATIONS):
-  <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","code":"..."}' say="Watch the wave function evolve." />
-  <vb draw='{"cmd":"text","text":"Legend:","placement":"row-next","size":"h3","color":"#fbbf24","id":"lh"}' />
-  <vb draw='{"cmd":"text","text":"Green = ψ(x)","placement":"below:lh","size":"small","color":"#34d399","id":"l1"}' />
-  <vb draw='{"cmd":"text","text":"Gold = |ψ|²","placement":"below:l1","size":"small","color":"#fbbf24","id":"l2"}' say="Green is the wave, gold is probability. {ref:anim}" />
+PATTERN 8 — Animation + legend (AUTOMATIC — use legend property):
+  <vb draw='{"cmd":"animation","id":"wave","code":"...","legend":[{"text":"Green = ψ(x)","color":"#34d399"},{"text":"Gold = |ψ|²","color":"#fbbf24"}]}' say="Green is the wave, gold is probability." />
 
 PATTERN 9 — Side-by-side comparison (CONTRAST):
   <vb draw='{"cmd":"compare","left":{"title":"Evolution","items":["Deterministic","Reversible","Info preserved"],"color":"green"},"right":{"title":"Measurement","items":["Probabilistic","Irreversible","Info lost"],"color":"red"},"placement":"below","id":"cmp"}' say="Evolution versus measurement — completely different." />
 
 ═══ BOARD RULES ═══
 
-1. CENTER sparingly. ONLY the h1 title. Everything else uses below, indent,
-   beside:, row-start/row-next. If you center more than 1 element, you're wrong.
+1. CENTER sparingly. ONLY the h1 title. Everything else uses below or
+   row-start/row-next. If you center more than 1 element, you're wrong.
 
 2. EVERY equation uses cmd:"equation" with a "note". Never orphan an equation.
    Raw cmd:"text" for equations is WRONG — use cmd:"equation" so annotations
