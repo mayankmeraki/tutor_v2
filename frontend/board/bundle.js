@@ -475,19 +475,59 @@ function buildControlBridge(scale, isWebGL) {
     '  ';
 }
 
+// ── Animation Fullscreen Toggle ──
+function toggleAnimFullscreen(figure, animBox) {
+  if (figure.classList.contains('bd-anim-fullscreen')) {
+    // Restore
+    figure.classList.remove('bd-anim-fullscreen');
+    var btn = animBox.querySelector('.bd-anim-expand-btn');
+    if (btn) { btn.textContent = '\u26F6'; btn.title = 'Expand animation'; }
+    // Resize p5 back to container size
+    var inst = animBox._p5Instance;
+    if (inst && typeof inst.resizeCanvas === 'function') {
+      requestAnimationFrame(function() {
+        var r = animBox.getBoundingClientRect();
+        try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
+      });
+    }
+  } else {
+    // Expand
+    figure.classList.add('bd-anim-fullscreen');
+    var btn = animBox.querySelector('.bd-anim-expand-btn');
+    if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
+    // Resize p5 to fullscreen size
+    var inst = animBox._p5Instance;
+    if (inst && typeof inst.resizeCanvas === 'function') {
+      requestAnimationFrame(function() {
+        var r = animBox.getBoundingClientRect();
+        try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
+      });
+    }
+  }
+}
+
 function createAnimation(cmd) {
   if (!cmd.code) return;
 
-  // If animation has a legend property, wrap in a row with legend sidebar
-  var wrapper = null;
-  if (cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0) {
-    wrapper = document.createElement('div');
-    wrapper.className = 'bd-row';
-    if (cmd.id) wrapper.id = cmd.id + '-wrap';
+  // ── Build the figure container (like matplotlib figure with title + legend) ──
+  var figure = document.createElement('div');
+  figure.className = 'bd-el bd-anim-figure';
+  if (cmd.id) figure.id = cmd.id;
+  figure.dataset.cmd = 'animation';
+
+  // Title bar (like plt.title) — rendered above the canvas
+  if (cmd.title || cmd.text) {
+    var titleBar = document.createElement('div');
+    titleBar.className = 'bd-anim-title bd-chalk-cyan bd-size-small';
+    titleBar.textContent = cmd.title || cmd.text || '';
+    figure.appendChild(titleBar);
   }
 
-  var el = createElement('div', { id: cmd.id, cmd: cmd.cmd }, 'bd-anim-box');
+  // Animation box (canvas area)
+  var el = document.createElement('div');
+  el.className = 'bd-anim-box';
 
+  // Controls: expand + restore
   var controls = document.createElement('div');
   controls.className = 'bd-anim-controls';
   var expandBtn = document.createElement('button');
@@ -495,48 +535,45 @@ function createAnimation(cmd) {
   expandBtn.textContent = '\u26F6';
   expandBtn.title = 'Expand animation';
   expandBtn.addEventListener('click', function() {
-    // TODO: fullscreen modal
+    toggleAnimFullscreen(figure, el);
   });
   controls.appendChild(expandBtn);
   el.appendChild(controls);
 
   var canvasWrap = document.createElement('div');
   canvasWrap.className = 'bd-anim-canvas-wrap';
-  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;border-radius:4px;';
+  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;border-radius:0 0 4px 4px;';
   el.appendChild(canvasWrap);
 
-  // Set explicit dimensions BEFORE placing in DOM — prevents 0-height collapse
   var animH = cmd.h || 280;
   var animW = cmd.w || 420;
   el.style.minHeight = animH + 'px';
   el.style.aspectRatio = (animW / animH).toFixed(3);
 
-  // Place: if has legend, use wrapper row; otherwise place directly
-  if (wrapper) {
-    wrapper.appendChild(el);
+  figure.appendChild(el);
 
-    // Build legend column
-    var legendCol = document.createElement('div');
-    legendCol.className = 'bd-column bd-anim-legend';
-    var legendTitle = document.createElement('div');
-    legendTitle.className = 'bd-el bd-chalk-gold bd-size-h3';
-    legendTitle.textContent = 'Legend:';
-    legendTitle.style.marginTop = '0';
-    legendCol.appendChild(legendTitle);
-
+  // Legend (inline below canvas — self-contained, no separate beats needed)
+  var hasLegend = cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0;
+  if (hasLegend) {
+    var legendBar = document.createElement('div');
+    legendBar.className = 'bd-anim-legend-bar';
     cmd.legend.forEach(function(item) {
-      var li = document.createElement('div');
-      li.className = 'bd-el bd-size-small ' + colorClass(item.color);
-      li.textContent = item.text || item;
-      li.style.marginTop = '4px';
-      legendCol.appendChild(li);
+      var li = document.createElement('span');
+      li.className = 'bd-anim-legend-item';
+      var dot = document.createElement('span');
+      dot.className = 'bd-anim-legend-dot';
+      dot.style.background = resolveColor(item.color || '#e8e8e0');
+      li.appendChild(dot);
+      li.appendChild(document.createTextNode(item.text || item));
+      legendBar.appendChild(li);
     });
-
-    wrapper.appendChild(legendCol);
-    placeElement(wrapper, cmd.placement, cmd);
-  } else {
-    placeElement(el, cmd.placement, cmd);
+    figure.appendChild(legendBar);
   }
+
+  // Place the self-contained figure
+  placeElement(figure, cmd.placement, cmd);
+  // Register for {ref:id}
+  if (cmd.id) registerElement(cmd.id, figure);
 
   // Now measure actual rendered size
   var elRect = el.getBoundingClientRect();

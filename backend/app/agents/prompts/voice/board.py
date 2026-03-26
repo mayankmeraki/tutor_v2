@@ -106,9 +106,9 @@ PATTERN 2 — Scatter-write across the top (TOPIC OVERVIEW):
   <vb draw='{"cmd":"text","text":"EOM","placement":"row-next","size":"h2","color":"#fbbf24","id":"eom"}' say="Second: equations of motion." />
   <vb draw='{"cmd":"text","text":"dynamical variables","placement":"row-next","size":"h2","color":"#fbbf24","id":"dyn"}' say="Third: dynamical variables." />
 
-PATTERN 3 — Animation with built-in legend (SELF-CONTAINED):
-  The animation command includes a "legend" array — renders animation + legend side-by-side automatically:
-  <vb draw='{"cmd":"animation","id":"diagram","code":"...","legend":[{"text":"Green = Re(z)","color":"#34d399"},{"text":"Gold = Im(z)","color":"#fbbf24"}]}' say="Here's the complex plane." />
+PATTERN 3 — Animation figure (SELF-CONTAINED with title + legend):
+  ONE command creates a complete figure — title, canvas, and color legend:
+  <vb draw='{"cmd":"animation","id":"diagram","title":"Complex Plane","code":"...","legend":[{"text":"Re(z)","color":"#34d399"},{"text":"Im(z)","color":"#fbbf24"}]}' say="Here's the complex plane." />
 
 PATTERN 4 — Derivation chain → boxed result (THE BUILD-UP):
   Like a professor building from axiom to theorem, then boxing the final result.
@@ -137,8 +137,10 @@ PATTERN 7 — Properties in two columns:
   <vb draw='{"cmd":"check","text":"Linear","placement":"row-start","id":"p2"}' say="It's linear." />
   <vb draw='{"cmd":"text","text":"→ superposition works","placement":"row-next","size":"small","color":"#94a3b8"}' say="So superposition applies." />
 
-PATTERN 8 — Animation + legend (AUTOMATIC — use legend property):
-  <vb draw='{"cmd":"animation","id":"wave","code":"...","legend":[{"text":"Green = ψ(x)","color":"#34d399"},{"text":"Gold = |ψ|²","color":"#fbbf24"}]}' say="Green is the wave, gold is probability." />
+PATTERN 8 — Animation beside equation (VISUAL + MATH):
+  Animation in row-start, equation explanation in row-next — side-by-side:
+  <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","title":"Energy Levels","code":"...","legend":[{"text":"n=1","color":"#34d399"},{"text":"n=2","color":"#fbbf24"}]}' say="Watch the energy levels." />
+  <vb draw='{"cmd":"equation","text":"Eₙ = n²π²ℏ²/2mL²","note":"grows as n²","placement":"row-next","color":"#fbbf24","id":"eq"}' say="Energy goes as n squared." />
 
 PATTERN 9 — Side-by-side comparison (CONTRAST):
   <vb draw='{"cmd":"compare","left":{"title":"Evolution","items":["Deterministic","Reversible","Info preserved"],"color":"green"},"right":{"title":"Measurement","items":["Probabilistic","Irreversible","Info lost"],"color":"red"},"placement":"below","id":"cmp"}' say="Evolution versus measurement — completely different." />

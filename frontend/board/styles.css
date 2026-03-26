@@ -487,31 +487,94 @@
 .bd-svg-shape svg { filter: drop-shadow(0 0 2px rgba(255,255,255,0.1)); }
 
 /* ═══════════════════════════════════════════════════════════
-   7. Animation Boxes (p5.js / canvas embeds)
+   7. Animation Figure (self-contained: title + canvas + legend)
    ═══════════════════════════════════════════════════════════ */
 
+/* Figure container — wraps title + canvas + legend like matplotlib */
+.bd-anim-figure {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 6px;
+  overflow: hidden;
+  background: rgba(10, 14, 12, 0.8);
+  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+  margin-top: var(--bd-el-gap);
+}
+
+/* Figure title bar — like plt.title() */
+.bd-anim-title {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-style: italic;
+  opacity: 0.85;
+}
+
+/* Legend bar — inline below canvas, horizontal layout */
+.bd-anim-legend-bar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px 20px;
+  padding: 6px 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  font-size: var(--bd-small);
+  color: var(--bd-dim);
+}
+.bd-anim-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.bd-anim-legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* Canvas area inside figure */
 .bd-anim-box {
   display: block;
-  border: 1px solid rgba(255, 255, 255, 0.05);
-  border-radius: 4px;
   overflow: hidden;
   background: rgba(15, 20, 16, 1);
   position: relative;
-  box-shadow: 0 0 16px rgba(0, 0, 0, 0.25);
   min-height: 200px;
   aspect-ratio: 3 / 2;
 }
 
-/* Animation box inside a row — constrained width */
-.bd-row > .bd-anim-box {
-  flex: 0 0 42%;
-  max-width: 320px;
+/* Figure inside a row — constrained width for side-by-side layout */
+.bd-row > .bd-anim-figure {
+  flex: 0 0 50%;
+  max-width: 420px;
 }
 
-/* Standalone animation box — wider default */
-.bd-anim-box:not(.bd-row *) {
-  width: 55%;
-  max-width: 420px;
+/* Standalone figure — larger default */
+.bd-anim-figure:not(.bd-row *) {
+  width: 65%;
+  max-width: 550px;
+}
+
+/* Fullscreen mode — fixed overlay */
+.bd-anim-fullscreen {
+  position: fixed !important;
+  inset: 40px !important;
+  z-index: 500 !important;
+  width: auto !important;
+  max-width: none !important;
+  margin: 0 !important;
+  border-radius: 12px;
+  box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+}
+.bd-anim-fullscreen .bd-anim-box {
+  min-height: 0;
+  height: calc(100% - 60px); /* leave room for title + legend */
+  aspect-ratio: auto;
+}
+.bd-anim-fullscreen::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.7);
+  z-index: -1;
+  backdrop-filter: blur(6px);
 }
 
 /* Canvas inside animation box fills its container */

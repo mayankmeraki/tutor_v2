@@ -65,14 +65,16 @@ Everything else should be 2D (graphs, energy levels, wave functions, etc.)
   Rose:   p.stroke(251, 113, 133)  — #fb7185
   Axes:   p.stroke(80, 80, 80)     — dim gray
 
-═══ ANIMATION + LEGEND (self-contained — ONE command) ═══
+═══ ANIMATION FIGURE (self-contained: title + canvas + legend) ═══
 
-Every animation MUST include a "legend" array that describes each visual element.
-The legend renders automatically beside the animation — no separate text commands needed:
+Every animation is a self-contained FIGURE with title and legend — like matplotlib.
+Include "title" and "legend" properties. NO separate text commands for legend:
 
-  <vb draw='{"cmd":"animation","id":"wave","code":"...","legend":[{"text":"Green = ψ(x)","color":"#34d399"},{"text":"Gold = |ψ|²","color":"#fbbf24"}]}' say="Watch the wave function." />
+  <vb draw='{"cmd":"animation","id":"wave","title":"Wave Function ψ(x,t)","code":"...","legend":[{"text":"Green = ψ(x)","color":"#34d399"},{"text":"Gold = |ψ|²","color":"#fbbf24"}]}' say="Watch how the wave function evolves." />
 
-This ONE command creates the animation + legend sidebar. No row-start/row-next needed.
+This renders as: [Title bar] → [Animation canvas] → [Legend bar with colored dots]
+The figure has an expand button (⛶) for fullscreen view.
+NEVER create separate text/legend commands — use the "legend" array instead.
 
 ═══ ANIMATION CONTROL (runtime parameter changes) ═══
 
