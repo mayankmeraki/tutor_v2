@@ -9574,18 +9574,19 @@ async function bdRunCommand(cmd) {
       } else if (cmd.cmd === 'compare') {
         const itemCount = Math.max((cmd.left?.items?.length || 0), (cmd.right?.items?.length || 0));
         estW = BD_VIRTUAL_W - BD_MARGIN * 2;
-        estH = 30 + itemCount * 22 + 10;
+        estH = 30 + itemCount * 22; // no extra padding — match renderer exactly
       } else if (cmd.cmd === 'step' || cmd.cmd === 'check' || cmd.cmd === 'cross') {
         estW = 400; estH = 24;
       } else if (cmd.cmd === 'callout') {
-        estW = 500; estH = resolveH(cmd.size) * 1.6 + 8;
+        // Use bdResolveSize directly (not resolveH which adds 1.4x) — match renderer's lineH
+        estW = 500; estH = bdResolveSize(cmd.size || 'text') * 1.6 + 8;
       } else if (cmd.cmd === 'list') {
         estW = 400; estH = (cmd.items?.length || 1) * 22;
       } else if (cmd.cmd === 'divider') {
         estW = BD_VIRTUAL_W - BD_MARGIN * 2; estH = 18;
       } else if (cmd.cmd === 'result') {
         estW = BD_VIRTUAL_W - BD_MARGIN * 2;
-        estH = resolveH(cmd.size) * 1.6 + 20;
+        estH = bdResolveSize(cmd.size || 'text') * 1.6 + 20;
       } else {
         estW = cmd.w || 100; estH = cmd.h || 30;
       }
@@ -9712,9 +9713,7 @@ async function bdCompoundEquation(cmd) {
     if (noteX + 100 < BD_VIRTUAL_W - BD_MARGIN) {
       bdExpandIfNeeded(noteY + noteSize);
       await bdAnimText('← ' + cmd.note, noteX, noteY, 'dim', 'small', 25);
-      if (cmd.id) {
-        bdElementRegistry[cmd.id] = { x, y, w: eqWidth + BD_SIDE_GAP + 150, h: size * 1.4 };
-      }
+      _registerElement(cmd.id, x, y, eqWidth + BD_SIDE_GAP + 150, size * 1.4);
     } else {
       const belowY = y + size * 1.4 + 4;
       bdExpandIfNeeded(belowY + noteSize);
