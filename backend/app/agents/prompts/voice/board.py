@@ -84,16 +84,11 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
    {"cmd":"divider","placement":"below"}
    → subtle line across the board. Use between topic sections.
 
-9. DIAGRAM — flowchart / architecture diagram with boxes and arrows:
-   {"cmd":"diagram","id":"flow","nodes":[
-     {"id":"n1","text":"Input","color":"cyan"},
-     {"id":"n2","text":"Process","color":"gold"},
-     {"id":"n3","text":"Output","color":"green"}
-   ],"edges":[
-     {"from":"n1","to":"n2","label":"feeds into"},
-     {"from":"n2","to":"n3","label":"produces"}
-   ]}
-   → boxes with arrows. Use for: derivation flows, concept maps, processes.
+9. MERMAID — diagrams using Mermaid syntax (flowcharts, state diagrams, sequences):
+   {"cmd":"mermaid","id":"flow","title":"Perturbation Flow","code":"graph LR\n  A[Ĥ₀ψ = Eψ] -->|add λV| B[Full Ĥ]\n  B -->|expand| C[First Order]\n  C -->|calculate| D[Energy Shift]"}
+   → Auto-rendered diagram with dark theme and Caveat font.
+   USE FOR: derivation flows, concept maps, decision trees, state transitions.
+   The LLM knows Mermaid syntax — use graph, flowchart, stateDiagram, sequenceDiagram.
 
 10. CONNECT — draw an arrow between ANY two elements:
     {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}

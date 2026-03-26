@@ -796,7 +796,7 @@ async function runCommand(cmd) {
   if (!board.liveScene) return;
 
   var contentCmds = ['text', 'latex', 'animation', 'equation', 'compare', 'step',
-    'check', 'cross', 'callout', 'list', 'divider', 'result',
+    'check', 'cross', 'callout', 'list', 'divider', 'result', 'mermaid', 'diagram',
     'line', 'arrow', 'rect', 'fillrect', 'circle', 'arc', 'dot', 'dashed'];
   if (!cmd.placement && contentCmds.includes(cmd.cmd)) {
     cmd.placement = 'below';
@@ -812,6 +812,7 @@ async function runCommand(cmd) {
     case 'cross':    await renderCheckCross(cmd, false); break;
     case 'callout':  await renderCallout(cmd); break;
     case 'connect':  renderConnect(cmd); break;
+    case 'mermaid':  await renderMermaid(cmd); break;
     case 'list':     await renderList(cmd); break;
     case 'divider':  renderDivider(cmd); break;
     case 'result':   await renderResult(cmd); break;
@@ -998,6 +999,92 @@ function renderSvgDot(cmd) {
   el.style.display = 'inline-block';
   el.appendChild(svg);
   placeElement(el, cmd.placement || 'below', cmd);
+}
+
+// ── MERMAID: diagrams rendered via Mermaid.js ──
+var _mermaidReady = false;
+var _mermaidLoading = false;
+var _mermaidQueue = [];
+
+function _loadMermaid(cb) {
+  if (_mermaidReady) { cb(); return; }
+  _mermaidQueue.push(cb);
+  if (_mermaidLoading) return;
+  _mermaidLoading = true;
+  var script = document.createElement('script');
+  script.src = 'https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js';
+  script.onload = function() {
+    window.mermaid.initialize({
+      startOnLoad: false,
+      theme: 'dark',
+      themeVariables: {
+        primaryColor: '#1a2332',
+        primaryTextColor: '#e8e8e0',
+        primaryBorderColor: '#53d8fb',
+        lineColor: '#94a3b8',
+        secondaryColor: '#1a2332',
+        tertiaryColor: '#1a2332',
+        fontFamily: "'Caveat', cursive",
+        fontSize: '16px',
+        nodeBorder: '#53d8fb',
+        clusterBkg: 'rgba(52,211,153,0.08)',
+        clusterBorder: '#34d399',
+        edgeLabelBackground: '#1a1d2e',
+        noteTextColor: '#e8e8e0',
+        noteBkgColor: '#1a2332',
+        noteBorderColor: '#fbbf24',
+      }
+    });
+    _mermaidReady = true;
+    _mermaidQueue.forEach(function(fn) { fn(); });
+    _mermaidQueue = [];
+  };
+  script.onerror = function() {
+    console.warn('[Mermaid] Failed to load library');
+    _mermaidLoading = false;
+  };
+  document.head.appendChild(script);
+}
+
+async function renderMermaid(cmd) {
+  if (!cmd.code) return;
+
+  var el = createElement('div', cmd, 'bd-mermaid');
+  if (cmd.title) {
+    var title = document.createElement('div');
+    title.className = 'bd-mermaid-title bd-chalk-cyan bd-size-small';
+    title.textContent = cmd.title;
+    el.appendChild(title);
+  }
+  var container = document.createElement('div');
+  container.className = 'bd-mermaid-container';
+  container.textContent = 'Loading diagram...';
+  container.style.cssText = 'color:rgba(52,211,153,0.4);font-size:13px;font-family:monospace;padding:20px;text-align:center;';
+  el.appendChild(container);
+
+  placeElement(el, cmd.placement, cmd);
+
+  _loadMermaid(function() {
+    try {
+      var mermaidId = 'mermaid-' + (cmd.id || Math.random().toString(36).slice(2));
+      window.mermaid.render(mermaidId, cmd.code).then(function(result) {
+        container.innerHTML = result.svg;
+        container.style.cssText = 'padding:8px;';
+        // Style the SVG to match the board
+        var svg = container.querySelector('svg');
+        if (svg) {
+          svg.style.maxWidth = '100%';
+          svg.style.height = 'auto';
+        }
+      }).catch(function(err) {
+        container.textContent = 'Diagram error: ' + err.message;
+        container.style.color = 'rgba(248,113,113,0.5)';
+      });
+    } catch (err) {
+      container.textContent = 'Diagram error: ' + err.message;
+      container.style.color = 'rgba(248,113,113,0.5)';
+    }
+  });
 }
 
 // ── CONNECT: draw an SVG arrow between two elements ──

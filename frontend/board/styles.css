@@ -539,6 +539,25 @@
 }
 
 
+/* ── Mermaid diagrams ── */
+.bd-mermaid {
+  margin-top: var(--bd-el-gap);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  overflow: hidden;
+  background: rgba(10, 14, 12, 0.5);
+}
+.bd-mermaid-title {
+  padding: 6px 12px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  font-style: italic;
+}
+.bd-mermaid-container { min-height: 60px; }
+.bd-mermaid-container svg { display: block; margin: 0 auto; max-width: 100%; height: auto; }
+.bd-mermaid .nodeLabel, .bd-mermaid .edgeLabel, .bd-mermaid .label {
+  font-family: var(--bd-font) !important;
+}
+
 /* SVG shape primitives — inline SVG elements for lines, circles, arrows, rects */
 .bd-svg-shape { margin-top: var(--bd-el-gap); }
 .bd-svg-shape svg { filter: drop-shadow(0 0 2px rgba(255,255,255,0.1)); }
