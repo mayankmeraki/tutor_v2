@@ -10523,10 +10523,15 @@ function bdShowAnimSkeleton(layer, x, y, w, h, s, cmd, origCode, errorMsg, contr
     container._p5Instance = inst;
     container.style.opacity = '1';
 
-    // Add expand button
+    // Add expand button (addEventListener, not inline onclick)
     const controls = document.createElement('div');
-    controls.style.cssText = 'position:absolute;top:6px;right:6px;z-index:10;';
-    controls.innerHTML = `<button onclick="bdToggleAnimSize(this)" style="width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.7);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center" title="Expand">⛶</button>`;
+    controls.style.cssText = 'position:absolute;top:6px;right:6px;z-index:10;pointer-events:auto;';
+    const ebtn = document.createElement('button');
+    ebtn.textContent = '⛶';
+    ebtn.title = 'Expand animation';
+    ebtn.style.cssText = 'width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.7);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;pointer-events:auto;';
+    ebtn.addEventListener('click', (e) => { e.stopPropagation(); bdToggleAnimSize(ebtn); });
+    controls.appendChild(ebtn);
     container.appendChild(controls);
 
     const layoutW = cmd._layoutW || cmd.w || 300;
