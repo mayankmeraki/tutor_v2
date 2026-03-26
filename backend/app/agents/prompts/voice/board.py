@@ -17,17 +17,28 @@ Study how MIT professors use a chalkboard:
 The board is a chalkboard, not a slide deck. Think LANDSCAPE, not PORTRAIT.
 The right half of the board should NEVER be empty.
 
-PLACEMENT TAGS (no raw x,y — engine positions everything):
-  "below"       — next line, left-aligned (DEFAULT — omit for normal flow)
-  "center"      — centered (ONLY for scene title — max 1 per scene)
-  "indent"      — indented — for sub-steps, therefore...
-  "row-start"   — start side-by-side row (equation left + meaning right)
-  "row-next"    — next item in the same row
+PLACEMENT TAGS (engine positions everything — think SPATIALLY):
 
-That's it — just 4 placements. Content flows top-to-bottom by default.
-Use row-start/row-next to spread content across BOTH halves of the board.
+  FLOW placements (vertical):
+    "below"       — next line (DEFAULT — omit for normal flow)
+    "center"      — centered (ONLY for scene title)
+    "indent"      — indented sub-step
 
-EVERY element MUST have an "id" for {ref:} references.
+  SPATIAL placements (use the full board):
+    "left"        — place on LEFT half of the board
+    "right"       — place on RIGHT half of the board
+    "row-start"   — start a side-by-side pair
+    "row-next"    — second item in the pair
+
+  THINK like a teacher: "equation on the LEFT, meaning on the RIGHT"
+  NOT "equation below, meaning below." Use "left"/"right" for spatial layout.
+
+CONNECTION ARROWS (draw relationships between elements):
+  {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
+  Draws an arrow from one element to another with an optional label.
+  Use to show: derivation flow, cause→effect, "this leads to that".
+
+EVERY element MUST have an "id" for {ref:} and connections.
 
 ═══ COMPOUND COMMANDS — USE THESE INSTEAD OF RAW TEXT ═══
 
@@ -70,6 +81,21 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
    {"cmd":"divider","placement":"below"}
    → subtle line across the board. Use between topic sections.
 
+9. DIAGRAM — flowchart / architecture diagram with boxes and arrows:
+   {"cmd":"diagram","id":"flow","nodes":[
+     {"id":"n1","text":"Input","color":"cyan"},
+     {"id":"n2","text":"Process","color":"gold"},
+     {"id":"n3","text":"Output","color":"green"}
+   ],"edges":[
+     {"from":"n1","to":"n2","label":"feeds into"},
+     {"from":"n2","to":"n3","label":"produces"}
+   ]}
+   → boxes with arrows. Use for: derivation flows, concept maps, processes.
+
+10. CONNECT — draw an arrow between ANY two elements:
+    {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
+    → SVG arrow with optional label. Shows relationships on the board.
+
 ═══ ANTI-PATTERNS (NEVER DO THESE) ═══
 
 ❌ ANTI-PATTERN 1: THE CENTERED COLUMN
@@ -90,20 +116,23 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 
 ═══ LAYOUT PATTERNS — HOW REAL TEACHERS USE BOARDS ═══
 
-⚠️ THE #1 RULE: USE THE FULL BOARD WIDTH
-The cmd:"equation" automatically spreads equation LEFT and note RIGHT.
-For everything else, use row-start + row-next to put content side-by-side.
-NEVER write 3+ consecutive "below" placements — the board looks like a document.
-A GOOD board has content on BOTH sides of every "row".
+⚠️ THE #1 RULE: USE THE BOARD SPATIALLY
+Place things WHERE they belong — equation left, meaning right, diagram in the
+center, consequences below. NEVER stack 3+ items vertically on the left side.
 
-DEFAULT PATTERN — equation (already spreads across full width):
-  The note appears on the RIGHT automatically. Just use cmd:"equation":
-  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy drives time change","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
+PATTERN 1 — Spatial layout (LEFT + RIGHT):
+  Put related content on opposite sides of the board:
+  <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy drives time change","placement":"left","color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
+  <vb draw='{"cmd":"text","text":"Energy tells ψ how to evolve","placement":"right","size":"text","color":"#e2e8f0","id":"se-meaning"}' say="Energy drives evolution." />
+  <vb draw='{"cmd":"connect","from":"se","to":"se-meaning","label":"means"}' />
 
-PATTERN 1 — Two things side-by-side (THE WORKHORSE):
-  ALWAYS pair content: equation+meaning, step+result, property+consequence:
-  <vb draw='{"cmd":"text","text":"Left side: iℏ∂ψ/∂t","placement":"row-start","color":"#53d8fb","id":"lhs"}' say="The left side." />
-  <vb draw='{"cmd":"text","text":"= how ψ changes in time","placement":"row-next","color":"#94a3b8","id":"lhs-meaning"}' say="How the state evolves." />
+PATTERN 2 — Flowchart / derivation chain:
+  Place steps spatially and CONNECT them with arrows:
+  <vb draw='{"cmd":"text","text":"Start: Ĥ₀ψ = Eψ","placement":"left","color":"#53d8fb","id":"start"}' />
+  <vb draw='{"cmd":"text","text":"Add perturbation","placement":"right","color":"#fbbf24","id":"step2"}' />
+  <vb draw='{"cmd":"connect","from":"start","to":"step2","label":"then","color":"gold"}' />
+  <vb draw='{"cmd":"result","text":"Eₙ ≈ Eₙ⁰ + λ⟨n|V|n⟩","label":"Result","color":"gold","id":"result"}' />
+  <vb draw='{"cmd":"connect","from":"step2","to":"result","label":"gives"}' />
 
 PATTERN 2 — Scatter-write across the top (TOPIC OVERVIEW):
   Like a professor writing three related keywords across the full board width

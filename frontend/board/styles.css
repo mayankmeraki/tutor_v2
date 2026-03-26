@@ -156,6 +156,34 @@
   padding-left: 20px;
 }
 
+/* ── Zone-based placement — spatial positioning like a real board ── */
+.bd-zone-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: var(--bd-row-gap) var(--bd-el-gap);
+  width: 100%;
+  margin-top: var(--bd-el-gap);
+}
+.bd-zone-left { grid-column: 1; }
+.bd-zone-right { grid-column: 2; }
+.bd-zone-full { grid-column: 1 / -1; }
+.bd-zone-right { text-align: left; } /* right zone, left-aligned text */
+
+/* ── Connection arrows between elements ── */
+.bd-connect-svg {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  z-index: 5;
+  overflow: visible;
+}
+.bd-connect-label {
+  font-family: var(--bd-font);
+  font-size: var(--bd-small);
+  fill: var(--bd-dim);
+}
+
 /* Flex row — elements placed side by side, FULL WIDTH */
 .bd-row {
   display: flex;

@@ -185,6 +185,21 @@ function placeElement(element, placement, cmd) {
     registerElement(cmd.id, element);
   }
 
+  // ── Zone-based placement (left/right spatial positioning) ──
+  if (placement === 'left' || placement === 'right') {
+    endCurrentRowIfNeeded(placement);
+    var grid = scene.querySelector('.bd-zone-grid:last-child');
+    // Reuse the last grid if it exists and is the last child, otherwise create new
+    if (!grid || grid !== scene.lastElementChild || grid.classList.contains('bd-grid-bg')) {
+      grid = document.createElement('div');
+      grid.className = 'bd-zone-grid';
+      scene.appendChild(grid);
+    }
+    element.classList.add(placement === 'left' ? 'bd-zone-left' : 'bd-zone-right');
+    grid.appendChild(element);
+    return;
+  }
+
   if (placement === 'below') {
     endCurrentRowIfNeeded(placement);
     scene.appendChild(element);
@@ -198,7 +213,7 @@ function placeElement(element, placement, cmd) {
     return;
   }
 
-  if (placement === 'right') {
+  if (placement === 'right-align') {
     endCurrentRowIfNeeded(placement);
     element.classList.add('bd-placement-right');
     scene.appendChild(element);
@@ -741,10 +756,12 @@ async function runCommand(cmd) {
     case 'check':    await renderCheckCross(cmd, true); break;
     case 'cross':    await renderCheckCross(cmd, false); break;
     case 'callout':  await renderCallout(cmd); break;
+    case 'connect':  renderConnect(cmd); break;
     case 'list':     await renderList(cmd); break;
     case 'divider':  renderDivider(cmd); break;
     case 'result':   await renderResult(cmd); break;
     case 'animation': await createAnimation(cmd); break;
+    case 'diagram':  await renderDiagram(cmd); break;
     case 'strikeout': renderStrikeout(cmd); break;
     case 'update':   await renderUpdate(cmd); break;
     case 'delete':   renderDelete(cmd); break;
@@ -926,6 +943,139 @@ function renderSvgDot(cmd) {
   el.style.display = 'inline-block';
   el.appendChild(svg);
   placeElement(el, cmd.placement || 'below', cmd);
+}
+
+// ── CONNECT: draw an SVG arrow between two elements ──
+function renderConnect(cmd) {
+  if (!cmd.from || !cmd.to) return;
+  var fromEntry = board.elements.get(cmd.from);
+  var toEntry = board.elements.get(cmd.to);
+  if (!fromEntry || !toEntry) {
+    console.warn('[Board] Connect: element not found', cmd.from, cmd.to);
+    return;
+  }
+  var fromEl = fromEntry.element;
+  var toEl = toEntry.element;
+  if (!fromEl || !toEl || !fromEl.isConnected || !toEl.isConnected) return;
+
+  // Get positions relative to the live scene
+  var scene = board.liveScene;
+  if (!scene) return;
+  var sceneRect = scene.getBoundingClientRect();
+  var fromRect = fromEl.getBoundingClientRect();
+  var toRect = toEl.getBoundingClientRect();
+
+  // Calculate connection points (center-bottom of FROM → center-top of TO)
+  var x1 = fromRect.left + fromRect.width / 2 - sceneRect.left;
+  var y1 = fromRect.bottom - sceneRect.top;
+  var x2 = toRect.left + toRect.width / 2 - sceneRect.left;
+  var y2 = toRect.top - sceneRect.top;
+
+  // If elements are side-by-side, connect right edge → left edge
+  if (Math.abs(y1 - (toRect.top + toRect.height/2 - sceneRect.top)) < fromRect.height) {
+    x1 = fromRect.right - sceneRect.left;
+    y1 = fromRect.top + fromRect.height / 2 - sceneRect.top;
+    x2 = toRect.left - sceneRect.left;
+    y2 = toRect.top + toRect.height / 2 - sceneRect.top;
+  }
+
+  var color = resolveColor(cmd.color || 'dim');
+
+  // Create or reuse SVG overlay
+  var svg = scene.querySelector('.bd-connect-svg');
+  if (!svg) {
+    svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('class', 'bd-connect-svg');
+    svg.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:visible;z-index:5;';
+    // Arrowhead defs
+    var defs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+    var marker = document.createElementNS('http://www.w3.org/2000/svg', 'marker');
+    marker.setAttribute('id', 'bd-arrow');
+    marker.setAttribute('viewBox', '0 0 10 10');
+    marker.setAttribute('refX', '10'); marker.setAttribute('refY', '5');
+    marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
+    marker.setAttribute('orient', 'auto-start-reverse');
+    var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    path.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+    path.setAttribute('fill', 'currentColor');
+    marker.appendChild(path);
+    defs.appendChild(marker);
+    svg.appendChild(defs);
+    scene.appendChild(svg);
+  }
+
+  // Draw the connection line
+  var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+  line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+  line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', '1.5');
+  line.setAttribute('stroke-dasharray', cmd.dashed ? '6 4' : 'none');
+  line.setAttribute('marker-end', 'url(#bd-arrow)');
+  line.style.color = color;
+  svg.appendChild(line);
+
+  // Optional label on the arrow
+  if (cmd.label) {
+    var midX = (x1 + x2) / 2;
+    var midY = (y1 + y2) / 2;
+    var text = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+    text.setAttribute('x', midX); text.setAttribute('y', midY - 6);
+    text.setAttribute('text-anchor', 'middle');
+    text.setAttribute('class', 'bd-connect-label');
+    text.setAttribute('fill', color);
+    text.textContent = cmd.label;
+    svg.appendChild(text);
+  }
+
+  if (cmd.id) registerElement(cmd.id, line);
+}
+
+// ── DIAGRAM: flowchart/architecture from boxes + arrows ──
+async function renderDiagram(cmd) {
+  var el = createElement('div', cmd, 'bd-diagram');
+  var nodes = cmd.nodes || [];
+  var edges = cmd.edges || [];
+
+  // Create a flex container for the diagram boxes
+  var container = document.createElement('div');
+  container.className = 'bd-diagram-nodes';
+  container.style.cssText = 'display:flex;flex-wrap:wrap;gap:16px;align-items:center;justify-content:center;padding:20px;position:relative;';
+
+  var nodeEls = {};
+  for (var i = 0; i < nodes.length; i++) {
+    var node = nodes[i];
+    var box = document.createElement('div');
+    box.className = 'bd-diagram-node';
+    box.id = node.id || ('dnode-' + i);
+    box.style.cssText = 'border:1.5px solid ' + resolveColor(node.color || 'cyan') + ';border-radius:8px;padding:10px 16px;text-align:center;min-width:80px;background:rgba(0,0,0,0.3);';
+    var label = document.createElement('div');
+    label.className = 'bd-chalk-' + (colorClass(node.color).replace('bd-chalk-','')) + ' bd-size-text';
+    label.style.cssText = 'font-family:var(--bd-font);text-shadow:var(--bd-glow);';
+    box.appendChild(label);
+    container.appendChild(box);
+    nodeEls[box.id] = { el: box, text: node.text || node.label || '' };
+    if (node.id) registerElement(node.id, box);
+  }
+
+  el.appendChild(container);
+  placeElement(el, cmd.placement, cmd);
+
+  // Animate node text
+  for (var id in nodeEls) {
+    if (board.cancelFlag) break;
+    await animateText(nodeEls[id].el.querySelector('div'), nodeEls[id].text, { charDelay: 20 });
+  }
+
+  // Draw edge arrows (after layout so positions are known)
+  if (edges.length > 0) {
+    requestAnimationFrame(function() {
+      for (var i = 0; i < edges.length; i++) {
+        var edge = edges[i];
+        renderConnect({ from: edge.from, to: edge.to, label: edge.label, color: edge.color || 'dim' });
+      }
+    });
+  }
 }
 
 async function renderText(cmd) {
