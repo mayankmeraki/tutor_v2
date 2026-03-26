@@ -311,13 +311,12 @@
    6. Compound Command Styles
    ═══════════════════════════════════════════════════════════ */
 
-/* ── Equation: math expression with side note — FULL WIDTH spread ── */
+/* ── Equation: math expression with note RIGHT BESIDE it ── */
 .bd-equation {
-  display: flex;
+  display: inline-flex;
   align-items: baseline;
-  gap: 20px;
-  flex-wrap: wrap;
-  width: 100%;
+  gap: 10px;
+  flex-wrap: nowrap;
 }
 
 .bd-equation .bd-eq-main {
@@ -327,14 +326,12 @@
 .bd-equation .bd-eq-note {
   color: var(--bd-dim);
   font-style: italic;
-  font-size: var(--bd-small);
-  text-shadow: var(--bd-glow);
-  margin-left: auto; /* push note to the RIGHT edge */
-  text-align: right;
-}
-
-.bd-equation .bd-eq-note::before {
-  content: '\2190\00a0';  /* ← followed by non-breaking space */
+  font-size: 0.7em;
+  text-shadow: none;
+  opacity: 0.7;
+  white-space: nowrap;
+  border-left: 1.5px solid rgba(148, 163, 184, 0.3);
+  padding-left: 8px;
 }
 
 /* ── Compare: two columns side by side with separator ── */
