@@ -9556,12 +9556,20 @@ async function bdRunCommand(cmd) {
         estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
         estH = cmd.h || resolveH(cmd.size);
       } else if (cmd.cmd === 'animation') {
+        // Engine owns sizing — AI w/h are ignored. Size is derived from layout context.
         const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
-        // Width: ~40% of available space, capped at 350 virtual px
-        estW = Math.min(cmd.w || Math.round(availVW * 0.4), 350, availVW);
-        // Height: flat ratio (3:1 default), capped at 120 virtual px
-        const aRatio = (cmd.h && cmd.w) ? Math.min(cmd.h / cmd.w, 0.4) : 0.35;
-        estH = Math.min(Math.round(estW * aRatio), 120);
+        const isRow = bdLayout.inRow || (cmd.placement && cmd.placement === 'row-start');
+        const isFullWidth = cmd.placement === 'full-width';
+        if (isFullWidth) {
+          estW = BD_VIRTUAL_W - BD_MARGIN * 2;
+        } else if (isRow) {
+          estW = Math.round(availVW * 0.55);
+        } else {
+          estW = Math.round(availVW * 0.85);
+        }
+        // Aspect ratio: comfortably readable — roughly 2:1 wide-to-tall
+        const aspect = cmd.h && cmd.w ? Math.min(cmd.h / cmd.w, 0.65) : 0.45;
+        estH = Math.max(Math.round(estW * aspect), 180);
         cmd._layoutW = estW;
         cmd._layoutH = estH;
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
@@ -10087,9 +10095,11 @@ async function bdRunAnimation(cmd) {
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
 
-  // Use layout engine's resolved dimensions — already capped by the layout estimator
-  const w = (cmd._layoutW || cmd.w || 300) * s;
-  const h = (cmd._layoutH || cmd.h || 120) * s;
+  // Engine-computed dimensions from layout estimator; floor at 350×180 virtual px
+  const vw = Math.max(cmd._layoutW || 450, 350);
+  const vh = Math.max(cmd._layoutH || 200, 180);
+  const w = vw * s;
+  const h = vh * s;
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);

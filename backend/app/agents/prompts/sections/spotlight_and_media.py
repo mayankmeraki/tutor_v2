@@ -167,7 +167,7 @@ Write visualization code fresh, tailored to the exact concept.
   C — TWO side-by-side (comparison): left x=20,y=120,w=360,h=200; right x=410,y=120,w=360,h=200
   D — STACKED (pipeline): anim1 x=40,y=80,w=720,h=100; anim2 x=40,y=210; anim3 x=40,y=340
   E — ONE big + TWO small: main x=20,y=80,w=460,h=280; detail1 x=500,y=80,w=280,h=130; detail2 x=500,y=230
-  SPACING: 40px gap from animation to chalk. Min animation size: 150x100.
+  SPACING: 40px gap from animation to chalk. Min animation size: 350x200.
 
 ─── USE ANIMATIONS AGGRESSIVELY ───
 
@@ -192,7 +192,7 @@ Write visualization code fresh, tailored to the exact concept.
 
   - Always include p.createCanvas(W,H) and p.background(26,29,46)
   - Duration: 4000-12000ms (default 6000). Longer for complex step-by-step
-  - MINIMUM animation size: w=250, h=150. Below this is hard to read.
+  - MINIMUM animation size: w=350, h=200. Below this is hard to read. Prefer w=500+ h=250+ for rich visualizations.
   - Use large text in animations: p.textSize(14) minimum for labels
   - Title before animations so student knows what they're watching
 
