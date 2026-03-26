@@ -208,6 +208,97 @@ async def tts_proxy(request: Request):
         return JSONResponse(status_code=502, content={"error": "TTS proxy failed"})
 
 
+# ── Animation Code Fix (Haiku — fast, cheap) ─────────────────
+
+@app.post("/api/fix-animation")
+async def fix_animation(request: Request):
+    """Fix broken p5.js animation code using Haiku (fast, cheap).
+    Takes broken code + error, returns fixed code.
+    """
+    body = await request.json()
+    broken_code = body.get("code", "")
+    error_msg = body.get("error", "")
+
+    if not broken_code:
+        return JSONResponse(status_code=400, content={"error": "code is required"})
+
+    import httpx
+
+    # Use Haiku via OpenRouter for speed (< 2s typically)
+    api_key = settings.OPENROUTER_API_KEY or settings.ANTHROPIC_API_KEY
+    if not api_key:
+        return JSONResponse(status_code=503, content={"error": "No API key configured"})
+
+    is_openrouter = bool(settings.OPENROUTER_API_KEY)
+    base_url = "https://openrouter.ai/api/v1" if is_openrouter else "https://api.anthropic.com/v1"
+    model = "anthropic/claude-haiku-4-5-20251001" if is_openrouter else "claude-haiku-4-5-20251001"
+
+    system_prompt = (
+        "You are a p5.js code fixer. You receive broken animation code and a JavaScript error. "
+        "Fix the code and return ONLY the fixed JavaScript code — no explanation, no markdown fences, no comments about what you changed. "
+        "The code runs inside: new Function('p', 'W', 'H', code) where p is a p5 instance. "
+        "Variables W, H (canvas size) and S (scale factor) are pre-injected. "
+        "Common issues: Unicode characters (π→Math.PI, ×→*, ≤→<=), smart quotes, "
+        "undeclared variables, p.text() in WEBGL mode (remove text calls in WEBGL). "
+        "Keep the animation visually identical — only fix the JavaScript error."
+    )
+
+    user_msg = f"ERROR: {error_msg}\n\nBROKEN CODE:\n{broken_code[:3000]}"
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            if is_openrouter:
+                resp = await client.post(
+                    f"{base_url}/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": model,
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": user_msg},
+                        ],
+                        "max_tokens": 4000,
+                        "temperature": 0,
+                    },
+                )
+                if resp.status_code != 200:
+                    return JSONResponse(status_code=502, content={"error": f"LLM error: {resp.status_code}"})
+                data = resp.json()
+                fixed = data["choices"][0]["message"]["content"]
+            else:
+                resp = await client.post(
+                    f"{base_url}/messages",
+                    headers={
+                        "x-api-key": api_key,
+                        "anthropic-version": "2023-06-01",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": model,
+                        "system": system_prompt,
+                        "messages": [{"role": "user", "content": user_msg}],
+                        "max_tokens": 4000,
+                        "temperature": 0,
+                    },
+                )
+                if resp.status_code != 200:
+                    return JSONResponse(status_code=502, content={"error": f"LLM error: {resp.status_code}"})
+                data = resp.json()
+                fixed = data["content"][0]["text"]
+
+        # Strip markdown fences if Haiku wrapped them
+        fixed = fixed.strip()
+        if fixed.startswith("```"):
+            fixed = fixed.split("\n", 1)[1] if "\n" in fixed else fixed[3:]
+        if fixed.endswith("```"):
+            fixed = fixed[:-3].rstrip()
+
+        return JSONResponse(content={"code": fixed})
+    except Exception as e:
+        log.warning("fix-animation error: %s", e)
+        return JSONResponse(status_code=502, content={"error": str(e)})
+
+
 # API routes
 app.include_router(auth.router)
 app.include_router(content.router)

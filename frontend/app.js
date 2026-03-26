@@ -10248,18 +10248,16 @@ async function bdRunAnimation(cmd) {
   try {
     sketchFn = new Function('p', 'W', 'H', code);
   } catch (e) {
-    // Try stripping non-ASCII chars from code (LLM sometimes outputs Unicode in variable names)
-    const asciiCode = code.replace(/[^\x00-\x7F]/g, c => {
-      // Keep common math symbols in strings but strip from code
-      return '';
-    });
+    // Try stripping non-ASCII chars from code
+    const asciiCode = code.replace(/[^\x00-\x7F]/g, '');
     try {
       sketchFn = new Function('p', 'W', 'H', asciiCode);
       console.info('Board animation recovered by stripping non-ASCII');
     } catch (e2) {
-      console.warn('Board animation compile error:', e.message, '\nCode (first 500):', code.slice(0, 500));
-      if (!bd._animErrors) bd._animErrors = [];
-      bd._animErrors.push({ cmd: { ...cmd, code }, error: e.message });
+      // Show skeleton placeholder + call Haiku to fix
+      console.warn('Board animation compile error — showing skeleton, calling Haiku fix');
+      const origCode = cmd.code; // original LLM code (before bridge injection)
+      bdShowAnimSkeleton(layer, x, y, containerW, compactH, s, cmd, origCode, e.message, controlBridge, isWebGL);
       return;
     }
   }
@@ -10460,6 +10458,82 @@ async function bdSilentAnimRetry(errors) {
     console.warn('Silent animation retry failed:', e.message);
   }
   bd._retryInFlight = false;
+}
+
+// ── Skeleton placeholder + Haiku code fix ──
+
+function bdShowAnimSkeleton(layer, x, y, w, h, s, cmd, origCode, errorMsg, controlBridge, isWebGL) {
+  // 1. Show a pulsing skeleton placeholder immediately
+  const container = document.createElement('div');
+  container.className = 'bd-anim-box';
+  container.style.cssText = `left:${x}px;top:${y}px;width:${w}px;height:${h}px;overflow:hidden;border-radius:6px;`;
+  container.innerHTML = `
+    <div style="width:100%;height:100%;background:#0f1410;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px">
+      <div style="width:40px;height:40px;border:2px solid rgba(52,211,153,0.3);border-top-color:rgba(52,211,153,0.8);border-radius:50%;animation:spin 1s linear infinite"></div>
+      <div style="color:rgba(52,211,153,0.5);font-size:${11*s}px;font-family:monospace">fixing animation...</div>
+    </div>
+    <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+  `;
+  layer.appendChild(container);
+
+  // 2. Call Haiku to fix the code
+  fetch(`${state.apiUrl}/api/fix-animation`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+    body: JSON.stringify({ code: origCode, error: errorMsg }),
+  })
+  .then(r => r.ok ? r.json() : Promise.reject(new Error(`${r.status}`)))
+  .then(data => {
+    if (!data.code) throw new Error('No fixed code returned');
+    // 3. Try compiling the fixed code
+    let fixedCode = bdSanitizeAnimCode(data.code);
+    fixedCode = fixedCode.replace(/p\.textSize\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.textSize(${n} * S)`);
+    fixedCode = fixedCode.replace(/p\.strokeWeight\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.strokeWeight(Math.max(1, ${n} * S))`);
+    fixedCode = fixedCode.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
+    fixedCode = fixedCode.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
+    const fullCode = controlBridge + '\n' + fixedCode;
+    const fn = new Function('p', 'W', 'H', fullCode);
+
+    // 4. Replace skeleton with real animation
+    container.innerHTML = '';
+    const canvasWrap = document.createElement('div');
+    canvasWrap.className = 'bd-anim-canvas-wrap';
+    canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;border-radius:4px;';
+    container.appendChild(canvasWrap);
+
+    const inst = new p5(p => {
+      try { fn(p, w, h); } catch(e) {
+        console.warn('[Animation] Fixed code also errored:', e.message);
+        canvasWrap.innerHTML = `<div style="padding:12px;color:rgba(248,113,113,0.5);font-size:11px;font-family:monospace">Animation unavailable</div>`;
+        return;
+      }
+      const userSetup = p.setup;
+      p.setup = function() {
+        if (userSetup) userSetup.call(p);
+        try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch(e) {}
+      };
+    }, canvasWrap);
+    container._p5Instance = inst;
+    container.style.opacity = '1';
+
+    // Add expand button
+    const controls = document.createElement('div');
+    controls.style.cssText = 'position:absolute;top:6px;right:6px;z-index:10;';
+    controls.innerHTML = `<button onclick="bdToggleAnimSize(this)" style="width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.7);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center" title="Expand">⛶</button>`;
+    container.appendChild(controls);
+
+    const layoutW = cmd._layoutW || cmd.w || 300;
+    const layoutH = cmd._layoutH || cmd.h || 200;
+    bdActiveAnimations.push({ container, inst, vx: cmd.x||0, vy: cmd.y||0, vw: layoutW, vh: layoutH, p5Instance: inst });
+    console.info('[Animation] Haiku fix succeeded — animation replaced');
+  })
+  .catch(err => {
+    console.warn('[Animation] Haiku fix failed:', err.message);
+    container.innerHTML = `
+      <div style="width:100%;height:100%;background:#0f1410;display:flex;align-items:center;justify-content:center">
+        <div style="color:rgba(255,255,255,0.25);font-size:${12*s}px;font-family:'Caveat',cursive">animation unavailable</div>
+      </div>`;
+  });
 }
 
 function bdRasterizeAnimation(entry) {
