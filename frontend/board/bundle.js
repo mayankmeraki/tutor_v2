@@ -1474,7 +1474,9 @@ function autoScroll() {
   var wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap || !board.liveScene) return;
 
-  // Find the newest element (last child that's not the grid bg)
+  // Don't auto-scroll if student scrolled up manually (browsing old content)
+  if (board._userScrolledUp) return;
+
   var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid, .bd-positioned');
   if (!allEls.length) return;
   var lastEl = allEls[allEls.length - 1];
@@ -1482,14 +1484,11 @@ function autoScroll() {
   requestAnimationFrame(function() {
     var wrapRect = wrap.getBoundingClientRect();
     var elRect = lastEl.getBoundingClientRect();
+    var elTopRelative = elRect.top - wrapRect.top;
 
-    // Always scroll so the new element is near the TOP of the viewport
-    // This ensures the student sees fresh content with room below for more
-    var elTopRelative = elRect.top - wrapRect.top; // how far from wrap top
-
-    // If element is below the top 40% of viewport, scroll it up
-    if (elTopRelative > wrapRect.height * 0.4) {
-      var targetScrollTop = wrap.scrollTop + elTopRelative - 60; // 60px from top
+    // Only scroll if new content is below the visible area
+    if (elRect.bottom > wrapRect.bottom - 30) {
+      var targetScrollTop = wrap.scrollTop + elTopRelative - 60;
       wrap.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
     }
   });
@@ -1530,7 +1529,21 @@ function init(apiUrl, authHeadersFn) {
   if (wrap && !wrap._bdScrollInit) {
     wrap._bdScrollInit = true;
     var scrollTimer;
+    var lastScrollTop = wrap.scrollTop;
     wrap.addEventListener('scroll', function() {
+      // Detect if user scrolled UP (browsing old content)
+      var currentTop = wrap.scrollTop;
+      var maxScroll = wrap.scrollHeight - wrap.clientHeight;
+      if (currentTop < lastScrollTop - 20) {
+        // User scrolled up — pause auto-scroll
+        board._userScrolledUp = true;
+      }
+      if (currentTop >= maxScroll - 50) {
+        // User scrolled to bottom — resume auto-scroll
+        board._userScrolledUp = false;
+      }
+      lastScrollTop = currentTop;
+
       if (scrollTimer) clearTimeout(scrollTimer);
       scrollTimer = setTimeout(function() { updateAnimationVisibility(); }, 200);
     }, { passive: true });
