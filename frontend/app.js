@@ -2262,6 +2262,17 @@ function cleanupActiveSession() {
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
   disconnectAgentEvents();
   if (typeof bdActiveAnimations !== 'undefined') { bdActiveAnimations.forEach(e => { try { e.inst.remove(); } catch(x) {} }); bdActiveAnimations.length = 0; }
+  // Reset board canvas ref so next session triggers fresh bdInit
+  if (state.boardDraw) {
+    state.boardDraw.canvas = null;
+    state.boardDraw.ctx = null;
+    state.boardDraw.active = false;
+    state.boardDraw._streamingHandled = false;
+    state.boardDraw.commandQueue = [];
+    state.boardDraw.isProcessing = false;
+    state.boardDraw.cancelFlag = false;
+    _sceneSnapshots.length = 0;
+  }
   state._startingSession = false; state._resumingSession = false;
   if (typeof removeStreamingIndicator === 'function') removeStreamingIndicator();
   if (typeof voiceBarSetThinking === 'function') voiceBarSetThinking(false);
@@ -10290,7 +10301,8 @@ async function bdRunAnimation(cmd) {
       const userSetup = p.setup;
       p.setup = function() {
         if (userSetup) userSetup.call(p);
-        p.textFont('Caveat');
+        // Only set textFont in 2D mode — WEBGL requires loadFont() with a file URL
+        try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch(e) {}
       };
     }, canvasWrap);
   } catch (e) {
@@ -10612,13 +10624,14 @@ function bdSnapshotCurrentScene() {
   if (animLayer && animLayer.children.length > 0) {
     const animWrap = document.createElement('div');
     animWrap.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;overflow:hidden;`;
-    // Re-enable pointer events on animation controls (expand button)
-    animWrap.querySelectorAll && requestAnimationFrame(() => {
-      animWrap.querySelectorAll('.bd-anim-box').forEach(box => { box.style.pointerEvents = 'auto'; });
-    });
     // Move each animation container (not clone — keeps p5 alive)
     while (animLayer.firstChild) {
-      animWrap.appendChild(animLayer.firstChild);
+      const child = animLayer.firstChild;
+      // Re-enable pointer events on anim boxes so expand button works in snapshots
+      if (child.classList && child.classList.contains('bd-anim-box')) {
+        child.style.pointerEvents = 'auto';
+      }
+      animWrap.appendChild(child);
     }
     sceneDiv.appendChild(animWrap);
     // Pause the moved p5 instances
