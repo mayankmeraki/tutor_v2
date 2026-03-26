@@ -10224,6 +10224,10 @@ async function bdRunAnimation(cmd) {
         p.drawingContext.shadowBlur = 0;
       }
     }
+    // Polyfill common Canvas2D methods LLMs call on p instead of p.drawingContext
+    if (!p.setLineDash) p.setLineDash = function(a) { try { p.drawingContext.setLineDash(a || []); } catch(e){} };
+    if (!p.getLineDash) p.getLineDash = function() { try { return p.drawingContext.getLineDash(); } catch(e){ return []; } };
+    if (!p.lineDashOffset) Object.defineProperty(p, 'lineDashOffset', { set: function(v) { try { p.drawingContext.lineDashOffset = v; } catch(e){} }, get: function() { return 0; } });
     ${isWebGL ? `
     // WEBGL safe wrappers — p.text() and p.textFont() require loadFont() in WEBGL.
     // Silently no-op these calls so animations don't break or spam console.
