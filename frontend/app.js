@@ -8317,6 +8317,8 @@ const bdLayout = {
   rowY: 0,
   rowX: BD_MARGIN,
   rowH: 0,
+  // Animation exclusion zones — prevent text from being placed behind animations
+  animZones: [], // [{ y, h, x, w }] in virtual coords
 };
 
 function bdLayoutReset() {
@@ -8325,6 +8327,7 @@ function bdLayoutReset() {
   bdLayout.rowY = 0;
   bdLayout.rowX = BD_MARGIN;
   bdLayout.rowH = 0;
+  bdLayout.animZones = [];
 }
 
 function bdLayoutEndRow() {
@@ -8423,6 +8426,18 @@ function bdLayoutResolve(placement, estW, estH) {
   x = Math.max(BD_MARGIN, Math.min(x, BD_VIRTUAL_W - BD_MARGIN - 20));
   // Ensure Y never goes negative
   y = Math.max(0, y);
+
+  // Animation collision avoidance — if this element would overlap an animation zone,
+  // push it below the animation. This prevents text from being hidden behind
+  // opaque animation containers that live on a higher z-layer.
+  for (const zone of bdLayout.animZones) {
+    const overlapX = x < zone.x + zone.w && x + estW > zone.x;
+    const overlapY = y < zone.y + zone.h && y + estH > zone.y;
+    if (overlapX && overlapY) {
+      // Push below the animation zone
+      y = zone.y + zone.h + BD_ROW_GAP;
+    }
+  }
 
   return { x, y };
 }
@@ -9653,6 +9668,11 @@ async function bdRunCommand(cmd) {
       // Commit to layout in LOCAL coords — layout engine never sees yOffset
       bdLayoutCommit(x, y, estW, estH);
 
+      // Track animation exclusion zones — text must not be placed behind these
+      if (cmd.cmd === 'animation') {
+        bdLayout.animZones.push({ x, y, w: estW, h: estH });
+      }
+
       // Register element in LOCAL coords for beside:/below: refs + scene index for highlights
       if (cmd.id) {
         bdElementRegistry[cmd.id] = { x, y, w: estW, h: estH, cmd: cmd.cmd, scene: _sceneSnapshots.length };
@@ -10548,20 +10568,11 @@ async function bdRunAnimation(cmd) {
   }
 }
 
-async function bdSilentAnimRetry(errors) {
-  const bd = state.boardDraw;
-  if (!bd.canvas || bd.cancelFlag) return;
-  if (bd._retryInFlight) return;
-  bd._retryInFlight = true;
-
 function bdAnimGiveUp(entry, container, retryKey) {
   console.warn('[Animation] Giving up after max retries:', retryKey);
-  // Stop p5 instance
   try { entry.inst.remove(); } catch(e) {}
-  // Remove from active list
   const idx = bdActiveAnimations.indexOf(entry);
   if (idx >= 0) bdActiveAnimations.splice(idx, 1);
-  // Replace container with fallback text
   if (container && container.parentNode) {
     const s = state.boardDraw.scale || 1;
     container.innerHTML = `
@@ -10572,6 +10583,12 @@ function bdAnimGiveUp(entry, container, retryKey) {
       </div>`;
   }
 }
+
+async function bdSilentAnimRetry(errors) {
+  const bd = state.boardDraw;
+  if (!bd.canvas || bd.cancelFlag) return;
+  if (bd._retryInFlight) return;
+  bd._retryInFlight = true;
 
   const errorDescs = errors.map((e, i) => {
     const c = e.cmd;
