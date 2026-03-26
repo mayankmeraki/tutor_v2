@@ -9087,7 +9087,20 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   const fontScale = bdGetFontScale();
   const fs = size * fontScale;
   bdExpandIfNeeded(y + size);
-  charDelay = charDelay || 40;
+  // Adaptive char delay — faster when CPU is constrained (many animations or late in session)
+  const animLoad = bdActiveAnimations.length;
+  const queueLen = bd.commandQueue?.length || 0;
+  if (queueLen > 5 || animLoad > 4) {
+    // Queue backed up or too many animations — instant text (no animation)
+    bdExpandIfNeeded(y + size);
+    bdChalkStyle(color, 1);
+    bd.ctx.font = `${fs}px 'Caveat', cursive`;
+    bd.ctx.textBaseline = 'middle';
+    bd.ctx.fillText(text, x * s, y * s);
+    bdClearShadow();
+    return;
+  }
+  charDelay = charDelay || (animLoad > 2 ? 15 : animLoad > 0 ? 25 : 35);
   bdChalkStyle(color, 1);
   bd.ctx.font = `${fs}px 'Caveat', cursive`;
   bd.ctx.textBaseline = 'middle';
@@ -11752,6 +11765,15 @@ function _eagerBeatWatcher(text) {
 function _eagerInitBoard(title) {
   console.log(`[EagerBeat] Scene init: "${title}" | contentBottomY=${Math.round(bdContentBottomY)} | cursor=${Math.round(bdLayout.cursorY)}`);
 
+  // Cleanup old animations to prevent CPU buildup — keep last 2 max
+  while (bdActiveAnimations.length > 2) {
+    const old = bdActiveAnimations[0];
+    try { old.inst.remove(); } catch(e) {}
+    try { old.container.remove(); } catch(e) {}
+    if (old._timer) clearTimeout(old._timer);
+    bdActiveAnimations.shift();
+  }
+
   // Reset layout cursor for new scene — yOffset handles absolute positioning
   bdLayoutReset();
 
@@ -12085,7 +12107,15 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats (fallback path)`);
 
-  // Reset layout cursor for new scene — yOffset handles absolute positioning
+  // Cleanup old animations to prevent CPU buildup
+  while (bdActiveAnimations.length > 2) {
+    const old = bdActiveAnimations[0];
+    try { old.inst.remove(); } catch(e) {}
+    try { old.container.remove(); } catch(e) {}
+    if (old._timer) clearTimeout(old._timer);
+    bdActiveAnimations.shift();
+  }
+
   bdLayoutReset();
 
   // Continuous board — each scene draws just below the previous content.
