@@ -11380,11 +11380,10 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
   const typeBadge = $('#spotlight-type-badge');
   if (!panel || !content) return;
 
-  // If clear=false and we already have a board-draw open, keep the canvas and just update title
-  if (!shouldClear && state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
+  // If board-draw is already open, KEEP the content — just update title
+  if (state.spotlightActive && state.spotlightInfo?.type === 'board-draw') {
     if (titleEl) titleEl.textContent = title;
     state.spotlightInfo.title = title;
-    // Store raw content (appended)
     if (rawContent) {
       state.boardDraw.rawContent = (state.boardDraw.rawContent || '') + '\n' + rawContent;
     }
@@ -11393,9 +11392,10 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
       if (state.boardDraw.rawContent) refTag._boardDrawContent = state.boardDraw.rawContent;
       appendSpotlightReference('board-draw', title, refTag);
     }
-    return; // Keep existing canvas — new commands will be appended via streaming/queue
+    return; // Keep existing board — scenes stack via snapshotScene, never clear
   }
 
+  // Different spotlight type was open — close it first
   if (state.spotlightActive) {
     if (state.activeSimulation) { stopSimBridge(); state.activeSimulation = null; state.simulationLiveState = null; }
     if (state.spotlightInfo?.type === 'notebook') {
@@ -11403,7 +11403,7 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
       if (state.notebookCleanup) { state.notebookCleanup(); state.notebookCleanup = null; }
       state.notebookSteps = [];
     }
-    if (state.spotlightInfo?.type === 'board-draw') bdCleanup();
+    // Don't call bdCleanup for board-draw — we never reach here for board-draw
     content.innerHTML = '';
   }
 

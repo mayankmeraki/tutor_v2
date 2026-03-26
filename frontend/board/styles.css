@@ -25,18 +25,18 @@
   /* Chalk glow — applied via text-shadow */
   --bd-glow: 0 0 3px currentColor;
 
-  /* Sizing scale */
-  --bd-h1: 26px;
-  --bd-h2: 21px;
-  --bd-h3: 18px;
-  --bd-text: 16px;
-  --bd-small: 13px;
-  --bd-label: 12px;
+  /* Sizing scale — larger for board readability */
+  --bd-h1: 34px;
+  --bd-h2: 26px;
+  --bd-h3: 22px;
+  --bd-text: 20px;
+  --bd-small: 16px;
+  --bd-label: 14px;
 
   /* Spacing */
   --bd-margin: 30px;
-  --bd-el-gap: 12px;
-  --bd-row-gap: 12px;
+  --bd-el-gap: 16px;
+  --bd-row-gap: 16px;
 }
 
 
