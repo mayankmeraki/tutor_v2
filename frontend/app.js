@@ -10257,7 +10257,7 @@ async function bdRunAnimation(cmd) {
       // Show skeleton placeholder + call Haiku to fix
       console.warn('Board animation compile error — showing skeleton, calling Haiku fix');
       const origCode = cmd.code; // original LLM code (before bridge injection)
-      bdShowAnimSkeleton(layer, x, y, containerW, compactH, s, cmd, origCode, e.message, controlBridge, isWebGL);
+      bdShowAnimSkeleton(layer, x, y, Math.round(w), Math.round(h), s, cmd, origCode, e.message, controlBridge, isWebGL);
       return;
     }
   }
@@ -10281,10 +10281,17 @@ async function bdRunAnimation(cmd) {
   container.dataset.compactW = containerW;
   container.dataset.expandedW = expandedW;
 
-  // Expand/minimize button — visible, accessible
+  // Expand/minimize button — uses addEventListener (not inline onclick which CSP can block)
   const controls = document.createElement('div');
-  controls.style.cssText = 'position:absolute;top:6px;right:6px;z-index:10;';
-  controls.innerHTML = `<button onclick="bdToggleAnimSize(this)" style="width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.7);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:all 0.15s" onmouseover="this.style.background='rgba(52,211,153,0.3)'" onmouseout="this.style.background='rgba(0,0,0,0.5)'" title="Expand animation">⛶</button>`;
+  controls.style.cssText = 'position:absolute;top:6px;right:6px;z-index:10;pointer-events:auto;';
+  const expandBtn = document.createElement('button');
+  expandBtn.textContent = '⛶';
+  expandBtn.title = 'Expand animation';
+  expandBtn.style.cssText = 'width:28px;height:28px;border-radius:6px;border:1px solid rgba(255,255,255,0.2);background:rgba(0,0,0,0.5);color:rgba(255,255,255,0.7);cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;backdrop-filter:blur(6px);transition:all 0.15s;pointer-events:auto;';
+  expandBtn.addEventListener('click', (e) => { e.stopPropagation(); bdToggleAnimSize(expandBtn); });
+  expandBtn.addEventListener('mouseover', () => { expandBtn.style.background = 'rgba(52,211,153,0.3)'; });
+  expandBtn.addEventListener('mouseout', () => { expandBtn.style.background = 'rgba(0,0,0,0.5)'; });
+  controls.appendChild(expandBtn);
 
   // Canvas wrapper (p5 renders inside this)
   const canvasWrap = document.createElement('div');
