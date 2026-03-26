@@ -8614,7 +8614,7 @@ function bdAutoScrollToCmd(cmd) {
 
   const minCmdY = Math.min(...ys);
   const maxCmdY = Math.max(...ys);
-  const cmdH = cmd.h || cmd.size || cmd.r || 30;
+  const cmdH = cmd.h || (typeof cmd.size === 'number' ? cmd.size : null) || cmd.r || 30;
   const zoom = bd._zoom || 1;
   const s = bd.scale * zoom;
 
@@ -9097,17 +9097,34 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   size = bdResolveSize(size);
   const fontScale = bdGetFontScale();
   const fs = size * fontScale;
+  const lineH = size * 1.4;
+  const maxX = (BD_VIRTUAL_W - BD_MARGIN) * s; // right boundary in CSS px
   bdExpandIfNeeded(y + size);
   // Adaptive char delay — faster when CPU is constrained (many animations or late in session)
   const animLoad = bdActiveAnimations.length;
   const queueLen = bd.commandQueue?.length || 0;
   if (queueLen > 5 || animLoad > 4) {
     // Queue backed up or too many animations — instant text (no animation)
-    bdExpandIfNeeded(y + size);
     bdChalkStyle(color, 1);
     bd.ctx.font = `${fs}px 'Caveat', cursive`;
     bd.ctx.textBaseline = 'middle';
-    bd.ctx.fillText(text, x * s, y * s);
+    // Word-wrap: split into lines that fit within board width
+    const words = text.split(' ');
+    let line = '';
+    let curY = y;
+    for (const word of words) {
+      const testLine = line ? line + ' ' + word : word;
+      const testW = bd.ctx.measureText(testLine).width;
+      if (line && (x * s + testW) > maxX) {
+        bd.ctx.fillText(line, x * s, curY * s);
+        line = word;
+        curY += lineH;
+        bdExpandIfNeeded(curY + size);
+      } else {
+        line = testLine;
+      }
+    }
+    if (line) bd.ctx.fillText(line, x * s, curY * s);
     bdClearShadow();
     return;
   }
@@ -9116,10 +9133,19 @@ async function bdAnimText(text, x, y, color, size, charDelay) {
   bd.ctx.font = `${fs}px 'Caveat', cursive`;
   bd.ctx.textBaseline = 'middle';
   let cx = x * s;
+  let curY = y;
   for (let i = 0; i < text.length; i++) {
     if (bd.cancelFlag) return;
-    bd.ctx.fillText(text[i], cx, y * s);
-    cx += bd.ctx.measureText(text[i]).width;
+    const charW = bd.ctx.measureText(text[i]).width;
+    // Wrap at word boundary (space) or hard-wrap if single word exceeds width
+    if (cx + charW > maxX && text[i] === ' ') {
+      cx = x * s;
+      curY += lineH;
+      bdExpandIfNeeded(curY + size);
+      continue; // skip the space at line break
+    }
+    bd.ctx.fillText(text[i], cx, curY * s);
+    cx += charW;
     await bdSleep(charDelay);
   }
   bdClearShadow();
@@ -9511,6 +9537,10 @@ function bdClearBoard() {
   state._voiceSceneYOffset = 0;
   bd._studentScrolledRecently = false;
   bdClearAllAnimations();
+  // Clear scene snapshots — prevents memory leak and stale scene index references
+  _sceneSnapshots.length = 0;
+  const scenesStack = document.getElementById('bd-scenes-stack');
+  if (scenesStack) scenesStack.innerHTML = '';
   bdResizeCanvas();
   bd.ctx.fillStyle = '#1a1d2e';
   bd.ctx.fillRect(0, 0, BD_VIRTUAL_W * bd.scale, bd.currentH * bd.scale);
@@ -9896,7 +9926,7 @@ async function bdCompoundDivider(cmd) {
   const bd = state.boardDraw;
   if (bd.cancelFlag) return;
   const s = bd.scale;
-  const y = cmd.y || bdLayout.cursorY;
+  const y = cmd.y != null ? cmd.y : bdLayout.cursorY;
   const lineY = y + 6;
   bdExpandIfNeeded(lineY + 4);
 
@@ -9946,13 +9976,24 @@ async function bdCompoundResult(cmd) {
     bd.ctx.fillRect((boxX + 8) * s, (y - 5) * s, labelW * s, 11 * s);
     bd.ctx.fillStyle = borderColor;
     bd.ctx.globalAlpha = 0.7;
+    bd.ctx.textBaseline = 'middle';
     bd.ctx.font = `${labelFS}px 'Caveat', cursive`;
-    bd.ctx.fillText(cmd.label, (boxX + 12) * s, (y + 4) * s);
+    bd.ctx.fillText(cmd.label, (boxX + 12) * s, (y + 0.5) * s);
     bd.ctx.globalAlpha = 1.0;
   }
 
-  // Draw the main text centered in the box
+  // Draw the main text centered in the box (clip to box bounds for long text)
+  const textOverflows = textW + padX * 2 > usableW;
+  if (textOverflows) {
+    bd.ctx.save();
+    bd.ctx.beginPath();
+    bd.ctx.rect(boxX * s, y * s, boxW * s, boxH * s);
+    bd.ctx.clip();
+  }
   await bdAnimText(cmd.text, boxX + padX, y + padY + 2, color, cmd.size || 'text', cmd.charDelay);
+  if (textOverflows) {
+    bd.ctx.restore();
+  }
 
   // Note beside the box
   if (cmd.note) {
@@ -10214,15 +10255,21 @@ async function bdRunAnimation(cmd) {
 
   // Store p5 instance reference for runtime control
   container._p5Instance = inst;
+  const layoutW = cmd._layoutW || cmd.w || 300;
+  const layoutH = cmd._layoutH || cmd.h || 200;
   const entry = {
     container, inst,
     vx: cmd.x || 0, vy: cmd.y || 0,
-    vw: cmd.w || 300, vh: cmd.h || 200,
+    vw: layoutW, vh: layoutH,
     p5Instance: inst,
   };
   // Register animation element if it has an ID
-  if (cmd.id) {
-    bdElementRegistry[cmd.id] = { cmd: 'animation', x: cmd.x||0, y: cmd.y||0, w: cmd.w||300, h: cmd.h||200, animEntry: entry };
+  // Don't overwrite — placement resolver already registered with correct LOCAL coords (line 9598)
+  if (cmd.id && !bdElementRegistry[cmd.id]) {
+    bdElementRegistry[cmd.id] = { cmd: 'animation', x: cmd.x||0, y: cmd.y||0, w: layoutW, h: layoutH, animEntry: entry };
+  } else if (cmd.id) {
+    // Attach animEntry to existing registry entry for runtime control
+    bdElementRegistry[cmd.id].animEntry = entry;
   }
   bdActiveAnimations.push(entry);
 
@@ -11113,7 +11160,7 @@ function bdReplayCommandsInstant(cmds) {
   let maxY = 0;
   for (const cmd of cmds) {
     const y = cmd.y || cmd.y1 || cmd.cy || 0;
-    const h = cmd.h || cmd.size || cmd.r || 30;
+    const h = cmd.h || (typeof cmd.size === 'number' ? cmd.size : null) || cmd.r || 30;
     maxY = Math.max(maxY, y + h);
     if (cmd.y2) maxY = Math.max(maxY, cmd.y2);
   }
