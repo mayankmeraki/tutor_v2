@@ -11098,6 +11098,8 @@ function bdProcessStreaming(fullText) {
   for (let i = bd.processedLines; i < count; i++) {
     const ln = lines[i].trim();
     if (!ln) continue;
+    // Skip voice beat tags — they're handled by the voice scene parser, not JSONL
+    if (ln.startsWith('<vb') || ln.startsWith('</vb') || ln.startsWith('<teaching-voice')) continue;
     try {
       BoardEngine.queueCommand(JSON.parse(ln));
     } catch (e) {
