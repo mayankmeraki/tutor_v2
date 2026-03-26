@@ -10095,11 +10095,9 @@ async function bdRunAnimation(cmd) {
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
 
-  // Engine-computed dimensions from layout estimator; floor at 350×180 virtual px
-  const vw = Math.max(cmd._layoutW || 450, 350);
-  const vh = Math.max(cmd._layoutH || 200, 180);
-  const w = vw * s;
-  const h = vh * s;
+  // Use layout engine dimensions, with minimum floor for usable animations
+  const w = Math.max((cmd._layoutW || cmd.w || 300) * s, 250);
+  const h = Math.max((cmd._layoutH || cmd.h || 120) * s, 150);
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
