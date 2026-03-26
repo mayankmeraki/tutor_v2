@@ -12632,30 +12632,35 @@ function _parseVoiceBeatAttrs(attrStr) {
     if (sayMatch) beat.say = sayMatch[1] || sayMatch[2] || '';
 
     // Parse draw attribute (JSON string — may use single or double quotes)
-    // Single-quoted is preferred: draw='{"cmd":"text",...}'
-    // But LLM may use double-quoted: draw="{&quot;cmd&quot;:&quot;text&quot;,...}"
+    // Animation code inside draw='...' often contains single quotes, so
+    // we use BRACKET MATCHING to find the JSON object boundaries.
     let drawStr = null;
-    const drawSingleMatch = attrStr.match(/draw='((?:[^'\\]|\\.)*)'/);
-    if (drawSingleMatch) {
-      drawStr = drawSingleMatch[1];
-    } else {
-      // Try extracting JSON after draw= by bracket matching
-      const drawStart = attrStr.indexOf('draw=');
-      if (drawStart >= 0) {
-        const afterEq = attrStr.slice(drawStart + 5);
-        const quote = afterEq[0];
-        if (quote === "'" || quote === '"') {
-          // Find matching close, but allow nested quotes
-          let depth = 0; let i = 1;
-          for (; i < afterEq.length; i++) {
-            if (afterEq[i] === '{') depth++;
-            else if (afterEq[i] === '}') { depth--; if (depth <= 0 && i > 1) { i++; break; } }
-          }
-          // Take from after opening quote to the closing brace
-          const raw = afterEq.slice(1, i);
-          if (raw.includes('{')) drawStr = raw;
+    const drawStart = attrStr.indexOf('draw=');
+    if (drawStart >= 0) {
+      // Find the opening { after draw= (skip the quote character)
+      let jsonStart = attrStr.indexOf('{', drawStart);
+      if (jsonStart >= 0) {
+        // Bracket-match to find the closing }
+        let depth = 0, inStr = false, strChar = '', esc = false;
+        let jsonEnd = -1;
+        for (let di = jsonStart; di < attrStr.length; di++) {
+          const ch = attrStr[di];
+          if (esc) { esc = false; continue; }
+          if (ch === '\\') { esc = true; continue; }
+          if (inStr) { if (ch === strChar) inStr = false; continue; }
+          if (ch === '"') { inStr = true; strChar = '"'; continue; }
+          if (ch === '{') depth++;
+          if (ch === '}') { depth--; if (depth === 0) { jsonEnd = di; break; } }
+        }
+        if (jsonEnd > jsonStart) {
+          drawStr = attrStr.slice(jsonStart, jsonEnd + 1);
         }
       }
+    }
+    if (!drawStr) {
+      // Fallback: simple single-quote regex for non-code commands
+      const drawSingleMatch = attrStr.match(/draw='([^']*)'/);
+      if (drawSingleMatch) drawStr = drawSingleMatch[1];
     }
     if (drawStr) {
       drawStr = drawStr.replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#39;/g, "'");
