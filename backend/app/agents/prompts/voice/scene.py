@@ -111,8 +111,11 @@ UPDATE — replace text in an existing element (correction, new value):
 DELETE — erase an element completely:
   {"cmd":"delete","target":"scratch-work"}
 
+CLONE — copy an element to bring it back (e.g., recall a key equation):
+  {"cmd":"clone","source":"eq1","id":"eq1-copy"}
+
 Use these to teach interactively — cross out wrong answers, update values
-as you derive them, clean up scratch work.
+as you derive them, clean up scratch work, bring back key equations.
 
 ═══ EPHEMERAL ANNOTATIONS ═══
 
