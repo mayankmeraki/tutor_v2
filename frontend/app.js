@@ -10198,6 +10198,8 @@ async function bdRunAnimation(cmd) {
   // Base: 300px wide container. If actual is 600px, scale = 2x.
   const baseW = 300;
   const animScale = Math.round(w) / baseW;
+  // Detect if this is a WEBGL animation (check the code for p.WEBGL)
+  const isWebGL = /p\.WEBGL|, *WEBGL/.test(cmd.code);
   const controlBridge = `
     var _controlParams = {};
     var _elements = {};
@@ -10222,6 +10224,18 @@ async function bdRunAnimation(cmd) {
         p.drawingContext.shadowBlur = 0;
       }
     }
+    ${isWebGL ? `
+    // WEBGL safe wrappers — p.text() and p.textFont() require loadFont() in WEBGL.
+    // Silently no-op these calls so animations don't break or spam console.
+    var _origText = p.text.bind(p);
+    var _origTextFont = p.textFont.bind(p);
+    var _origTextSize = p.textSize.bind(p);
+    var _origTextAlign = p.textAlign.bind(p);
+    p.text = function() {}; // no-op in WEBGL — labels go outside via legend
+    p.textFont = function() {};
+    p.textSize = function() {};
+    p.textAlign = function() {};
+    ` : ''}
   `;
   // Auto-scale hardcoded text sizes and stroke weights in the AI-generated code
   code = code.replace(/p\.textSize\((\d+(?:\.\d+)?)\)/g, (_, n) => `p.textSize(${n} * S)`);
