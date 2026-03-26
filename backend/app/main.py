@@ -231,7 +231,7 @@ async def fix_animation(request: Request):
 
     is_openrouter = bool(settings.OPENROUTER_API_KEY)
     base_url = "https://openrouter.ai/api/v1" if is_openrouter else "https://api.anthropic.com/v1"
-    model = "anthropic/claude-haiku-4-5-20251001" if is_openrouter else "claude-haiku-4-5-20251001"
+    model = "anthropic/claude-4.5-haiku-20251001" if is_openrouter else "claude-haiku-4-5-20251001"
 
     system_prompt = (
         "You are a p5.js code fixer. You receive broken animation code and a JavaScript error. "
