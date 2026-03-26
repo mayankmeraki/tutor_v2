@@ -1,0 +1,665 @@
+/* ═══════════════════════════════════════════════════════════
+   Board DOM — Chalk-style board rendered with DOM elements
+   Replaces canvas-based board with identical visual feel.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ─── Custom Properties (Color Palette) ─────────────────── */
+
+:root {
+  --bd-bg: #1a1d2e;
+  --bd-bg-dark: rgba(0, 0, 0, 0.25);
+  --bd-grid-line: rgba(255, 255, 255, 0.025);
+  --bd-grid-spacing: 40px;
+  --bd-font: 'Caveat', cursive;
+
+  /* Chalk colors */
+  --bd-white: #e8e8e0;
+  --bd-yellow: #f5d97a;
+  --bd-gold: #fbbf24;
+  --bd-green: #7ed99a;
+  --bd-green-alt: #34d399;
+  --bd-cyan: #53d8fb;
+  --bd-red: #ff6b6b;
+  --bd-dim: #94a3b8;
+
+  /* Chalk glow — applied via text-shadow */
+  --bd-glow: 0 0 3px currentColor;
+
+  /* Sizing scale */
+  --bd-h1: 26px;
+  --bd-h2: 21px;
+  --bd-h3: 18px;
+  --bd-text: 16px;
+  --bd-small: 13px;
+  --bd-label: 12px;
+
+  /* Spacing */
+  --bd-margin: 30px;
+  --bd-el-gap: 12px;
+  --bd-row-gap: 12px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   1. Board Container and Scene Structure
+   ═══════════════════════════════════════════════════════════ */
+
+/* Scene — each scene is a full board state (current or past) */
+.bd-scene {
+  position: relative;
+  background: var(--bd-bg);
+  padding: var(--bd-margin);
+  font-family: var(--bd-font);
+  font-size: var(--bd-text);
+  color: var(--bd-white);
+  line-height: 1.6;
+  min-height: 100px;
+}
+
+/* Subtle grid overlay — repeating lines every 40px */
+.bd-grid-bg {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background:
+    repeating-linear-gradient(
+      90deg,
+      var(--bd-grid-line) 0px,
+      var(--bd-grid-line) 0.5px,
+      transparent 0.5px,
+      transparent var(--bd-grid-spacing)
+    ),
+    repeating-linear-gradient(
+      0deg,
+      var(--bd-grid-line) 0px,
+      var(--bd-grid-line) 0.5px,
+      transparent 0.5px,
+      transparent var(--bd-grid-spacing)
+    );
+}
+
+/* Scene content sits above the grid */
+.bd-scene > *:not(.bd-grid-bg) {
+  position: relative;
+  z-index: 1;
+}
+
+/* Frozen past scenes — no pointer events, dimmed slightly */
+.bd-scene-frozen {
+  pointer-events: none;
+  opacity: 0.85;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.03);
+}
+
+/* Zoom wrapper — scales all board content via JS transform */
+#bd-board-content {
+  position: relative;
+  transform-origin: top left;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   2. Element Base
+   ═══════════════════════════════════════════════════════════ */
+
+/* Base class for every board element (text, equation, step, etc.) */
+.bd-el {
+  margin-top: var(--bd-el-gap);
+  font-family: var(--bd-font);
+  line-height: 1.6;
+  text-shadow: var(--bd-glow);
+}
+
+/* First element in a scene has no top margin */
+.bd-el:first-child {
+  margin-top: 0;
+}
+
+/* KaTeX rendered math inherits chalk styling */
+.bd-el .katex {
+  font-size: 1.1em;
+}
+
+.bd-el .katex-display {
+  margin: 4px 0;
+  padding: 0;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   3. Placement Classes
+   ═══════════════════════════════════════════════════════════ */
+
+/* Center-aligned text */
+.bd-placement-center {
+  text-align: center;
+}
+
+/* Right-aligned — pushes element to the right */
+.bd-placement-right {
+  margin-left: auto;
+  text-align: right;
+  width: fit-content;
+}
+
+/* Indented — offset from left margin */
+.bd-placement-indent {
+  padding-left: 20px;
+}
+
+/* Flex row — elements placed side by side */
+.bd-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--bd-row-gap);
+  align-items: flex-start;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   4. Chalk Color Classes
+   ═══════════════════════════════════════════════════════════ */
+
+.bd-chalk-white {
+  color: var(--bd-white);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-chalk-yellow {
+  color: var(--bd-yellow);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-chalk-gold {
+  color: var(--bd-gold);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-chalk-green {
+  color: var(--bd-green);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-chalk-cyan {
+  color: var(--bd-cyan);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-chalk-red {
+  color: var(--bd-red);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-chalk-dim {
+  color: var(--bd-dim);
+  text-shadow: var(--bd-glow);
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   5. Size Classes
+   ═══════════════════════════════════════════════════════════ */
+
+.bd-size-h1 {
+  font-size: var(--bd-h1);
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.bd-size-h2 {
+  font-size: var(--bd-h2);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.bd-size-h3 {
+  font-size: var(--bd-h3);
+  font-weight: 500;
+  line-height: 1.5;
+}
+
+.bd-size-text {
+  font-size: var(--bd-text);
+}
+
+.bd-size-small {
+  font-size: var(--bd-small);
+}
+
+.bd-size-label {
+  font-size: var(--bd-label);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   6. Compound Command Styles
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── Equation: math expression with optional side note ── */
+.bd-equation {
+  display: flex;
+  align-items: baseline;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+.bd-equation .bd-eq-main {
+  flex-shrink: 0;
+}
+
+.bd-equation .bd-eq-note {
+  color: var(--bd-dim);
+  font-style: italic;
+  font-size: var(--bd-small);
+  text-shadow: var(--bd-glow);
+}
+
+.bd-equation .bd-eq-note::before {
+  content: '\2190\00a0';  /* ← followed by non-breaking space */
+}
+
+/* ── Compare: two columns side by side with separator ── */
+.bd-compare {
+  display: flex;
+  gap: 0;
+  align-items: stretch;
+}
+
+.bd-compare-col {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 16px;
+}
+
+.bd-compare-col:first-child {
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.bd-compare-col-label {
+  font-size: var(--bd-label);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  color: var(--bd-dim);
+  margin-bottom: 8px;
+  text-shadow: var(--bd-glow);
+}
+
+/* ── Step: numbered step with circled number ── */
+.bd-step {
+  display: flex;
+  align-items: flex-start;
+  gap: 12px;
+}
+
+.bd-step-num {
+  flex-shrink: 0;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  border: 1.5px solid currentColor;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--bd-small);
+  font-weight: 600;
+  line-height: 1;
+  margin-top: 2px;
+  opacity: 0.7;
+}
+
+.bd-step-content {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ── Check / Cross: status markers ── */
+.bd-check,
+.bd-cross {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.bd-check::before {
+  content: '\2713';  /* checkmark */
+  color: var(--bd-green);
+  font-weight: 700;
+  font-size: 1.1em;
+  flex-shrink: 0;
+  text-shadow: 0 0 4px var(--bd-green);
+}
+
+.bd-cross::before {
+  content: '\2717';  /* ballot X */
+  color: var(--bd-red);
+  font-weight: 700;
+  font-size: 1.1em;
+  flex-shrink: 0;
+  text-shadow: 0 0 4px var(--bd-red);
+}
+
+/* ── Callout: accent border on the left ── */
+.bd-callout {
+  border-left: 3px solid var(--bd-gold);
+  padding-left: 14px;
+  margin-left: 4px;
+}
+
+.bd-callout.bd-chalk-green {
+  border-left-color: var(--bd-green);
+}
+
+.bd-callout.bd-chalk-cyan {
+  border-left-color: var(--bd-cyan);
+}
+
+.bd-callout.bd-chalk-red {
+  border-left-color: var(--bd-red);
+}
+
+.bd-callout.bd-chalk-dim {
+  border-left-color: var(--bd-dim);
+}
+
+/* ── Result: bordered box with a label badge ── */
+.bd-result {
+  border: 1.5px solid rgba(251, 191, 36, 0.35);
+  border-radius: 6px;
+  padding: 12px 16px;
+  position: relative;
+  margin-top: 20px;
+  background: rgba(251, 191, 36, 0.03);
+}
+
+.bd-result-label {
+  position: absolute;
+  top: -10px;
+  left: 12px;
+  background: var(--bd-bg);
+  padding: 0 8px;
+  font-size: var(--bd-label);
+  text-transform: uppercase;
+  letter-spacing: 1.2px;
+  color: var(--bd-gold);
+  font-weight: 600;
+  text-shadow: var(--bd-glow);
+}
+
+.bd-result.bd-chalk-green {
+  border-color: rgba(126, 217, 154, 0.35);
+  background: rgba(126, 217, 154, 0.03);
+}
+
+.bd-result.bd-chalk-green .bd-result-label {
+  color: var(--bd-green);
+}
+
+.bd-result.bd-chalk-cyan {
+  border-color: rgba(83, 216, 251, 0.35);
+  background: rgba(83, 216, 251, 0.03);
+}
+
+.bd-result.bd-chalk-cyan .bd-result-label {
+  color: var(--bd-cyan);
+}
+
+/* ── List: styled items with markers ── */
+.bd-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.bd-list li {
+  position: relative;
+  padding-left: 20px;
+  margin-top: 6px;
+}
+
+.bd-list li:first-child {
+  margin-top: 0;
+}
+
+.bd-list li::before {
+  content: '\2022';  /* bullet */
+  position: absolute;
+  left: 4px;
+  color: var(--bd-dim);
+  text-shadow: var(--bd-glow);
+}
+
+/* Numbered list variant */
+.bd-list-numbered {
+  counter-reset: bd-list-counter;
+}
+
+.bd-list-numbered li {
+  counter-increment: bd-list-counter;
+}
+
+.bd-list-numbered li::before {
+  content: counter(bd-list-counter) '.';
+  font-size: 0.9em;
+}
+
+/* ── Divider: horizontal chalk line ── */
+.bd-divider {
+  height: 1px;
+  margin: 14px 0;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    rgba(255, 255, 255, 0.08) 15%,
+    rgba(255, 255, 255, 0.06) 85%,
+    transparent 100%
+  );
+  border: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   7. Animation Boxes (p5.js / canvas embeds)
+   ═══════════════════════════════════════════════════════════ */
+
+.bd-anim-box {
+  display: inline-block;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 4px;
+  overflow: hidden;
+  background: rgba(0, 0, 0, 0.2);
+  position: relative;
+  box-shadow: 0 0 16px rgba(0, 0, 0, 0.25);
+}
+
+/* Animation box inside a row — constrained width */
+.bd-row > .bd-anim-box {
+  flex: 0 0 42%;
+  max-width: 320px;
+}
+
+/* Standalone animation box — wider default */
+.bd-anim-box:not(.bd-row *) {
+  width: 55%;
+  max-width: 420px;
+}
+
+/* Canvas inside animation box fills its container */
+.bd-anim-box canvas {
+  display: block;
+  width: 100%;
+}
+
+.bd-anim-canvas-wrap {
+  width: 100%;
+  height: 100%;
+}
+
+/* Expand button overlay */
+.bd-anim-controls {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  z-index: 5;
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+
+.bd-anim-box:hover .bd-anim-controls {
+  opacity: 1;
+}
+
+.bd-anim-controls button {
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  background: rgba(0, 0, 0, 0.5);
+  color: rgba(255, 255, 255, 0.8);
+  cursor: pointer;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  backdrop-filter: blur(6px);
+  transition: all 0.15s;
+}
+
+.bd-anim-controls button:hover {
+  background: rgba(255, 255, 255, 0.15);
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   8. Character-by-Character Animation
+   ═══════════════════════════════════════════════════════════ */
+
+/* Individual character — hidden by default for typewriter effect */
+.bd-char {
+  opacity: 0;
+  transition: opacity 0.04s ease;
+}
+
+/* Character revealed — set by JS during animation */
+.bd-char-visible {
+  opacity: 1;
+}
+
+/* Bulk reveal — when element animation completes, all chars visible */
+.bd-chars-visible .bd-char {
+  opacity: 1;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   9. Board Editing (strikeout, delete)
+   ═══════════════════════════════════════════════════════════ */
+
+/* Strikeout — red line-through for corrections */
+.bd-strikeout {
+  text-decoration: line-through;
+  text-decoration-color: var(--bd-red);
+  text-decoration-thickness: 2px;
+  opacity: 0.6;
+}
+
+/* Deleted — completely hidden */
+.bd-deleted {
+  display: none;
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   10. Highlighting / Referencing
+   ═══════════════════════════════════════════════════════════ */
+
+/* Highlight glow — pulsing animation for referenced elements */
+.bd-highlight {
+  animation: bd-highlight-glow 4.3s ease-in-out;
+}
+
+@keyframes bd-highlight-glow {
+  0% {
+    text-shadow: var(--bd-glow);
+    background-color: transparent;
+  }
+  8% {
+    text-shadow: 0 0 8px var(--bd-green-alt), 0 0 16px var(--bd-green-alt);
+    background-color: rgba(52, 211, 153, 0.08);
+    border-radius: 3px;
+  }
+  30% {
+    text-shadow: 0 0 8px var(--bd-green-alt), 0 0 16px var(--bd-green-alt);
+    background-color: rgba(52, 211, 153, 0.08);
+  }
+  100% {
+    text-shadow: var(--bd-glow);
+    background-color: transparent;
+  }
+}
+
+
+/* ═══════════════════════════════════════════════════════════
+   11. Responsive Considerations
+   ═══════════════════════════════════════════════════════════ */
+
+/* Board content wrapper — scrollable with max-width */
+.bd-canvas-wrap {
+  flex: 1;
+  overflow: auto;
+  overflow-y: scroll;
+  position: relative;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-x pan-y pinch-zoom;
+  background: var(--bd-bg);
+}
+
+/* Scale down spacing and fonts on narrow screens */
+@media (max-width: 600px) {
+  :root {
+    --bd-margin: 16px;
+    --bd-h1: 22px;
+    --bd-h2: 18px;
+    --bd-h3: 16px;
+    --bd-text: 14px;
+    --bd-small: 12px;
+    --bd-label: 11px;
+  }
+
+  .bd-row {
+    gap: 8px;
+  }
+
+  .bd-row > .bd-anim-box {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+
+  .bd-anim-box:not(.bd-row *) {
+    width: 80%;
+    max-width: 100%;
+  }
+
+  .bd-equation {
+    gap: 10px;
+  }
+
+  .bd-compare {
+    flex-direction: column;
+  }
+
+  .bd-compare-col:first-child {
+    border-right: none;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding-bottom: 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  :root {
+    --bd-margin: 12px;
+    --bd-el-gap: 8px;
+  }
+}
