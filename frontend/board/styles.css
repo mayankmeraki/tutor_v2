@@ -48,12 +48,20 @@
 .bd-scene {
   position: relative;
   background: var(--bd-bg);
-  padding: var(--bd-margin);
+  padding: 20px var(--bd-margin) 40px;
   font-family: var(--bd-font);
   font-size: var(--bd-text);
   color: var(--bd-white);
   line-height: 1.6;
-  min-height: 100px;
+  min-height: 200px;
+  width: 100%;
+}
+
+/* Frozen scenes — past content, subtle bottom border for separation */
+.bd-scene-frozen {
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  padding-bottom: 30px;
+  margin-bottom: 0;
 }
 
 /* Subtle grid overlay — repeating lines every 40px */

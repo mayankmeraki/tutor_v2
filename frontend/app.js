@@ -11062,25 +11062,20 @@ function bdProcessStreaming(fullText) {
     const clearMatch = attrStr.match(/clear\s*=\s*["']?(false|true)["']?/);
     bd.clearBoard = clearMatch ? clearMatch[1] !== 'false' : true;
 
-    // If a canvas already exists from a previous board-draw and we should clear,
-    // wipe it NOW so new commands don't draw on top of old content
-    if (bd.canvas && bd.clearBoard) {
+    // If board already exists and should clear, reset command state (but keep DOM content)
+    if (bd.active && bd.clearBoard) {
       BoardEngine.cancel();
-      BoardEngine.clearAll();
       bd.cancelFlag = false;
       bd.commandQueue = [];
       bd.isProcessing = false;
       bd.tutorSnapshot = null;
     }
 
-    // Open the board panel immediately during streaming (don't wait for finalizeAIMessage)
-    // This ensures the board is visible as soon as the tag is detected
-    if (!bd.canvas) {
+    // Open the board panel if not already open
+    if (!bd.active) {
       const titleMatch = attrStr.match(/title\s*=\s*["']([^"']*)["']/);
       const streamTitle = titleMatch ? titleMatch[1] : 'Board';
-      // openBoardDrawSpotlight calls bdCleanup which resets state — save/restore
       openBoardDrawSpotlight(streamTitle, null, { clear: true, skipReference: true });
-      // bdInit runs in 30ms setTimeout, will set bd.canvas and start queue
     }
     bd.active = true;
     bd._streamingHandled = true;
