@@ -8531,7 +8531,10 @@ function bdControlAnimation(params) {
 
 function bdZoomPulse(elementId) {
   const entry = bdElementRegistry[elementId];
-  if (!entry) return;
+  if (!entry) {
+    console.warn('[Ref] Element not found in registry:', elementId, '— available:', Object.keys(bdElementRegistry).join(', '));
+    return;
+  }
   const bd = state.boardDraw;
   const s = bd.scale || 1;
 
@@ -10594,14 +10597,9 @@ function bdAnimGiveUp(entry, container, retryKey) {
   try { entry.inst.remove(); } catch(e) {}
   const idx = bdActiveAnimations.indexOf(entry);
   if (idx >= 0) bdActiveAnimations.splice(idx, 1);
+  // Remove the animation container entirely — don't leave a huge empty box
   if (container && container.parentNode) {
-    const s = state.boardDraw.scale || 1;
-    container.innerHTML = `
-      <div style="width:100%;height:100%;background:rgba(15,20,16,0.6);display:flex;align-items:center;justify-content:center;border:1px dashed rgba(255,255,255,0.1);border-radius:6px">
-        <div style="color:rgba(255,255,255,0.2);font-size:${13*s}px;font-family:'Caveat',cursive;text-align:center;padding:12px">
-          Animation could not render<br><span style="font-size:${10*s}px">visual description in legend →</span>
-        </div>
-      </div>`;
+    container.parentNode.removeChild(container);
   }
 }
 
