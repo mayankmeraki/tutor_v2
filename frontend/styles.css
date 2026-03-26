@@ -4054,6 +4054,10 @@ body {
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y pinch-zoom;
 }
+#bd-scenes-stack { flex-shrink: 0; }
+.bd-scene-snapshot { flex-shrink: 0; position: relative; border-bottom: 1px solid rgba(255,255,255,0.03); }
+.bd-scene-snapshot img { display: block; width: 100%; }
+#bd-live-scene { position: relative; flex-shrink: 0; }
 #bd-canvas {
   display: block;
   width: 100%;

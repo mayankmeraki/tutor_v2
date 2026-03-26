@@ -8505,84 +8505,57 @@ function bdZoomPulse(elementId) {
   const entry = bdElementRegistry[elementId];
   if (!entry) return;
   const bd = state.boardDraw;
-  if (!bd.canvas || !bd.ctx) return;
-  const s = bd.scale;
-  const dpr = bd.DPR;
+  const s = bd.scale || 1;
 
-  const layer = document.getElementById('bd-anim-layer');
-  if (!layer) return;
+  // Determine which container to place the highlight in
+  // If element is in a snapshot scene, use that scene's overlay
+  // If element is in the live scene, use the anim layer
+  let highlightParent;
+  if (entry.scene !== undefined && entry.scene < _sceneSnapshots.length) {
+    highlightParent = _sceneSnapshots[entry.scene]?.element?.querySelector('.bd-scene-highlight-overlay');
+  }
+  if (!highlightParent) {
+    highlightParent = document.getElementById('bd-anim-layer');
+  }
+  if (!highlightParent) return;
 
-  // Element bounds in CSS pixels
   const pad = 4 * s;
   const ex = Math.max(0, entry.x * s - pad);
   const ey = Math.max(0, entry.y * s - pad);
   const ew = (entry.w || 80) * s + pad * 2;
   const eh = (entry.h || 25) * s + pad * 2;
 
-  // For animations or large elements — use a soft glow border (no zoom-pop,
-  // because cropping a p5 canvas or large region breaks it)
-  if (entry.cmd === 'animation' || ew > 400 * s || eh > 150 * s) {
-    const glow = document.createElement('div');
-    glow.style.cssText = `
-      position:absolute; left:${ex - 3*s}px; top:${ey - 3*s}px;
-      width:${ew + 6*s}px; height:${eh + 6*s}px;
-      pointer-events:none; z-index:24; border-radius:${6*s}px;
-      box-shadow: 0 0 ${20*s}px rgba(251,191,36,0.2), inset 0 0 ${15*s}px rgba(251,191,36,0.05);
-      border: ${1.5*s}px solid rgba(251,191,36,0.25);
-      opacity:0; transition: opacity 0.4s ease;
-    `;
-    layer.appendChild(glow);
-    requestAnimationFrame(() => { glow.style.opacity = '1'; });
-    setTimeout(() => {
-      glow.style.opacity = '0';
-      setTimeout(() => glow.remove(), 500);
-    }, 1800);
-    return;
-  }
-
-  // For text/equations — zoom-pop: crop content, float clone, scale up smoothly
-  const cx = Math.round(ex * dpr);
-  const cy = Math.round(ey * dpr);
-  const cw = Math.min(Math.round(ew * dpr), bd.canvas.width - cx);
-  const ch = Math.min(Math.round(eh * dpr), bd.canvas.height - cy);
-  if (cw <= 0 || ch <= 0) return;
-
-  let imageData;
-  try { imageData = bd.ctx.getImageData(cx, cy, cw, ch); } catch(e) { return; }
-
-  const tmp = document.createElement('canvas');
-  tmp.width = cw; tmp.height = ch;
-  tmp.getContext('2d').putImageData(imageData, 0, 0);
-
-  const clone = document.createElement('div');
-  clone.style.cssText = `
+  // Universal glow highlight — works on both live canvas and snapshots
+  const glow = document.createElement('div');
+  glow.style.cssText = `
     position:absolute; left:${ex}px; top:${ey}px;
     width:${ew}px; height:${eh}px;
-    pointer-events:none; z-index:25;
-    transform:scale(1); transform-origin:center center;
-    opacity:0;
-    transition: transform 0.4s cubic-bezier(0.25,0.1,0.25,1), opacity 0.3s ease;
-    border-radius: 3px;
+    pointer-events:none; z-index:24; border-radius:${4*s}px;
+    box-shadow: 0 0 ${16*s}px rgba(251,191,36,0.25), inset 0 0 ${10*s}px rgba(251,191,36,0.06);
+    border: ${1.5*s}px solid rgba(251,191,36,0.3);
+    opacity:0; transition: opacity 0.3s ease, transform 0.3s ease;
+    transform: scale(1);
   `;
-  const img = document.createElement('img');
-  img.src = tmp.toDataURL();
-  img.style.cssText = 'width:100%;height:100%;display:block;border-radius:3px;';
-  clone.appendChild(img);
-  layer.appendChild(clone);
-
-  // Smooth fade in + scale up
-  requestAnimationFrame(() => {
-    clone.style.opacity = '1';
-    clone.style.transform = 'scale(1.18)';
-  });
-
-  // Hold, then smoothly settle back and fade out
+  highlightParent.appendChild(glow);
+  requestAnimationFrame(() => { glow.style.opacity = '1'; glow.style.transform = 'scale(1.05)'; });
   setTimeout(() => {
-    clone.style.transition = 'transform 0.5s ease, opacity 0.5s ease';
-    clone.style.transform = 'scale(1)';
-    clone.style.opacity = '0';
-    setTimeout(() => clone.remove(), 550);
-  }, 1400);
+    glow.style.opacity = '0'; glow.style.transform = 'scale(1)';
+    setTimeout(() => glow.remove(), 400);
+  }, 1500);
+
+  // Scroll to the element
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (wrap && entry.scene !== undefined && entry.scene < _sceneSnapshots.length) {
+    // Element is in a snapshot — scroll to that snapshot
+    const snapEl = _sceneSnapshots[entry.scene].element;
+    if (snapEl) {
+      const snapTop = snapEl.offsetTop + ey;
+      const viewBottom = wrap.scrollTop + wrap.clientHeight;
+      if (snapTop < wrap.scrollTop || snapTop > viewBottom) {
+        wrap.scrollTo({ top: Math.max(0, snapTop - wrap.clientHeight * 0.3), behavior: 'smooth' });
+      }
+    }
+  }
 }
 
 function bdClearElementRegistry() {
@@ -8627,21 +8600,21 @@ function bdAutoScrollToCmd(cmd) {
   const zoom = bd._zoom || 1;
   const s = bd.scale * zoom;
 
-  const contentTop = minCmdY * s;
-  const contentBottom = (maxCmdY + cmdH) * s;
+  // Calculate absolute scroll position including snapshot stack height
+  const scenesStack = document.getElementById('bd-scenes-stack');
+  const stackHeight = scenesStack ? scenesStack.offsetHeight : 0;
+
+  const contentTop = stackHeight + minCmdY * s;
+  const contentBottom = stackHeight + (maxCmdY + cmdH) * s;
   const viewTop = wrap.scrollTop;
   const viewBottom = viewTop + wrap.clientHeight;
 
-  // Content is fully within viewport — don't scroll
   if (contentTop >= viewTop && contentBottom <= viewBottom) return;
 
-  // Content is below viewport — scroll down to show it
   if (contentBottom > viewBottom) {
     wrap.scrollTo({ top: Math.max(0, contentBottom - wrap.clientHeight * 0.7), behavior: 'smooth' });
-  }
-  // Content is above viewport — scroll up to show it
-  else if (contentTop < viewTop) {
-    wrap.scrollTo({ top: Math.max(0, maxCmdY * bd.scale * zoom - 40), behavior: 'smooth' });
+  } else if (contentTop < viewTop) {
+    wrap.scrollTo({ top: Math.max(0, contentTop - 40), behavior: 'smooth' });
   }
 }
 
@@ -9604,9 +9577,9 @@ async function bdRunCommand(cmd) {
       // Commit to layout in LOCAL coords — layout engine never sees yOffset
       bdLayoutCommit(x, y, estW, estH);
 
-      // Register element in LOCAL coords for beside:/below: refs
+      // Register element in LOCAL coords for beside:/below: refs + scene index for highlights
       if (cmd.id) {
-        bdElementRegistry[cmd.id] = { x, y, w: estW, h: estH, cmd: cmd.cmd };
+        bdElementRegistry[cmd.id] = { x, y, w: estW, h: estH, cmd: cmd.cmd, scene: _sceneSnapshots.length };
       }
 
       // Apply yOffset ONCE for rendering — this is the ONLY place it's added
@@ -9698,7 +9671,7 @@ function _correctCursor(absY, height) {
 }
 
 function _registerElement(id, x, absY, w, h) {
-  if (id) bdElementRegistry[id] = { x, y: _localY(absY), w, h };
+  if (id) bdElementRegistry[id] = { x, y: _localY(absY), w, h, scene: _sceneSnapshots.length };
 }
 // They use the CURRENT layout cursor position (cmd.x, cmd.y already resolved).
 
@@ -10384,6 +10357,85 @@ function bdClearAllAnimations() {
   [...bdActiveAnimations].forEach(entry => bdRemoveAnimation(entry));
 }
 
+// ── Scene Snapshot System ─────────────────────────────────────
+// Captures current canvas as JPEG snapshot, inserts as <img>,
+// clears canvas for new scene. Solves memory: only one live canvas.
+
+let _sceneSnapshots = []; // track snapshot elements for ref highlighting
+
+function bdSnapshotCurrentScene() {
+  const bd = state.boardDraw;
+  if (!bd.canvas || !bd.ctx) return;
+
+  const wrap = document.getElementById('bd-scenes-stack');
+  if (!wrap) return;
+
+  // Capture canvas content as JPEG
+  let dataUrl;
+  try {
+    dataUrl = bd.canvas.toDataURL('image/jpeg', 0.85);
+  } catch (e) {
+    console.warn('[Snapshot] Failed to capture canvas:', e.message);
+    return;
+  }
+
+  // Create snapshot container with img + highlight overlay
+  const sceneDiv = document.createElement('div');
+  sceneDiv.className = 'bd-scene-snapshot';
+  sceneDiv.style.cssText = `position:relative;width:${bd.canvas.style.width};`;
+  sceneDiv.dataset.sceneIndex = _sceneSnapshots.length;
+
+  const img = document.createElement('img');
+  img.src = dataUrl;
+  img.style.cssText = 'width:100%;display:block;';
+  sceneDiv.appendChild(img);
+
+  // Move paused animation containers into the snapshot div
+  const liveScene = document.getElementById('bd-live-scene');
+  const animLayer = document.getElementById('bd-anim-layer');
+  if (animLayer) {
+    // Clone animation containers into snapshot (they're paused anyway)
+    const animClone = animLayer.cloneNode(true);
+    animClone.id = `bd-anim-layer-s${_sceneSnapshots.length}`;
+    animClone.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
+    sceneDiv.appendChild(animClone);
+
+    // Remove old animation instances from live layer
+    animLayer.innerHTML = '';
+    // Pause and cleanup old p5 instances
+    bdActiveAnimations.forEach(entry => {
+      try { entry.inst.noLoop(); } catch(e) {}
+    });
+  }
+
+  // Highlight overlay for {ref:} on old scenes
+  const overlay = document.createElement('div');
+  overlay.className = 'bd-scene-highlight-overlay';
+  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+  sceneDiv.appendChild(overlay);
+
+  wrap.appendChild(sceneDiv);
+  _sceneSnapshots.push({
+    element: sceneDiv,
+    width: parseFloat(bd.canvas.style.width),
+    height: parseFloat(bd.canvas.style.height),
+    scale: bd.scale,
+  });
+
+  console.log(`[Snapshot] Scene ${_sceneSnapshots.length - 1} captured (${bd.canvas.style.width} × ${bd.canvas.style.height})`);
+
+  // Clear the live canvas for the new scene
+  bd.currentH = BD_INITIAL_H;
+  bdResizeCanvas();
+  bd.ctx.fillStyle = '#1a1d2e';
+  bd.ctx.fillRect(0, 0, BD_VIRTUAL_W * bd.scale, bd.currentH * bd.scale);
+  bdDrawGrid();
+
+  // Reset layout for new scene
+  bdLayoutReset();
+  bdClearElementRegistry();
+}
+
 function bdUpdateAnimationVisibility() {
   // Pause animations not in viewport, resume ones that are.
   // Only visible animations run draw() — saves CPU after many scenes.
@@ -10888,8 +10940,11 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
         <button class="bd-tool-btn" onclick="bdZoomIn()" title="Zoom in (Ctrl++)">&#43;</button>
       </div>
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
-        <canvas id="bd-canvas"></canvas>
-        <div id="bd-anim-layer"></div>
+        <div id="bd-scenes-stack"></div>
+        <div id="bd-live-scene" style="position:relative">
+          <canvas id="bd-canvas"></canvas>
+          <div id="bd-anim-layer"></div>
+        </div>
       </div>
       <div class="bd-voice" id="bd-voice">
         <span class="bd-voice-text" id="bd-voice-text"></span>
@@ -11880,42 +11935,31 @@ function _eagerBeatWatcher(text) {
 }
 
 function _eagerInitBoard(title) {
-  console.log(`[EagerBeat] Scene init: "${title}" | contentBottomY=${Math.round(bdContentBottomY)} | cursor=${Math.round(bdLayout.cursorY)}`);
-
-  // Reset layout cursor for new scene — yOffset handles absolute positioning
-  bdLayoutReset();
-
-  // Pause off-screen animations, resume visible ones (viewport-aware)
-  bdUpdateAnimationVisibility();
+  console.log(`[EagerBeat] Scene init: "${title}"`);
 
   if (!state.boardDraw.canvas) {
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
     bdResetContentBottom();
+    bdLayoutReset();
   } else {
+    // Snapshot the current scene → JPEG image, clear canvas for new scene
+    bdSnapshotCurrentScene();
+
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
 
-    state._voiceSceneYOffset = bdContentBottomY + 15;
-    console.log(`[SceneOffset] yOffset=${Math.round(state._voiceSceneYOffset)} contentBot=${Math.round(bdContentBottomY)}`);
+    // No yOffset needed — snapshots stack via CSS, canvas always starts at y=0
+    state._voiceSceneYOffset = 0;
+    bdResetContentBottom();
 
-    const bd = state.boardDraw;
-    const sepY = state._voiceSceneYOffset - 8;
-    bdExpandIfNeeded(sepY + 20);
-    const s = bd.scale;
-    if (bd.ctx) {
-      bd.ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      bd.ctx.lineWidth = 1;
-      bd.ctx.beginPath();
-      bd.ctx.moveTo(80 * s, sepY * s);
-      bd.ctx.lineTo((BD_VIRTUAL_W - 80) * s, sepY * s);
-      bd.ctx.stroke();
-    }
-
+    // Scroll to the fresh canvas (bottom of the stack)
     state.boardDraw._studentScrolledRecently = false;
     const wrap = document.getElementById('bd-canvas-wrap');
     if (wrap) {
-      wrap.scrollTo({ top: Math.max(0, state._voiceSceneYOffset * bd.scale - 30), behavior: 'smooth' });
+      requestAnimationFrame(() => {
+        wrap.scrollTo({ top: wrap.scrollHeight, behavior: 'smooth' });
+      });
     }
   }
 }
@@ -12218,42 +12262,27 @@ async function executeVoiceScene(sceneTag) {
 
   console.log(`[VoiceScene] Starting "${title}" with ${beats.length} beats (fallback path)`);
 
-  bdUpdateAnimationVisibility();
-  bdLayoutReset();
-
-  // Continuous board — each scene draws just below the previous content.
   if (!state.boardDraw.canvas) {
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
     bdResetContentBottom();
+    bdLayoutReset();
   } else {
+    // Snapshot current scene → JPEG, clear canvas for new scene
+    bdSnapshotCurrentScene();
+
     const titleEl = $('#spotlight-title');
     if (titleEl) titleEl.textContent = title;
 
-    // Offset = just below last drawn content + small gap (15px virtual)
-    state._voiceSceneYOffset = bdContentBottomY + 15;
-    console.log(`[SceneOffset] yOffset=${Math.round(state._voiceSceneYOffset)} contentBot=${Math.round(bdContentBottomY)}`);
+    state._voiceSceneYOffset = 0;
+    bdResetContentBottom();
 
-    // Draw a subtle separator line
-    const bd = state.boardDraw;
-    const sepY = state._voiceSceneYOffset - 8;
-    bdExpandIfNeeded(sepY + 20);
-    const s = bd.scale;
-    if (bd.ctx) {
-      bd.ctx.strokeStyle = 'rgba(255,255,255,0.05)';
-      bd.ctx.lineWidth = 1;
-      bd.ctx.beginPath();
-      bd.ctx.moveTo(80 * s, sepY * s);
-      bd.ctx.lineTo((BD_VIRTUAL_W - 80) * s, sepY * s);
-      bd.ctx.stroke();
-    }
-
-    // Auto-scroll to where new content will start (reset student-scroll cooldown)
     state.boardDraw._studentScrolledRecently = false;
     const wrap = document.getElementById('bd-canvas-wrap');
     if (wrap) {
-      const targetScrollY = state._voiceSceneYOffset * bd.scale - 30;
-      wrap.scrollTo({ top: Math.max(0, targetScrollY), behavior: 'smooth' });
+      requestAnimationFrame(() => {
+        wrap.scrollTo({ top: wrap.scrollHeight, behavior: 'smooth' });
+      });
     }
   }
 
