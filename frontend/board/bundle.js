@@ -550,9 +550,21 @@ function toggleAnimFullscreen(figure, animBox) {
   if (figure.classList.contains('bd-anim-fullscreen')) {
     // Restore
     figure.classList.remove('bd-anim-fullscreen');
+    // Remove backdrop overlay
+    var backdrop = figure.querySelector('.bd-anim-backdrop');
+    if (backdrop) backdrop.remove();
+    // Remove close button
+    var closeBtn = figure.querySelector('.bd-anim-close-btn');
+    if (closeBtn) closeBtn.remove();
+    // Remove escape handler
+    if (figure._escHandler) {
+      document.removeEventListener('keydown', figure._escHandler);
+      figure._escHandler = null;
+    }
+    // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
-    if (btn) { btn.textContent = '\u26F6'; btn.title = 'Expand animation'; }
-    // Resize p5 back to container size
+    if (btn) { btn.textContent = '\u26F6'; btn.title = 'Expand'; }
+    // Resize p5 back
     var inst = animBox._p5Instance;
     if (inst && typeof inst.resizeCanvas === 'function') {
       requestAnimationFrame(function() {
@@ -561,11 +573,24 @@ function toggleAnimFullscreen(figure, animBox) {
       });
     }
   } else {
-    // Expand
+    // Expand to fullscreen
     figure.classList.add('bd-anim-fullscreen');
+    // Add backdrop overlay (click to close)
+    var backdrop = document.createElement('div');
+    backdrop.className = 'bd-anim-backdrop';
+    backdrop.addEventListener('click', function() { toggleAnimFullscreen(figure, animBox); });
+    figure.insertBefore(backdrop, figure.firstChild);
+    // Add visible close button
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'bd-anim-close-btn';
+    closeBtn.textContent = '\u2715';
+    closeBtn.title = 'Close fullscreen';
+    closeBtn.addEventListener('click', function() { toggleAnimFullscreen(figure, animBox); });
+    figure.appendChild(closeBtn);
+    // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
-    // Resize p5 to fullscreen size
+    // Resize p5
     var inst = animBox._p5Instance;
     if (inst && typeof inst.resizeCanvas === 'function') {
       requestAnimationFrame(function() {
@@ -573,6 +598,11 @@ function toggleAnimFullscreen(figure, animBox) {
         try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
       });
     }
+    // Escape key closes fullscreen
+    figure._escHandler = function(e) {
+      if (e.key === 'Escape') { toggleAnimFullscreen(figure, animBox); }
+    };
+    document.addEventListener('keydown', figure._escHandler);
   }
 }
 
@@ -674,8 +704,8 @@ function createAnimation(cmd) {
   try {
     inst = new p5(function(p) {
       try { sketchFn(p, pw, ph); } catch (err) {
-        console.error('[Animation] Sketch error:', err.message);
-        canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation error</div>';
+        console.warn('[Animation] Sketch runtime error — calling Haiku fix:', err.message);
+        showSkeleton(el, canvasWrap, cmd, err.message, scale, isWebGL);
         return;
       }
       var userDraw = p.draw;
@@ -695,7 +725,8 @@ function createAnimation(cmd) {
       };
     }, canvasWrap);
   } catch (e) {
-    canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px">Init error</div>';
+    console.warn('[Animation] Init error — calling Haiku fix:', e.message);
+    showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
     return;
   }
 
@@ -1466,7 +1497,7 @@ function autoScroll() {
 // ═══════════════════════════════════════════════════════════════
 
 function init(apiUrl) {
-  board.apiUrl = apiUrl || '';
+  board.apiUrl = apiUrl || window.location.origin || '';
   board.cancelFlag = false;
 
   var liveScene = document.getElementById('bd-live-scene');
