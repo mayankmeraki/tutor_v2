@@ -8430,13 +8430,15 @@ function bdLayoutResolve(placement, estW, estH) {
 function bdLayoutCommit(x, y, w, h) {
   const bottom = y + h + BD_ROW_GAP;
   if (bdLayout.inRow) {
-    bdLayout.rowX = x + w + BD_SIDE_GAP;
-    bdLayout.rowH = Math.max(bdLayout.rowH, h);
+    // Only advance rowX for row-start/row-next (not below:id items stacked in a row)
+    if (y === bdLayout.rowY) bdLayout.rowX = x + w + BD_SIDE_GAP;
+    // Track full depth from row start — below:id items stack deeper
+    const depthFromRowStart = (y - bdLayout.rowY) + h;
+    bdLayout.rowH = Math.max(bdLayout.rowH, depthFromRowStart);
   } else {
     bdLayout.cursorY = bottom;
   }
   // Always keep cursorY at least at this element's bottom
-  // (handles beside:/below: placements that skip the cursor)
   if (bottom > bdLayout.cursorY && !bdLayout.inRow) {
     bdLayout.cursorY = bottom;
   }
@@ -9739,6 +9741,7 @@ async function bdRunCommand(cmd) {
     case 'strikeout': bdStrikeoutElement(cmd); break;
     case 'update': await bdUpdateElement(cmd); break;
     case 'delete': bdDeleteElement(cmd); break;
+    case 'clone': await bdCloneElement(cmd); break;
   }
 
   // Sync contentBottomY AFTER render (compound commands may have corrected cursor)
@@ -10101,6 +10104,27 @@ async function bdUpdateElement(cmd) {
   bd.ctx.restore();
   // Draw the new text in place
   await bdAnimText(cmd.text, ref.x, ref.y + yOff, cmd.color || 'green', cmd.size || 'text', 20);
+}
+
+async function bdCloneElement(cmd) {
+  // Clone an element to a new position: {"cmd":"clone","source":"eq1","placement":"below","id":"eq1-copy"}
+  const bd = state.boardDraw;
+  if (!bd.ctx || !cmd.source) return;
+  const ref = bdElementRegistry[cmd.source];
+  if (!ref) return;
+  // Get the original command's text/content from registry
+  const origCmd = ref.cmd;
+  // Re-draw at the new placement with the clone's id
+  const cloneCmd = {
+    cmd: origCmd === 'animation' ? 'text' : (origCmd || 'text'), // can't clone animations — draw label instead
+    text: ref.text || cmd.text || `[${cmd.source}]`,
+    placement: cmd.placement || 'below',
+    id: cmd.id || cmd.source + '-copy',
+    color: cmd.color || ref.color || 'cyan',
+    size: cmd.size || ref.size || 'text',
+  };
+  // Use the existing command runner for proper layout
+  await bdRunCommand(cloneCmd);
 }
 
 function bdDeleteElement(cmd) {
