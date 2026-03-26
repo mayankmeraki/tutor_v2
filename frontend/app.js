@@ -8673,11 +8673,12 @@ function bdInitZoom() {
 
   function applyZoom() {
     const z = bd._zoom;
-    // Apply zoom to ALL board content — snapshots + live canvas + anim layer
-    const scenesStack = document.getElementById('bd-scenes-stack');
-    const liveScene = document.getElementById('bd-live-scene');
-    if (scenesStack) { scenesStack.style.transformOrigin = 'top left'; scenesStack.style.transform = `scale(${z})`; }
-    if (liveScene) { liveScene.style.transformOrigin = 'top left'; liveScene.style.transform = `scale(${z})`; }
+    // Single zoom wrapper — ALL content (snapshots + live) scales together
+    const boardContent = document.getElementById('bd-board-content');
+    if (boardContent) {
+      boardContent.style.transformOrigin = 'top left';
+      boardContent.style.transform = z === 1 ? '' : `scale(${z})`;
+    }
     bdUpdateZoomSpacer();
     const label = document.getElementById('bd-zoom-level');
     if (label) label.textContent = Math.round(bd._zoom * 100) + '%';
@@ -8949,15 +8950,20 @@ function bdExpandIfNeeded(maxY) {
 function bdUpdateZoomSpacer() {
   const bd = state.boardDraw;
   const wrap = document.getElementById('bd-canvas-wrap');
-  if (!wrap) return;
+  const content = document.getElementById('bd-board-content');
+  if (!wrap || !content) return;
   const z = bd._zoom || 1;
-  // Total content height = snapshots + live canvas
-  const scenesStack = document.getElementById('bd-scenes-stack');
-  const liveScene = document.getElementById('bd-live-scene');
-  const totalH = (scenesStack ? scenesStack.scrollHeight : 0) + (liveScene ? liveScene.scrollHeight : 0);
-  const totalW = wrap.clientWidth;
+  // Content dimensions come from the single wrapper
+  const totalH = content.scrollHeight;
+  const totalW = content.scrollWidth || wrap.clientWidth;
   let spacer = wrap.querySelector('.bd-zoom-spacer');
-  if (!spacer) { spacer = document.createElement('div'); spacer.className = 'bd-zoom-spacer'; spacer.style.cssText = 'position:absolute;top:0;left:0;pointer-events:none;visibility:hidden;'; wrap.appendChild(spacer); }
+  if (z <= 1) {
+    // No spacer needed at 100% or below
+    if (spacer) spacer.style.cssText = 'display:none';
+    return;
+  }
+  if (!spacer) { spacer = document.createElement('div'); spacer.className = 'bd-zoom-spacer'; spacer.style.cssText = 'pointer-events:none;visibility:hidden;'; wrap.appendChild(spacer); }
+  spacer.style.display = 'block';
   spacer.style.width = Math.round(totalW * z) + 'px';
   spacer.style.height = Math.round(totalH * z) + 'px';
 }
@@ -11479,10 +11485,12 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
         <button class="bd-tool-btn" onclick="bdZoomIn()" title="Zoom in (Ctrl++)">&#43;</button>
       </div>
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
-        <div id="bd-scenes-stack"></div>
-        <div id="bd-live-scene" style="position:relative">
-          <canvas id="bd-canvas"></canvas>
-          <div id="bd-anim-layer"></div>
+        <div id="bd-board-content">
+          <div id="bd-scenes-stack"></div>
+          <div id="bd-live-scene" style="position:relative">
+            <canvas id="bd-canvas"></canvas>
+            <div id="bd-anim-layer"></div>
+          </div>
         </div>
       </div>
       <div class="bd-voice" id="bd-voice">
