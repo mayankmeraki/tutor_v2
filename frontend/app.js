@@ -12421,9 +12421,38 @@ function _repairDrawJSON(s) {
   // 1. Unescaped quotes inside strings (Newton's → Newton\'s)
   // 2. Truncated JSON (missing closing brace/quote)
   // 3. Smart quotes → regular quotes
+  // 4. Literal newlines/tabs inside "code":"..." (animation code)
+  // 5. Bad escape sequences (\n, \t used as literal chars in code strings)
 
   // Smart quotes
   s = s.replace(/[\u201C\u201D]/g, '"').replace(/[\u2018\u2019]/g, "'");
+
+  // Fix animation code field — the "code":"..." value often has literal newlines
+  // and unescaped characters that break JSON. Extract it, escape it, put it back.
+  const codeFieldMatch = s.match(/"code"\s*:\s*"/);
+  if (codeFieldMatch) {
+    const codeStart = codeFieldMatch.index + codeFieldMatch[0].length;
+    // Walk forward to find the closing " that ends the code value
+    // Must handle escaped quotes inside the code
+    let i = codeStart;
+    let depth = 0;
+    while (i < s.length) {
+      if (s[i] === '\\' && i + 1 < s.length) { i += 2; continue; } // skip escaped chars
+      if (s[i] === '"') break; // found end of code string
+      i++;
+    }
+    if (i < s.length) {
+      const codeContent = s.slice(codeStart, i);
+      // Escape problematic characters inside the code string
+      const escaped = codeContent
+        .replace(/\\/g, '\\\\')          // backslashes
+        .replace(/\n/g, '\\n')           // literal newlines
+        .replace(/\r/g, '\\r')           // carriage returns
+        .replace(/\t/g, '\\t')           // tabs
+        .replace(/"/g, '\\"');            // unescaped quotes
+      s = s.slice(0, codeStart) + escaped + s.slice(i);
+    }
+  }
 
   // Try to close unclosed strings and braces
   let inStr = false, braces = 0, lastQuote = -1;
@@ -12444,7 +12473,6 @@ function _repairDrawJSON(s) {
   while (braces > 0) { s += '}'; braces--; }
 
   // Escape unescaped single quotes inside JSON string values
-  // (e.g., Newton's → Newton\u0027s)
   s = s.replace(/"([^"]*?)'/g, (m, pre) => `"${pre}\\u0027`);
 
   return s;
