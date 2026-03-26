@@ -9565,20 +9565,15 @@ async function bdRunCommand(cmd) {
         estW = cmd.w || (cmd.text ? Math.min((cmd.text.length || 10) * bdResolveSize(cmd.size) * 0.55, 700) : 300);
         estH = cmd.h || resolveH(cmd.size);
       } else if (cmd.cmd === 'animation') {
-        // Engine owns sizing — AI w/h are ignored. Size is derived from layout context.
+        // Engine owns sizing — AI w/h ignored. Size derived from layout context.
         const availVW = bdLayout.inRow ? BD_VIRTUAL_W - bdLayout.rowX - BD_MARGIN : BD_VIRTUAL_W - BD_MARGIN * 2;
         const isRow = bdLayout.inRow || (cmd.placement && cmd.placement === 'row-start');
-        const isFullWidth = cmd.placement === 'full-width';
-        if (isFullWidth) {
-          estW = BD_VIRTUAL_W - BD_MARGIN * 2;
-        } else if (isRow) {
-          estW = Math.round(availVW * 0.55);
+        if (isRow) {
+          estW = Math.min(Math.round(availVW * 0.48), 360);
         } else {
-          estW = Math.round(availVW * 0.85);
+          estW = Math.min(Math.round(availVW * 0.55), 420);
         }
-        // Aspect ratio: comfortably readable — roughly 2:1 wide-to-tall
-        const aspect = cmd.h && cmd.w ? Math.min(cmd.h / cmd.w, 0.65) : 0.45;
-        estH = Math.max(Math.round(estW * aspect), 180);
+        estH = Math.min(Math.round(estW * 0.6), 250);
         cmd._layoutW = estW;
         cmd._layoutH = estH;
       } else if (cmd.cmd === 'circle' || cmd.cmd === 'arc') {
@@ -10104,9 +10099,11 @@ async function bdRunAnimation(cmd) {
   const x = (cmd.x || 20) * s;
   const y = (cmd.y || 0) * s;
 
-  // Use layout engine dimensions, with minimum floor for usable animations
-  const w = Math.max((cmd._layoutW || cmd.w || 300) * s, 250);
-  const h = Math.max((cmd._layoutH || cmd.h || 120) * s, 150);
+  // Layout engine dimensions (virtual px * scale). Cap to prevent oversized animations.
+  const maxW = boardW * 0.65;
+  const maxH = boardH * 0.55;
+  const w = Math.min(Math.max((cmd._layoutW || 350) * s, 200), maxW);
+  const h = Math.min(Math.max((cmd._layoutH || 200) * s, 150), maxH);
   // Voice mode: NEVER rasterize animations via timer — keep them alive
   // Text mode: use LLM-specified duration or default 6000ms
   const duration = state.teachingMode === 'voice' ? 0 : (cmd.duration || 0);
@@ -10168,8 +10165,9 @@ async function bdRunAnimation(cmd) {
 
   // Animation container with expand/minimize controls
   const compactH = Math.round(h);
-  const expandedH = Math.round(Math.max(h * 2, 300));
+  const expandedH = Math.round(Math.min(h * 1.5, boardH * 0.75));
   const containerW = Math.round(w);
+  const expandedW = Math.round(Math.min(w * 1.3, boardW * 0.85));
 
   const container = document.createElement('div');
   container.className = 'bd-anim-box';
@@ -10178,9 +10176,11 @@ async function bdRunAnimation(cmd) {
   container.style.width = containerW + 'px';
   container.style.height = compactH + 'px';
   container.style.opacity = '0';
-  container.style.transition = 'opacity 0.4s, height 0.3s ease';
+  container.style.transition = 'opacity 0.4s, width 0.3s ease, height 0.3s ease';
   container.dataset.compactH = compactH;
   container.dataset.expandedH = expandedH;
+  container.dataset.compactW = containerW;
+  container.dataset.expandedW = expandedW;
 
   // Expand/minimize button
   const controls = document.createElement('div');
@@ -10226,6 +10226,7 @@ async function bdRunAnimation(cmd) {
   requestAnimationFrame(() => { container.style.opacity = '1'; });
 
   // Store p5 instance reference for runtime control
+  container._p5Instance = inst;
   const entry = {
     container, inst,
     vx: cmd.x || 0, vy: cmd.y || 0,
@@ -10366,28 +10367,25 @@ function bdRasterizeAllAnimations() {
 window.bdToggleAnimSize = function(btn) {
   const box = btn.closest('.bd-anim-box');
   if (!box) return;
-  const compact = parseInt(box.dataset.compactH);
-  const expanded = parseInt(box.dataset.expandedH);
+  const compactW = parseInt(box.dataset.compactW);
+  const compactH = parseInt(box.dataset.compactH);
+  const expandedW = parseInt(box.dataset.expandedW);
+  const expandedH = parseInt(box.dataset.expandedH);
   const isExpanded = box.dataset.expanded === 'true';
 
-  if (isExpanded) {
-    box.style.height = compact + 'px';
-    box.dataset.expanded = 'false';
-    btn.textContent = '⛶';
-    btn.title = 'Expand animation';
-  } else {
-    box.style.height = expanded + 'px';
-    box.dataset.expanded = 'true';
-    btn.textContent = '⊟';
-    btn.title = 'Minimize animation';
-  }
+  const newW = isExpanded ? compactW : expandedW;
+  const newH = isExpanded ? compactH : expandedH;
 
-  // Resize p5 canvas to match new container height
-  const wrap = box.querySelector('.bd-anim-canvas-wrap');
-  const canvas = wrap?.querySelector('canvas');
-  if (canvas && canvas._p5Instance) {
-    const newH = isExpanded ? compact : expanded;
-    canvas._p5Instance.resizeCanvas(parseInt(box.style.width), newH);
+  box.style.width = newW + 'px';
+  box.style.height = newH + 'px';
+  box.dataset.expanded = isExpanded ? 'false' : 'true';
+  btn.textContent = isExpanded ? '⛶' : '⊟';
+  btn.title = isExpanded ? 'Expand animation' : 'Minimize animation';
+
+  // Resize p5 canvas to fill the new container
+  const inst = box._p5Instance;
+  if (inst && typeof inst.resizeCanvas === 'function') {
+    try { inst.resizeCanvas(newW, newH); } catch(e) {}
   }
 };
 
@@ -10408,39 +10406,51 @@ function bdSnapshotCurrentScene() {
   const wrap = document.getElementById('bd-scenes-stack');
   if (!wrap) return;
 
-  // Capture canvas content as JPEG
+  // Crop canvas to content area only (no empty space below)
+  const contentH = Math.max(bdLayout.cursorY + 20, 100); // virtual content height
+  const cropH = Math.round(contentH * bd.scale); // pixel height to capture
+  const canvasW = bd.canvas.width;
+  const actualCropH = Math.min(cropH * bd.DPR, bd.canvas.height);
+
+  // Create a cropped canvas for the snapshot
   let dataUrl;
   try {
-    dataUrl = bd.canvas.toDataURL('image/jpeg', 0.85);
+    const cropCanvas = document.createElement('canvas');
+    cropCanvas.width = canvasW;
+    cropCanvas.height = actualCropH;
+    const cropCtx = cropCanvas.getContext('2d');
+    cropCtx.drawImage(bd.canvas, 0, 0, canvasW, actualCropH, 0, 0, canvasW, actualCropH);
+    dataUrl = cropCanvas.toDataURL('image/jpeg', 0.85);
   } catch (e) {
     console.warn('[Snapshot] Failed to capture canvas:', e.message);
     return;
   }
 
-  // Create snapshot container with img + highlight overlay
+  const wrapWidth = parseFloat(bd.canvas.style.width) || bd.canvas.clientWidth;
+
+  // Create snapshot container — same width as live canvas
   const sceneDiv = document.createElement('div');
   sceneDiv.className = 'bd-scene-snapshot';
-  sceneDiv.style.cssText = `position:relative;width:${bd.canvas.style.width};`;
+  sceneDiv.style.cssText = `position:relative;width:${wrapWidth}px;`;
   sceneDiv.dataset.sceneIndex = _sceneSnapshots.length;
 
   const img = document.createElement('img');
   img.src = dataUrl;
-  img.style.cssText = 'width:100%;display:block;';
+  img.style.cssText = `width:${wrapWidth}px;display:block;`;
   sceneDiv.appendChild(img);
 
-  // Move paused animation containers into the snapshot div
-  const liveScene = document.getElementById('bd-live-scene');
+  // MOVE (not clone) animation containers into the snapshot div
+  // This preserves running p5 instances
   const animLayer = document.getElementById('bd-anim-layer');
-  if (animLayer) {
-    // Clone animation containers into snapshot (they're paused anyway)
-    const animClone = animLayer.cloneNode(true);
-    animClone.id = `bd-anim-layer-s${_sceneSnapshots.length}`;
-    animClone.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;';
-    sceneDiv.appendChild(animClone);
-
-    // Remove old animation instances from live layer
-    animLayer.innerHTML = '';
-    // Pause and cleanup old p5 instances
+  if (animLayer && animLayer.children.length > 0) {
+    const animWrap = document.createElement('div');
+    animWrap.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;overflow:visible;`;
+    // Move each animation container (not clone — keeps p5 alive)
+    while (animLayer.firstChild) {
+      animWrap.appendChild(animLayer.firstChild);
+    }
+    sceneDiv.appendChild(animWrap);
+    // Pause the moved p5 instances
     bdActiveAnimations.forEach(entry => {
       try { entry.inst.noLoop(); } catch(e) {}
     });
@@ -10449,14 +10459,14 @@ function bdSnapshotCurrentScene() {
   // Highlight overlay for {ref:} on old scenes
   const overlay = document.createElement('div');
   overlay.className = 'bd-scene-highlight-overlay';
-  overlay.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+  overlay.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;z-index:10;`;
   sceneDiv.appendChild(overlay);
 
   wrap.appendChild(sceneDiv);
   _sceneSnapshots.push({
     element: sceneDiv,
-    width: parseFloat(bd.canvas.style.width),
-    height: parseFloat(bd.canvas.style.height),
+    width: wrapWidth,
+    height: cropH,
     scale: bd.scale,
   });
 
