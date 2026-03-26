@@ -1474,19 +1474,22 @@ function autoScroll() {
   var wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap || !board.liveScene) return;
 
-  // Find the bottommost visible element (flow or positioned)
-  var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid');
+  // Find the newest element (last child that's not the grid bg)
+  var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid, .bd-positioned');
   if (!allEls.length) return;
   var lastEl = allEls[allEls.length - 1];
 
-  // Use requestAnimationFrame to ensure layout is settled
   requestAnimationFrame(function() {
     var wrapRect = wrap.getBoundingClientRect();
     var elRect = lastEl.getBoundingClientRect();
 
-    // Scroll if element is below 70% of the viewport
-    if (elRect.bottom > wrapRect.top + wrapRect.height * 0.7) {
-      var targetScrollTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.35;
+    // Always scroll so the new element is near the TOP of the viewport
+    // This ensures the student sees fresh content with room below for more
+    var elTopRelative = elRect.top - wrapRect.top; // how far from wrap top
+
+    // If element is below the top 40% of viewport, scroll it up
+    if (elTopRelative > wrapRect.height * 0.4) {
+      var targetScrollTop = wrap.scrollTop + elTopRelative - 60; // 60px from top
       wrap.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
     }
   });
