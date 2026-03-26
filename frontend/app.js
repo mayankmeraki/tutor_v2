@@ -8297,8 +8297,8 @@ function bdGetFontScale() {
 // The engine tracks a cursor and resolves deterministically.
 
 const BD_MARGIN = 25;
-const BD_ROW_GAP = 10;
-const BD_SIDE_GAP = 15;
+const BD_ROW_GAP = 8;
+const BD_SIDE_GAP = 12;
 
 const bdLayout = {
   cursorY: 12,
@@ -8397,7 +8397,8 @@ function bdLayoutResolve(placement, estW, estH) {
     const ref = bdElementRegistry[refId];
     if (ref) {
       x = ref.x;
-      y = ref.y + ref.h + 6;
+      // Use the LATER of: ref bottom or current cursor (prevents overlap with previous below: on same ref)
+      y = Math.max(ref.y + ref.h + 6, bdLayout.cursorY);
     } else {
       if (bdLayout.inRow) bdLayoutEndRow();
       x = BD_MARGIN; y = bdLayout.cursorY;
@@ -8517,57 +8518,36 @@ function bdZoomPulse(elementId) {
   }
   if (!highlightParent) return;
 
-  const pad = 8 * s;
-  const cx = entry.x * s + (entry.w || 80) * s / 2;
-  const cy = entry.y * s + (entry.h || 25) * s / 2;
-  const rx = (entry.w || 80) * s / 2 + pad;
-  const ry = (entry.h || 25) * s / 2 + pad;
+  // Simple CSS ellipse highlight — no SVG clipping issues
+  const pad = 10 * s;
+  const elW = (entry.w || 80) * s;
+  const elH = (entry.h || 25) * s;
+  const left = entry.x * s - pad;
+  const top = entry.y * s - pad;
+  const w = elW + pad * 2;
+  const h = elH + pad * 2;
 
-  // Hand-drawn circle annotation — like a teacher circling on the board
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  const svgW = rx * 2 + 10 * s;
-  const svgH = ry * 2 + 10 * s;
-  svg.setAttribute('width', svgW);
-  svg.setAttribute('height', svgH);
-  svg.style.cssText = `position:absolute;left:${cx - rx - 5*s}px;top:${cy - ry - 5*s}px;pointer-events:none;z-index:24;opacity:0;transition:opacity 0.3s ease;overflow:visible;`;
+  const ring = document.createElement('div');
+  ring.style.cssText = `
+    position:absolute; left:${left}px; top:${top}px;
+    width:${w}px; height:${h}px;
+    border: ${2*s}px solid rgba(251,191,36,0.45);
+    border-radius: 50%;
+    pointer-events:none; z-index:24;
+    opacity:0;
+    transition: opacity 0.4s ease-in;
+  `;
+  highlightParent.appendChild(ring);
 
-  // Wobbly ellipse path for hand-drawn feel
-  const points = [];
-  const startAngle = -0.1 + Math.random() * 0.2;
-  for (let i = 0; i <= 68; i++) {
-    const t = i / 64;
-    const angle = startAngle + t * Math.PI * 2.06;
-    const wobble = 1 + Math.sin(angle * 6.7) * 0.035 + Math.sin(angle * 14) * 0.015;
-    const px = svgW / 2 + Math.cos(angle) * rx * wobble;
-    const py = svgH / 2 + Math.sin(angle) * ry * wobble;
-    points.push(`${i === 0 ? 'M' : 'L'}${px.toFixed(1)},${py.toFixed(1)}`);
-  }
+  // Fade in
+  requestAnimationFrame(() => { ring.style.opacity = '1'; });
 
-  const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-  path.setAttribute('d', points.join(' '));
-  path.setAttribute('fill', 'none');
-  path.setAttribute('stroke', 'rgba(251,191,36,0.5)');
-  path.setAttribute('stroke-width', `${2 * s}`);
-  path.setAttribute('stroke-linecap', 'round');
-
-  // Animate the circle drawing
-  const pathLen = path.getTotalLength ? 500 : 500;
-  path.style.cssText = `stroke-dasharray:${pathLen};stroke-dashoffset:${pathLen};transition:stroke-dashoffset 0.5s ease;`;
-
-  svg.appendChild(path);
-  highlightParent.appendChild(svg);
-
-  // Fade in + draw the circle
-  requestAnimationFrame(() => {
-    svg.style.opacity = '1';
-    path.style.strokeDashoffset = '0';
-  });
-
-  // Hold for 2s, then fade out
+  // Hold 2s, then fade out smoothly
   setTimeout(() => {
-    svg.style.opacity = '0';
-    setTimeout(() => svg.remove(), 400);
-  }, 2200);
+    ring.style.transition = 'opacity 0.6s ease-out';
+    ring.style.opacity = '0';
+    setTimeout(() => ring.remove(), 650);
+  }, 2000);
 
   // Scroll to element with margin above and below — show context
   const wrap = document.getElementById('bd-canvas-wrap');
@@ -9943,9 +9923,10 @@ async function bdCompoundResult(cmd) {
   bd.ctx.font = `${fs}px 'Caveat', cursive`;
   const textW = bd.ctx.measureText(cmd.text).width / s;
   const padX = 16, padY = 8;
-  const boxW = textW + padX * 2;
+  const usableW = BD_VIRTUAL_W - BD_MARGIN * 2;
+  const boxW = Math.min(textW + padX * 2, usableW);
   const boxH = textSize * 1.6 + padY * 2;
-  const boxX = x + Math.max(0, ((BD_VIRTUAL_W - BD_MARGIN * 2) - boxW) / 2);
+  const boxX = x + Math.max(0, (usableW - boxW) / 2);
 
   bdExpandIfNeeded(y + boxH + 4);
 
