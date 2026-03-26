@@ -474,6 +474,10 @@
 }
 
 
+/* SVG shape primitives — inline SVG elements for lines, circles, arrows, rects */
+.bd-svg-shape { margin-top: var(--bd-el-gap); }
+.bd-svg-shape svg { filter: drop-shadow(0 0 2px rgba(255,255,255,0.1)); }
+
 /* ═══════════════════════════════════════════════════════════
    7. Animation Boxes (p5.js / canvas embeds)
    ═══════════════════════════════════════════════════════════ */

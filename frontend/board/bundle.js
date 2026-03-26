@@ -656,7 +656,8 @@ async function runCommand(cmd) {
   if (!board.liveScene) return;
 
   var contentCmds = ['text', 'latex', 'animation', 'equation', 'compare', 'step',
-    'check', 'cross', 'callout', 'list', 'divider', 'result'];
+    'check', 'cross', 'callout', 'list', 'divider', 'result',
+    'line', 'arrow', 'rect', 'fillrect', 'circle', 'arc', 'dot', 'dashed'];
   if (!cmd.placement && contentCmds.includes(cmd.cmd)) {
     cmd.placement = 'below';
   }
@@ -679,11 +680,182 @@ async function runCommand(cmd) {
     case 'delete':   renderDelete(cmd); break;
     case 'clone':    await renderClone(cmd); break;
     case 'clear':    clearAll(); break;
+
+    // SVG shape primitives — rendered as inline SVG elements
+    case 'line':     renderSvgLine(cmd); break;
+    case 'arrow':    renderSvgArrow(cmd); break;
+    case 'rect':     renderSvgRect(cmd); break;
+    case 'fillrect': renderSvgRect(cmd); break;
+    case 'circle':   renderSvgCircle(cmd); break;
+    case 'arc':      renderSvgCircle(cmd); break;
+    case 'dot':      renderSvgDot(cmd); break;
+    case 'dashed':   renderSvgLine(cmd); break;
+    case 'freehand': break; // not supported in DOM — use animation
+    case 'curvedarrow': renderSvgArrow(cmd); break;
+    case 'brace':    break;
+    case 'matrix':   break;
+    case 'voice':    break;
+    case 'pause':    break;
     default:
       console.warn('[Board] Unknown command:', cmd.cmd);
   }
 
   autoScroll();
+}
+
+// ── SVG Shape Primitives ──
+
+function svgNS() { return 'http://www.w3.org/2000/svg'; }
+
+function resolveColor(c) {
+  var map = { white:'#e8e8e0', yellow:'#f5d97a', gold:'#fbbf24', green:'#34d399',
+    blue:'#7eb8da', red:'#ff6b6b', cyan:'#53d8fb', dim:'#94a3b8' };
+  return map[c] || c || '#e8e8e0';
+}
+
+function renderSvgLine(cmd) {
+  var x1 = cmd.x1 || 0, y1 = cmd.y1 || 0, x2 = cmd.x2 || 100, y2 = cmd.y2 || 0;
+  var w = Math.abs(x2 - x1) || 10, h = Math.abs(y2 - y1) || 10;
+  var pad = 10;
+  var svgW = w + pad * 2, svgH = Math.max(h + pad * 2, 20);
+  var minX = Math.min(x1, x2), minY = Math.min(y1, y2);
+
+  var svg = document.createElementNS(svgNS(), 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + svgW + ' ' + svgH);
+  svg.setAttribute('width', Math.min(svgW, 600));
+  svg.setAttribute('height', Math.min(svgH, 200));
+  svg.style.cssText = 'display:block;overflow:visible;';
+
+  var line = document.createElementNS(svgNS(), 'line');
+  line.setAttribute('x1', x1 - minX + pad);
+  line.setAttribute('y1', y1 - minY + pad);
+  line.setAttribute('x2', x2 - minX + pad);
+  line.setAttribute('y2', y2 - minY + pad);
+  line.setAttribute('stroke', resolveColor(cmd.color));
+  line.setAttribute('stroke-width', cmd.w || 2);
+  if (cmd.cmd === 'dashed') line.setAttribute('stroke-dasharray', '8 4');
+  line.setAttribute('stroke-linecap', 'round');
+  svg.appendChild(line);
+
+  var el = createElement('div', cmd, 'bd-svg-shape');
+  el.appendChild(svg);
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
+function renderSvgArrow(cmd) {
+  var x1 = cmd.x1 || 0, y1 = cmd.y1 || 0, x2 = cmd.x2 || 100, y2 = cmd.y2 || 0;
+  var w = Math.abs(x2 - x1) || 10, h = Math.abs(y2 - y1) || 10;
+  var pad = 15;
+  var svgW = w + pad * 2, svgH = Math.max(h + pad * 2, 20);
+  var minX = Math.min(x1, x2), minY = Math.min(y1, y2);
+  var color = resolveColor(cmd.color);
+
+  var svg = document.createElementNS(svgNS(), 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + svgW + ' ' + svgH);
+  svg.setAttribute('width', Math.min(svgW, 600));
+  svg.setAttribute('height', Math.min(svgH, 200));
+  svg.style.cssText = 'display:block;overflow:visible;';
+
+  // Arrowhead marker
+  var defs = document.createElementNS(svgNS(), 'defs');
+  var marker = document.createElementNS(svgNS(), 'marker');
+  marker.setAttribute('id', 'arr-' + (cmd.id || Math.random().toString(36).slice(2)));
+  marker.setAttribute('viewBox', '0 0 10 10');
+  marker.setAttribute('refX', '10'); marker.setAttribute('refY', '5');
+  marker.setAttribute('markerWidth', '8'); marker.setAttribute('markerHeight', '8');
+  marker.setAttribute('orient', 'auto-start-reverse');
+  var path = document.createElementNS(svgNS(), 'path');
+  path.setAttribute('d', 'M 0 0 L 10 5 L 0 10 z');
+  path.setAttribute('fill', color);
+  marker.appendChild(path);
+  defs.appendChild(marker);
+  svg.appendChild(defs);
+
+  var line = document.createElementNS(svgNS(), 'line');
+  line.setAttribute('x1', x1 - minX + pad);
+  line.setAttribute('y1', y1 - minY + pad);
+  line.setAttribute('x2', x2 - minX + pad);
+  line.setAttribute('y2', y2 - minY + pad);
+  line.setAttribute('stroke', color);
+  line.setAttribute('stroke-width', cmd.w || 2);
+  line.setAttribute('marker-end', 'url(#' + marker.getAttribute('id') + ')');
+  svg.appendChild(line);
+
+  var el = createElement('div', cmd, 'bd-svg-shape');
+  el.appendChild(svg);
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
+function renderSvgRect(cmd) {
+  var rw = cmd.w || 100, rh = cmd.h || 60;
+  var color = resolveColor(cmd.color);
+
+  var svg = document.createElementNS(svgNS(), 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + (rw + 4) + ' ' + (rh + 4));
+  svg.setAttribute('width', Math.min(rw + 4, 500));
+  svg.setAttribute('height', Math.min(rh + 4, 300));
+  svg.style.cssText = 'display:block;';
+
+  var rect = document.createElementNS(svgNS(), 'rect');
+  rect.setAttribute('x', 2); rect.setAttribute('y', 2);
+  rect.setAttribute('width', rw); rect.setAttribute('height', rh);
+  rect.setAttribute('stroke', color);
+  rect.setAttribute('stroke-width', cmd.lw || 1.5);
+  rect.setAttribute('fill', cmd.cmd === 'fillrect' ? color : 'none');
+  rect.setAttribute('rx', 3);
+  if (cmd.cmd === 'fillrect') rect.setAttribute('fill-opacity', '0.15');
+  svg.appendChild(rect);
+
+  var el = createElement('div', cmd, 'bd-svg-shape');
+  el.appendChild(svg);
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
+function renderSvgCircle(cmd) {
+  var r = cmd.r || 30;
+  var color = resolveColor(cmd.color);
+  var size = r * 2 + 4;
+
+  var svg = document.createElementNS(svgNS(), 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + size + ' ' + size);
+  svg.setAttribute('width', Math.min(size, 300));
+  svg.setAttribute('height', Math.min(size, 300));
+  svg.style.cssText = 'display:block;';
+
+  var circle = document.createElementNS(svgNS(), 'circle');
+  circle.setAttribute('cx', r + 2); circle.setAttribute('cy', r + 2);
+  circle.setAttribute('r', r);
+  circle.setAttribute('stroke', color);
+  circle.setAttribute('stroke-width', cmd.lw || 1.5);
+  circle.setAttribute('fill', 'none');
+  svg.appendChild(circle);
+
+  var el = createElement('div', cmd, 'bd-svg-shape');
+  el.appendChild(svg);
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
+function renderSvgDot(cmd) {
+  var r = cmd.r || 4;
+  var color = resolveColor(cmd.color);
+  var size = r * 2 + 4;
+
+  var svg = document.createElementNS(svgNS(), 'svg');
+  svg.setAttribute('viewBox', '0 0 ' + size + ' ' + size);
+  svg.setAttribute('width', size);
+  svg.setAttribute('height', size);
+  svg.style.cssText = 'display:inline-block;vertical-align:middle;';
+
+  var circle = document.createElementNS(svgNS(), 'circle');
+  circle.setAttribute('cx', r + 2); circle.setAttribute('cy', r + 2);
+  circle.setAttribute('r', r);
+  circle.setAttribute('fill', color);
+  svg.appendChild(circle);
+
+  var el = createElement('div', cmd, 'bd-svg-shape');
+  el.style.display = 'inline-block';
+  el.appendChild(svg);
+  placeElement(el, cmd.placement || 'below', cmd);
 }
 
 async function renderText(cmd) {
