@@ -9629,12 +9629,11 @@ async function bdRunCommand(cmd) {
   // Auto-scroll to keep new content visible
   bdAutoScrollToCmd(cmd);
 
-  // Skip raw shape commands without placement — they use LLM's raw coords which are wrong
-  const rawShapes = ['line', 'arrow', 'rect', 'circle', 'arc', 'freehand', 'dashed', 'dot', 'curvedarrow', 'fillrect', 'brace'];
-  if (rawShapes.includes(cmd.cmd) && !cmd._hasPlacement) {
-    console.log(`[Layout] Skipping raw shape: ${cmd.cmd} (no placement — would create artifacts)`);
-    return;
-  }
+  // Skip ALL raw shape commands — they use LLM's absolute coords which create
+  // diagonal line artifacts and gaps. The tutor should use compound commands
+  // (compare, equation, callout, etc.) for all visual structure.
+  const skipShapes = ['line', 'arrow', 'rect', 'circle', 'arc', 'freehand', 'dashed', 'dot', 'curvedarrow', 'fillrect', 'brace', 'matrix'];
+  if (skipShapes.includes(cmd.cmd)) return;
 
   switch (cmd.cmd) {
     case 'line': await bdAnimLine(cmd.x1, cmd.y1, cmd.x2, cmd.y2, cmd.color, cmd.w, cmd.dur); break;
@@ -9675,6 +9674,20 @@ async function bdRunCommand(cmd) {
 
 // ═══ Compound Command Renderers ═══
 // Each decomposes a single semantic command into multiple canvas draws.
+// cmd.x/cmd.y are ABSOLUTE (yOffset applied). Use _localY() for cursor math.
+
+function _localY(absY) {
+  return absY - (state._voiceSceneYOffset || 0);
+}
+
+function _correctCursor(absY, height) {
+  const localBottom = _localY(absY) + height + BD_ROW_GAP;
+  if (localBottom > bdLayout.cursorY) bdLayout.cursorY = localBottom;
+}
+
+function _registerElement(id, x, absY, w, h) {
+  if (id) bdElementRegistry[id] = { x, y: _localY(absY), w, h };
+}
 // They use the CURRENT layout cursor position (cmd.x, cmd.y already resolved).
 
 async function bdCompoundEquation(cmd) {
@@ -9709,9 +9722,7 @@ async function bdCompoundEquation(cmd) {
       eqTotalH = size * 1.4 + noteSize * 1.4 + 4;
     }
   }
-  // Correct cursor if note wrapped below and extended past estimate
-  const actualBottom = y + eqTotalH + BD_ROW_GAP;
-  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
+  _correctCursor(y, eqTotalH);
 }
 
 async function bdCompoundCompare(cmd) {
@@ -9768,10 +9779,8 @@ async function bdCompoundCompare(cmd) {
   bd.ctx.stroke();
 
   const totalH = curY - y;
-  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: BD_VIRTUAL_W - BD_MARGIN * 2, h: totalH };
-  // Correct cursor if actual height exceeds estimated
-  const actualBottom = y + totalH + BD_ROW_GAP;
-  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
+  _registerElement(cmd.id, x, y, BD_VIRTUAL_W - BD_MARGIN * 2, totalH);
+  _correctCursor(y, totalH);
 }
 
 async function bdCompoundStep(cmd) {
@@ -9807,7 +9816,8 @@ async function bdCompoundStep(cmd) {
   const textX = x + circleR * 2 + 8;
   await bdAnimText(cmd.text, textX, y + 3, 'white', cmd.size || 'text', cmd.charDelay);
 
-  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: 22 };
+  _registerElement(cmd.id, x, y, 400, 22);
+  _correctCursor(y, 24);
 }
 
 async function bdCompoundCheckCross(cmd, isCheck) {
@@ -9821,7 +9831,8 @@ async function bdCompoundCheckCross(cmd, isCheck) {
   bdExpandIfNeeded(y + 18);
   await bdAnimText(marker, x, y, markerColor, cmd.size || 'text', 0);
   await bdAnimText(' ' + cmd.text, x + 18, y, textColor, cmd.size || 'text', cmd.charDelay || 25);
-  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 350, h: 20 };
+  _registerElement(cmd.id, x, y, 350, 20);
+  _correctCursor(y, 22);
 }
 
 async function bdCompoundCallout(cmd) {
@@ -9849,7 +9860,8 @@ async function bdCompoundCallout(cmd) {
 
   // Draw text after the border
   await bdAnimText(cmd.text, x + padL, y + 2, color, cmd.size || 'text', cmd.charDelay);
-  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 500, h: lineH };
+  _registerElement(cmd.id, x, y, 500, lineH);
+  _correctCursor(y, lineH + 4);
 }
 
 async function bdCompoundList(cmd) {
@@ -9874,9 +9886,8 @@ async function bdCompoundList(cmd) {
   }
 
   const totalH = curY - y;
-  if (cmd.id) bdElementRegistry[cmd.id] = { x, y, w: 400, h: totalH };
-  const actualBottom = y + totalH + BD_ROW_GAP;
-  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
+  _registerElement(cmd.id, x, y, 400, totalH);
+  _correctCursor(y, totalH);
 }
 
 async function bdCompoundDivider(cmd) {
@@ -9948,9 +9959,8 @@ async function bdCompoundResult(cmd) {
     }
   }
 
-  if (cmd.id) bdElementRegistry[cmd.id] = { x: boxX, y, w: boxW, h: boxH };
-  const actualBottom = y + boxH + BD_ROW_GAP;
-  if (actualBottom > bdLayout.cursorY) bdLayout.cursorY = actualBottom;
+  _registerElement(cmd.id, boxX, y, boxW, boxH);
+  _correctCursor(y, boxH);
 }
 
 // ── p5.js Animation Engine ──
