@@ -10516,28 +10516,28 @@ async function bdRunAnimation(cmd) {
   }
   bdActiveAnimations.push(entry);
 
-  // Blank animation detection — max 2 attempts, then give up and remove
+  // Blank animation detection — max 1 Haiku attempt, then give up
   const retryKey = cmd.id || 'anon';
   if (!bd._animRetries) bd._animRetries = {};
   const attemptNum = bd._animRetries[retryKey] || 0;
-  if (attemptNum < 2) {
+  if (attemptNum < 1) {
     setTimeout(() => {
       try {
         const p5c = canvasWrap.querySelector('canvas');
         if (!p5c || p5c.width === 0) return;
-        // Sample pixels — check if canvas is all near-black
-        const ctx2 = p5c.getContext('2d');
+        // Check if canvas has ANY visible content (sample 50 pixels)
+        const ctx2 = p5c.getContext('2d', { willReadFrequently: true });
         if (!ctx2) return;
         const data = ctx2.getImageData(0, 0, p5c.width, p5c.height).data;
-        const step = Math.max(4, Math.floor(data.length / 80)) & ~3;
+        const step = Math.max(4, Math.floor(data.length / 200)) & ~3; // ~50 samples
         let nonBgCount = 0;
         for (let i = 0; i < data.length; i += step) {
-          if (data[i] > 30 || data[i+1] > 35 || data[i+2] > 30) nonBgCount++;
+          if (data[i] > 25 || data[i+1] > 30 || data[i+2] > 25) nonBgCount++;
         }
-        if (nonBgCount >= 2) return; // has content — animation is working
+        if (nonBgCount >= 3) return; // has content — animation is working
 
         bd._animRetries[retryKey] = attemptNum + 1;
-        console.warn(`[Animation] Blank detected (attempt ${attemptNum + 1}/2):`, retryKey);
+        console.warn(`[Animation] Blank detected — calling Haiku fix:`, retryKey);
         fetch(`${state.apiUrl}/api/fix-animation`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
@@ -10557,10 +10557,25 @@ async function bdRunAnimation(cmd) {
           bdAnimGiveUp(entry, container, retryKey);
         });
       } catch (e) { /* ignore */ }
-    }, 1500);
-  } else if (attemptNum >= 2) {
-    // Already tried 2 times — give up immediately
-    setTimeout(() => bdAnimGiveUp(entry, container, retryKey), 1500);
+    }, 2500);
+  } else if (attemptNum >= 1) {
+    // Already tried — give up after checking
+    setTimeout(() => {
+      try {
+        const p5c = canvasWrap.querySelector('canvas');
+        if (!p5c) return;
+        const ctx2 = p5c.getContext('2d', { willReadFrequently: true });
+        if (!ctx2) return;
+        const data = ctx2.getImageData(0, 0, p5c.width, p5c.height).data;
+        const step = Math.max(4, Math.floor(data.length / 200)) & ~3;
+        let nonBgCount = 0;
+        for (let i = 0; i < data.length; i += step) {
+          if (data[i] > 25 || data[i+1] > 30 || data[i+2] > 25) nonBgCount++;
+        }
+        if (nonBgCount >= 3) return; // fixed animation works!
+        bdAnimGiveUp(entry, container, retryKey);
+      } catch(e) { bdAnimGiveUp(entry, container, retryKey); }
+    }, 2500);
   }
 
   if (duration > 0) {

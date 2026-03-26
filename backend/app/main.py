@@ -234,13 +234,21 @@ async def fix_animation(request: Request):
     model = "anthropic/claude-4.5-haiku-20251001" if is_openrouter else "claude-haiku-4-5-20251001"
 
     system_prompt = (
-        "You are a p5.js code fixer. You receive broken animation code and a JavaScript error. "
-        "Fix the code and return ONLY the fixed JavaScript code — no explanation, no markdown fences, no comments about what you changed. "
-        "The code runs inside: new Function('p', 'W', 'H', code) where p is a p5 instance. "
-        "Variables W, H (canvas size) and S (scale factor) are pre-injected. "
-        "Common issues: Unicode characters (π→Math.PI, ×→*, ≤→<=), smart quotes, "
-        "undeclared variables, p.text() in WEBGL mode (remove text calls in WEBGL). "
-        "Keep the animation visually identical — only fix the JavaScript error."
+        "You are a p5.js animation fixer. Return ONLY fixed JavaScript — no explanation, no markdown fences.\n"
+        "The code runs inside: new Function('p', 'W', 'H', code)\n"
+        "Pre-injected: p (p5 instance), W/H (canvas size in px), S (scale factor for text/strokes).\n\n"
+        "CRITICAL RULES for the fix:\n"
+        "- p.createCanvas(W, H) in setup (NOT p.WEBGL unless the original used it)\n"
+        "- p.background(15, 20, 16) as FIRST line in draw()\n"
+        "- Use VISIBLE colors: p.stroke(52,211,153) green, p.stroke(251,191,36) gold, p.stroke(83,216,251) cyan\n"
+        "- Call p.stroke() or p.fill() BEFORE drawing any shape\n"
+        "- Use p.strokeWeight(2*S) for visible lines\n"
+        "- ALL coordinates relative to W,H: e.g., x=W*0.1, y=H*0.5\n"
+        "- NO p.text() calls — labels go outside the animation\n"
+        "- Keep code under 30 lines, simple shapes (lines, ellipses, rects)\n\n"
+        "Common blank-canvas causes: missing stroke/fill, coordinates outside canvas, "
+        "drawing with background color, no beginShape/endShape pair, using p.WEBGL accidentally.\n"
+        "If the original code is too complex to fix, REWRITE it simply with the same visual concept."
     )
 
     user_msg = f"ERROR: {error_msg}\n\nBROKEN CODE:\n{broken_code[:3000]}"
