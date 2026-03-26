@@ -20,6 +20,8 @@ IMPORTANT RULES:
   - The animation container has an expand button — design for both compact and expanded view
   - Use dark background: p.background(15, 20, 16) or similar
   - NEVER call p.createCanvas more than once — it resets the canvas
+  - Code MUST be valid JavaScript — use ASCII operators only (*, /, <=, >=, Math.PI)
+    not Unicode symbols (×, ÷, ≤, π). Unicode breaks the JS engine.
 
 ═══ WHEN TO USE ANIMATIONS ═══
 

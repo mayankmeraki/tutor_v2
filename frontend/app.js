@@ -10321,6 +10321,31 @@ async function bdRunAnimation(cmd) {
   }
   bdActiveAnimations.push(entry);
 
+  // Blank animation detection — check if anything was actually drawn after 1.5s
+  setTimeout(() => {
+    try {
+      const p5c = canvasWrap.querySelector('canvas');
+      if (!p5c || p5c.width === 0) return;
+      const ctx2 = p5c.getContext('2d');
+      if (!ctx2) return;
+      // Sample 20 random pixels across the canvas
+      const data = ctx2.getImageData(0, 0, p5c.width, p5c.height).data;
+      const step = Math.max(4, Math.floor(data.length / 80)) & ~3; // ~20 samples, aligned to 4
+      let nonBgCount = 0;
+      for (let i = 0; i < data.length; i += step) {
+        const r = data[i], g = data[i+1], b = data[i+2];
+        // Background is ~(15,20,16) — anything brighter is content
+        if (r > 30 || g > 35 || b > 30) nonBgCount++;
+      }
+      if (nonBgCount < 2) {
+        // Animation is blank — trigger silent retry immediately
+        console.warn('[Animation] Blank detected — triggering retry:', cmd.id);
+        const blankError = [{ cmd: { ...cmd, code: cmd.code }, error: 'Animation rendered blank — no visible content drawn. The code compiled but produced only a black canvas. Rewrite the drawing logic with simple, working p5.js code.' }];
+        bdSilentAnimRetry(blankError);
+      }
+    } catch (e) { /* ignore sampling errors */ }
+  }, 1500);
+
   if (duration > 0) {
     await new Promise(resolve => {
       const timer = setTimeout(() => {
@@ -10586,7 +10611,11 @@ function bdSnapshotCurrentScene() {
   const animLayer = document.getElementById('bd-anim-layer');
   if (animLayer && animLayer.children.length > 0) {
     const animWrap = document.createElement('div');
-    animWrap.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;overflow:visible;`;
+    animWrap.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;overflow:hidden;`;
+    // Re-enable pointer events on animation controls (expand button)
+    animWrap.querySelectorAll && requestAnimationFrame(() => {
+      animWrap.querySelectorAll('.bd-anim-box').forEach(box => { box.style.pointerEvents = 'auto'; });
+    });
     // Move each animation container (not clone — keeps p5 alive)
     while (animLayer.firstChild) {
       animWrap.appendChild(animLayer.firstChild);
@@ -10624,6 +10653,8 @@ function bdSnapshotCurrentScene() {
   // Reset layout for new scene
   bdLayoutReset();
   bdClearElementRegistry();
+  // Clear active animation tracking — old entries were moved to snapshot div
+  bdActiveAnimations.length = 0;
 }
 
 function bdUpdateAnimationVisibility() {
