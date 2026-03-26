@@ -10761,9 +10761,10 @@ function bdSnapshotCurrentScene() {
     return;
   }
 
-  const wrapWidth = parseFloat(bd.canvas.style.width) || bd.canvas.clientWidth;
+  const captureW = parseFloat(bd.canvas.style.width) || bd.canvas.clientWidth;
+  const captureScale = bd.scale;
 
-  // Create snapshot container — same width as live canvas
+  // Create snapshot container with EXPLICIT aspect ratio so height is deterministic
   const sceneDiv = document.createElement('div');
   sceneDiv.className = 'bd-scene-snapshot';
   sceneDiv.style.cssText = `position:relative;width:100%;`;
@@ -10771,26 +10772,34 @@ function bdSnapshotCurrentScene() {
 
   const img = document.createElement('img');
   img.src = dataUrl;
-  img.style.cssText = `width:100%;display:block;`;
+  // Explicit aspect-ratio prevents browser rounding drift across scenes
+  const aspectRatio = canvasW / actualCropH;
+  img.style.cssText = `width:100%;display:block;aspect-ratio:${aspectRatio.toFixed(6)};`;
   sceneDiv.appendChild(img);
 
-  // MOVE (not clone) animation containers into the snapshot div
-  // This preserves running p5 instances
+  // MOVE animation containers into snapshot — convert positions to PERCENTAGES
+  // so they scale with the container when its width changes (scrollbar, resize, zoom)
   const animLayer = document.getElementById('bd-anim-layer');
   if (animLayer && animLayer.children.length > 0) {
     const animWrap = document.createElement('div');
-    animWrap.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;overflow:hidden;`;
-    // Move each animation container (not clone — keeps p5 alive)
+    animWrap.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;`;
     while (animLayer.firstChild) {
       const child = animLayer.firstChild;
-      // Re-enable pointer events on anim boxes so expand button works in snapshots
       if (child.classList && child.classList.contains('bd-anim-box')) {
+        // Convert fixed pixel positions → percentages of snapshot dimensions
+        const pxLeft = parseFloat(child.style.left) || 0;
+        const pxTop = parseFloat(child.style.top) || 0;
+        const pxW = parseFloat(child.style.width) || 300;
+        const pxH = parseFloat(child.style.height) || 200;
+        child.style.left = (pxLeft / captureW * 100).toFixed(2) + '%';
+        child.style.top = (pxTop / cropH * 100).toFixed(2) + '%';
+        child.style.width = (pxW / captureW * 100).toFixed(2) + '%';
+        child.style.height = (pxH / cropH * 100).toFixed(2) + '%';
         child.style.pointerEvents = 'auto';
       }
       animWrap.appendChild(child);
     }
     sceneDiv.appendChild(animWrap);
-    // Pause the moved p5 instances
     bdActiveAnimations.forEach(entry => {
       try { entry.inst.noLoop(); } catch(e) {}
     });
@@ -10799,15 +10808,15 @@ function bdSnapshotCurrentScene() {
   // Highlight overlay for {ref:} on old scenes
   const overlay = document.createElement('div');
   overlay.className = 'bd-scene-highlight-overlay';
-  overlay.style.cssText = `position:absolute;top:0;left:0;width:100%;height:${cropH}px;pointer-events:none;z-index:10;`;
+  overlay.style.cssText = `position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;`;
   sceneDiv.appendChild(overlay);
 
   wrap.appendChild(sceneDiv);
   _sceneSnapshots.push({
     element: sceneDiv,
-    width: wrapWidth,
+    width: captureW,
     height: cropH,
-    scale: bd.scale,
+    scale: captureScale,
   });
 
   console.log(`[Snapshot] Scene ${_sceneSnapshots.length - 1} captured (${bd.canvas.style.width} × ${bd.canvas.style.height})`);
