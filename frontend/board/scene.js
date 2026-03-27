@@ -89,6 +89,8 @@ export function updateAnimationVisibility() {
     try {
       if (visible && !entry._running) {
         entry.instance.loop();
+        // Force a redraw to avoid blank canvas on resume
+        try { entry.instance.redraw(); } catch (_) {}
         entry._running = true;
       } else if (!visible && entry._running !== false) {
         entry.instance.noLoop();

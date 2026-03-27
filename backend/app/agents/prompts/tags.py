@@ -53,14 +53,27 @@ BOARD DRAW — live chalk drawing (opens in board panel):
 
   Content is JSONL — one command per line. Student sees real-time drawing.
 
-  FONT SIZES: Title 26-30 (yellow). Headings 20-22 (cyan). Labels 18-20 (min 16). LaTeX 22-26 (min 20).
+  FONT SIZES: Title 28-34 (yellow). Headings 22-26 (cyan). Labels 20-22 (min 18). LaTeX 24-30 (min 22).
   COORDINATE SYSTEM: 800px wide, height auto-grows. Origin (0,0) top-left.
 
-  LAYOUT — no overlaps, use the full 800px width:
-    Board is 800px wide. Place elements side by side OR stacked — just don't overlap.
-    Animation at x=40,y=100,w=350,h=200 → chalk labels at x=420+ (right side) are fine.
-    Text annotation at y=120 next to an animation at y=100 → fine if x ranges don't overlap.
-    BEFORE placing: mentally check the bounding box [x,y,w,h] doesn't collide with existing elements.
+  LAYOUT — USE THE FULL BOARD, NOT JUST THE LEFT SIDE:
+    Board is 800px wide. You MUST spread content across the full width.
+    DO NOT stack everything on the left — this looks mechanical and wastes space.
+
+    GOOD PATTERNS:
+    • Title centered (x=400, text-align center), equation below-left (x=40), annotation right (x=450)
+    • Animation on left (x=30,w=350), chalk labels + explanation on right (x=420+)
+    • Two-column comparison: Newton left (x=40), Quantum right (x=420)
+    • Equation centered, then annotate parts with arrows pointing from different positions
+    • Key result in callout spanning full width, then details spread below
+
+    BAD PATTERNS (avoid):
+    • Everything at x=40 stacked vertically — looks like a document, not a board
+    • All text left-aligned with nothing on the right half
+    • Same layout every time — vary position, flow, grouping per topic
+
+    BEFORE placing: mentally check bounding boxes don't collide.
+    Vary your layout — a real professor doesn't write in one column.
 
   AVAILABLE COMMANDS:
 

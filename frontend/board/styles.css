@@ -26,17 +26,17 @@
   --bd-glow: 0 0 3px currentColor;
 
   /* Sizing scale — larger for board readability */
-  --bd-h1: 34px;
-  --bd-h2: 26px;
-  --bd-h3: 22px;
-  --bd-text: 20px;
-  --bd-small: 16px;
-  --bd-label: 14px;
+  --bd-h1: 38px;
+  --bd-h2: 30px;
+  --bd-h3: 24px;
+  --bd-text: 22px;
+  --bd-small: 18px;
+  --bd-label: 15px;
 
   /* Spacing */
-  --bd-margin: 30px;
-  --bd-el-gap: 16px;
-  --bd-row-gap: 16px;
+  --bd-margin: 40px;
+  --bd-el-gap: 20px;
+  --bd-row-gap: 20px;
 }
 
 
@@ -48,12 +48,12 @@
 .bd-scene {
   position: relative;
   background: var(--bd-bg);
-  padding: 20px var(--bd-margin) 40px;
+  padding: 30px var(--bd-margin) 50px;
   font-family: var(--bd-font);
   font-size: var(--bd-text);
   color: var(--bd-white);
   line-height: 1.6;
-  min-height: 200px;
+  min-height: 100px;
   width: 100%;
 }
 
