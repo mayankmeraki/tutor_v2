@@ -131,9 +131,14 @@ Write visualization code fresh, tailored to the exact concept.
 
 ─── COMMAND FORMAT ───
 
+  PREFERRED (auto-layout, safe):
+  {"cmd":"animation","title":"Title","code":"...p5 code...","placement":"row-start","id":"anim1"}
+  Then add commentary beside it:
+  {"cmd":"text","text":"Watch how...\\n• green = ...\\n• yellow = ...","color":"white","placement":"row-next"}
+
+  ALTERNATIVE (absolute position, for diagram overlays only):
   {"cmd":"animation","x":X,"y":Y,"w":W,"h":H,"code":"...p5 code...","duration":MS}
 
-  REQUIRED: cmd, x, y (top-left, board is 800 units wide), w, h, code
   OPTIONAL: duration — ms to play before freezing. Default 6000. Range 4000-12000.
 
 ─── CODE FIELD ───
@@ -152,21 +157,28 @@ Write visualization code fresh, tailored to the exact concept.
 
 ─── EXAMPLES ───
 
-  Sorting (bubble sort — bars swapping):
-  {"cmd":"animation","x":40,"y":120,"w":720,"h":250,"duration":10000,"code":"const arr=[5,2,8,1,9,3,7,4]; let i=0,j=0,done=false; p.setup=()=>{p.createCanvas(W,H);p.frameRate(4);}; p.draw=()=>{p.background(26,29,46); const bw=(W-40)/arr.length; for(let k=0;k<arr.length;k++){const h=arr[k]*25; const c=k===j?'#ff6b6b':k===j+1?'#f5d97a':k>=arr.length-i?'#7ed99a':'#53d8fb'; p.fill(c);p.noStroke();p.rect(20+k*bw+2,H-30-h,bw-4,h,3,3,0,0); p.fill('#e8e8e0');p.textAlign(p.CENTER);p.textSize(12);p.text(arr[k],20+k*bw+bw/2,H-35-h);} if(!done){if(j<arr.length-1-i){if(arr[j]>arr[j+1]){const tmp=arr[j];arr[j]=arr[j+1];arr[j+1]=tmp;} j++;}else{i++;j=0;if(i>=arr.length-1)done=true;}} p.fill('#f5d97a');p.textSize(10);p.text(done?'Sorted!':'Pass '+(i+1),W/2,15);};"}
-
   Physics — spring/mass oscillation:
-  {"cmd":"animation","x":40,"y":120,"w":400,"h":200,"duration":8000,"code":"let y=0,v=0; const k=2,m=1,dt=0.05; p.setup=()=>{p.createCanvas(W,H);p.frameRate(30);y=60;}; p.draw=()=>{p.background(26,29,46); const a=-k/m*y-0.02*v; v+=a*dt; y+=v*dt; const cx=W/2,cy=H/2+y; p.stroke(100);p.strokeWeight(1);p.line(cx-30,10,cx+30,10); for(let i=0;i<8;i++){const s=i/8*cy,e=(i+1)/8*cy,sx=cx+(i%2?12:-12); p.stroke('#7eb8da');p.line(i?cx+(i%2?-12:12):cx,i?s:10,sx,e);} p.noStroke();p.fill('#53d8fb');p.ellipse(cx,cy+10,20,20); p.fill('#f5d97a');p.textSize(10);p.text('x='+(y).toFixed(1),cx+25,cy+10);};"}
+  {"cmd":"animation","title":"Spring Oscillation","placement":"row-start","id":"spring","duration":8000,"code":"let y=0,v=0; const k=2,m=1,dt=0.05; p.setup=()=>{p.createCanvas(W,H);p.frameRate(30);y=60;}; p.draw=()=>{p.background(26,29,46); const a=-k/m*y-0.02*v; v+=a*dt; y+=v*dt; const cx=W/2,cy=H/2+y; p.stroke(100);p.strokeWeight(1);p.line(cx-30,10,cx+30,10); for(let i=0;i<8;i++){const s=i/8*cy,e=(i+1)/8*cy,sx=cx+(i%2?12:-12); p.stroke('#7eb8da');p.line(i?cx+(i%2?-12:12):cx,i?s:10,sx,e);} p.noStroke();p.fill('#53d8fb');p.ellipse(cx,cy+10,20,20); p.fill('#f5d97a');p.textSize(10);p.text('x='+(y).toFixed(1),cx+25,cy+10);};"}
+  {"cmd":"text","text":"Hooke's law in action:\n\n• Blue ball = mass\n• Spring restores toward center\n• Damping slowly reduces amplitude","color":"white","placement":"row-next"}
 
   Generate your own code for each topic. Adapt data, logic, layout to the concept.
+  ALWAYS add {"cmd":"text",...,"placement":"row-next"} with commentary beside animations.
 
 ─── POSITIONING & LAYOUT ───
 
-  A — Animation LEFT, chalk RIGHT: anim x=40,y=120,w=360,h=220; chalk x=420+
-  B — Chalk TOP, full-width animation BELOW: title y=35; eq y=80; anim x=40,y=130,w=720,h=280
-  C — TWO side-by-side (comparison): left x=20,y=120,w=360,h=200; right x=410,y=120,w=360,h=200
-  D — STACKED (pipeline): anim1 x=40,y=80,w=720,h=100; anim2 x=40,y=210; anim3 x=40,y=340
-  E — ONE big + TWO small: main x=20,y=80,w=460,h=280; detail1 x=500,y=80,w=280,h=130; detail2 x=500,y=230
+  ALWAYS pair an animation with text beside it. NEVER place an animation alone.
+  Use placement tags for safe auto-layout:
+
+  A — Animation LEFT, commentary RIGHT (most common):
+      {"cmd":"animation","title":"...","code":"...","id":"anim1","placement":"row-start"}
+      {"cmd":"text","text":"What to watch:\n\n• ...\n• ...","color":"white","placement":"row-next"}
+
+  B — Text first, animation beside it:
+      {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","id":"eq1","placement":"row-start"}
+      {"cmd":"animation","title":"ψ evolving","code":"...","placement":"row-next"}
+
+  C — Full-width animation (rare — only if it needs the full width):
+      {"cmd":"animation","title":"...","code":"...","placement":"below"}
   SPACING: 40px gap from animation to chalk. Min animation size: 350x200.
 
 ─── USE ANIMATIONS AGGRESSIVELY ───

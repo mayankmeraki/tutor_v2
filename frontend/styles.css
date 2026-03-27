@@ -5278,5 +5278,41 @@ body.dash-bg-active .dash-bg-mask {
   display: block;
 }
 
+/* ═══ BOARD SCROLL FIX — BULLETPROOF OVERRIDES ═══
+   These !important rules ensure only bd-canvas-wrap scrolls.
+   Every parent in the chain must constrain height and hide overflow.
+   This section MUST be last to win any specificity conflicts. */
+
+#board-panel {
+  overflow: hidden !important;
+}
+
+#spotlight-content,
+.board-content,
+#spotlight-content.board-content {
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
+.board-content .bd-container,
+#spotlight-content .bd-container {
+  overflow: hidden !important;
+  display: flex !important;
+  flex-direction: column !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
+#bd-canvas-wrap,
+.bd-canvas-wrap {
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  flex: 1 !important;
+  min-height: 0 !important;
+}
+
 /* ─── Generic Hidden ────────────────────────────────────── */
 .hidden { display: none !important; }
