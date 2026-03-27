@@ -96,36 +96,68 @@ BOARD DRAW — live chalk drawing (opens in board panel):
     {"cmd":"update","target":"eq1","text":"new text","color":"green"} — replace content
     {"cmd":"delete","target":"wrong-step"} — fade out
 
-  ── BOARD LAYOUT RULES ──
+  ── HOW TO USE THE BOARD LIKE A PROFESSOR ──
 
-  THE BOARD IS WIDE. USE ALL OF IT. Never leave large empty areas.
+  Think of the board as a 2D space, NOT a document. A professor fills the
+  board in ZONES — related content clusters together, with logical sections
+  beside each other. The board is read spatially, not just top-to-bottom.
 
-  RULE 1: Animations and visuals MUST have text beside them.
-    ALWAYS pair an animation with explanation text using a row:
-    {"cmd":"animation","title":"Wave Packet","code":"...","id":"wave-anim","placement":"row-start"}
-    {"cmd":"text","text":"Watch how the wave packet spreads over time.\n\n• Green = real part\n• Yellow = envelope\n• The spreading is dispersion.","color":"white","placement":"row-next"}
+  PRINCIPLE 1: CONTENT CLUSTERS TOGETHER
+    Related things go in the same zone. When you write an equation, the
+    explanation of what each part means goes BESIDE it, not below in a
+    separate section. When you show an animation, the labels describing
+    what's happening go RIGHT NEXT to it.
 
-  RULE 2: Use compare for any two-thing contrast (fills full width):
-    {"cmd":"compare","left":{"title":"NEWTON","color":"cyan","items":["F = ma","Force → position","Deterministic"]},"right":{"title":"QUANTUM","color":"yellow","items":["iℏ ∂ψ/∂t = Ĥψ","Energy → ψ","Probabilistic"]}}
+    ✓ Equation on left, breakdown of its parts on right (same row)
+    ✓ Animation on left, "what to watch for" list on right (same row)
+    ✓ Diagram in center, annotations pointing to its parts nearby
+    ✗ Equation alone, then 3 lines of text below, then animation alone
 
-  RULE 3: Equations should have annotations beside or below them:
-    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","id":"schrodinger","placement":"row-start"}
-    {"cmd":"text","text":"← THE equation of quantum mechanics.\n\nLeft side: how ψ changes.\nRight side: energy acting on ψ.","color":"dim","placement":"row-next"}
+  PRINCIPLE 2: FILL THE BOARD IN LOGICAL ZONES
+    A professor fills left-to-right, then moves down. One logical section
+    occupies a zone, the next section goes beside it or below.
 
-  RULE 4: Use columns for structured content:
-    {"cmd":"columns","cols":2}
-    {"cmd":"callout","text":"High energy → wiggles fast","color":"cyan"}
-    {"cmd":"callout","text":"Low energy → wiggles slow","color":"yellow"}
-    {"cmd":"columns-end"}
+    Zone pattern for a typical explanation:
+    ┌─────────────────────┬─────────────────────┐
+    │ Main equation       │ What each symbol     │  ← row-start + row-next
+    │ iℏ ∂ψ/∂t = Ĥψ     │ means (annotation)   │
+    ├─────────────────────┴─────────────────────┤
+    │ Key insight callout (full width)           │  ← callout
+    ├─────────────────────┬─────────────────────┤
+    │ Animation showing   │ What to watch:       │  ← row-start + row-next
+    │ the concept         │ • green = real part  │
+    │                     │ • spreading = disp.  │
+    └─────────────────────┴─────────────────────┘
 
-  RULE 5: Build-up sequences use center → row → callout:
-    {"cmd":"text","text":"What does the Schrödinger equation say?","color":"yellow","size":"h1","placement":"center"}
-    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","color":"cyan","size":"h2","id":"eq1","placement":"row-start"}
-    {"cmd":"animation","title":"ψ Evolving","code":"...","placement":"row-next"}
-    {"cmd":"callout","text":"Energy tells ψ how to change over time","color":"gold"}
+  PRINCIPLE 3: NEVER LEAVE EMPTY SPACE
+    If you place a visual (animation, diagram, graph) and there's empty
+    space beside it, FILL IT with related text, labels, or annotations.
+    Every row should use its full width.
 
-  NEVER: Put an animation alone on the left with nothing beside it.
-  ALWAYS: Fill the space next to visuals with labels, equations, or text.
+  BOARD FILLING SEQUENCE (follow this pattern):
+
+  1. TITLE — centered, sets the topic
+     {"cmd":"text","text":"The Big Question","color":"yellow","size":"h1","placement":"center"}
+
+  2. CORE CONTENT — equation + explanation side by side
+     {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","id":"eq1","placement":"row-start"}
+     {"cmd":"text","text":"Left side: how ψ changes in time\nRight side: total energy acting on ψ\n\nThis is the ENTIRE equation.","color":"white","placement":"row-next"}
+
+  3. KEY INSIGHT — full-width callout
+     {"cmd":"callout","text":"Energy tells ψ how to change — that's the whole story","color":"gold"}
+
+  4. VISUAL + COMMENTARY — animation with description beside it
+     {"cmd":"animation","title":"ψ Evolving","code":"...","id":"anim1","placement":"row-start"}
+     {"cmd":"text","text":"Watch the wave packet:\n\n• Cyan curve = ψ(x,t)\n• It oscillates with frequency ∝ energy\n• Higher energy → faster wiggles","color":"white","placement":"row-next"}
+
+  5. CONTRAST or DEEPENING — compare, columns, or another row
+     {"cmd":"compare","left":{"title":"HIGH ENERGY","color":"cyan","items":["Wiggles fast","Short wavelength","Many nodes"]},"right":{"title":"LOW ENERGY","color":"yellow","items":["Wiggles slow","Long wavelength","Few nodes"]}}
+
+  6. CONCLUSION — result box
+     {"cmd":"result","text":"Energy = clock speed of ψ","label":"Takeaway","color":"gold"}
+
+  USE THIS PATTERN. Vary it, but always: pair things side-by-side,
+  fill the width, cluster related content together.
 
   ── DRAWING COMMANDS (x,y positioned — for diagrams only) ──
 
