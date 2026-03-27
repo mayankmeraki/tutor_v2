@@ -140,28 +140,45 @@ BOARD DRAW — live chalk drawing (opens in board panel):
      These small pointers connect ideas without taking up space.
      Use annotate command or dim text with row-next placement.
 
-  BOARD FILLING TEMPLATE:
+  BOARD LAYOUT PATTERNS — pick a DIFFERENT one each time:
 
-  {"cmd":"text","text":"What does the Schrödinger equation really say?","color":"yellow","size":"h1","placement":"center"}
-  {"cmd":"voice","text":"Let's start with the big question."}
-  {"cmd":"pause","ms":600}
-  {"cmd":"text","text":"Classical world:","color":"cyan","size":"small"}
-  {"cmd":"equation","text":"F = ma","note":"→ forces drive position","color":"cyan","id":"classical"}
-  {"cmd":"text","text":"Quantum world:","color":"yellow","size":"small"}
-  {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"→ energy drives ψ","color":"yellow","size":"h2","id":"schrodinger"}
-  {"cmd":"voice","text":"Same idea. Different world. Energy tells psi how to change."}
-  {"cmd":"callout","text":"Energy landscape → dictates how ψ evolves in time","color":"gold"}
-  {"cmd":"animation","title":"ψ Evolving in Time","code":"...","id":"wave-anim","placement":"row-start"}
-  {"cmd":"text","text":"Watch the wave function:\n\n• Cyan = ψ(x,t) oscillating\n• Yellow envelope = |ψ|² probability\n• Higher energy → faster oscillation\n• The shape of V(x) controls everything","color":"white","placement":"row-next"}
-  {"cmd":"voice","text":"See how the shape of the potential determines the wiggling."}
-  {"cmd":"result","text":"Schrödinger's equation is Newton's law for quantum systems","label":"Bottom Line","color":"gold"}
+  PATTERN A: "Question → Build-Up → Visual"
+    Title as question (center) → section labels + equations with notes →
+    callout with key insight → animation beside commentary
+    Good for: introducing a new concept from scratch.
 
-  VARY THIS. Don't repeat the same layout every time:
-  - Sometimes lead with the animation, then explain beside it
-  - Sometimes build up steps (step 1, step 2, step 3)
-  - Sometimes start with a compare, then zoom into one side
-  - Sometimes use columns for parallel concepts
-  But ALWAYS: pair things together, fill the width, tell a story.
+  PATTERN B: "Visual First → Explain"
+    Lead with the animation (row-start) + "what to watch" (row-next) →
+    equation that describes what you just saw → callout with takeaway
+    Good for: when seeing it first builds intuition.
+
+  PATTERN C: "Contrast → Zoom In"
+    Compare command (two columns: old vs new, classical vs quantum) →
+    zoom into one side with equation + annotation → animation of that side
+    Good for: when two ideas need to be contrasted.
+
+  PATTERN D: "Step-by-Step Derivation"
+    Step 1 + step 2 + step 3 (each with equations) →
+    result box with final answer → animation showing the result in action
+    Good for: derivations, proofs, multi-step reasoning.
+
+  PATTERN E: "Central Idea + Branches"
+    Big equation centered → columns with 2-3 implications side by side →
+    animation showing the most important implication
+    Good for: unpacking one equation into its consequences.
+
+  PATTERN F: "Story Arc"
+    Text as opening hook ("imagine you have...") →
+    equation that formalizes the story → compare (with vs without) →
+    animation + commentary → result as punchline
+    Good for: making abstract ideas concrete.
+
+  RULES FOR ALL PATTERNS:
+  • Animations ALWAYS have text beside them (row-start + row-next)
+  • Equations have annotations: note="→ what this means" or dim text beside
+  • Fill the width — no empty right halves
+  • Use voice commands between logical sections for narration
+  • Use pause commands (300-800ms) between sections for pacing
 
   ── DRAWING COMMANDS (x,y positioned — for diagrams only) ──
 
