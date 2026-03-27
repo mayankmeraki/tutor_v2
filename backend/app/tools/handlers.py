@@ -5,7 +5,12 @@ import math
 
 logger = logging.getLogger(__name__)
 
-from app.services.content_service import get_learning_tool_by_id, get_section_full
+from app.services.content_service import (
+    get_learning_tool_by_id,
+    get_section_full,
+    get_sections_for_lesson,
+    get_enriched_section,
+)
 
 
 async def get_section_content(lesson_id: int, section_index: int) -> str:
@@ -45,6 +50,82 @@ async def get_section_content(lesson_id: int, section_index: int) -> str:
     if data.get("formulas") and isinstance(data["formulas"], list):
         lines.append(f"\nFormulas: {', '.join(data['formulas'])}")
 
+    return "\n".join(lines)
+
+
+def _fmt_time(seconds: float) -> str:
+    m = math.floor(seconds / 60)
+    s = round(seconds % 60)
+    return f"{m}:{s:02d}"
+
+
+async def get_transcript_context(lesson_id: int, timestamp: float) -> str:
+    """Return transcript segments in a window around the given timestamp (60s before, 30s after)."""
+    logger.debug("get_transcript_context lesson_id=%d timestamp=%.1f", lesson_id, timestamp)
+    sections = await get_sections_for_lesson(lesson_id)
+    if not sections:
+        return f"No sections found for lesson {lesson_id}."
+
+    target = None
+    for sec in sections:
+        if sec.get("start_seconds", 0) <= timestamp <= sec.get("end_seconds", 0):
+            target = sec
+            break
+    if not target:
+        target = min(sections, key=lambda s: abs(s.get("start_seconds", 0) - timestamp))
+
+    full = await get_section_full(lesson_id, target.get("index", 0))
+    if not full:
+        return f"Section data not available for lesson {lesson_id} at {timestamp}s."
+
+    lines = [f"Section: {full.get('title', '')}", f"Timestamps: {_fmt_time(full.get('start_seconds', 0))} – {_fmt_time(full.get('end_seconds', 0))}", f"Student paused at: {_fmt_time(timestamp)}", ""]
+
+    segments = full.get("segments")
+    if segments and isinstance(segments, list):
+        win_start, win_end = timestamp - 60, timestamp + 30
+        windowed = []
+        for seg in segments:
+            seg_time = seg.get("timestamp", seg.get("start", full.get("start_seconds", 0))) if isinstance(seg, dict) else full.get("start_seconds", 0)
+            seg_text = seg.get("text", "") if isinstance(seg, dict) else str(seg)
+            if isinstance(seg_time, (int, float)) and win_start <= seg_time <= win_end:
+                windowed.append(f"[{_fmt_time(seg_time)}] {seg_text}")
+        transcript = "\n".join(windowed) if windowed else " ".join(s.get("text", s) if isinstance(s, dict) else str(s) for s in segments)
+    else:
+        transcript = full.get("transcript", "")
+
+    if len(transcript) > 3200:
+        transcript = transcript[:3200] + "..."
+    lines.append(f"Transcript:\n{transcript}")
+
+    kp = full.get("key_points")
+    if kp and isinstance(kp, list):
+        lines.append("\nKey points: " + "; ".join(kp[:5]))
+    concepts = full.get("concepts")
+    if concepts and isinstance(concepts, list):
+        lines.append(f"Concepts: {', '.join(concepts)}")
+    return "\n".join(lines)
+
+
+async def get_section_brief(lesson_id: int, section_index: int) -> str:
+    """Return a compact teaching brief from enriched_sections."""
+    logger.debug("get_section_brief lesson_id=%d section_index=%d", lesson_id, section_index)
+    enriched = await get_enriched_section(lesson_id, section_index)
+    if enriched:
+        lines = [f"Section: {enriched.get('title', '')}", f"Timestamps: {_fmt_time(enriched.get('start_seconds', 0))} – {_fmt_time(enriched.get('end_seconds', 0))}"]
+        if enriched.get("teaching_summary"): lines.append(f"\nSummary: {enriched['teaching_summary']}")
+        if enriched.get("key_pedagogical_points"): lines.extend(["Key teaching points:"] + [f"  • {p}" for p in enriched["key_pedagogical_points"]])
+        if enriched.get("notable_examples"): lines.extend(["Professor's examples:"] + [f"  – {ex}" for ex in enriched["notable_examples"]])
+        if enriched.get("professor_framing"): lines.append(f"How professor frames it: {enriched['professor_framing']}")
+        if enriched.get("concepts"): lines.append(f"Concepts: {', '.join(enriched['concepts'])}")
+        return "\n".join(lines)
+
+    data = await get_section_full(lesson_id, section_index)
+    if not data:
+        return f"Section {lesson_id}:{section_index} not found."
+    lines = [f"Section: {data.get('title', '')}"]
+    if data.get("summary"): lines.append(f"Summary: {data['summary']}")
+    if data.get("key_points"): lines.extend(["Key points:"] + [f"  • {p}" for p in data["key_points"]])
+    if data.get("concepts"): lines.append(f"Concepts: {', '.join(data['concepts'])}")
     return "\n".join(lines)
 
 

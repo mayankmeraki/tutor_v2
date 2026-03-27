@@ -49,6 +49,8 @@ from app.tools import (
     COMPLETE_ASSESSMENT_TOOL,
     HANDBACK_TO_TUTOR_TOOL,
     RETURN_TO_TUTOR_TOOL,
+    VIDEO_FOLLOW_TOOLS,
+    VIDEO_CONTROL_TOOLS,
     execute_tutor_tool,
     execute_mql_tool,
 )
@@ -129,6 +131,7 @@ def extract_context(context_items: list[dict] | None) -> dict:
         "active simulation state": "activeSimulation",
         "active board": "activeBoard",
         "previous boards": "previousBoards",
+        "video state": "videoState",
     }
     for item in context_items or []:
         desc = (item.get("description") or "").lower()
@@ -1379,10 +1382,15 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 session.agent_runtime = AgentRuntime(session_id=session_id)
             runtime = session.agent_runtime
 
-            # ── Step 2a: Auto-spawn planning agent on session start ───
+            # ── Step 2a: Detect video follow-along mode ───────────────
+            is_video_mode = bool(context_data.get("videoState"))
+            if is_video_mode:
+                session.active_scenario = "video_follow"
+
+            # ── Step 2b: Auto-spawn planning agent on session start ───
             # Pre-spawn so plan builds while tutor greets / calibrates.
-            # Tutor's first response doesn't wait — plan lands next turn.
-            if is_session_start and not session.current_plan and context_data.get("courseMap"):
+            # Skip in video mode — the video IS the plan.
+            if is_session_start and not session.current_plan and context_data.get("courseMap") and not is_video_mode:
                 collection_id_check = _extract_collection_id(context_data)
                 if not collection_id_check:  # skip BYO — only course mode
                     _auto_spawn_planner(session, runtime, context_data, slog)
@@ -1588,7 +1596,11 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                     "planAccountability": _build_plan_accountability(session),
                     "teachingMode": teaching_mode,
                 })
-                active_tools = TUTOR_TOOLS
+                if is_video_mode:
+                    active_tools = VIDEO_FOLLOW_TOOLS
+                    slog.info("Video follow-along mode: using VIDEO_FOLLOW_TOOLS")
+                else:
+                    active_tools = TUTOR_TOOLS
 
             prompt_size = sum(len(p) for p in tutor_prompt) if isinstance(tutor_prompt, tuple) else len(tutor_prompt)
             slog.info("Tutor prompt built", extra={"token_count": prompt_size // 4})
@@ -2230,6 +2242,16 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                             except Exception as e:
                                 slog.error("MQL tool failed: %s", e, exc_info=True, extra={"tool": block.name})
                                 result = f"Tool error ({block.name}): {str(e)[:200]}"
+
+                        # ── Video control tools (resume/seek) ────────
+                        elif block.name in VIDEO_CONTROL_TOOLS:
+                            if block.name == "resume_video":
+                                yield _sse({"type": "VIDEO_RESUME", "message": block.input.get("message", "")})
+                                result = "Video playback resumed."
+                            elif block.name == "seek_video":
+                                ts = float(block.input.get("timestamp", 0))
+                                yield _sse({"type": "VIDEO_SEEK", "timestamp": ts})
+                                result = f"Video seeked to {ts:.0f}s."
 
                         # ── Normal tool execution ─────────────────────
                         else:

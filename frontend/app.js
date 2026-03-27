@@ -1554,6 +1554,14 @@ function handleSSEEvent(event) {
       handleSimControl(event.steps);
       break;
 
+    case 'VIDEO_RESUME':
+      if (typeof vmResumeVideo === 'function') vmResumeVideo();
+      break;
+
+    case 'VIDEO_SEEK':
+      if (typeof vmSeekVideo === 'function') vmSeekVideo(event.timestamp);
+      break;
+
     case 'VISUAL_READY':
       state.generatedVisuals[event.id] = { title: event.title, html: event.html };
       break;
@@ -1802,6 +1810,20 @@ function buildContext() {
     items.push({
       description: 'Course Concepts — all concepts taught in this course',
       value: `${state.concepts.length} concepts by category:\n${lines.join('\n')}`,
+    });
+  }
+
+  // Context: Video State (if in video follow-along mode)
+  if (state.video && state.video.active) {
+    items.push({
+      description: 'Video State',
+      value: JSON.stringify({
+        lessonId: state.video.lessonId,
+        lessonTitle: state.video.lessonTitle,
+        currentTimestamp: state.video.currentTimestamp,
+        currentSectionIndex: state.video.currentSectionIndex,
+        sectionTitle: state.video.sectionTitle,
+      }),
     });
   }
 
@@ -13716,9 +13738,7 @@ function _nlShowChoice(courseId, lessonId, title) {
 }
 
 function _nlStartVideo(courseId, lessonId) {
-  // TODO: integrate with video follow-along mode
-  alert('Video follow-along coming soon! Starting AI tutor instead.');
-  _nlStartTutor(courseId, '');
+  vmStartVideoForLesson(courseId, lessonId);
 }
 
 function _nlStartTutor(courseId, title) {
@@ -13793,4 +13813,161 @@ document.addEventListener('DOMContentLoaded', () => {
 
   // Start typing animation
   setTimeout(_nlTypeLoop, 1000);
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VIDEO FOLLOW-ALONG MODE
+// ═══════════════════════════════════════════════════════════════════════════════
+
+state.video = { active: false, courseId: null, lessonId: null, lessonTitle: '', currentTimestamp: 0, currentSectionIndex: 0, sectionTitle: '', isPaused: false, player: null, sections: [], lessons: [], lessonIndex: 0 };
+
+let _ytApiLoaded = false, _ytApiLoading = false;
+
+function _loadYTApi() {
+  if (_ytApiLoaded || _ytApiLoading) return Promise.resolve();
+  _ytApiLoading = true;
+  return new Promise(resolve => {
+    const tag = document.createElement('script');
+    tag.src = 'https://www.youtube.com/iframe_api';
+    document.head.appendChild(tag);
+    window.onYouTubeIframeAPIReady = () => { _ytApiLoaded = true; _ytApiLoading = false; resolve(); };
+  });
+}
+
+function _extractYTVideoId(url) {
+  if (!url) return null;
+  const m = url.match(/(?:youtu\.be\/|v=|\/embed\/)([A-Za-z0-9_-]{11})/);
+  return m ? m[1] : null;
+}
+
+// Called from search results when user picks "Watch the lecture video"
+async function vmStartVideoForLesson(courseId, lessonId) {
+  state.video.active = true;
+  state.video.courseId = courseId;
+  state.video.lessonId = lessonId;
+
+  // Load course map
+  try {
+    const data = await fetchJSON(`/courses/${courseId}`);
+    state.courseMap = data;
+    state.courseId = courseId;
+    const lessons = [...(data.lessons || [])].sort((a, b) => a.module_id !== b.module_id ? a.module_id - b.module_id : a.order - b.order);
+    state.video.lessons = lessons;
+    const idx = lessons.findIndex(l => l.id === lessonId);
+    state.video.lessonIndex = idx >= 0 ? idx : 0;
+    const lesson = lessons[state.video.lessonIndex];
+    state.video.lessonTitle = lesson?.title || '';
+    state.video.lessonId = lesson?.id || lessonId;
+  } catch (e) { console.error('Failed to load course:', e); }
+
+  // Load sections
+  try {
+    state.video.sections = await fetch(`${state.apiUrl}/api/v1/content/lessons/${state.video.lessonId}/sections`, { headers: AuthManager.authHeaders() }).then(r => r.json()) || [];
+  } catch (e) { state.video.sections = []; }
+
+  // Show teaching layout (full-width board, no chat panel)
+  document.body.classList.add('video-mode');
+  const panels = ['landing-panel', 'setup-panel', 'login-panel'];
+  panels.forEach(id => { const el = document.getElementById(id); if (el) { el.style.display = 'none'; el.classList.add('hidden'); } });
+  document.getElementById('teaching-layout').classList.remove('hidden');
+  document.getElementById('teaching-layout').style.display = 'flex';
+
+  // Create session silently
+  state.sessionId = generateId();
+  state.sessionStartTime = Date.now();
+  state.messages = [];
+  state.studentIntent = `Video follow-along: ${state.video.lessonTitle}`;
+  state.checkpoint.currentLessonId = state.video.lessonId;
+
+  try {
+    await SessionManager.createSession(courseId, state.studentName, state.studentIntent, { lessonId: state.video.lessonId, sectionIndex: 0, completedCourseSections: [] }, 1);
+  } catch (e) {}
+
+  Router.navigate(`/session/${state.sessionId}`, { replace: true, skipHandler: true });
+
+  // Load YouTube player
+  await _loadYTApi();
+  const overlay = document.getElementById('vm-video-overlay');
+  overlay.classList.remove('hidden');
+
+  // Ensure player div exists
+  const box = overlay.querySelector('.vm-vid-box');
+  if (!document.getElementById('vm-yt-player')) box.innerHTML = '<div id="vm-yt-player"></div>';
+  document.getElementById('vm-vid-wrap').classList.remove('vm-mini');
+
+  const videoId = _extractYTVideoId(state.video.lessons[state.video.lessonIndex]?.video_url);
+  if (!videoId) return;
+
+  if (state.video.player?.destroy) { try { state.video.player.destroy(); } catch (e) {} }
+
+  state.video.player = new YT.Player('vm-yt-player', {
+    videoId,
+    playerVars: { autoplay: 1, rel: 0, modestbranding: 1, enablejsapi: 1, origin: window.location.origin },
+    events: { onStateChange: _vmOnStateChange },
+  });
+}
+
+function _vmOnStateChange(event) {
+  if (!state.video.active) return;
+  if (event.data === YT.PlayerState.PAUSED) _vmOnPause();
+  else if (event.data === YT.PlayerState.PLAYING && state.video.isPaused) _vmOnResume();
+}
+
+function _vmOnPause() {
+  if (state.video.isPaused) return;
+  state.video.isPaused = true;
+  if (state.video.player?.getCurrentTime) state.video.currentTimestamp = state.video.player.getCurrentTime();
+
+  const t = state.video.currentTimestamp;
+  const section = state.video.sections.find(s => s.start_seconds <= t && s.end_seconds >= t) || state.video.sections[state.video.sections.length - 1];
+  if (section) { state.video.currentSectionIndex = section.index; state.video.sectionTitle = section.title || ''; }
+
+  document.getElementById('vm-vid-wrap').classList.add('vm-mini');
+  const chatWrap = document.getElementById('vm-chat-wrap');
+  if (chatWrap) chatWrap.classList.add('vm-show');
+  const input = document.getElementById('vm-chat-input');
+  if (input) setTimeout(() => input.focus(), 400);
+}
+
+function _vmOnResume() {
+  state.video.isPaused = false;
+  document.getElementById('vm-vid-wrap').classList.remove('vm-mini');
+  const chatWrap = document.getElementById('vm-chat-wrap');
+  if (chatWrap) chatWrap.classList.remove('vm-show');
+}
+
+function vmResumeVideo() {
+  if (state.video.player?.playVideo) state.video.player.playVideo();
+  _vmOnResume();
+}
+
+function vmSeekVideo(timestamp) {
+  if (state.video.player?.seekTo) state.video.player.seekTo(timestamp, true);
+  state.video.currentTimestamp = timestamp;
+}
+
+function cleanupVideoMode() {
+  state.video.active = false;
+  document.body.classList.remove('video-mode');
+  if (state.video.player?.destroy) { try { state.video.player.destroy(); } catch (e) {} state.video.player = null; }
+  const overlay = document.getElementById('vm-video-overlay');
+  if (overlay) { overlay.classList.add('hidden'); const box = overlay.querySelector('.vm-vid-box'); if (box && !document.getElementById('vm-yt-player')) box.innerHTML = '<div id="vm-yt-player"></div>'; }
+  document.getElementById('vm-chat-wrap')?.classList.remove('vm-show');
+}
+
+// Chat input → send via streamADK
+function _vmSendMessage() {
+  const input = document.getElementById('vm-chat-input');
+  const text = (input?.value || '').trim();
+  if (!text || state.isStreaming) return;
+  input.value = '';
+  streamADK(text, false, false);
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  const sendBtn = document.getElementById('vm-send-btn');
+  const chatInput = document.getElementById('vm-chat-input');
+  if (sendBtn) sendBtn.addEventListener('click', _vmSendMessage);
+  if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _vmSendMessage(); } });
 });

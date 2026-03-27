@@ -10,6 +10,7 @@ from .scenarios.exam import SKILL_EXAM_FULL
 from .scenarios.exam_topic import SKILL_EXAM_TOPIC
 from .scenarios.conceptual import SKILL_CONCEPTUAL
 from .scenarios.curiosity import SKILL_FREE
+from .scenarios.video_follow import SKILL_VIDEO_FOLLOW
 
 SKILL_MAP: dict[str, str | None] = {
     "course": SKILL_COURSE,
@@ -18,6 +19,7 @@ SKILL_MAP: dict[str, str | None] = {
     "problem": None,
     "conceptual": SKILL_CONCEPTUAL,
     "free": SKILL_FREE,
+    "video_follow": SKILL_VIDEO_FOLLOW,
 }
 
 
@@ -283,6 +285,21 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     session_metrics = context_data.get("sessionMetrics")
     if session_metrics:
         parts.append(f"[Session Metrics]\n{session_metrics}\n")
+
+    # Video follow-along state
+    video_state_raw = context_data.get("videoState")
+    if video_state_raw:
+        import json as _json
+        try:
+            vs = _json.loads(video_state_raw) if isinstance(video_state_raw, str) else video_state_raw
+        except (ValueError, TypeError):
+            vs = {}
+        if vs:
+            parts.append("[VIDEO FOLLOW-ALONG — Student paused a lecture video]")
+            parts.append(f"Lesson: {vs.get('lessonTitle', '?')} (ID: {vs.get('lessonId', '?')})")
+            parts.append(f"Paused at: {vs.get('currentTimestamp', 0):.0f}s")
+            parts.append(f"Section: [{vs.get('currentSectionIndex', 0)}] {vs.get('sectionTitle', '?')}")
+            parts.append("The student paused to ask you a question.\n")
 
     active_sim = context_data.get("activeSimulation")
     if active_sim:

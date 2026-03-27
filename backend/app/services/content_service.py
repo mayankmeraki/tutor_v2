@@ -100,6 +100,20 @@ async def get_lesson_sections_lightweight(lesson_id: int) -> list[dict]:
     return [_serialize_mongo(doc) async for doc in cursor]
 
 
+async def get_sections_for_lesson(lesson_id: int) -> list[dict]:
+    """Alias for get_lesson_sections_lightweight."""
+    return await get_lesson_sections_lightweight(lesson_id)
+
+
+async def get_enriched_section(lesson_id: int, section_index: int) -> dict | None:
+    """Return enriched teaching data for a section, if available."""
+    db = get_mongo_db()
+    doc = await db.enriched_sections.find_one(
+        {"lesson_id": lesson_id, "section_index": section_index}
+    )
+    return _serialize_mongo(doc) if doc else None
+
+
 async def get_section_full(lesson_id: int, section_index: int) -> dict | None:
     db = get_mongo_db()
     doc = await db.sections.find_one({"lesson_id": lesson_id, "index": section_index})

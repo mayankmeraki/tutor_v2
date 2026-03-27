@@ -8,7 +8,7 @@ get_simulation_details, etc.).
 import json
 import logging
 
-from .handlers import get_section_content, get_simulation_details
+from .handlers import get_section_content, get_simulation_details, get_transcript_context, get_section_brief
 from .search_images import search_images
 from .web_search import web_search
 
@@ -898,6 +898,12 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
             return await get_simulation_details(tool_input["simulation_id"])
         elif name == "get_section_content":
             return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
+        elif name == "get_transcript_context":
+            return await get_transcript_context(int(tool_input["lesson_id"]), float(tool_input["timestamp"]))
+        elif name == "get_section_brief":
+            return await get_section_brief(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
+        elif name in ("resume_video", "seek_video"):
+            return "OK"  # control tools handled by chat.py SSE
         else:
             return f"Unknown tool: {name}"
     except KeyError as e:
@@ -976,3 +982,16 @@ async def execute_mql_tool(name: str, tool_input: dict, collection_id: str, user
 
 # Set of MQL tool names for dispatch routing
 MQL_TOOL_NAMES = {t["name"] for t in MQL_TOOLS}
+
+# ── Video Follow-Along Tools ─────────────────────────────────────────────────
+
+VIDEO_FOLLOW_TOOLS = [
+    t for t in TUTOR_TOOLS if t["name"] in ("search_images", "web_search", "get_section_content", "update_student_model")
+] + [
+    {"name": "get_transcript_context", "description": "Get the professor's words around a specific moment in the lecture (~60s before, ~30s after). Use to understand what the student just heard.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "timestamp": {"type": "number", "description": "Seconds"}}, "required": ["lesson_id", "timestamp"]}},
+    {"name": "get_section_brief", "description": "Get a concise teaching brief for a lecture section: key points, examples, how the professor frames it.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "section_index": {"type": "number"}}, "required": ["lesson_id", "section_index"]}},
+    {"name": "resume_video", "description": "Resume video playback. Call when you've answered the student's question. Do NOT ask 'shall we continue?' — just call this.", "input_schema": {"type": "object", "properties": {"message": {"type": "string", "description": "Optional brief note before resuming"}}, "required": []}},
+    {"name": "seek_video", "description": "Seek the video to a specific timestamp. Use to point the student to a relevant moment.", "input_schema": {"type": "object", "properties": {"timestamp": {"type": "number"}, "reason": {"type": "string"}}, "required": ["timestamp"]}},
+]
+
+VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video"}

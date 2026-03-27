@@ -5389,6 +5389,29 @@ body.dash-bg-active .dash-bg-mask {
 /* Results container transition */
 .nl-results { transition: opacity 0.2s ease; }
 
+/* ═══ Video Follow-Along Overlay ═══ */
+body.video-mode #chat-panel, body.video-mode #split-handle { display: none !important; }
+body.video-mode #board-panel { flex: 1 !important; }
+body.video-mode #top-bar, body.video-mode #plan-heading-bar { display: none !important; }
+
+.vm-overlay { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
+.vm-overlay .vm-vid-wrap, .vm-overlay .vm-chat-wrap { pointer-events: all; }
+
+.vm-vid-wrap { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; z-index: 50; background: rgba(0,0,0,0.55); backdrop-filter: blur(3px); transition: all 0.4s cubic-bezier(0.4,0,0.2,1); }
+.vm-vid-wrap.vm-mini { inset: auto; top: 12px; right: 12px; background: none; backdrop-filter: none; z-index: 90; }
+.vm-vid-box { width: 86%; max-width: 1100px; background: #000; border-radius: 12px; overflow: hidden; box-shadow: 0 24px 64px rgba(0,0,0,0.5); transition: all 0.4s cubic-bezier(0.4,0,0.2,1); }
+.vm-vid-wrap.vm-mini .vm-vid-box { width: 300px; max-width: 300px; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.7); }
+#vm-yt-player { width: 100%; aspect-ratio: 16/9; }
+
+.vm-chat-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: 500px; max-width: 80%; z-index: 9010; display: none; }
+.vm-chat-wrap.vm-show { display: block; }
+.vm-chat-bar { display: flex; align-items: center; gap: 8px; padding: 6px 6px 6px 18px; background: var(--bg-surface); border: 1px solid var(--border); border-radius: 26px; box-shadow: 0 8px 28px rgba(0,0,0,0.5); }
+.vm-chat-input { flex: 1; background: none; border: none; color: var(--text); font-size: 14px; font-family: var(--font-sans); outline: none; }
+.vm-chat-input::placeholder { color: var(--text-dim); }
+.vm-chat-btn { width: 36px; height: 36px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex-shrink: 0; border: none; cursor: pointer; }
+.vm-chat-btn svg { width: 16px; height: 16px; }
+.vm-send-btn { background: var(--accent); color: var(--bg); }
+
 /* ═══ BOARD SCROLL FIX — BULLETPROOF OVERRIDES ═══
    These !important rules ensure only bd-canvas-wrap scrolls.
    Every parent in the chain must constrain height and hide overflow.
