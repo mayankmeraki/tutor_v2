@@ -187,6 +187,75 @@ async def search_content(query: str, limit: int = 10) -> list[dict]:
         results.append(_serialize_mongo(doc))
 
     log.info("Text search for '%s': %d results", query[:40], len(results))
+
+    # Re-rank with Haiku for relevance
+    if results and len(results) > 1:
+        results = await _rerank_with_haiku(query, results)
+
+    return results
+
+
+async def _rerank_with_haiku(query: str, results: list[dict]) -> list[dict]:
+    """Use Haiku to re-rank search results by relevance to the query."""
+    import json
+    import logging
+    log = logging.getLogger(__name__)
+
+    try:
+        from app.core.config import settings
+        import httpx
+
+        # Build candidate list for Haiku
+        candidates = []
+        for i, r in enumerate(results):
+            candidates.append(f"{i}. [{r['type']}] {r['title']}" + (f" — {r.get('description', '')[:100]}" if r.get('description') else ""))
+
+        prompt = f"""Given the search query: "{query}"
+
+Rank these results by relevance (most relevant first). Return ONLY the numbers as a comma-separated list, most relevant first. Include only results that are actually relevant — drop irrelevant ones.
+
+{chr(10).join(candidates)}
+
+Response (just numbers, e.g. "3,1,5,0"):"""
+
+        api_key = settings.OPENROUTER_API_KEY
+        if not api_key:
+            return results
+
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": "openai/gpt-5.4-nano",
+                    "max_tokens": 100,
+                    "messages": [{"role": "user", "content": prompt}],
+                },
+            )
+
+            if resp.status_code != 200:
+                log.warning("Haiku rerank failed: %d", resp.status_code)
+                return results
+
+            text = resp.json()["choices"][0]["message"]["content"].strip()
+            # Parse indices
+            indices = []
+            for part in text.replace(" ", "").split(","):
+                try:
+                    idx = int(part.strip())
+                    if 0 <= idx < len(results):
+                        indices.append(idx)
+                except ValueError:
+                    continue
+
+            if indices:
+                reranked = [results[i] for i in indices if i < len(results)]
+                log.info("Haiku reranked '%s': %d → %d results", query[:30], len(results), len(reranked))
+                return reranked
+
+    except Exception as e:
+        log.warning("Haiku rerank error: %s", e)
+
     return results
 
 
