@@ -40,44 +40,83 @@ BOARD DRAW — live chalk drawing (opens in board panel):
   Attributes:
     title (required) — board header text
     clear (optional, default "true") — "false" keeps existing drawing and adds on top
-  Example: <teaching-board-draw title="Step 2" clear="false">
-  {"cmd":"text","text":"Forces on an Inclined Plane","x":160,"y":30,"color":"yellow","size":28}
-  {"cmd":"voice","text":"Let me draw the forces acting on this block..."}
-  {"cmd":"line","x1":100,"y1":350,"x2":500,"y2":350,"color":"white","w":2.5}
-  {"cmd":"rect","x":250,"y":220,"w":60,"h":50,"color":"white","lw":2}
-  {"cmd":"arrow","x1":280,"y1":245,"x2":280,"y2":145,"color":"cyan","w":2}
-  {"cmd":"text","text":"N (normal)","x":290,"y":140,"color":"cyan","size":18}
-  {"cmd":"latex","tex":"F_g = mg","x":290,"y":395,"color":"yellow","size":20}
-  {"cmd":"pause","ms":500}
-  </teaching-board-draw>
 
   Content is JSONL — one command per line. Student sees real-time drawing.
 
-  FONT SIZES: Title 28-34 (yellow). Headings 22-26 (cyan). Labels 20-22 (min 18). LaTeX 24-30 (min 22).
-  COORDINATE SYSTEM: 800px wide, height auto-grows. Origin (0,0) top-left.
+  ═══ TWO COMMAND SYSTEMS ═══
 
-  LAYOUT — USE THE FULL BOARD, NOT JUST THE LEFT SIDE:
-    Board is 800px wide. You MUST spread content across the full width.
-    DO NOT stack everything on the left — this looks mechanical and wastes space.
+  Use CONTENT COMMANDS for text, equations, explanations — they auto-layout safely.
+  Use DRAWING COMMANDS (x,y positioned) for diagrams, shapes, arrows, annotations.
+  NEVER use drawing commands (x,y) for body text — that causes overlap.
+  A typical board mixes both: content commands for explanations, drawings for diagrams.
 
-    GOOD PATTERNS:
-    • Title centered (x=400, text-align center), equation below-left (x=40), annotation right (x=450)
-    • Animation on left (x=30,w=350), chalk labels + explanation on right (x=420+)
-    • Two-column comparison: Newton left (x=40), Quantum right (x=420)
-    • Equation centered, then annotate parts with arrows pointing from different positions
-    • Key result in callout spanning full width, then details spread below
+  ── CONTENT COMMANDS (auto-layout, safe, no overlap risk) ──
 
-    BAD PATTERNS (avoid):
-    • Everything at x=40 stacked vertically — looks like a document, not a board
-    • All text left-aligned with nothing on the right half
-    • Same layout every time — vary position, flow, grouping per topic
+  These flow automatically. Use "placement" to control layout:
+    "below" (default) — new line
+    "center" — centered text
+    "right" — right-aligned
+    "indent" — indented
+    "row-start" — start a side-by-side row
+    "row-next" — add next item to the current row
+    "beside:ID" — place beside element with that id
 
-    BEFORE placing: mentally check bounding boxes don't collide.
-    Vary your layout — a real professor doesn't write in one column.
+  TEXT:
+    {"cmd":"text","text":"The Schrödinger Equation","color":"yellow","size":"h1","placement":"center"}
+    {"cmd":"text","text":"Energy tells ψ how to change","color":"cyan","size":"h2"}
+    Sizes: "h1" (largest), "h2", "h3", "text" (default), "small", "label" (smallest)
 
-  AVAILABLE COMMANDS:
+  EQUATION (equation + optional annotation):
+    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","color":"cyan","size":"h2"}
 
-    SHAPES & LINES:
+  COMPARE (two-column side-by-side — great for contrasts):
+    {"cmd":"compare","left":{"title":"CLASSICAL","color":"cyan","items":["F = ma","Force drives motion"]},
+                      "right":{"title":"QUANTUM","color":"yellow","items":["iℏ ∂ψ/∂t = Ĥψ","Energy drives ψ"]}}
+
+  CALLOUT (highlighted box — for key insights):
+    {"cmd":"callout","text":"Energy landscape → dictates time evolution","color":"gold"}
+
+  STEP (numbered step):
+    {"cmd":"step","n":1,"text":"Write down the Hamiltonian","color":"cyan"}
+
+  LIST:
+    {"cmd":"list","items":["First point","Second point","Third point"],"color":"white","style":"bullet"}
+
+  RESULT (highlighted conclusion):
+    {"cmd":"result","text":"ψ(x,t) = Ae^{i(kx-ωt)}","label":"Key Result","color":"gold"}
+
+  CHECK/CROSS:
+    {"cmd":"check","text":"Momentum is conserved"}
+    {"cmd":"cross","text":"Energy is NOT conserved here"}
+
+  DIVIDER: {"cmd":"divider"}
+
+  EDITING (modify previous elements by id):
+    {"cmd":"strikeout","target":"old-eq"} — strike through
+    {"cmd":"update","target":"eq1","text":"new text","color":"green"} — replace content
+    {"cmd":"delete","target":"wrong-step"} — fade out
+
+  ── LAYOUT EXAMPLES ──
+
+  Side-by-side equation + annotation:
+    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","id":"main-eq","placement":"row-start"}
+    {"cmd":"text","text":"← This is everything","color":"dim","placement":"row-next"}
+
+  Two-column comparison:
+    {"cmd":"compare","left":{"title":"NEWTON","color":"cyan","items":["F = ma","Position"]},"right":{"title":"SCHRÖDINGER","color":"yellow","items":["iℏ ∂ψ/∂t = Ĥψ","Wave function"]}}
+
+  Build-up sequence:
+    {"cmd":"text","text":"What does the Schrödinger equation say?","color":"yellow","size":"h1","placement":"center"}
+    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","color":"cyan","size":"h2","id":"schrodinger"}
+    {"cmd":"callout","text":"Energy tells ψ how to change over time","color":"gold"}
+    {"cmd":"animation","title":"Wave Evolution","code":"...","placement":"beside:schrodinger"}
+
+  ── DRAWING COMMANDS (x,y positioned — for diagrams only) ──
+
+  Use these ONLY for visual diagrams, force diagrams, geometric constructions,
+  arrows connecting things, and spatial illustrations. NOT for body text.
+
+  SHAPES & LINES:
     {"cmd":"line","x1":N,"y1":N,"x2":N,"y2":N,"color":"C","w":N}
     {"cmd":"arrow","x1":N,"y1":N,"x2":N,"y2":N,"color":"C","w":N}
     {"cmd":"dashed","x1":N,"y1":N,"x2":N,"y2":N,"color":"C","w":N}
@@ -87,39 +126,24 @@ BOARD DRAW — live chalk drawing (opens in board panel):
     {"cmd":"arc","cx":N,"cy":N,"r":N,"sa":RAD,"ea":RAD,"color":"C","lw":N}
     {"cmd":"dot","x":N,"y":N,"r":N,"color":"C"}
     {"cmd":"curvedarrow","x1":N,"y1":N,"x2":N,"y2":N,"cx":N,"cy":N,"color":"C","w":N}
-
-    SMOOTH CURVES:
     {"cmd":"path","points":[[x,y],...],"color":"C","w":N}
-      Smooth curve through points (quadratic interpolation).
-      Options: "smooth":false (straight segments), "closed":true, "fill":"color".
-      Use for wave functions, distributions, energy curves, oscillations.
-
-    GRAPHS (axes + plotted curves):
     {"cmd":"graph","x":N,"y":N,"w":300,"h":150,"xlabel":"x","ylabel":"ψ(x)",
      "curves":[{"points":[[0,0.5],[0.1,0.8],...],"color":"green"}]}
-      Axes with arrowheads + smooth curves. Points NORMALIZED [0-1].
 
-    ANIMATION (inline p5.js — runtime-generated, your most powerful tool):
-    {"cmd":"animation","x":N,"y":N,"w":W,"h":H,"code":"...p5 code...","duration":MS}
-      Runs a live p5.js sketch at board coordinates. GENERATE the code fresh for each concept.
-      code: function body for function(p, W, H) { <your code> }
-      Skeleton: p.setup=()=>{p.createCanvas(W,H);}; p.draw=()=>{p.background(26,29,46); ...};
-      Colors: bg=rgb(26,29,46) cyan=#53d8fb green=#7ed99a yellow=#f5d97a red=#ff6b6b
-      Duration: 4000-12000ms (default 6000). Final frame freezes into canvas.
-      Use for: waves, oscillations, energy levels, springs, field lines, anything that moves.
+  POSITIONED TEXT (ONLY for diagram labels — NOT for explanations):
+    {"cmd":"text","text":"label","x":N,"y":N,"color":"C","size":N}
+    {"cmd":"latex","tex":"F_g","x":N,"y":N,"color":"C","size":N}
 
-    TEXT & MATH:
-    {"cmd":"text","text":"...","x":N,"y":N,"color":"C","size":N}
-    {"cmd":"latex","tex":"...","x":N,"y":N,"color":"C","size":N}
-    {"cmd":"matrix","x":N,"y":N,"rows":[["a","b"],["c","d"]],"bracket":"round","color":"C","size":N}
-    {"cmd":"brace","x":N,"y1":N,"y2":N,"dir":"right","color":"C","label":"...","size":N}
+  ANIMATION (p5.js — use placement for auto-layout OR x,y for diagrams):
+    {"cmd":"animation","title":"Wave Packet","code":"...p5...","placement":"below"}
+    {"cmd":"animation","x":N,"y":N,"w":W,"h":H,"code":"...","duration":MS}
+    code: function(p, W, H) { p.setup=()=>{p.createCanvas(W,H);}; p.draw=()=>{...}; }
+    Colors: bg=rgb(26,29,46) cyan=#53d8fb green=#7ed99a yellow=#f5d97a red=#ff6b6b
 
-    LATEX — CRITICAL: Renders as Unicode on SINGLE LINE (no vertical layout).
-      NEVER use \frac{}{} -> write inline: a/b or ∂ψ/∂t
-      NEVER use \begin{align} -> separate latex commands at different y positions
-      For hats: \hat{H}. For Greek: \psi, \phi, etc.
+  LATEX — renders as Unicode, SINGLE LINE only:
+    NEVER \frac{}{} → write a/b. NEVER \begin{align}. For hats: \hat{H}.
 
-    FLOW:
+  ── CONTROL ──
     {"cmd":"voice","text":"..."} — narration overlay
     {"cmd":"pause","ms":N} — pause between sections
     {"cmd":"clear"} — erase board
