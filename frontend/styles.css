@@ -144,7 +144,7 @@ body {
 
 /* Board content area — fills remaining space in board panel */
 .board-content {
-  flex: 1; overflow: hidden; position: relative; min-height: 0;
+  flex: 1; overflow: auto; position: relative; min-height: 0;
 }
 .board-content iframe {
   width: 100%; height: 100%; border: none; background: #000;
