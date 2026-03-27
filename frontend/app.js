@@ -6898,13 +6898,7 @@ function showSetupPanel() {
 
   const firstName = user.name.split(' ')[0];
   const greeting = $('#setup-greeting');
-  if (greeting) greeting.textContent = `Hey ${firstName}`;
-  const subline = $('#dash-subline');
-  if (subline) {
-    const hour = new Date().getHours();
-    const timeGreet = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
-    subline.textContent = `${timeGreet} — what are we learning today?`;
-  }
+  if (greeting) greeting.textContent = `What do you want to learn?`;
 
   // Update nav user pill
   const avatar = $('#dash-avatar');
@@ -6925,16 +6919,19 @@ function showSetupPanel() {
   // Start animated background
   if (typeof DashBg !== 'undefined') DashBg.start();
 
-  // Enable/disable buttons and fetch sessions for selected course
-  const courseId = parseInt($('#course-id')?.value);
-  const startBtn = $('#btn-start-session');
-  const newBtn = $('#btn-new-session');
-  if (startBtn) startBtn.disabled = !courseId;
-  if (newBtn) newBtn.disabled = !courseId;
-  if (courseId) fetchAndRenderSessions(state.studentName, courseId);
+  // Set default course
+  const courseId = parseInt($('#course-id')?.value) || 2;
+  state.courseId = courseId;
 
-  // Highlight selected course card
-  updateCourseCardSelection(courseId);
+  // Clear previous search results
+  const resultsEl = document.getElementById('nl-results');
+  if (resultsEl) resultsEl.innerHTML = '';
+  const searchInput = document.getElementById('student-intent-first');
+  if (searchInput) searchInput.value = '';
+  const chipsEl = document.getElementById('nl-chips');
+  if (chipsEl) chipsEl.style.display = '';
+  const aiOpt = document.getElementById('nl-ai-option');
+  if (aiOpt) aiOpt.style.display = 'none';
 }
 
 function handleAuthExpired() {
@@ -7095,36 +7092,21 @@ async function initSetup() {
 
   courseIdInput.addEventListener('change', onCourseChange);
 
-  // First-time "Start Session"
+  // Arrow button → trigger search (not session start)
   if (startBtn) startBtn.addEventListener('click', () => {
     const intentInput = $('#student-intent-first');
-    startNewSession(state.studentName, parseInt(courseIdInput.value), (intentInput?.value || '').trim());
+    const q = (intentInput?.value || '').trim();
+    if (q) _nlDoSearch(q);
   });
 
-  // Returning "New Session"
-  if (newBtn) newBtn.addEventListener('click', () => {
-    const intentInput = $('#student-intent');
-    startNewSession(state.studentName, parseInt(courseIdInput.value), (intentInput?.value || '').trim());
-  });
-
-  // ─── Dashboard chips — prefill input, don't auto-start ───
-  document.querySelectorAll('.dash-chip').forEach(chip => {
-    chip.addEventListener('click', () => {
-      const intent = chip.dataset.intent || chip.textContent.trim();
-      const intentInput = $('#student-intent-first');
-      if (intentInput) {
-        intentInput.value = intent;
-        intentInput.focus();
-      }
-    });
-  });
-
-  // ─── Dashboard input Enter key ────────────────────────────
+  // Enter key → trigger search (not session start)
   const dashInput = $('#student-intent-first');
   if (dashInput) {
     dashInput.addEventListener('keydown', (e) => {
       if (e.key === 'Enter') {
-        startNewSession(state.studentName, parseInt(courseIdInput.value), dashInput.value.trim());
+        e.preventDefault();
+        const q = dashInput.value.trim();
+        if (q) _nlDoSearch(q);
       }
     });
   }
@@ -13597,4 +13579,218 @@ document.addEventListener('DOMContentLoaded', () => {
       else startVoiceRecording();
     });
   }
+});
+
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// SEARCH-FIRST LANDING — debounced semantic search + typing animation
+// ═══════════════════════════════════════════════════════════════════════════════
+
+let _searchDebounce = null;
+let _searchAbort = null;
+
+function _extractYTThumb(url) {
+  if (!url) return '';
+  const m = url.match(/(?:youtu\.be\/|v=|\/embed\/)([A-Za-z0-9_-]{11})/);
+  return m ? `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg` : '';
+}
+
+async function _nlDoSearch(query) {
+  const resultsEl = document.getElementById('nl-results');
+  const aiOption = document.getElementById('nl-ai-option');
+  const chipsEl = document.getElementById('nl-chips');
+
+  if (!query || query.trim().length < 2) {
+    resultsEl.innerHTML = '';
+    if (aiOption) aiOption.style.display = 'none';
+    if (chipsEl) chipsEl.style.display = '';
+    return;
+  }
+
+  if (chipsEl) chipsEl.style.display = 'none';
+  resultsEl.innerHTML = '<div class="nl-loading">Searching...</div>';
+  if (aiOption) aiOption.style.display = '';
+
+  // Abort previous request
+  if (_searchAbort) _searchAbort.abort();
+  _searchAbort = new AbortController();
+
+  try {
+    const res = await fetch(`${state.apiUrl}/api/v1/content/search?q=${encodeURIComponent(query.trim())}&limit=8`, {
+      headers: AuthManager.authHeaders(),
+      signal: _searchAbort.signal,
+    });
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+
+    if (!data.length) {
+      resultsEl.innerHTML = `<div class="nl-no-results">
+        No matching courses found for "<strong>${query.trim()}</strong>"
+      </div>`;
+      // Show AI tutor as primary option when no courses match
+      if (aiOption) {
+        aiOption.style.display = '';
+        aiOption.querySelector('.nl-ai-title').textContent = 'No worries — AI tutor can teach this';
+        aiOption.querySelector('.nl-ai-desc').textContent = `Start an interactive session on "${query.trim()}"`;
+      }
+      return;
+    }
+
+    // Split into lessons and courses
+    const lessons = data.filter(d => d.type === 'lesson');
+    const courses = data.filter(d => d.type === 'course');
+
+    let html = '';
+
+    if (lessons.length) {
+      html += '<div class="nl-rlabel">Lectures</div>';
+      for (const l of lessons) {
+        const thumb = l.metadata?.thumbnailUrl || '';
+        const course = l.metadata?.courseTitle || '';
+        const dur = l.metadata?.durationMin ? `${l.metadata.durationMin}m` : '';
+        html += `<div class="nl-rcard" data-lesson-id="${l.lessonId}" data-course-id="${l.courseId}" onclick="_nlClickLesson(${l.courseId}, ${l.lessonId}, '${l.title.replace(/['"]/g, "")}')">
+          <div class="nl-rthumb">${thumb ? `<img src="${thumb}" alt="">` : ''}<div class="nl-pbadge"><svg viewBox="0 0 24 24" fill="white"><polygon points="8 5 20 12 8 19"/></svg></div></div>
+          <div class="nl-rbody"><div class="nl-rtitle">${l.title}</div><div class="nl-rmeta">${course}${dur ? ' · ' + dur : ''}</div><div class="nl-raction">Watch this lecture</div></div>
+          <div class="nl-rtag lec">Lecture</div>
+        </div>`;
+      }
+    }
+
+    if (courses.length) {
+      if (lessons.length) html += '<div class="nl-rdivider"></div>';
+      html += '<div class="nl-rlabel">Courses</div>';
+      for (const c of courses) {
+        const thumb = c.metadata?.thumbnailUrl || '';
+        const count = c.metadata?.lessonCount || 0;
+        html += `<div class="nl-rcard" data-course-id="${c.courseId}" onclick="_nlClickCourse(${c.courseId}, '${c.title.replace(/['"]/g, "")}')">
+          <div class="nl-rthumb">${thumb ? `<img src="${thumb}" alt="">` : ''}</div>
+          <div class="nl-rbody"><div class="nl-rtitle">${c.title}</div><div class="nl-rmeta">${count} lectures · ${c.metadata?.difficulty || ''}</div><div class="nl-raction">Explore full course</div></div>
+          <div class="nl-rtag crs">Course</div>
+        </div>`;
+      }
+    }
+
+    resultsEl.innerHTML = html;
+  } catch (e) {
+    if (e.name === 'AbortError') return; // cancelled
+    resultsEl.innerHTML = '<div class="nl-no-results">Search failed — try again</div>';
+  }
+}
+
+function _nlClickLesson(courseId, lessonId, title) {
+  _nlShowChoice(courseId, lessonId, title || 'this lesson');
+}
+
+function _nlClickCourse(courseId, title) {
+  _nlShowChoice(courseId, null, title || 'this course');
+}
+
+function _nlShowChoice(courseId, lessonId, title) {
+  const resultsEl = document.getElementById('nl-results');
+  const aiOption = document.getElementById('nl-ai-option');
+  if (aiOption) aiOption.style.display = 'none';
+
+  const courseIdInput = document.getElementById('course-id');
+  if (courseIdInput) courseIdInput.value = courseId;
+  state.courseId = courseId;
+  if (lessonId) state.checkpoint.currentLessonId = lessonId;
+
+  const escapedTitle = title.replace(/'/g, "\\'");
+
+  resultsEl.innerHTML = `
+    <div style="padding:20px 0;">
+      <div style="font-size:15px;font-weight:600;margin-bottom:16px;text-align:center">${title}</div>
+      <div style="display:flex;flex-direction:column;gap:8px;max-width:400px;margin:0 auto;">
+        <button class="nl-choice-btn nl-choice-video" onclick="_nlStartVideo(${courseId}, ${lessonId || 'null'})">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Watch the lecture video
+          <span style="font-size:11px;color:var(--text-dim);display:block;margin-top:2px">Pause anytime to ask the AI tutor</span>
+        </button>
+        <button class="nl-choice-btn nl-choice-tutor" onclick="_nlStartTutor(${courseId}, '${escapedTitle}')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+          Let AI tutor teach me
+          <span style="font-size:11px;color:var(--text-dim);display:block;margin-top:2px">Interactive board teaching, personalized to you</span>
+        </button>
+      </div>
+    </div>`;
+}
+
+function _nlStartVideo(courseId, lessonId) {
+  // TODO: integrate with video follow-along mode
+  alert('Video follow-along coming soon! Starting AI tutor instead.');
+  _nlStartTutor(courseId, '');
+}
+
+function _nlStartTutor(courseId, title) {
+  const input = document.getElementById('student-intent-first');
+  const intent = (input?.value || '').trim() || title || 'Teach me';
+  startNewSession(state.studentName, courseId, intent);
+}
+
+// Typing animation for search placeholder
+const _nlPhrases = [
+  'teach me the Schrodinger equation...',
+  'I want to learn quantum physics...',
+  'explain wave-particle duality...',
+  'what is superposition?',
+  'help me understand operators...',
+  'how does tunneling work?',
+];
+let _nlPi = 0, _nlCi = 0, _nlDeleting = false;
+
+function _nlTypeLoop() {
+  const el = document.getElementById('nl-typed');
+  const inp = document.getElementById('student-intent-first');
+  if (!el) return;
+  if (inp && (inp.value.length > 0 || document.activeElement === inp)) {
+    el.textContent = '';
+    setTimeout(_nlTypeLoop, 500);
+    return;
+  }
+  const phrase = _nlPhrases[_nlPi];
+  if (!_nlDeleting) {
+    el.textContent = phrase.slice(0, _nlCi + 1);
+    _nlCi++;
+    if (_nlCi >= phrase.length) { _nlDeleting = true; setTimeout(_nlTypeLoop, 2200); return; }
+    setTimeout(_nlTypeLoop, 50 + Math.random() * 35);
+  } else {
+    el.textContent = phrase.slice(0, _nlCi);
+    _nlCi--;
+    if (_nlCi <= 0) { _nlDeleting = false; _nlPi = (_nlPi + 1) % _nlPhrases.length; setTimeout(_nlTypeLoop, 400); return; }
+    setTimeout(_nlTypeLoop, 22);
+  }
+}
+
+// Wire up on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  const searchInput = document.getElementById('student-intent-first');
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      if (_searchDebounce) clearTimeout(_searchDebounce);
+      _searchDebounce = setTimeout(() => _nlDoSearch(searchInput.value), 350);
+    });
+  }
+
+  // Chips fill search and trigger
+  document.querySelectorAll('.nl-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const q = chip.dataset.q;
+      const inp = document.getElementById('student-intent-first');
+      if (inp) { inp.value = q; inp.focus(); }
+      _nlDoSearch(q);
+    });
+  });
+
+  // AI tutor option
+  const aiOpt = document.getElementById('nl-ai-option');
+  if (aiOpt) {
+    aiOpt.addEventListener('click', () => {
+      const inp = document.getElementById('student-intent-first');
+      const intent = (inp?.value || '').trim() || 'Teach me';
+      startNewSession(state.studentName, parseInt(document.getElementById('course-id')?.value) || 2, intent);
+    });
+  }
+
+  // Start typing animation
+  setTimeout(_nlTypeLoop, 1000);
 });

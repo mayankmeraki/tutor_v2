@@ -646,67 +646,61 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
         </div>
       </nav>
 
-      <!-- Dashboard content — single centered column -->
-      <div class="dash-center">
-        <h2 id="setup-greeting" class="dash-hello">Hey there</h2>
-        <p class="dash-subline" id="dash-subline">What are we learning today?</p>
+      <!-- Search-first landing -->
+      <div class="dash-center" id="dash-search-landing">
+        <div class="nl-inner">
+          <h2 id="setup-greeting" class="nl-greeting">What do you want to learn?</h2>
+          <p class="dash-subline" id="dash-subline" style="display:none"></p>
 
-        <!-- Course selector — compact horizontal pills -->
-        <div class="dash-course-pills">
-          <div class="dash-course-pill selected" data-course="2">
-            <span class="dash-pill-dot"></span>
-            MIT 8.04 Quantum Physics I
-            <span class="dash-course-badge" id="dash-course-progress"></span>
-          </div>
-          <div class="dash-course-pill" data-course="4">
-            <span class="dash-pill-dot" style="background:#5eead4"></span>
-            Quantum Mechanics
-          </div>
-          <div class="dash-course-pill dash-pill-byo" data-course="byo">
-            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
-            Your material
-            <span class="dash-pill-soon">Soon</span>
-          </div>
-        </div>
-
-        <!-- Keep old course cards hidden for JS compatibility -->
-        <div style="display:none">
-          <div class="dash-course-card selected" data-course="2"></div>
-          <div class="dash-course-card" data-course="4"></div>
-          <div class="dash-course-card dash-course-byo" data-course="byo"></div>
-        </div>
-
-        <!-- New session input -->
-        <div class="dash-new-session">
-          <div class="dash-input-wrap">
-            <input type="text" class="dash-input" id="student-intent-first" placeholder="What would you like to study?">
-            <button class="dash-send" id="btn-start-session">
+          <div class="nl-search-wrap">
+            <div class="nl-search-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
+            </div>
+            <input class="nl-search-input" id="student-intent-first" placeholder=" " autocomplete="off" />
+            <div class="nl-typed-wrap" id="nl-typed-wrap"><span id="nl-typed"></span><span class="nl-cursor"></span></div>
+            <button class="dash-send" id="btn-start-session" style="position:absolute;right:10px;top:50%;transform:translateY(-50%)">
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a0d0b" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
             </button>
           </div>
-          <div class="dash-chips">
-            <div class="dash-chip" data-intent="Teach me from Lecture 6 to 10"><strong>Teach me</strong> from Lecture 6–10</div>
-            <div class="dash-chip" data-intent="I have an exam in 2 days, please do a crash course"><strong>Exam in 2 days</strong> — crash course</div>
-            <div class="dash-chip" data-intent="Can you intuitively explain the Schrödinger equation to me?"><strong>Explain</strong> Schrödinger intuitively</div>
-            <div class="dash-chip" data-intent="Quiz me on what we've covered so far"><strong>Quiz me</strong> on what we've covered</div>
+
+          <div class="nl-chips" id="nl-chips">
+            <button class="nl-chip" data-q="Schrodinger equation">Schrodinger equation</button>
+            <button class="nl-chip" data-q="wave particle duality">Wave-particle duality</button>
+            <button class="nl-chip" data-q="harmonic oscillator">Harmonic oscillator</button>
+            <button class="nl-chip" data-q="newton laws">Newton's laws</button>
+          </div>
+
+          <!-- Search results (shown when typing) -->
+          <div class="nl-results" id="nl-results"></div>
+
+          <!-- AI tutor option (shown with results) -->
+          <div class="nl-ai-option" id="nl-ai-option" style="display:none">
+            <div class="nl-ai-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
+            </div>
+            <div class="nl-ai-body">
+              <div class="nl-ai-title">Learn with AI tutor</div>
+              <div class="nl-ai-desc">Interactive board teaching — no video needed</div>
+            </div>
           </div>
         </div>
-
-        <!-- Sessions — always visible -->
-        <div id="session-list-panel">
-          <div class="dash-section-label">Your sessions</div>
-          <div class="dash-sessions-grid" id="session-list-active"></div>
-          <div class="dash-session-empty" id="dash-session-empty">No sessions yet — start your first one above.</div>
-          <div class="dash-sessions-completed" id="session-list-completed">
-            <button class="dash-completed-toggle hidden" id="btn-show-completed">
-              <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-              <span>Completed sessions</span>
-            </button>
-            <div class="dash-sessions-completed-list hidden" id="session-list-completed-items"></div>
-          </div>
-        </div>
-
         <div class="setup-status" id="setup-status"></div>
+      </div>
+
+      <!-- Hidden compat elements -->
+      <div style="display:none">
+        <div class="dash-course-pills">
+          <div class="dash-course-pill selected" data-course="2"><span class="dash-pill-dot"></span>MIT 8.04</div>
+          <div class="dash-course-pill" data-course="4"><span class="dash-pill-dot"></span>QM</div>
+        </div>
+        <div class="dash-course-card selected" data-course="2"></div>
+        <div class="dash-course-card" data-course="4"></div>
+        <span id="dash-course-progress"></span>
+        <div id="session-list-panel" style="display:none">
+          <div class="dash-sessions-grid" id="session-list-active"></div>
+          <div class="dash-session-empty" id="dash-session-empty" style="display:none"></div>
+          <div id="session-list-completed"><button class="dash-completed-toggle hidden" id="btn-show-completed"></button><div class="dash-sessions-completed-list hidden" id="session-list-completed-items"></div></div>
+        </div>
       </div>
     </div>
 
