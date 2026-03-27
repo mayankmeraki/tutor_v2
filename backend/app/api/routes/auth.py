@@ -42,8 +42,12 @@ def decode_mockup_token(token: str) -> dict:
 async def get_current_user(request: Request) -> dict:
     auth = request.headers.get("Authorization", "")
     if not auth.startswith("Bearer "):
-        raise HTTPException(status_code=401, detail="Missing authorization token")
-    token = auth[7:]
+        # Fall back to ?token= query param (needed for EventSource which can't set headers)
+        token = request.query_params.get("token", "")
+        if not token:
+            raise HTTPException(status_code=401, detail="Missing authorization token")
+    else:
+        token = auth[7:]
     claims = decode_mockup_token(token)
     return {"email": claims["sub"], "name": claims.get("name", ""), "role": claims.get("role", "")}
 

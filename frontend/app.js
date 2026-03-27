@@ -2228,7 +2228,8 @@ function connectAgentEvents() {
   disconnectAgentEvents();
   if (!state.sessionId) return;
 
-  const url = `${state.apiUrl}/api/events/${state.sessionId}`;
+  const _evtToken = localStorage.getItem('mockup_auth_token') || '';
+  const url = `${state.apiUrl}/api/events/${state.sessionId}${_evtToken ? '?token=' + encodeURIComponent(_evtToken) : ''}`;
   const es = new EventSource(url);
   state.agentEventSource = es;
 
