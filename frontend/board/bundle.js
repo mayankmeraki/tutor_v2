@@ -40,7 +40,7 @@ function resetState() {
   board.scenes = [];
   board.animations.forEach(a => { try { a.instance.remove(); } catch(e) {} });
   board.animations = [];
-  board.zoom = 1;
+  board.zoom = 1.15;
   board.animRetries.clear();
 }
 
@@ -1724,7 +1724,7 @@ function initZoom() {
 
   window.bdZoomIn = function() { board.zoom = Math.min(4, board.zoom * 1.25); applyZoom(); };
   window.bdZoomOut = function() { board.zoom = Math.max(0.4, board.zoom / 1.25); applyZoom(); };
-  window.bdZoomReset = function() { board.zoom = 1; applyZoom(); };
+  window.bdZoomReset = function() { board.zoom = 1.15; applyZoom(); };
 
   document.addEventListener('keydown', function(e) {
     if (!board.liveScene) return;

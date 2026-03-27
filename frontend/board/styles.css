@@ -26,17 +26,17 @@
   --bd-glow: 0 0 3px currentColor;
 
   /* Sizing scale — larger for board readability */
-  --bd-h1: 38px;
-  --bd-h2: 30px;
-  --bd-h3: 24px;
-  --bd-text: 22px;
-  --bd-small: 18px;
-  --bd-label: 15px;
+  --bd-h1: 42px;
+  --bd-h2: 34px;
+  --bd-h3: 28px;
+  --bd-text: 24px;
+  --bd-small: 20px;
+  --bd-label: 16px;
 
   /* Spacing */
   --bd-margin: 40px;
-  --bd-el-gap: 20px;
-  --bd-row-gap: 20px;
+  --bd-el-gap: 24px;
+  --bd-row-gap: 24px;
 }
 
 
