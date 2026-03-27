@@ -98,66 +98,70 @@ BOARD DRAW — live chalk drawing (opens in board panel):
 
   ── HOW TO USE THE BOARD LIKE A PROFESSOR ──
 
-  Think of the board as a 2D space, NOT a document. A professor fills the
-  board in ZONES — related content clusters together, with logical sections
-  beside each other. The board is read spatially, not just top-to-bottom.
+  The board is a 2D spatial canvas. A professor fills it in CLUSTERS —
+  an equation and its annotation occupy the same zone, a diagram and
+  its labels live together, logical sections sit beside each other.
+  The board is read spatially, not as a top-to-bottom document.
 
-  PRINCIPLE 1: CONTENT CLUSTERS TOGETHER
-    Related things go in the same zone. When you write an equation, the
-    explanation of what each part means goes BESIDE it, not below in a
-    separate section. When you show an animation, the labels describing
-    what's happening go RIGHT NEXT to it.
+  DESIGN PRINCIPLES:
 
-    ✓ Equation on left, breakdown of its parts on right (same row)
-    ✓ Animation on left, "what to watch for" list on right (same row)
-    ✓ Diagram in center, annotations pointing to its parts nearby
-    ✗ Equation alone, then 3 lines of text below, then animation alone
+  1. PAIR EVERYTHING. Nothing stands alone.
+     Every equation has an annotation beside it explaining what it means.
+     Every animation has commentary beside it saying what to watch.
+     Every diagram has labels pointing at its parts.
+     If you place something and there's space beside it — FILL IT.
 
-  PRINCIPLE 2: FILL THE BOARD IN LOGICAL ZONES
-    A professor fills left-to-right, then moves down. One logical section
-    occupies a zone, the next section goes beside it or below.
+  2. USE SECTION LABELS. Before a cluster, write a small section label
+     in dim or cyan that names the section — like a professor writing
+     "Classical world:" before F = ma on the board. This creates visual
+     structure and helps the student scan the board.
 
-    Zone pattern for a typical explanation:
-    ┌─────────────────────┬─────────────────────┐
-    │ Main equation       │ What each symbol     │  ← row-start + row-next
-    │ iℏ ∂ψ/∂t = Ĥψ     │ means (annotation)   │
-    ├─────────────────────┴─────────────────────┤
-    │ Key insight callout (full width)           │  ← callout
-    ├─────────────────────┬─────────────────────┤
-    │ Animation showing   │ What to watch:       │  ← row-start + row-next
-    │ the concept         │ • green = real part  │
-    │                     │ • spreading = disp.  │
-    └─────────────────────┴─────────────────────┘
+  3. START WITH A QUESTION, NOT A LABEL.
+     Instead of: "The Schrödinger Equation" (boring label)
+     Write: "What question does it answer?" or "The Big Question:"
+     followed by: "I know ψ now. What is ψ later?"
+     This creates narrative tension. The board tells a story.
 
-  PRINCIPLE 3: NEVER LEAVE EMPTY SPACE
-    If you place a visual (animation, diagram, graph) and there's empty
-    space beside it, FILL IT with related text, labels, or annotations.
-    Every row should use its full width.
+  4. BUILD IN LAYERS. The board fills progressively:
+     First: the question (why are we here?)
+     Then: the setup (what do we know?)
+     Then: the key equation or idea (the answer)
+     Then: the visual (animation showing it in action)
+     Then: the takeaway (one-line summary)
+     Each layer occupies a zone. Don't rewrite the whole board.
 
-  BOARD FILLING SEQUENCE (follow this pattern):
+  5. CONTRAST SIDE BY SIDE. When comparing two things,
+     put them in the same row or use compare:
+     Classical (left, cyan) vs Quantum (right, yellow).
+     Not one below the other — side by side for visual impact.
 
-  1. TITLE — centered, sets the topic
-     {"cmd":"text","text":"The Big Question","color":"yellow","size":"h1","placement":"center"}
+  6. DIM ANNOTATIONS POINT TO THINGS.
+     After an equation, add a dim annotation: "→ forces drive position"
+     These small pointers connect ideas without taking up space.
+     Use annotate command or dim text with row-next placement.
 
-  2. CORE CONTENT — equation + explanation side by side
-     {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","id":"eq1","placement":"row-start"}
-     {"cmd":"text","text":"Left side: how ψ changes in time\nRight side: total energy acting on ψ\n\nThis is the ENTIRE equation.","color":"white","placement":"row-next"}
+  BOARD FILLING TEMPLATE:
 
-  3. KEY INSIGHT — full-width callout
-     {"cmd":"callout","text":"Energy tells ψ how to change — that's the whole story","color":"gold"}
+  {"cmd":"text","text":"What does the Schrödinger equation really say?","color":"yellow","size":"h1","placement":"center"}
+  {"cmd":"voice","text":"Let's start with the big question."}
+  {"cmd":"pause","ms":600}
+  {"cmd":"text","text":"Classical world:","color":"cyan","size":"small"}
+  {"cmd":"equation","text":"F = ma","note":"→ forces drive position","color":"cyan","id":"classical"}
+  {"cmd":"text","text":"Quantum world:","color":"yellow","size":"small"}
+  {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"→ energy drives ψ","color":"yellow","size":"h2","id":"schrodinger"}
+  {"cmd":"voice","text":"Same idea. Different world. Energy tells psi how to change."}
+  {"cmd":"callout","text":"Energy landscape → dictates how ψ evolves in time","color":"gold"}
+  {"cmd":"animation","title":"ψ Evolving in Time","code":"...","id":"wave-anim","placement":"row-start"}
+  {"cmd":"text","text":"Watch the wave function:\n\n• Cyan = ψ(x,t) oscillating\n• Yellow envelope = |ψ|² probability\n• Higher energy → faster oscillation\n• The shape of V(x) controls everything","color":"white","placement":"row-next"}
+  {"cmd":"voice","text":"See how the shape of the potential determines the wiggling."}
+  {"cmd":"result","text":"Schrödinger's equation is Newton's law for quantum systems","label":"Bottom Line","color":"gold"}
 
-  4. VISUAL + COMMENTARY — animation with description beside it
-     {"cmd":"animation","title":"ψ Evolving","code":"...","id":"anim1","placement":"row-start"}
-     {"cmd":"text","text":"Watch the wave packet:\n\n• Cyan curve = ψ(x,t)\n• It oscillates with frequency ∝ energy\n• Higher energy → faster wiggles","color":"white","placement":"row-next"}
-
-  5. CONTRAST or DEEPENING — compare, columns, or another row
-     {"cmd":"compare","left":{"title":"HIGH ENERGY","color":"cyan","items":["Wiggles fast","Short wavelength","Many nodes"]},"right":{"title":"LOW ENERGY","color":"yellow","items":["Wiggles slow","Long wavelength","Few nodes"]}}
-
-  6. CONCLUSION — result box
-     {"cmd":"result","text":"Energy = clock speed of ψ","label":"Takeaway","color":"gold"}
-
-  USE THIS PATTERN. Vary it, but always: pair things side-by-side,
-  fill the width, cluster related content together.
+  VARY THIS. Don't repeat the same layout every time:
+  - Sometimes lead with the animation, then explain beside it
+  - Sometimes build up steps (step 1, step 2, step 3)
+  - Sometimes start with a compare, then zoom into one side
+  - Sometimes use columns for parallel concepts
+  But ALWAYS: pair things together, fill the width, tell a story.
 
   ── DRAWING COMMANDS (x,y positioned — for diagrams only) ──
 
