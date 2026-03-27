@@ -10,6 +10,9 @@ export const board = {
   /** @type {HTMLElement|null} Current flex row (for row-start/row-next) */
   currentRow: null,
 
+  /** @type {HTMLElement|null} Current columns grid (for columns/columns-end) */
+  currentColumns: null,
+
   /** @type {boolean} Cancel flag — stops animations and text reveal */
   cancelFlag: false,
 
@@ -44,6 +47,7 @@ export const board = {
 export function resetState() {
   board.liveScene = null;
   board.currentRow = null;
+  board.currentColumns = null;
   board.cancelFlag = false;
   board.commandQueue = [];
   board.isProcessing = false;

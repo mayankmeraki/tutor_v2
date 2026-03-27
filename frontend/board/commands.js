@@ -25,7 +25,7 @@ export async function runCommand(cmd) {
 
   switch (cmd.cmd) {
     case 'text':     await renderText(cmd); break;
-    case 'latex':    await renderText(cmd); break; // LaTeX→Unicode already done upstream
+    case 'latex':    await renderText(cmd); break;
     case 'equation': await renderEquation(cmd); break;
     case 'compare':  await renderCompare(cmd); break;
     case 'step':     await renderStep(cmd); break;
@@ -36,6 +36,9 @@ export async function runCommand(cmd) {
     case 'divider':  renderDivider(cmd); break;
     case 'result':   await renderResult(cmd); break;
     case 'animation': await renderAnimation(cmd); break;
+    case 'columns':  renderColumns(cmd); break;
+    case 'columns-end': renderColumnsEnd(); break;
+    case 'annotate': renderAnnotate(cmd); break;
     case 'strikeout': renderStrikeout(cmd); break;
     case 'update':   await renderUpdate(cmd); break;
     case 'delete':   renderDelete(cmd); break;
@@ -232,8 +235,68 @@ async function renderResult(cmd) {
   await animateText(text, cmd.text, { charDelay: cmd.charDelay });
 }
 
+// ── COLUMNS (grid layout zone) ───────────────────────
+
+function renderColumns(cmd) {
+  const scene = board.liveScene;
+  if (!scene) return;
+  board.currentRow = null;
+
+  const cols = cmd.cols || 2;
+  const grid = document.createElement('div');
+  grid.className = 'bd-el bd-columns';
+  grid.style.gridTemplateColumns = `repeat(${cols}, 1fr)`;
+  if (cmd.id) grid.id = cmd.id;
+  scene.appendChild(grid);
+  board.currentColumns = grid;
+}
+
+function renderColumnsEnd() {
+  board.currentColumns = null;
+}
+
+// ── ANNOTATE (relative label on existing element) ────
+
+function renderAnnotate(cmd) {
+  if (!cmd.target || !cmd.text) return;
+  const target = document.getElementById(cmd.target) || (board.elements.get(cmd.target) || {}).element;
+  if (!target) {
+    // Fallback: render as dim text
+    const el = createStyledElement('div', { ...cmd, color: cmd.color || 'dim', size: 'small' }, 'bd-text');
+    placeElement(el, 'below', cmd);
+    animateText(el, cmd.text, { charDelay: 20 });
+    return;
+  }
+
+  const ann = document.createElement('span');
+  ann.className = `bd-annotation bd-chalk-${cmd.color || 'dim'}`;
+  ann.textContent = cmd.text;
+
+  const pos = cmd.pos || 'right';
+  ann.classList.add(`bd-ann-${pos}`);
+
+  if (pos === 'right' || pos === 'beside') {
+    const row = target.closest('.bd-row');
+    if (row) {
+      row.appendChild(ann);
+    } else {
+      const newRow = document.createElement('div');
+      newRow.className = 'bd-row';
+      target.parentNode.insertBefore(newRow, target);
+      newRow.appendChild(target);
+      newRow.appendChild(ann);
+    }
+  } else {
+    const wrapper = target.closest('.bd-row') || target;
+    if (wrapper.nextSibling) {
+      wrapper.parentNode.insertBefore(ann, wrapper.nextSibling);
+    } else {
+      wrapper.parentNode.appendChild(ann);
+    }
+  }
+}
+
 // ── ANIMATION ────────────────────────────────────────
-// Imported from animation.js — just re-export the router entry point
 
 async function renderAnimation(cmd) {
   // Lazy import to avoid circular deps

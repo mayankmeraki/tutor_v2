@@ -25,6 +25,12 @@ export function placeElement(element, placement, cmd) {
     registerElement(cmd.id, element);
   }
 
+  // ── If inside a columns grid, append there instead of scene ──
+  if (board.currentColumns && placement === 'below') {
+    board.currentColumns.appendChild(element);
+    return;
+  }
+
   // ── DEFAULT: below (normal block flow) ──
   if (placement === 'below') {
     endCurrentRowIfNeeded(placement);

@@ -123,12 +123,8 @@ BOARD DRAW — live chalk drawing (opens in board panel):
     {"cmd":"rect","x":N,"y":N,"w":N,"h":N,"color":"C","lw":N}
     {"cmd":"fillrect","x":N,"y":N,"w":N,"h":N,"color":"C","opacity":0.15}
     {"cmd":"circle","cx":N,"cy":N,"r":N,"color":"C","lw":N}
-    {"cmd":"arc","cx":N,"cy":N,"r":N,"sa":RAD,"ea":RAD,"color":"C","lw":N}
     {"cmd":"dot","x":N,"y":N,"r":N,"color":"C"}
     {"cmd":"curvedarrow","x1":N,"y1":N,"x2":N,"y2":N,"cx":N,"cy":N,"color":"C","w":N}
-    {"cmd":"path","points":[[x,y],...],"color":"C","w":N}
-    {"cmd":"graph","x":N,"y":N,"w":300,"h":150,"xlabel":"x","ylabel":"ψ(x)",
-     "curves":[{"points":[[0,0.5],[0.1,0.8],...],"color":"green"}]}
 
   POSITIONED TEXT (ONLY for diagram labels — NOT for explanations):
     {"cmd":"text","text":"label","x":N,"y":N,"color":"C","size":N}
@@ -139,6 +135,16 @@ BOARD DRAW — live chalk drawing (opens in board panel):
     {"cmd":"animation","x":N,"y":N,"w":W,"h":H,"code":"...","duration":MS}
     code: function(p, W, H) { p.setup=()=>{p.createCanvas(W,H);}; p.draw=()=>{...}; }
     Colors: bg=rgb(26,29,46) cyan=#53d8fb green=#7ed99a yellow=#f5d97a red=#ff6b6b
+
+  ANNOTATE (label relative to an existing element — safe, no overlap):
+    {"cmd":"annotate","target":"eq-id","text":"→ this drives everything","color":"dim","pos":"right"}
+    pos: "right" (inline beside), "below", "below-right"
+    Use for small annotations like "← THE equation" or "→ forces drive position"
+
+  COLUMNS (multi-column grid — content flows into columns automatically):
+    {"cmd":"columns","cols":2}
+    [... content commands flow into the grid left-to-right ...]
+    {"cmd":"columns-end"}
 
   LATEX — renders as Unicode, SINGLE LINE only:
     NEVER \frac{}{} → write a/b. NEVER \begin{align}. For hats: \hat{H}.

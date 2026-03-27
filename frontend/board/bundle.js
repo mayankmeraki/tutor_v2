@@ -17,6 +17,7 @@
 const board = {
   liveScene: null,
   currentRow: null,
+  currentColumns: null,
   cancelFlag: false,
   commandQueue: [],
   isProcessing: false,
@@ -31,6 +32,7 @@ const board = {
 function resetState() {
   board.liveScene = null;
   board.currentRow = null;
+  board.currentColumns = null;
   board.cancelFlag = false;
   board.commandQueue = [];
   board.isProcessing = false;
@@ -252,6 +254,12 @@ function placeElement(element, placement, cmd) {
     }
     element.classList.add(placement === 'left' ? 'bd-zone-left' : 'bd-zone-right');
     grid.appendChild(element);
+    return;
+  }
+
+  // If inside a columns grid, append there
+  if (board.currentColumns && placement === 'below') {
+    board.currentColumns.appendChild(element);
     return;
   }
 
@@ -849,6 +857,9 @@ async function runCommand(cmd) {
     case 'result':   await renderResult(cmd); break;
     case 'animation': await createAnimation(cmd); break;
     case 'diagram':  await renderDiagram(cmd); break;
+    case 'columns':  renderColumns(cmd); break;
+    case 'columns-end': renderColumnsEnd(); break;
+    case 'annotate': renderAnnotate(cmd); break;
     case 'strikeout': renderStrikeout(cmd); break;
     case 'update':   await renderUpdate(cmd); break;
     case 'delete':   renderDelete(cmd); break;
@@ -875,6 +886,67 @@ async function runCommand(cmd) {
   }
 
   autoScroll();
+}
+
+// ── COLUMNS (grid layout zone) ──
+
+function renderColumns(cmd) {
+  var scene = board.liveScene;
+  if (!scene) return;
+  board.currentRow = null;
+
+  var cols = cmd.cols || 2;
+  var grid = document.createElement('div');
+  grid.className = 'bd-el bd-columns';
+  grid.style.gridTemplateColumns = 'repeat(' + cols + ', 1fr)';
+  if (cmd.id) grid.id = cmd.id;
+  scene.appendChild(grid);
+  board.currentColumns = grid;
+}
+
+function renderColumnsEnd() {
+  board.currentColumns = null;
+}
+
+// ── ANNOTATE (relative label on existing element) ──
+
+function renderAnnotate(cmd) {
+  if (!cmd.target || !cmd.text) return;
+  var target = document.getElementById(cmd.target) || (board.elements.get(cmd.target) || {}).element;
+  if (!target) {
+    // Fallback: render as dim text
+    var el = createStyledElement('div', { text: cmd.text, color: cmd.color || 'dim', size: 'small' }, 'bd-text');
+    placeElement(el, 'below', cmd);
+    animateText(el, cmd.text, { charDelay: 20 });
+    return;
+  }
+
+  var ann = document.createElement('span');
+  ann.className = 'bd-annotation bd-chalk-' + (cmd.color || 'dim');
+  ann.textContent = cmd.text;
+
+  var pos = cmd.pos || 'right';
+  ann.classList.add('bd-ann-' + pos);
+
+  if (pos === 'right' || pos === 'beside') {
+    var row = target.closest('.bd-row');
+    if (row) {
+      row.appendChild(ann);
+    } else {
+      var newRow = document.createElement('div');
+      newRow.className = 'bd-row';
+      target.parentNode.insertBefore(newRow, target);
+      newRow.appendChild(target);
+      newRow.appendChild(ann);
+    }
+  } else {
+    var wrapper = target.closest('.bd-row') || target;
+    if (wrapper.nextSibling) {
+      wrapper.parentNode.insertBefore(ann, wrapper.nextSibling);
+    } else {
+      wrapper.parentNode.appendChild(ann);
+    }
+  }
 }
 
 // ── SVG Shape Primitives ──

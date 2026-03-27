@@ -210,10 +210,34 @@
   width: 100%;
 }
 /* Each item in a row takes roughly half the width */
-.bd-row > .bd-el {
+.bd-row > .bd-el, .bd-row > .bd-annotation {
   flex: 1 1 40%;
   min-width: 200px;
 }
+
+/* Columns grid — AI-specified multi-column layout zone */
+.bd-columns {
+  display: grid;
+  gap: var(--bd-row-gap) var(--bd-row-gap);
+  width: 100%;
+  align-items: start;
+}
+.bd-columns > .bd-el {
+  min-width: 0;
+}
+
+/* Annotations — small labels relative to elements */
+.bd-annotation {
+  font-family: var(--bd-font);
+  font-size: var(--bd-small);
+  line-height: 1.4;
+  text-shadow: var(--bd-glow);
+  opacity: 0.8;
+}
+.bd-ann-right { margin-left: 12px; align-self: center; flex: 0 0 auto !important; min-width: auto !important; }
+.bd-ann-beside { margin-left: 12px; align-self: center; flex: 0 0 auto !important; min-width: auto !important; }
+.bd-ann-below { margin-top: 4px; display: block; }
+.bd-ann-below-right { margin-top: 4px; margin-left: auto; display: block; text-align: right; }
 
 /* Vertical column inside a row — for stacking items (e.g., legend beside animation) */
 .bd-column {
