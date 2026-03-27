@@ -1549,19 +1549,19 @@ function autoScroll() {
   // Don't auto-scroll if student scrolled up manually (browsing old content)
   if (board._userScrolledUp) return;
 
-  var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid, .bd-positioned');
+  var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid, .bd-columns, .bd-positioned');
   if (!allEls.length) return;
   var lastEl = allEls[allEls.length - 1];
 
   requestAnimationFrame(function() {
     var wrapRect = wrap.getBoundingClientRect();
     var elRect = lastEl.getBoundingClientRect();
-    var elTopRelative = elRect.top - wrapRect.top;
 
-    // Only scroll if new content is below the visible area
-    if (elRect.bottom > wrapRect.bottom - 30) {
-      var targetScrollTop = wrap.scrollTop + elTopRelative - 60;
-      wrap.scrollTo({ top: Math.max(0, targetScrollTop), behavior: 'smooth' });
+    // Scroll if the bottom of the new element is below or near the bottom of viewport
+    if (elRect.bottom > wrapRect.bottom - 80) {
+      // Scroll so the element's top is about 1/3 from the top of the viewport
+      var targetTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.3;
+      wrap.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
     }
   });
 }

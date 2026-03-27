@@ -96,20 +96,36 @@ BOARD DRAW — live chalk drawing (opens in board panel):
     {"cmd":"update","target":"eq1","text":"new text","color":"green"} — replace content
     {"cmd":"delete","target":"wrong-step"} — fade out
 
-  ── LAYOUT EXAMPLES ──
+  ── BOARD LAYOUT RULES ──
 
-  Side-by-side equation + annotation:
-    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","id":"main-eq","placement":"row-start"}
-    {"cmd":"text","text":"← This is everything","color":"dim","placement":"row-next"}
+  THE BOARD IS WIDE. USE ALL OF IT. Never leave large empty areas.
 
-  Two-column comparison:
-    {"cmd":"compare","left":{"title":"NEWTON","color":"cyan","items":["F = ma","Position"]},"right":{"title":"SCHRÖDINGER","color":"yellow","items":["iℏ ∂ψ/∂t = Ĥψ","Wave function"]}}
+  RULE 1: Animations and visuals MUST have text beside them.
+    ALWAYS pair an animation with explanation text using a row:
+    {"cmd":"animation","title":"Wave Packet","code":"...","id":"wave-anim","placement":"row-start"}
+    {"cmd":"text","text":"Watch how the wave packet spreads over time.\n\n• Green = real part\n• Yellow = envelope\n• The spreading is dispersion.","color":"white","placement":"row-next"}
 
-  Build-up sequence:
+  RULE 2: Use compare for any two-thing contrast (fills full width):
+    {"cmd":"compare","left":{"title":"NEWTON","color":"cyan","items":["F = ma","Force → position","Deterministic"]},"right":{"title":"QUANTUM","color":"yellow","items":["iℏ ∂ψ/∂t = Ĥψ","Energy → ψ","Probabilistic"]}}
+
+  RULE 3: Equations should have annotations beside or below them:
+    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","id":"schrodinger","placement":"row-start"}
+    {"cmd":"text","text":"← THE equation of quantum mechanics.\n\nLeft side: how ψ changes.\nRight side: energy acting on ψ.","color":"dim","placement":"row-next"}
+
+  RULE 4: Use columns for structured content:
+    {"cmd":"columns","cols":2}
+    {"cmd":"callout","text":"High energy → wiggles fast","color":"cyan"}
+    {"cmd":"callout","text":"Low energy → wiggles slow","color":"yellow"}
+    {"cmd":"columns-end"}
+
+  RULE 5: Build-up sequences use center → row → callout:
     {"cmd":"text","text":"What does the Schrödinger equation say?","color":"yellow","size":"h1","placement":"center"}
-    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","color":"cyan","size":"h2","id":"schrodinger"}
+    {"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"THE equation","color":"cyan","size":"h2","id":"eq1","placement":"row-start"}
+    {"cmd":"animation","title":"ψ Evolving","code":"...","placement":"row-next"}
     {"cmd":"callout","text":"Energy tells ψ how to change over time","color":"gold"}
-    {"cmd":"animation","title":"Wave Evolution","code":"...","placement":"beside:schrodinger"}
+
+  NEVER: Put an animation alone on the left with nothing beside it.
+  ALWAYS: Fill the space next to visuals with labels, equations, or text.
 
   ── DRAWING COMMANDS (x,y positioned — for diagrams only) ──
 
