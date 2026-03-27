@@ -282,7 +282,8 @@ const SessionManager = (() => {
   async function saveSession() {
     if (!session) return;
     if (state.sessionStartTime) {
-      session.durationSec = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+      const currentSegment = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+      session.durationSec = (state._accumulatedDuration || 0) + currentSegment;
     }
     session.metrics.totalTurns = session.transcript.length;
     session.metrics.studentResponses = session.transcript.filter(m => m.role === 'user').length;
@@ -355,7 +356,8 @@ const SessionManager = (() => {
     session.status = 'complete';
     session.endedAt = now();
     if (state.sessionStartTime) {
-      session.durationSec = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+      const currentSegment = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+      session.durationSec = (state._accumulatedDuration || 0) + currentSegment;
     }
     try {
       await apiPatch(`/${session.sessionId}`, {
@@ -2263,6 +2265,10 @@ function disconnectAgentEvents() {
 }
 
 function cleanupActiveSession() {
+  // Force save before cleanup so nothing is lost
+  if (typeof SessionManager !== 'undefined' && SessionManager.saveSession) {
+    try { SessionManager.saveSession(); } catch(e) {}
+  }
   if (state.voiceCurrentAudio) { try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {} state.voiceCurrentAudio = null; }
   if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch(e) {} state.voiceCurrentSrc = null; }
   if (state._currentTTSAudio) { try { state._currentTTSAudio.pause(); } catch(e) {} state._currentTTSAudio = null; }
@@ -7575,7 +7581,8 @@ window.continueSession = async function(sessionId) {
       content: m.content,
     }));
 
-    // Start fresh timer for this session (don't carry over accumulated time)
+    // Carry forward accumulated duration from previous visits
+    state._accumulatedDuration = sessionData.durationSec || 0;
     state.sessionStartTime = Date.now();
 
     // Fade out and remove the loading overlay
@@ -7621,6 +7628,8 @@ function rebuildCanvasFromTranscript(transcript) {
 
   // Prevent spotlights from opening during replay (only render ref cards)
   state.replayMode = true;
+  // Tell board engine to skip animation delays during replay
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.state) BoardEngine.state.replayMode = true;
   const savedHistory = state.spotlightHistory || [];
   state.spotlightHistory = [];
 
@@ -7648,6 +7657,7 @@ function rebuildCanvasFromTranscript(transcript) {
     }
   }
   state.replayMode = false;
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.state) BoardEngine.state.replayMode = false;
 
   // Scroll to bottom
   stream.scrollTop = stream.scrollHeight;

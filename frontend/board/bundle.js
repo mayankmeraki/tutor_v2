@@ -133,7 +133,7 @@ async function animateText(parentEl, text, options) {
 
   var queueLen = board.commandQueue.length;
   var animCount = board.animations.length;
-  var instant = options.instant || queueLen > 5 || animCount > 4;
+  var instant = options.instant || board.replayMode || queueLen > 5 || animCount > 4;
   var delay = options.charDelay;
   if (delay === undefined) {
     delay = animCount > 2 ? 15 : animCount > 0 ? 25 : 35;
