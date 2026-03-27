@@ -862,7 +862,9 @@ async function loadCourseMap(courseId) {
   // Fetch sections for each lesson in parallel
   const sectionFetches = (data.lessons || []).map(async (l) => {
     try {
-      const res = await fetch(`${state.apiUrl}/api/v1/content/lessons/${l.lesson_id}/sections`);
+      const res = await fetch(`${state.apiUrl}/api/v1/content/lessons/${l.lesson_id}/sections`, {
+        headers: AuthManager.authHeaders(),
+      });
       if (res.ok) {
         const sections = await res.json();
         lessonsById[l.lesson_id].sections = sections.map(s => ({
@@ -892,7 +894,9 @@ async function loadCourseMap(courseId) {
 
 async function fetchSimulations(courseId) {
   try {
-    const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/course/${courseId}`);
+    const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/course/${courseId}`, {
+      headers: AuthManager.authHeaders(),
+    });
     if (!res.ok) {
       console.warn(`Failed to fetch simulations: ${res.status}`);
       state.simulations = [];
@@ -907,7 +911,9 @@ async function fetchSimulations(courseId) {
 
 async function fetchConcepts(courseId) {
   try {
-    const res = await fetch(`${state.apiUrl}/api/v1/content/courses/${courseId}/concepts`);
+    const res = await fetch(`${state.apiUrl}/api/v1/content/courses/${courseId}/concepts`, {
+      headers: AuthManager.authHeaders(),
+    });
     if (!res.ok) {
       console.warn(`Failed to fetch concepts: ${res.status}`);
       state.concepts = [];
@@ -4446,7 +4452,7 @@ window.openSimulation = async function(simId, blockId) {
 
   try {
     // Fetch entry_url from backend
-    const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/${simId}`);
+    const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/${simId}`, { headers: AuthManager.authHeaders() });
     if (!res.ok) throw new Error(`HTTP ${res.status}`);
     const data = await res.json();
 
@@ -5119,7 +5125,7 @@ async function showSpotlight(tag, options = {}) {
     panel.classList.add('stage-active');
 
     try {
-      const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/${simId}`);
+      const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/${simId}`, { headers: AuthManager.authHeaders() });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const entryUrl = data.content?.entry_url || data.entry_url;
