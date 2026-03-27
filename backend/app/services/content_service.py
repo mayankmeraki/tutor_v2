@@ -159,6 +159,9 @@ async def search_content(query: str, limit: int = 10) -> list[dict]:
 
             if results:
                 log.info("Vector search for '%s': %d results", query[:40], len(results))
+                # Re-rank with LLM to filter irrelevant results
+                if len(results) > 1:
+                    results = await _rerank_with_haiku(query, results)
                 return results
 
     except Exception as e:
@@ -210,13 +213,21 @@ async def _rerank_with_haiku(query: str, results: list[dict]) -> list[dict]:
         for i, r in enumerate(results):
             candidates.append(f"{i}. [{r['type']}] {r['title']}" + (f" — {r.get('description', '')[:100]}" if r.get('description') else ""))
 
-        prompt = f"""Given the search query: "{query}"
+        prompt = f"""Search query: "{query}"
 
-Rank these results by relevance (most relevant first). Return ONLY the numbers as a comma-separated list, most relevant first. Include only results that are actually relevant — drop irrelevant ones.
+TASK: Filter and rank these results. BE STRICT:
+- ONLY include results that genuinely match what the user is looking for
+- DROP anything that just happens to share a word but isn't about the topic
+- If the query is about a topic we don't have courses for (e.g. "cooking", "basketball", "machine learning"), return NONE
+- A result about "wave functions" is NOT relevant to "machine learning" even if it contains the word "learning"
+- Rank the remaining results by how directly they address the query
 
+Results:
 {chr(10).join(candidates)}
 
-Response (just numbers, e.g. "3,1,5,0"):"""
+Return ONLY comma-separated numbers of relevant results (most relevant first).
+If NOTHING is relevant, return "NONE".
+Response:"""
 
         api_key = settings.OPENROUTER_API_KEY
         if not api_key:
@@ -238,6 +249,12 @@ Response (just numbers, e.g. "3,1,5,0"):"""
                 return results
 
             text = resp.json()["choices"][0]["message"]["content"].strip()
+
+            # Handle "NONE" — no relevant results
+            if text.upper().startswith("NONE"):
+                log.info("Reranker filtered ALL results for '%s'", query[:30])
+                return []
+
             # Parse indices
             indices = []
             for part in text.replace(" ", "").split(","):
