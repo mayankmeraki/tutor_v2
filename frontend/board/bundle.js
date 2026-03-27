@@ -775,14 +775,19 @@ function detectBlank(canvasWrap, entry, cmd, retryKey, attempt) {
       .then(function(data) {
         if (!data || !data.code) throw new Error('No code');
         try { entry.instance.remove(); } catch (e) {}
-        if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
+        // Remove the ENTIRE figure element (not just canvas container)
+        var fig = entry.container && entry.container.closest('.bd-anim-figure');
+        if (fig && fig.parentNode) fig.parentNode.removeChild(fig);
+        else if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
         var idx = board.animations.indexOf(entry);
         if (idx >= 0) board.animations.splice(idx, 1);
         createAnimation(Object.assign({}, cmd, { code: data.code }));
       })
       .catch(function() {
         try { entry.instance.remove(); } catch (e) {}
-        if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
+        var fig = entry.container && entry.container.closest('.bd-anim-figure');
+        if (fig && fig.parentNode) fig.parentNode.removeChild(fig);
+        else if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
         var idx = board.animations.indexOf(entry);
         if (idx >= 0) board.animations.splice(idx, 1);
       });
