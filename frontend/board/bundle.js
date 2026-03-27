@@ -1546,8 +1546,16 @@ function autoScroll() {
   var wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap || !board.liveScene) return;
 
-  // Don't auto-scroll if student scrolled up manually (browsing old content)
-  if (board._userScrolledUp) return;
+  // If user manually scrolled up, don't force them down.
+  // But auto-resume if they've been idle for 3+ seconds (they stopped browsing).
+  if (board._userScrolledUp) {
+    var now = Date.now();
+    if (board._lastUserScrollTime && now - board._lastUserScrollTime > 3000) {
+      board._userScrolledUp = false; // Auto-resume after idle
+    } else {
+      return;
+    }
+  }
 
   var allEls = board.liveScene.querySelectorAll('.bd-el, .bd-anim-figure, .bd-svg-shape, .bd-row, .bd-zone-grid, .bd-columns, .bd-positioned');
   if (!allEls.length) return;
@@ -1557,9 +1565,9 @@ function autoScroll() {
     var wrapRect = wrap.getBoundingClientRect();
     var elRect = lastEl.getBoundingClientRect();
 
-    // Scroll if the bottom of the new element is below or near the bottom of viewport
-    if (elRect.bottom > wrapRect.bottom - 80) {
-      // Scroll so the element's top is about 1/3 from the top of the viewport
+    // Always scroll if content is below visible area
+    if (elRect.bottom > wrapRect.bottom - 40) {
+      // Place the new element's top at about 30% from the top of viewport
       var targetTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.3;
       wrap.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
     }
@@ -1603,15 +1611,15 @@ function init(apiUrl, authHeadersFn) {
     var scrollTimer;
     var lastScrollTop = wrap.scrollTop;
     wrap.addEventListener('scroll', function() {
-      // Detect if user scrolled UP (browsing old content)
       var currentTop = wrap.scrollTop;
       var maxScroll = wrap.scrollHeight - wrap.clientHeight;
-      if (currentTop < lastScrollTop - 20) {
-        // User scrolled up — pause auto-scroll
+      if (currentTop < lastScrollTop - 30) {
+        // User scrolled up — pause auto-scroll temporarily
         board._userScrolledUp = true;
+        board._lastUserScrollTime = Date.now();
       }
-      if (currentTop >= maxScroll - 50) {
-        // User scrolled to bottom — resume auto-scroll
+      if (currentTop >= maxScroll - 60) {
+        // User scrolled to bottom — resume immediately
         board._userScrolledUp = false;
       }
       lastScrollTop = currentTop;
