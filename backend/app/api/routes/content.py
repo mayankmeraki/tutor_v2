@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.auth import get_optional_user
@@ -8,6 +8,7 @@ from app.services.content_service import (
     get_course_with_hierarchy,
     get_lesson_sections_lightweight,
     get_section_full,
+    search_content,
 )
 
 router = APIRouter(prefix="/api/v1/content", tags=["content"])
@@ -37,3 +38,12 @@ async def section_detail(lesson_id: int, section_index: int, user: dict = Depend
 @router.get("/courses/{course_id}/concepts")
 async def course_concepts(course_id: int, user: dict = Depends(get_optional_user)):
     return await get_course_concepts(course_id)
+
+
+@router.get("/search")
+async def content_search(
+    q: str = Query(..., min_length=2, description="Search query"),
+    limit: int = Query(10, le=20),
+    user: dict = Depends(get_optional_user),
+):
+    return await search_content(q, limit)

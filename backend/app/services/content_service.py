@@ -118,6 +118,78 @@ async def get_learning_tools_for_course(course_id: int) -> list[dict]:
     return [_serialize_mongo(doc) async for doc in cursor]
 
 
+async def search_content(query: str, limit: int = 10) -> list[dict]:
+    """Semantic + text search across lessons and courses.
+
+    Uses MongoDB Atlas Vector Search if available, falls back to text regex.
+    Returns a merged, deduplicated list of results.
+    """
+    import logging
+    log = logging.getLogger(__name__)
+    db = get_mongo_db()
+    col = db.search_index
+    results = []
+
+    # Try vector search first
+    try:
+        from app.services.embedding_service import generate_embedding
+        embedding = await generate_embedding(query)
+
+        if embedding:
+            pipeline = [
+                {
+                    "$vectorSearch": {
+                        "index": "content_search_vector",
+                        "path": "embedding",
+                        "queryVector": embedding,
+                        "numCandidates": limit * 5,
+                        "limit": limit,
+                    }
+                },
+                {
+                    "$project": {
+                        "_id": 1, "type": 1, "courseId": 1, "lessonId": 1,
+                        "title": 1, "description": 1, "metadata": 1,
+                        "score": {"$meta": "vectorSearchScore"},
+                    }
+                },
+            ]
+            async for doc in col.aggregate(pipeline):
+                results.append(_serialize_mongo(doc))
+
+            if results:
+                log.info("Vector search for '%s': %d results", query[:40], len(results))
+                return results
+
+    except Exception as e:
+        log.warning("Vector search failed (falling back to text): %s", e)
+
+    # Fallback: text regex search (match any word in the query)
+    import re
+    words = [w for w in query.strip().split() if len(w) >= 2]
+    if not words:
+        return []
+    word_patterns = [{"$or": [
+        {"title": {"$regex": re.escape(w), "$options": "i"}},
+        {"searchText": {"$regex": re.escape(w), "$options": "i"}},
+    ]} for w in words[:5]]  # limit to 5 words
+
+    # Use $or — match any word for broader results
+    all_conditions = []
+    for wp in word_patterns:
+        all_conditions.extend(wp["$or"])
+    cursor = col.find(
+        {"$or": all_conditions},
+        {"embedding": 0, "searchText": 0},
+    ).limit(limit)
+
+    async for doc in cursor:
+        results.append(_serialize_mongo(doc))
+
+    log.info("Text search for '%s': %d results", query[:40], len(results))
+    return results
+
+
 async def get_learning_tool_by_id(tool_id: str) -> dict | None:
     db = get_mongo_db()
     try:
