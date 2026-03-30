@@ -897,9 +897,11 @@
   border: 1px solid rgba(255, 255, 255, 0.05);
   border-radius: 14px;
   padding: 24px 28px;
-  max-width: 580px;
+  max-width: 90%;
   backdrop-filter: blur(4px);
   animation: bd-fadeUp 0.4s ease;
+  overflow-wrap: break-word;
+  word-wrap: break-word;
 }
 
 @keyframes bd-fadeUp {

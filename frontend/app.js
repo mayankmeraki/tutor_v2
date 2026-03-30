@@ -1446,6 +1446,11 @@ function handleSSEEvent(event) {
         setTimeout(() => staleOnboard.remove(), 300);
       }
       startAIMessageStream();
+      // Hide the chat message during assessment — content renders on board only
+      if (state.assessment.active) {
+        const stream = document.getElementById('ai-stream-msg');
+        if (stream) stream.style.display = 'none';
+      }
       break;
 
     case 'TEXT_MESSAGE_CONTENT':
@@ -1579,33 +1584,38 @@ function handleSSEEvent(event) {
       state.assessment.concepts = event.concepts || [];
       state.assessment.questionNumber = 0;
       state.assessment.maxQuestions = event.maxQuestions || 5;
-      // Remove the tutor's last message if it leaked handoff language
+      // Remove ALL recent AI messages with handoff/internal language
       {
-        const lastAI = document.querySelector('#canvas-stream .canvas-block[data-type="ai"]:last-of-type');
-        if (lastAI) {
-          const text = lastAI.textContent || '';
-          if (text.includes('assessment') || text.includes('hand off') || text.includes('checkpoint')) {
-            lastAI.style.transition = 'opacity 0.2s ease';
-            lastAI.style.opacity = '0';
-            setTimeout(() => lastAI.remove(), 200);
+        const allAI = document.querySelectorAll('#canvas-stream .canvas-block[data-type="ai"]');
+        const leakWords = ['assessment', 'hand off', 'checkpoint', 'hand this', 'assessment agent',
+          'let me check', 'craft the first', 'targeting', 'misconception', 'mcq', 'difficulty'];
+        // Check last 3 messages
+        const recent = Array.from(allAI).slice(-3);
+        recent.forEach(el => {
+          const text = (el.textContent || '').toLowerCase();
+          if (leakWords.some(w => text.includes(w))) {
+            el.style.transition = 'opacity 0.2s ease';
+            el.style.opacity = '0';
+            setTimeout(() => el.remove(), 200);
           }
-        }
+        });
       }
-      // Assessment now renders ON THE BOARD — no separate panel, no badge
+      // Assessment renders ON THE BOARD — hide chat panel, full-width board
+      document.body.classList.add('assessment-mode');
       break;
 
     case 'ASSESSMENT_END': {
       state.assessment.active = false;
       state.assessment.questionNumber = 0;
+      document.body.classList.remove('assessment-mode');
       const score = event.score || {};
       const isHandback = event.reason && event.reason !== 'complete';
-      const sectionTitle = event.section || state.assessment.sectionTitle || 'Section Checkpoint';
+      const sectionTitle = event.section || state.assessment.sectionTitle || '';
 
-      // Close assessment spotlight
+      // Legacy spotlight cleanup (no-op if not open)
       if (state.spotlightActive && state.spotlightInfo?.type === 'assessment') {
         window.hideSpotlight({ agentInitiated: true });
       }
-      // Restore close/fullscreen buttons (in case they were hidden)
       const closeBtn = document.querySelector('.spotlight-close-btn');
       const fsBtn = document.querySelector('.spotlight-fullscreen-btn');
       if (closeBtn) closeBtn.style.display = '';
@@ -3556,6 +3566,22 @@ function renderAssessmentQuestion(tag, type) {
         BoardEngine.queueCommand({
           cmd: 'assess-confidence',
           prompt: tag.attrs?.prompt || 'How confident are you?',
+        });
+        break;
+      case 'agree-disagree':
+        BoardEngine.queueCommand({
+          cmd: 'assess-freetext',
+          prompt: (tag.attrs?.prompt || '') + '\n\nDo you agree or disagree? Explain why.',
+          placeholder: 'Agree or disagree — explain your reasoning...',
+          progress: progress,
+        });
+        break;
+      case 'fillblank':
+        BoardEngine.queueCommand({
+          cmd: 'assess-freetext',
+          prompt: tag.attrs?.prompt || tag.content || '',
+          placeholder: 'Fill in the blank...',
+          progress: progress,
         });
         break;
       default:

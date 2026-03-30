@@ -5386,6 +5386,9 @@ body.video-mode #chat-panel, body.video-mode #split-handle { display: none !impo
 body.video-mode #board-panel { flex: 1 !important; }
 body.video-mode #top-bar, body.video-mode #plan-heading-bar { display: none !important; }
 
+body.assessment-mode #chat-panel, body.assessment-mode #split-handle { display: none !important; }
+body.assessment-mode #board-panel { flex: 1 !important; }
+
 .vm-overlay { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
 .vm-overlay .vm-vid-wrap, .vm-overlay .vm-chat-wrap { pointer-events: all; }
 
