@@ -5,7 +5,7 @@ cheap embeddings. Stores metadata about the embedding model used.
 
 Used by:
 - knowledge_state.py: embed student notes for vector search
-- student_note_index: materialized flat index for MongoDB Atlas Vector Search
+- student_concept_mastery_vectors: materialized flat index for MongoDB Atlas Vector Search
 """
 
 import logging

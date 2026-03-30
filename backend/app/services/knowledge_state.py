@@ -1,17 +1,17 @@
-"""Knowledge state service — append-only freehand notes per student-course.
+"""Student concept mastery — freehand notes per student.
 
-One MongoDB document per student-course. The tutor writes natural prose
-observations that accumulate over time. No structured concepts, no enums,
-no mastery scores — just notes with optional tags and substring search.
+One MongoDB document per student. Contains:
+- Global profile (course-independent): learning style, pace, preferences
+- Concept notes (tagged with courseId metadata): mastery observations
 
-Collection: concept_states (in tutor_v2 database)
+Collection: student_concept_mastery (in tutor_v2 database)
+Vector index: student_concept_mastery_vectors (flat, for Atlas Vector Search)
 
 Document schema:
-    _id:           ks_{courseId}_{safeEmail}
-    courseId:       int
+    _id:           mastery_{safeEmail}
     userEmail:      str
-    notes:         [{text, tags, sessionId, at}]   # append-only
-    summary:       str | null                      # rolling summary
+    profile:       {text, updatedAt}              # global, cross-course
+    notes:         [{text, tags, courseId, sessionId, lesson, at}]
     lastUpdated:   ISO datetime
 """
 
@@ -27,17 +27,18 @@ log = logging.getLogger(__name__)
 # ─── Collection accessors ──────────────────────────────────────────
 
 def _collection():
-    """Source of truth: one doc per student+course with notes array."""
-    return get_tutor_db()["concept_states"]
+    """Source of truth: one doc per student with notes array + profile."""
+    return get_tutor_db()["student_concept_mastery"]
 
 def _index_collection():
-    """Flat materialized index for vector search — one doc per note."""
-    return get_tutor_db()["student_note_index"]
+    """Flat materialized index for vector search — one doc per concept."""
+    return get_tutor_db()["student_concept_mastery_vectors"]
 
 
 def _doc_id(course_id: int, user_email: str) -> str:
-    safe_email = user_email.replace(".", "_dot_").replace("@", "_at_")
-    return f"ks_{course_id}_{safe_email}"
+    """Document ID — per student (not per course). courseId is metadata on notes."""
+    safe_email = user_email.lower().replace(".", "_dot_").replace("@", "_at_")
+    return f"mastery_{safe_email}"
 
 
 # ─── Core Operations ───────────────────────────────────────────────
@@ -117,24 +118,42 @@ async def upsert_concept_note(
 ) -> dict:
     """Upsert a freehand note by concept overlap.
 
-    Matching strategy: find any existing note that shares at least one
-    concept tag with the new note. If found, REPLACE it entirely.
-    If multiple match, replace the one with the most tag overlap.
-    This keeps notes bounded — one note per concept cluster.
+    - _profile notes update the global profile (course-independent)
+    - Concept notes are tagged with courseId metadata
+    - Matching: find existing note sharing ≥1 tag, replace it
+    - One note per concept cluster — bounded growth
     """
     col = _collection()
     doc_id = _doc_id(course_id, user_email)
     now = datetime.now(timezone.utc).isoformat()
 
-    # Normalize tags: lowercase, spaces→underscores, strip
+    # Normalize tags
     concepts = [_normalize_tag(c) for c in concepts if c]
     if not concepts:
         concepts = ["_uncategorized"]
     primary = concepts[0]
 
+    # Handle global profile separately
+    if primary == "_profile":
+        await col.update_one(
+            {"_id": doc_id},
+            {
+                "$set": {
+                    "profile": {"text": note_text, "updatedAt": now},
+                    "lastUpdated": now,
+                },
+                "$setOnInsert": {"userEmail": user_email.lower()},
+            },
+            upsert=True,
+        )
+        log.info("Profile updated: %s (%d chars)", user_email, len(note_text))
+        return {"action": "profile_updated", "primary_concept": "_profile"}
+
+    # Build concept note with courseId metadata
     new_note = {
         "text": note_text,
         "tags": concepts,
+        "courseId": course_id,
         "sessionId": session_id,
         "at": now,
     }
@@ -142,13 +161,12 @@ async def upsert_concept_note(
         new_note["lesson"] = lesson
 
     new_set = set(concepts)
-
     doc = await col.find_one({"_id": doc_id})
 
     if doc:
         notes = doc.get("notes", [])
 
-        # Find the best matching existing note (most tag overlap)
+        # Find best matching existing note (most tag overlap)
         best_idx = -1
         best_overlap = 0
         for i, existing in enumerate(notes):
@@ -173,7 +191,6 @@ async def upsert_concept_note(
             {"$set": {"notes": notes, "lastUpdated": now}},
         )
 
-        # Clean orphaned vector doc if primary tag changed
         if old_primary and old_primary != primary:
             asyncio.create_task(_delete_vector_index_entry(
                 course_id, user_email, old_primary
@@ -183,17 +200,13 @@ async def upsert_concept_note(
             {"_id": doc_id},
             {
                 "$set": {"notes": [new_note], "lastUpdated": now},
-                "$setOnInsert": {
-                    "courseId": course_id,
-                    "userEmail": user_email,
-                    "summary": None,
-                },
+                "$setOnInsert": {"userEmail": user_email.lower()},
             },
             upsert=True,
         )
         action = "created"
 
-    log.info("Knowledge note %s: %s/%d [%s] (%d chars)",
+    log.info("Mastery note %s: %s/%d [%s] (%d chars)",
              action, user_email, course_id, primary, len(note_text))
 
     # Sync to vector index in background
@@ -305,7 +318,7 @@ async def vector_search_notes(
         pipeline = [
             {
                 "$vectorSearch": {
-                    "index": "notes_vector_index",
+                    "index": "mastery_vector_index",
                     "path": "embedding",
                     "queryVector": query_embedding,
                     "numCandidates": limit * 4,  # over-fetch then filter
@@ -492,29 +505,36 @@ async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
     # NOTE: doc.summary cache removed — was never populated, always stale.
     # Always format fresh from notes.
 
+    # Global profile (course-independent)
+    profile = doc.get("profile")
+    profile_text = profile.get("text") if isinstance(profile, dict) else None
+
+    # Concept notes — filter by courseId if provided, show all otherwise
     notes = doc.get("notes", [])
-    if not notes:
-        return None
-
-    profile_text = None
     concept_entries = []
-
     for note in notes:
         tags = _normalize_tags(note.get("tags", []))
         text = note.get("text", "")
         primary = tags[0] if tags else ""
+        note_course = note.get("courseId")
 
-        if primary == "_profile":
-            profile_text = text
-        elif primary:
-            snippet = text if len(text) <= 150 else text[:150] + "..."
-            concept_entries.append(f"  {primary}: {snippet}")
+        if not primary or primary.startswith("_"):
+            continue
+        # Show notes from this course + notes with no course (universal)
+        if course_id and note_course and note_course != course_id:
+            continue
+        snippet = text if len(text) <= 150 else text[:150] + "..."
+        course_tag = f" [course:{note_course}]" if note_course and note_course != course_id else ""
+        concept_entries.append(f"  {primary}: {snippet}{course_tag}")
+
+    if not profile_text and not concept_entries:
+        return None
 
     parts = []
     if profile_text:
-        parts.append(f"[Student Profile] {profile_text}")
+        parts.append(f"[Student Profile — Global] {profile_text}")
     if concept_entries:
-        parts.append(f"[Student Notes — {len(concept_entries)} concepts]")
+        parts.append(f"[Student Concept Mastery — {len(concept_entries)} concepts]")
         parts.extend(concept_entries)
 
     return "\n".join(parts) if parts else None
@@ -523,58 +543,56 @@ async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
 # ─── Legacy compatibility ──────────────────────────────────────────
 
 async def get_or_init_knowledge_state(course_id: int, student_name: str) -> dict:
-    """Legacy wrapper — used by _load_knowledge_state in chat.py."""
+    """Load student mastery state. Returns empty structure if none exists."""
     col = _collection()
     doc_id = _doc_id(course_id, student_name)
     doc = await col.find_one({"_id": doc_id})
     if doc:
         return doc
-    # Return empty structure (don't create doc — append_note handles upsert)
-    return {"notes": [], "summary": None}
+    return {"notes": [], "profile": None}
 
 
 def format_knowledge_state(knowledge_state: dict) -> str:
-    """Format student notes grouped by concept for tutor context."""
+    """Format student mastery state for tutor context."""
+    profile = knowledge_state.get("profile")
     notes = knowledge_state.get("notes", [])
-    if not notes:
+
+    if not notes and not profile:
         return "No student notes yet — this is a new student."
-
-    profile_notes = []
-    concept_notes = {}
-
-    for note in notes:
-        tags = _normalize_tags(note.get("tags", []))
-        text = note.get("text", "")
-        primary = tags[0] if tags else "_uncategorized"
-        lesson = note.get("lesson", "")
-
-        if primary == "_profile":
-            profile_notes.append(text)
-        else:
-            concept_notes[primary] = {
-                "text": text,
-                "tags": tags,
-                "lesson": lesson,
-            }
 
     lines = []
 
-    if profile_notes:
-        lines.append("[Student Profile]")
-        for p in profile_notes:
-            lines.append(f"  {p}")
+    if profile and isinstance(profile, dict) and profile.get("text"):
+        lines.append("[Student Profile — Global]")
+        lines.append(f"  {profile['text']}")
         lines.append("")
 
-    if concept_notes:
-        lines.append(f"[Student Notes — {len(concept_notes)} concepts]")
-        for concept, data in concept_notes.items():
-            text = data["text"]
-            snippet = text if len(text) <= 200 else text[:200] + "..."
-            other_tags = [t for t in data["tags"] if t != concept]
-            related = f" (also: {', '.join(other_tags)})" if other_tags else ""
-            lesson = f" [L:{data['lesson']}]" if data.get("lesson") else ""
-            lines.append(f"  {concept}{related}{lesson}: {snippet}")
-    elif not profile_notes:
+    if notes:
+        concept_notes = {}
+        for note in notes:
+            tags = _normalize_tags(note.get("tags", []))
+            text = note.get("text", "")
+            primary = tags[0] if tags else "_uncategorized"
+            if primary.startswith("_"):
+                continue
+            concept_notes[primary] = {
+                "text": text,
+                "tags": tags,
+                "lesson": note.get("lesson", ""),
+                "courseId": note.get("courseId"),
+            }
+
+        if concept_notes:
+            lines.append(f"[Student Concept Mastery — {len(concept_notes)} concepts]")
+            for concept, data in concept_notes.items():
+                text = data["text"]
+                snippet = text if len(text) <= 200 else text[:200] + "..."
+                other_tags = [t for t in data["tags"] if t != concept]
+                related = f" (also: {', '.join(other_tags)})" if other_tags else ""
+                lesson = f" [L:{data['lesson']}]" if data.get("lesson") else ""
+                lines.append(f"  {concept}{related}{lesson}: {snippet}")
+
+    if not lines:
         lines.append("No student notes yet — this is a new student.")
 
     return "\n".join(lines)
