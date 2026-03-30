@@ -13994,7 +13994,19 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   state.video.player = video;
 
   // Event listeners
-  video.addEventListener('pause', () => { if (state.video.active) _vmOnPause(); });
+  // Track seeking state to avoid PiP on seek
+  let _isSeeking = false;
+  video.addEventListener('seeking', () => { _isSeeking = true; });
+  video.addEventListener('seeked', () => { setTimeout(() => { _isSeeking = false; }, 300); });
+
+  // Only trigger PiP on intentional pause (not seeking)
+  video.addEventListener('pause', () => {
+    if (!state.video.active || _isSeeking) return;
+    // Delay slightly — if a play event follows quickly (seeking), don't PiP
+    setTimeout(() => {
+      if (video.paused && !_isSeeking && state.video.active) _vmOnPause();
+    }, 200);
+  });
   video.addEventListener('playing', () => { if (state.video.active && state.video.isPaused) _vmOnResume(); });
   video.addEventListener('timeupdate', () => {
     if (state.video.active && video.currentTime) {
