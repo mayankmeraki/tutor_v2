@@ -867,6 +867,11 @@ async function runCommand(cmd) {
     case 'columns':  renderColumns(cmd); break;
     case 'columns-end': renderColumnsEnd(); break;
     case 'annotate': renderAnnotate(cmd); break;
+    case 'assess-mcq': renderBoardMCQ(cmd); break;
+    case 'assess-freetext': renderBoardFreetext(cmd); break;
+    case 'assess-spot-error': renderBoardSpotError(cmd); break;
+    case 'assess-teachback': renderBoardTeachback(cmd); break;
+    case 'assess-confidence': renderBoardConfidence(cmd); break;
     case 'strikeout': renderStrikeout(cmd); break;
     case 'update':   await renderUpdate(cmd); break;
     case 'delete':   renderDelete(cmd); break;
@@ -955,6 +960,242 @@ function renderAnnotate(cmd) {
     }
   }
 }
+
+// ═══════════════════════════════════════════════════════════════
+// BOARD-NATIVE ASSESSMENT ELEMENTS
+// Interactive assessment rendered directly on the board canvas.
+// ═══════════════════════════════════════════════════════════════
+
+function renderBoardMCQ(cmd) {
+  var el = document.createElement('div');
+  el.className = 'bd-el bd-assess-card';
+  if (cmd.id) el.id = cmd.id;
+
+  var prompt = document.createElement('div');
+  prompt.className = 'bd-assess-prompt';
+  prompt.textContent = cmd.prompt || cmd.text || '';
+  el.appendChild(prompt);
+
+  var options = cmd.options || [];
+  var optionsWrap = document.createElement('div');
+  optionsWrap.className = 'bd-mcq-options';
+
+  options.forEach(function(opt, i) {
+    var optEl = document.createElement('div');
+    optEl.className = 'bd-mcq-opt';
+    optEl.dataset.value = opt.value || String.fromCharCode(97 + i);
+    optEl.dataset.correct = opt.correct ? 'true' : 'false';
+
+    var radio = document.createElement('div');
+    radio.className = 'bd-mcq-radio';
+    optEl.appendChild(radio);
+
+    var label = document.createElement('span');
+    label.textContent = opt.text || opt.label || '';
+    optEl.appendChild(label);
+
+    optEl.addEventListener('click', function() {
+      optionsWrap.querySelectorAll('.bd-mcq-opt').forEach(function(o) { o.classList.remove('bd-selected'); });
+      optEl.classList.add('bd-selected');
+    });
+
+    optionsWrap.appendChild(optEl);
+  });
+
+  el.appendChild(optionsWrap);
+
+  // Progress dots
+  if (cmd.progress) {
+    var dots = document.createElement('div');
+    dots.className = 'bd-assess-progress';
+    for (var pi = 0; pi < (cmd.progress.total || 3); pi++) {
+      var dot = document.createElement('div');
+      dot.className = 'bd-prog-dot' + (pi < (cmd.progress.done || 0) ? ' bd-prog-done' : pi === (cmd.progress.done || 0) ? ' bd-prog-active' : '');
+      dots.appendChild(dot);
+    }
+    el.appendChild(dots);
+  }
+
+  // Submit button
+  var submitWrap = document.createElement('div');
+  submitWrap.className = 'bd-assess-submit';
+  var submitBtn = document.createElement('button');
+  submitBtn.className = 'bd-submit-btn';
+  submitBtn.textContent = 'Submit';
+  submitBtn.addEventListener('click', function() {
+    var selected = optionsWrap.querySelector('.bd-mcq-opt.bd-selected');
+    if (!selected) return;
+    var isCorrect = selected.dataset.correct === 'true';
+    selected.classList.add(isCorrect ? 'bd-correct' : 'bd-wrong');
+    if (!isCorrect) {
+      var correct = optionsWrap.querySelector('.bd-mcq-opt[data-correct="true"]');
+      if (correct) correct.classList.add('bd-correct');
+    }
+    submitBtn.style.display = 'none';
+    // Send answer to tutor
+    if (typeof streamADK === 'function') {
+      var ansText = selected.querySelector('span').textContent;
+      streamADK(ansText, false, false);
+    }
+  });
+  submitWrap.appendChild(submitBtn);
+  el.appendChild(submitWrap);
+
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
+function renderBoardFreetext(cmd) {
+  var el = document.createElement('div');
+  el.className = 'bd-el bd-assess-card';
+  if (cmd.id) el.id = cmd.id;
+
+  var prompt = document.createElement('div');
+  prompt.className = 'bd-assess-prompt';
+  prompt.textContent = cmd.prompt || cmd.text || '';
+  el.appendChild(prompt);
+
+  var input = document.createElement('textarea');
+  input.className = 'bd-free-input';
+  input.placeholder = cmd.placeholder || 'Type your answer...';
+  input.rows = 4;
+  el.appendChild(input);
+
+  var submitWrap = document.createElement('div');
+  submitWrap.className = 'bd-assess-submit';
+  var submitBtn = document.createElement('button');
+  submitBtn.className = 'bd-submit-btn';
+  submitBtn.textContent = 'Submit';
+  submitBtn.addEventListener('click', function() {
+    var answer = input.value.trim();
+    if (!answer) return;
+    input.disabled = true;
+    submitBtn.style.display = 'none';
+    if (typeof streamADK === 'function') streamADK(answer, false, false);
+  });
+  submitWrap.appendChild(submitBtn);
+  el.appendChild(submitWrap);
+
+  placeElement(el, cmd.placement || 'below', cmd);
+  setTimeout(function() { input.focus(); }, 300);
+}
+
+function renderBoardSpotError(cmd) {
+  var el = document.createElement('div');
+  el.className = 'bd-el bd-assess-card';
+  if (cmd.id) el.id = cmd.id;
+
+  var prompt = document.createElement('div');
+  prompt.className = 'bd-assess-prompt';
+  prompt.textContent = cmd.prompt || 'What\'s wrong with this?';
+  el.appendChild(prompt);
+
+  if (cmd.quote) {
+    var quote = document.createElement('div');
+    quote.className = 'bd-spot-error-eq';
+    quote.textContent = cmd.quote;
+    el.appendChild(quote);
+  }
+
+  if (cmd.hint) {
+    var hint = document.createElement('div');
+    hint.className = 'bd-assess-hint';
+    hint.textContent = cmd.hint;
+    el.appendChild(hint);
+  }
+
+  var input = document.createElement('textarea');
+  input.className = 'bd-free-input';
+  input.placeholder = 'Explain what\'s wrong and why it matters...';
+  input.rows = 3;
+  el.appendChild(input);
+
+  var submitWrap = document.createElement('div');
+  submitWrap.className = 'bd-assess-submit';
+  var submitBtn = document.createElement('button');
+  submitBtn.className = 'bd-submit-btn';
+  submitBtn.textContent = 'Submit';
+  submitBtn.addEventListener('click', function() {
+    var answer = input.value.trim();
+    if (!answer) return;
+    input.disabled = true;
+    submitBtn.style.display = 'none';
+    if (typeof streamADK === 'function') streamADK(answer, false, false);
+  });
+  submitWrap.appendChild(submitBtn);
+  el.appendChild(submitWrap);
+
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
+function renderBoardTeachback(cmd) {
+  var el = document.createElement('div');
+  el.className = 'bd-el bd-assess-card';
+  if (cmd.id) el.id = cmd.id;
+
+  var label = document.createElement('div');
+  label.className = 'bd-teachback-label';
+  label.textContent = 'Your turn to teach';
+  el.appendChild(label);
+
+  var prompt = document.createElement('div');
+  prompt.className = 'bd-assess-prompt';
+  prompt.textContent = cmd.prompt || '';
+  el.appendChild(prompt);
+
+  var input = document.createElement('textarea');
+  input.className = 'bd-free-input';
+  input.placeholder = cmd.placeholder || 'Explain in your own words — pretend you\'re teaching a friend...';
+  input.rows = 5;
+  el.appendChild(input);
+
+  var submitWrap = document.createElement('div');
+  submitWrap.className = 'bd-assess-submit';
+  var submitBtn = document.createElement('button');
+  submitBtn.className = 'bd-submit-btn';
+  submitBtn.textContent = 'Submit';
+  submitBtn.addEventListener('click', function() {
+    var answer = input.value.trim();
+    if (!answer) return;
+    input.disabled = true;
+    submitBtn.style.display = 'none';
+    if (typeof streamADK === 'function') streamADK(answer, false, false);
+  });
+  submitWrap.appendChild(submitBtn);
+  el.appendChild(submitWrap);
+
+  placeElement(el, cmd.placement || 'below', cmd);
+  setTimeout(function() { input.focus(); }, 300);
+}
+
+function renderBoardConfidence(cmd) {
+  var el = document.createElement('div');
+  el.className = 'bd-el bd-assess-card';
+  if (cmd.id) el.id = cmd.id;
+
+  var prompt = document.createElement('div');
+  prompt.className = 'bd-assess-prompt';
+  prompt.textContent = cmd.prompt || 'How confident are you?';
+  el.appendChild(prompt);
+
+  var scale = document.createElement('div');
+  scale.className = 'bd-confidence-scale';
+  var levels = ['Not at all', 'A little', 'Fairly', 'Very confident'];
+  levels.forEach(function(label) {
+    var btn = document.createElement('button');
+    btn.className = 'bd-conf-btn';
+    btn.textContent = label;
+    btn.addEventListener('click', function() {
+      scale.querySelectorAll('.bd-conf-btn').forEach(function(b) { b.classList.remove('bd-conf-selected'); });
+      btn.classList.add('bd-conf-selected');
+      if (typeof streamADK === 'function') streamADK(label, false, false);
+    });
+    scale.appendChild(btn);
+  });
+  el.appendChild(scale);
+
+  placeElement(el, cmd.placement || 'below', cmd);
+}
+
 
 // ── SVG Shape Primitives ──
 
@@ -1134,7 +1375,7 @@ function _loadMermaid(cb) {
         lineColor: '#94a3b8',
         secondaryColor: '#1a2332',
         tertiaryColor: '#1a2332',
-        fontFamily: "'Caveat', cursive",
+        fontFamily: "'CoalhandLuke', 'Caveat', cursive",
         fontSize: '16px',
         nodeBorder: '#53d8fb',
         clusterBkg: 'rgba(52,211,153,0.08)',

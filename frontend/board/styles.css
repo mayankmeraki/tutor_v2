@@ -3,6 +3,14 @@
    Replaces canvas-based board with identical visual feel.
    ═══════════════════════════════════════════════════════════ */
 
+@font-face {
+  font-family: 'CoalhandLuke';
+  src: url('/fonts/CoalhandLuke.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
 /* ─── Custom Properties (Color Palette) ─────────────────── */
 
 :root {
@@ -10,7 +18,7 @@
   --bd-bg-dark: rgba(0, 0, 0, 0.25);
   --bd-grid-line: rgba(255, 255, 255, 0.025);
   --bd-grid-spacing: 40px;
-  --bd-font: 'Caveat', cursive;
+  --bd-font: 'CoalhandLuke', 'Caveat', cursive;
 
   /* Chalk colors */
   --bd-white: #e8e8e0;
@@ -878,3 +886,125 @@
     --bd-el-gap: 8px;
   }
 }
+
+
+/* ═══════════════════════════════════════════════════════════
+   Board-Native Assessment Elements
+   ═══════════════════════════════════════════════════════════ */
+
+.bd-assess-card {
+  background: rgba(0, 0, 0, 0.2);
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  border-radius: 14px;
+  padding: 24px 28px;
+  max-width: 580px;
+  backdrop-filter: blur(4px);
+  animation: bd-fadeUp 0.4s ease;
+}
+
+@keyframes bd-fadeUp {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bd-assess-prompt {
+  font-family: var(--bd-font);
+  font-size: var(--bd-text);
+  color: var(--bd-white);
+  line-height: 1.5;
+  margin-bottom: 18px;
+  text-shadow: var(--bd-glow);
+}
+
+/* MCQ options */
+.bd-mcq-options { display: flex; flex-direction: column; gap: 6px; }
+
+.bd-mcq-opt {
+  display: flex; align-items: center; gap: 12px;
+  padding: 12px 16px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  cursor: pointer; transition: all 0.15s;
+  font-family: var(--bd-font);
+  font-size: 18px;
+  color: var(--bd-white);
+}
+
+.bd-mcq-opt:hover { background: rgba(255, 255, 255, 0.05); border-color: rgba(255, 255, 255, 0.08); }
+.bd-mcq-opt.bd-selected { background: rgba(52, 211, 153, 0.06); border-color: rgba(52, 211, 153, 0.2); }
+.bd-mcq-opt.bd-correct { background: rgba(52, 211, 153, 0.1); border-color: var(--bd-green); }
+.bd-mcq-opt.bd-wrong { background: rgba(255, 107, 107, 0.06); border-color: rgba(255, 107, 107, 0.2); }
+
+.bd-mcq-radio {
+  width: 16px; height: 16px; border-radius: 50%;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  flex-shrink: 0; display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+
+.bd-mcq-opt.bd-selected .bd-mcq-radio { border-color: var(--bd-green); }
+.bd-mcq-opt.bd-selected .bd-mcq-radio::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--bd-green); }
+.bd-mcq-opt.bd-correct .bd-mcq-radio { border-color: var(--bd-green); }
+.bd-mcq-opt.bd-correct .bd-mcq-radio::after { content: ''; width: 7px; height: 7px; border-radius: 50%; background: var(--bd-green); }
+
+/* Free text input */
+.bd-free-input {
+  width: 100%; min-height: 70px; padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 10px; color: var(--bd-white);
+  font-family: var(--bd-font); font-size: 18px;
+  outline: none; resize: vertical; transition: border-color 0.2s;
+}
+.bd-free-input:focus { border-color: rgba(255, 255, 255, 0.12); }
+.bd-free-input::placeholder { color: rgba(255, 255, 255, 0.2); }
+
+/* Spot the error */
+.bd-spot-error-eq {
+  font-family: var(--bd-font); font-size: 28px; color: var(--bd-cyan);
+  padding: 16px 20px; background: rgba(0, 0, 0, 0.2);
+  border-radius: 10px; margin: 10px 0; display: inline-block;
+}
+
+.bd-assess-hint {
+  font-family: var(--bd-font); font-size: 16px;
+  color: rgba(255, 255, 255, 0.3); margin: 8px 0;
+}
+
+/* Teach-back label */
+.bd-teachback-label {
+  font-family: var(--bd-font); font-size: var(--bd-h3);
+  color: var(--bd-yellow); margin-bottom: 8px;
+  text-shadow: var(--bd-glow);
+}
+
+/* Confidence scale */
+.bd-confidence-scale { display: flex; gap: 6px; margin-top: 8px; }
+
+.bd-conf-btn {
+  flex: 1; padding: 12px 8px; border-radius: 10px;
+  background: rgba(255, 255, 255, 0.025);
+  border: 1px solid rgba(255, 255, 255, 0.04);
+  font-family: var(--bd-font); font-size: 16px;
+  color: rgba(255, 255, 255, 0.5); text-align: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.bd-conf-btn:hover { background: rgba(255, 255, 255, 0.05); color: var(--bd-white); }
+.bd-conf-btn.bd-conf-selected { background: rgba(52, 211, 153, 0.08); border-color: rgba(52, 211, 153, 0.2); color: var(--bd-green); }
+
+/* Submit */
+.bd-assess-submit { display: flex; justify-content: flex-end; margin-top: 14px; }
+
+.bd-submit-btn {
+  padding: 10px 26px; border-radius: 10px;
+  background: var(--bd-green); color: #0a0d0b;
+  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600;
+  border: none; cursor: pointer; transition: all 0.15s;
+}
+.bd-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(52, 211, 153, 0.2); }
+
+/* Progress dots */
+.bd-assess-progress { display: flex; gap: 5px; justify-content: center; margin: 14px 0 0; }
+.bd-prog-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); }
+.bd-prog-dot.bd-prog-done { background: var(--bd-green); }
+.bd-prog-dot.bd-prog-active { background: rgba(255, 255, 255, 0.3); }
