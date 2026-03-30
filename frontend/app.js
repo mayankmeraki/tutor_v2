@@ -3490,94 +3490,12 @@ function openVideoInSpotlight(lessonId, start, end, label, options = {}) {
 // Assessment Spotlight — questions render inside spotlight panel
 // ═══════════════════════════════════════════════════════════
 
-function openAssessmentSpotlight() {
-  const panel = $('#spotlight-panel');
-  const content = $('#spotlight-content');
-  const titleEl = $('#spotlight-title');
-  const typeBadge = $('#spotlight-type-badge');
-  if (!panel || !content) return;
-
-  // Set spotlight header
-  if (titleEl) titleEl.textContent = state.assessment.sectionTitle || 'Section Checkpoint';
-  if (typeBadge) {
-    typeBadge.textContent = 'Checkpoint';
-    typeBadge.setAttribute('data-type', 'assessment');
-    typeBadge.style.display = '';
-  }
-
-  // Hide close/fullscreen buttons during assessment
-  const closeBtn = document.querySelector('.spotlight-close-btn');
-  const fsBtn = document.querySelector('.spotlight-fullscreen-btn');
-  if (closeBtn) closeBtn.style.display = 'none';
-  if (fsBtn) fsBtn.style.display = 'none';
-
-  // Render assessment container with progress indicator + empty question area
-  const maxQ = state.assessment.maxQuestions || 5;
-  content.innerHTML = `
-    <div class="assessment-spotlight-container">
-      <div class="assessment-progress">
-        <div class="assessment-progress-bar">
-          <div class="assessment-progress-fill" id="assessment-progress-fill" style="width: 0%"></div>
-        </div>
-        <div class="assessment-progress-text" id="assessment-progress-text">Question 0 of ${maxQ}</div>
-      </div>
-      <div class="assessment-question-area" id="assessment-question-area"></div>
-    </div>
-  `;
-
-  // Activate spotlight
-  panel.classList.add('stage-active');
-  state.spotlightActive = true;
-  state.spotlightInfo = { type: 'assessment', title: state.assessment.sectionTitle };
-}
+// openAssessmentSpotlight — REMOVED. Assessment renders inline on the board.
 
 function renderAssessmentQuestion(tag, type) {
-  const questionArea = $('#assessment-question-area');
-  if (!questionArea) {
-    // Spotlight not open (resilience) — try reopening
-    if (state.assessment.active) {
-      openAssessmentSpotlight();
-      const retryArea = $('#assessment-question-area');
-      if (!retryArea) {
-        // Fallback to inline rendering
-        console.warn('[Assessment] Could not open spotlight, falling back to inline');
-        _renderInlineAssessmentFallback(tag, type);
-        return;
-      }
-      return renderAssessmentQuestion(tag, type);
-    }
-    _renderInlineAssessmentFallback(tag, type);
-    return;
-  }
-
-  // Increment question number and update progress
+  // Assessment renders inline — no separate spotlight panel
   state.assessment.questionNumber++;
-  const qNum = state.assessment.questionNumber;
-  const maxQ = state.assessment.maxQuestions || 5;
-
-  const progressFill = $('#assessment-progress-fill');
-  const progressText = $('#assessment-progress-text');
-  if (progressFill) progressFill.style.width = `${(qNum / maxQ) * 100}%`;
-  if (progressText) progressText.textContent = `Question ${qNum} of ${maxQ}`;
-
-  // Fade out old question, render new one
-  questionArea.style.opacity = '0';
-  setTimeout(() => {
-    questionArea.innerHTML = '';
-
-    switch (type) {
-      case 'mcq': renderAssessmentMCQ(tag, questionArea); break;
-      case 'freetext': renderAssessmentFreetext(tag, questionArea); break;
-      case 'agree-disagree': renderAssessmentAgreeDisagree(tag, questionArea); break;
-      case 'confidence': renderAssessmentConfidence(tag, questionArea); break;
-      case 'fillblank': renderAssessmentFillBlank(tag, questionArea); break;
-      case 'spot-error': renderAssessmentSpotError(tag, questionArea); break;
-      case 'teachback': renderAssessmentTeachback(tag, questionArea); break;
-      default: renderAssessmentFreetext(tag, questionArea); break;
-    }
-
-    questionArea.style.opacity = '1';
-  }, 200);
+  _renderInlineAssessmentFallback(tag, type);
 }
 
 function _renderInlineAssessmentFallback(tag, type) {
@@ -7492,8 +7410,7 @@ window.continueSession = async function(sessionId) {
       state.assessment.concepts = sessionData.assessment.concepts || [];
       state.assessment.questionNumber = sessionData.assessment.questionNumber || 0;
       state.assessment.maxQuestions = sessionData.assessment.maxQuestions || 5;
-      // Reopen assessment spotlight after a brief delay (DOM needs to be ready)
-      setTimeout(() => openAssessmentSpotlight(), 300);
+      // Assessment renders inline — no spotlight to reopen
     }
     if (sessionData.conceptNotes) {
       state.assessment.conceptNotes = sessionData.conceptNotes;
