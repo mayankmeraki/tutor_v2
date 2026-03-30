@@ -545,9 +545,11 @@ function buildControlBridge(scale, isWebGL) {
     '    }\n' +
     '    [\'setLineDash\',\'getLineDash\',\'setTransform\',\'resetTransform\',\'clip\',\'clearRect\',\n' +
     '     \'createLinearGradient\',\'createRadialGradient\',\'measureText\',\'fillRect\',\'strokeRect\'].forEach(function(m) {\n' +
-    '      if (!p[m] && p.drawingContext && typeof p.drawingContext[m] === \'function\') {\n' +
-    '        p[m] = function() { return p.drawingContext[m].apply(p.drawingContext, arguments); };\n' +
-    '      }\n' +
+    '      p[m] = function() {\n' +
+    '        if (p.drawingContext && typeof p.drawingContext[m] === \'function\') {\n' +
+    '          return p.drawingContext[m].apply(p.drawingContext, arguments);\n' +
+    '        }\n' +
+    '      };\n' +
     '    });\n' +
     (isWebGL ? '\n    p.text = function() {};\n    p.textFont = function() {};\n    p.textSize = function() {};\n    p.textAlign = function() {};\n' : '') +
     '  ';
