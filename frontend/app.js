@@ -1575,32 +1575,23 @@ function handleSSEEvent(event) {
 
     case 'ASSESSMENT_START':
       state.assessment.active = true;
-      state.assessment.sectionTitle = event.section?.title || 'Section Checkpoint';
+      state.assessment.sectionTitle = event.section?.title || '';
       state.assessment.concepts = event.concepts || [];
       state.assessment.questionNumber = 0;
       state.assessment.maxQuestions = event.maxQuestions || 5;
       // Remove the tutor's last message if it leaked handoff language
-      // (tutor is instructed to not write text, but safety net)
       {
         const lastAI = document.querySelector('#canvas-stream .canvas-block[data-type="ai"]:last-of-type');
         if (lastAI) {
-          lastAI.style.transition = 'opacity 0.2s ease';
-          lastAI.style.opacity = '0';
-          setTimeout(() => lastAI.remove(), 200);
+          const text = lastAI.textContent || '';
+          if (text.includes('assessment') || text.includes('hand off') || text.includes('checkpoint')) {
+            lastAI.style.transition = 'opacity 0.2s ease';
+            lastAI.style.opacity = '0';
+            setTimeout(() => lastAI.remove(), 200);
+          }
         }
       }
-      // Dismiss any open spotlight (clean slate for assessment)
-      if (state.spotlightActive) {
-        window.hideSpotlight({ agentInitiated: true });
-      }
-      // Insert visual transition divider
-      appendBlock('system', `
-        <div class="assessment-divider">
-          <div class="assessment-badge">Section Checkpoint</div>
-        </div>
-      `, { className: 'assessment-divider-block' });
-      // Open assessment spotlight
-      openAssessmentSpotlight();
+      // Assessment now renders ON THE BOARD — no separate panel, no badge
       break;
 
     case 'ASSESSMENT_END': {

@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Assessment — Wireframe</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #1a1d2e;
+  --surface: #222538;
+  --border: rgba(255,255,255,0.06);
+  --t1: #e8e8e0;
+  --t2: #94a3b8;
+  --t3: #555;
+  --accent: #34d399;
+  --accent-dim: rgba(52,211,153,0.08);
+  --yellow: #f5d97a;
+  --cyan: #53d8fb;
+  --red: #ff6b6b;
+  --chalk: 'Caveat', cursive;
+  --sans: 'Inter', system-ui, sans-serif;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body { font-family: var(--sans); background: #0a0d0b; color: var(--t1); height: 100vh; overflow: hidden; -webkit-font-smoothing: antialiased; }
+button { font-family: var(--sans); cursor: pointer; border: none; background: none; color: var(--t1); }
+
+.screen { position: fixed; inset: 0; display: none; flex-direction: column; }
+.screen.active { display: flex; }
+
+/* Top bar */
+.topbar { height: 44px; display: flex; align-items: center; padding: 0 20px; background: #0e1012; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+.topbar-title { font-size: 13px; color: var(--t2); font-weight: 500; }
+.topbar-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); margin-right: 10px; }
+
+/* Board */
+.board {
+  flex: 1; overflow-y: auto; padding: 40px;
+  background: repeating-linear-gradient(90deg, rgba(255,255,255,0.008) 0px, rgba(255,255,255,0.008) 0.5px, transparent 0.5px, transparent 40px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.008) 0px, rgba(255,255,255,0.008) 0.5px, transparent 0.5px, transparent 40px), var(--bg);
+}
+
+/* Chalk text */
+.chalk { font-family: var(--chalk); text-shadow: 0 0 3px currentColor; }
+.chalk-title { font-size: 38px; color: var(--yellow); text-align: center; margin-bottom: 24px; }
+.chalk-sub { font-size: 24px; color: var(--cyan); margin-bottom: 16px; }
+.chalk-text { font-size: 22px; color: var(--t1); line-height: 1.5; margin-bottom: 16px; }
+.chalk-dim { font-size: 20px; color: var(--t2); }
+.chalk-eq { font-size: 28px; color: var(--cyan); margin: 12px 0; }
+
+/* Assessment card — renders ON the board like chalk content */
+.assess-card {
+  background: rgba(0,0,0,0.2);
+  border: 1px solid rgba(255,255,255,0.05);
+  border-radius: 14px;
+  padding: 28px 32px;
+  max-width: 620px;
+  margin: 24px 0;
+  backdrop-filter: blur(4px);
+  animation: fadeUp 0.4s ease;
+}
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+
+.assess-prompt {
+  font-family: var(--chalk);
+  font-size: 22px;
+  color: var(--t1);
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+.assess-prompt .eq { color: var(--cyan); font-size: 24px; }
+
+/* MCQ options */
+.mcq-options { display: flex; flex-direction: column; gap: 8px; }
+.mcq-opt {
+  display: flex; align-items: center; gap: 12px;
+  padding: 14px 18px; border-radius: 10px;
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.04);
+  cursor: pointer; transition: all 0.15s;
+  font-size: 14px; color: var(--t1);
+}
+.mcq-opt:hover { background: rgba(255,255,255,0.06); border-color: rgba(255,255,255,0.08); }
+.mcq-opt.selected { background: var(--accent-dim); border-color: rgba(52,211,153,0.2); }
+.mcq-opt.correct { background: rgba(52,211,153,0.12); border-color: var(--accent); }
+.mcq-opt.wrong { background: rgba(255,107,107,0.08); border-color: rgba(255,107,107,0.2); }
+
+.mcq-radio {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 2px solid var(--t3); flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s;
+}
+.mcq-opt.selected .mcq-radio { border-color: var(--accent); }
+.mcq-opt.selected .mcq-radio::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+.mcq-opt.correct .mcq-radio { border-color: var(--accent); }
+.mcq-opt.correct .mcq-radio::after { content: ''; width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
+
+/* Free text input */
+.free-input {
+  width: 100%; min-height: 80px; padding: 14px 16px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 10px; color: var(--t1); font-size: 14px;
+  font-family: var(--sans); outline: none; resize: vertical;
+  transition: border-color 0.2s;
+}
+.free-input:focus { border-color: rgba(255,255,255,0.12); }
+.free-input::placeholder { color: var(--t3); }
+
+/* Spot the error */
+.spot-error-eq {
+  font-family: var(--chalk); font-size: 30px; color: var(--cyan);
+  padding: 20px 24px; background: rgba(0,0,0,0.2);
+  border-radius: 10px; margin: 12px 0;
+  display: inline-block; cursor: pointer;
+  border: 2px solid transparent; transition: all 0.2s;
+}
+.spot-error-eq:hover { border-color: rgba(255,107,107,0.3); }
+.spot-error-eq .error-part { color: var(--red); text-decoration: underline wavy var(--red); cursor: pointer; }
+
+/* Teach-back */
+.teachback-prompt {
+  font-family: var(--chalk); font-size: 22px;
+  color: var(--yellow); margin-bottom: 12px;
+}
+
+/* Confidence scale */
+.confidence-scale { display: flex; gap: 8px; margin-top: 8px; }
+.conf-btn {
+  flex: 1; padding: 12px; border-radius: 10px;
+  background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.04);
+  font-size: 12px; color: var(--t2); text-align: center;
+  cursor: pointer; transition: all 0.15s;
+}
+.conf-btn:hover { background: rgba(255,255,255,0.06); color: var(--t1); }
+.conf-btn.selected { background: var(--accent-dim); border-color: rgba(52,211,153,0.2); color: var(--accent); }
+
+/* Submit button */
+.assess-submit {
+  display: flex; justify-content: flex-end; margin-top: 16px;
+}
+.submit-btn {
+  padding: 10px 28px; border-radius: 10px;
+  background: var(--accent); color: #0a0d0b;
+  font-size: 13px; font-weight: 600;
+  transition: all 0.15s;
+}
+.submit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(52,211,153,0.2); }
+
+/* Feedback (after submit) */
+.assess-feedback {
+  margin-top: 16px; padding: 14px 18px;
+  border-radius: 10px; font-size: 14px;
+  line-height: 1.5; animation: fadeUp 0.3s ease;
+}
+.feedback-correct { background: rgba(52,211,153,0.06); border: 1px solid rgba(52,211,153,0.12); color: var(--accent); }
+.feedback-wrong { background: rgba(255,107,107,0.06); border: 1px solid rgba(255,107,107,0.12); color: var(--red); }
+.feedback-text { color: var(--t1); margin-top: 6px; font-size: 13px; }
+
+/* Progress dots (subtle) */
+.assess-progress {
+  display: flex; gap: 6px; justify-content: center;
+  margin: 20px 0 0;
+}
+.prog-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: rgba(255,255,255,0.08);
+}
+.prog-dot.done { background: var(--accent); }
+.prog-dot.active { background: var(--t2); }
+.prog-dot.wrong-dot { background: var(--red); }
+
+/* Voice subtitle */
+.voice-sub {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  text-align: center; padding: 20px;
+  background: linear-gradient(transparent, rgba(10,13,11,0.9));
+  font-size: 15px; color: var(--t2);
+}
+.voice-sub em { color: var(--yellow); font-style: normal; }
+
+/* Two-column layout on board */
+.board-row { display: flex; gap: 32px; align-items: flex-start; margin-bottom: 24px; }
+.board-col { flex: 1; min-width: 0; }
+
+/* Navigation between screens */
+.screen-nav { display: flex; justify-content: center; gap: 8px; padding: 12px; position: fixed; bottom: 60px; left: 50%; transform: translateX(-50%); z-index: 10; }
+.nav-pill { padding: 8px 16px; border-radius: 20px; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); border: 1px solid var(--border); font-size: 12px; color: var(--t2); transition: all 0.15s; }
+.nav-pill:hover { color: var(--t1); border-color: rgba(255,255,255,0.1); }
+.nav-pill.active { color: var(--accent); border-color: rgba(52,211,153,0.2); }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<div class="screen-nav">
+  <button class="nav-pill active" onclick="show(1)">MCQ on Board</button>
+  <button class="nav-pill" onclick="show(2)">Diagram + Question</button>
+  <button class="nav-pill" onclick="show(3)">Spot the Error</button>
+  <button class="nav-pill" onclick="show(4)">Teach-Back</button>
+  <button class="nav-pill" onclick="show(5)">After Submit</button>
+</div>
+
+<!-- ═══ SCREEN 1: MCQ naturally on the board ═══ -->
+<div id="s1" class="screen active">
+  <div class="topbar">
+    <div class="topbar-dot"></div>
+    <div class="topbar-title">The Wave Function & Probability Interpretation</div>
+  </div>
+  <div class="board">
+    <div class="chalk chalk-title">Quick check</div>
+    <div class="chalk chalk-text">We just said that the wave function ψ(x) contains all the information about a quantum state.</div>
+    <div class="chalk chalk-text">The professor wrote:</div>
+    <div class="chalk chalk-eq">P(x) = |ψ(x)|²</div>
+
+    <div class="assess-card">
+      <div class="assess-prompt">
+        What does <span class="eq">P(x) = |ψ(x)|²</span> physically represent?
+      </div>
+      <div class="mcq-options">
+        <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> The exact position where the particle will be found</div>
+        <div class="mcq-opt selected" onclick="selectOpt(this)"><div class="mcq-radio"></div> The probability density for finding the particle at position x</div>
+        <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> The energy of the particle at position x</div>
+        <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> The amplitude of the wave at position x</div>
+      </div>
+      <div class="assess-progress">
+        <div class="prog-dot active"></div>
+        <div class="prog-dot"></div>
+        <div class="prog-dot"></div>
+      </div>
+      <div class="assess-submit"><button class="submit-btn" onclick="submitMCQ(this)">Submit</button></div>
+    </div>
+  </div>
+  <div class="voice-sub">Take a moment — <em>no rush</em>.</div>
+</div>
+
+<!-- ═══ SCREEN 2: Diagram + question side by side ═══ -->
+<div id="s2" class="screen">
+  <div class="topbar">
+    <div class="topbar-dot"></div>
+    <div class="topbar-title">Operators and the Schrödinger Equation</div>
+  </div>
+  <div class="board">
+    <div class="chalk chalk-title">Look at this carefully</div>
+
+    <div class="board-row">
+      <div class="board-col">
+        <!-- Simulated animation/diagram -->
+        <div style="background:rgba(0,0,0,0.3);border-radius:10px;padding:20px;aspect-ratio:4/3;display:flex;flex-direction:column;justify-content:center;align-items:center">
+          <div class="chalk" style="font-size:16px;color:var(--cyan);margin-bottom:12px">ψ(x) in a potential well</div>
+          <svg viewBox="0 0 300 150" width="280">
+            <!-- Potential walls -->
+            <line x1="40" y1="20" x2="40" y2="130" stroke="#555" stroke-width="2"/>
+            <line x1="260" y1="20" x2="260" y2="130" stroke="#555" stroke-width="2"/>
+            <line x1="40" y1="130" x2="260" y2="130" stroke="#555" stroke-width="1"/>
+            <!-- Wave function -->
+            <path d="M40,130 Q80,30 110,75 Q140,120 150,75 Q160,30 190,75 Q220,120 260,130" fill="none" stroke="#53d8fb" stroke-width="2.5"/>
+            <!-- Labels -->
+            <text x="30" y="15" fill="#555" font-size="10" font-family="Caveat">V=∞</text>
+            <text x="252" y="15" fill="#555" font-size="10" font-family="Caveat">V=∞</text>
+            <text x="140" y="145" fill="#555" font-size="10" font-family="Caveat">x</text>
+          </svg>
+          <div class="chalk" style="font-size:14px;color:var(--t2);margin-top:8px">n = 3 state</div>
+        </div>
+      </div>
+
+      <div class="board-col">
+        <div class="assess-card" style="margin-top:0">
+          <div class="assess-prompt">
+            Looking at this wave function in the infinite well — how many <em>nodes</em> does the n=3 state have?
+          </div>
+          <div class="mcq-options">
+            <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> 1 node</div>
+            <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> 2 nodes</div>
+            <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> 3 nodes</div>
+            <div class="mcq-opt" onclick="selectOpt(this)"><div class="mcq-radio"></div> 4 nodes</div>
+          </div>
+          <div class="assess-submit"><button class="submit-btn">Submit</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="voice-sub">Count where ψ crosses zero — <em>inside</em> the well, not at the walls.</div>
+</div>
+
+<!-- ═══ SCREEN 3: Spot the Error ═══ -->
+<div id="s3" class="screen">
+  <div class="topbar">
+    <div class="topbar-dot"></div>
+    <div class="topbar-title">Time Evolution & the Schrödinger Equation</div>
+  </div>
+  <div class="board">
+    <div class="chalk chalk-title">Spot what's wrong</div>
+    <div class="chalk chalk-text" style="margin-bottom:24px">A student wrote the time-dependent Schrödinger equation as:</div>
+
+    <div class="assess-card">
+      <div class="assess-prompt">Find the error in this equation:</div>
+      <div class="spot-error-eq">
+        ℏ ∂ψ/∂t = Ĥψ
+      </div>
+      <div class="chalk chalk-dim" style="margin-top:12px; font-size:18px">
+        Hint: compare with what the professor wrote on the board.
+      </div>
+      <div style="margin-top:16px">
+        <div class="free-input" contenteditable="true" style="min-height:60px" data-placeholder="What's wrong and why does it matter?"></div>
+      </div>
+      <div class="assess-progress">
+        <div class="prog-dot done"></div>
+        <div class="prog-dot done"></div>
+        <div class="prog-dot active"></div>
+      </div>
+      <div class="assess-submit"><button class="submit-btn">Submit</button></div>
+    </div>
+
+    <div class="chalk chalk-dim" style="margin-top:20px">
+      The correct form should have the imaginary unit...
+    </div>
+  </div>
+  <div class="voice-sub">Look carefully at the <em>left side</em> — something's missing.</div>
+</div>
+
+<!-- ═══ SCREEN 4: Teach-Back ═══ -->
+<div id="s4" class="screen">
+  <div class="topbar">
+    <div class="topbar-dot"></div>
+    <div class="topbar-title">Why the i Matters</div>
+  </div>
+  <div class="board">
+    <div class="chalk chalk-title">Your turn to teach</div>
+
+    <div class="board-row">
+      <div class="board-col">
+        <div class="chalk chalk-sub">Without i:</div>
+        <div class="chalk chalk-text" style="color:var(--red)">ψ decays exponentially</div>
+        <div class="chalk chalk-text" style="color:var(--red)">Probability leaks away</div>
+        <div class="chalk chalk-dim">→ particle disappears!</div>
+
+        <div style="margin-top:20px"></div>
+        <div class="chalk chalk-sub">With i:</div>
+        <div class="chalk chalk-text" style="color:var(--accent)">ψ rotates in complex plane</div>
+        <div class="chalk chalk-text" style="color:var(--accent)">|ψ|² stays constant</div>
+        <div class="chalk chalk-dim">→ probability conserved ✓</div>
+      </div>
+
+      <div class="board-col">
+        <div class="assess-card" style="margin-top:0">
+          <div class="teachback-prompt">
+            Imagine you're explaining to a friend who missed this lecture:
+          </div>
+          <div class="assess-prompt">
+            Why does the Schrödinger equation <em>need</em> the imaginary unit i? What would go wrong without it?
+          </div>
+          <textarea class="free-input" placeholder="Explain in your own words — pretend you're teaching a friend..." rows="5"></textarea>
+          <div class="assess-progress">
+            <div class="prog-dot done"></div>
+            <div class="prog-dot done"></div>
+            <div class="prog-dot done"></div>
+            <div class="prog-dot active"></div>
+          </div>
+          <div class="assess-submit"><button class="submit-btn">Submit</button></div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="voice-sub">This is the deepest check — if you can <em>teach it</em>, you own it.</div>
+</div>
+
+<!-- ═══ SCREEN 5: After submit — feedback ═══ -->
+<div id="s5" class="screen">
+  <div class="topbar">
+    <div class="topbar-dot"></div>
+    <div class="topbar-title">The Wave Function & Probability Interpretation</div>
+  </div>
+  <div class="board">
+    <div class="chalk chalk-title">Quick check</div>
+    <div class="chalk chalk-eq">P(x) = |ψ(x)|²</div>
+
+    <div class="assess-card">
+      <div class="assess-prompt">
+        What does <span class="eq">P(x) = |ψ(x)|²</span> physically represent?
+      </div>
+      <div class="mcq-options">
+        <div class="mcq-opt"><div class="mcq-radio"></div> The exact position where the particle will be found</div>
+        <div class="mcq-opt correct"><div class="mcq-radio"></div> The probability density for finding the particle at position x</div>
+        <div class="mcq-opt"><div class="mcq-radio"></div> The energy of the particle at position x</div>
+        <div class="mcq-opt"><div class="mcq-radio"></div> The amplitude of the wave at position x</div>
+      </div>
+
+      <div class="assess-feedback feedback-correct">
+        ✓ Exactly right.
+        <div class="feedback-text">
+          |ψ(x)|² gives the probability <em>density</em> — not the probability itself. To get the actual probability of finding the particle between a and b, you'd integrate: ∫|ψ|²dx from a to b. The key insight: ψ itself is complex and unobservable, but |ψ|² is real and measurable.
+        </div>
+      </div>
+
+      <div class="assess-progress">
+        <div class="prog-dot done"></div>
+        <div class="prog-dot active"></div>
+        <div class="prog-dot"></div>
+      </div>
+    </div>
+
+    <div class="chalk chalk-text" style="margin-top:24px; color: var(--accent);">
+      Good — let's keep going. Next one's a bit harder.
+    </div>
+  </div>
+  <div class="voice-sub">Nice — you got the <em>density</em> part right. That's the subtle bit.</div>
+</div>
+
+<script>
+function show(n) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('s' + n).classList.add('active');
+  document.querySelectorAll('.nav-pill').forEach((p, i) => p.classList.toggle('active', i === n - 1));
+}
+
+function selectOpt(el) {
+  el.closest('.mcq-options').querySelectorAll('.mcq-opt').forEach(o => o.classList.remove('selected'));
+  el.classList.add('selected');
+}
+
+function submitMCQ(btn) {
+  const card = btn.closest('.assess-card');
+  const selected = card.querySelector('.mcq-opt.selected');
+  if (!selected) return;
+
+  // Simulate correct/wrong
+  const isCorrect = selected.textContent.includes('probability density');
+  if (isCorrect) {
+    selected.classList.add('correct');
+    const fb = document.createElement('div');
+    fb.className = 'assess-feedback feedback-correct';
+    fb.innerHTML = '✓ Correct! |ψ(x)|² is the probability density.<div class="feedback-text">To get actual probability, integrate over a region.</div>';
+    card.appendChild(fb);
+  } else {
+    selected.classList.add('wrong');
+    const correct = [...card.querySelectorAll('.mcq-opt')].find(o => o.textContent.includes('probability density'));
+    if (correct) correct.classList.add('correct');
+    const fb = document.createElement('div');
+    fb.className = 'assess-feedback feedback-wrong';
+    fb.innerHTML = '✗ Not quite.<div class="feedback-text">|ψ(x)|² gives the probability density — the likelihood of finding the particle near position x.</div>';
+    card.appendChild(fb);
+  }
+  btn.style.display = 'none';
+}
+</script>
+</body>
+</html>
