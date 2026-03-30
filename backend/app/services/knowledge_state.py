@@ -89,12 +89,21 @@ async def append_note(
     return {"logged": True, "note_length": len(text), "tags": tags or []}
 
 
+def _normalize_tag(tag: str) -> str:
+    """Normalize a single tag: lowercase, spaces→underscores, strip special chars."""
+    import re
+    t = str(tag).strip().lower()
+    t = re.sub(r'[^a-z0-9_\-]', '_', t)  # replace non-alphanumeric with underscore
+    t = re.sub(r'_+', '_', t)  # collapse multiple underscores
+    return t.strip('_') or '_uncategorized'
+
+
 def _normalize_tags(tags) -> list[str]:
-    """Convert tags to a list of strings regardless of input format."""
+    """Convert tags to a normalized list of strings."""
     if isinstance(tags, str):
-        return [t.strip() for t in tags.replace(",", " ").split() if t.strip()]
+        return [_normalize_tag(t) for t in tags.replace(",", " ").split() if t.strip()]
     if isinstance(tags, list):
-        return [str(t).strip() for t in tags if t]
+        return [_normalize_tag(str(t)) for t in tags if t]
     return []
 
 
@@ -116,7 +125,12 @@ async def upsert_concept_note(
     col = _collection()
     doc_id = _doc_id(course_id, user_email)
     now = datetime.now(timezone.utc).isoformat()
-    primary = concepts[0] if concepts else "_uncategorized"
+
+    # Normalize tags: lowercase, spaces→underscores, strip
+    concepts = [_normalize_tag(c) for c in concepts if c]
+    if not concepts:
+        concepts = ["_uncategorized"]
+    primary = concepts[0]
 
     new_note = {
         "text": note_text,
@@ -218,9 +232,17 @@ async def _sync_note_to_vector_index(
     try:
         from app.services.embedding_service import generate_embedding, get_embedding_metadata
 
-        embedding = await generate_embedding(note_text)
+        # Retry embedding up to 2 times
+        embedding = None
+        for attempt in range(2):
+            embedding = await generate_embedding(note_text)
+            if embedding:
+                break
+            if attempt == 0:
+                await asyncio.sleep(1)  # brief wait before retry
         if not embedding:
-            return  # silently skip if embedding fails
+            log.warning("Vector sync skipped — embedding failed after retries: %s", tags[:2])
+            return
 
         now = datetime.now(timezone.utc).isoformat()
         meta = get_embedding_metadata()
@@ -467,8 +489,8 @@ async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
     if not doc:
         return None
 
-    if doc.get("summary"):
-        return doc["summary"]
+    # NOTE: doc.summary cache removed — was never populated, always stale.
+    # Always format fresh from notes.
 
     notes = doc.get("notes", [])
     if not notes:

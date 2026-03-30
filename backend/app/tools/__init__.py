@@ -501,7 +501,14 @@ TUTOR_TOOLS = [
                     "description": (
                         "Freehand notes tagged with concept names. One note per concept cluster. "
                         "If the concept was covered before, REWRITE the note with current state — "
-                        "don't create a new note with slightly different tags."
+                        "don't create a new note with slightly different tags.\n\n"
+                        "TAG RULES (critical for deduplication):\n"
+                        "- Use lowercase_underscore format: 'wave_function', NOT 'Wave Function'\n"
+                        "- Use the SAME tag every time for the same concept — don't invent variants\n"
+                        "- Check [Student Notes] in context — if a concept is already noted, use its EXACT tag\n"
+                        "- Primary tag = the main concept. Secondary = subtopics.\n"
+                        "- Special: '_profile' for student-wide notes (pace, modality, preferences)\n"
+                        "- NEVER create two notes for the same concept with different tag spellings"
                     ),
                     "items": {
                         "type": "object",
@@ -510,18 +517,15 @@ TUTOR_TOOLS = [
                                 "type": "array",
                                 "items": {"type": "string"},
                                 "description": (
-                                    "Concept tags for retrieval and matching. Use course concept names "
-                                    "as primary tag. Add subtopics as secondary tags. "
-                                    "Use ['_profile'] for student-wide notes. "
-                                    "Example: ['binary_property', 'measurement', 'color_box']"
+                                    "Concept tags in lowercase_underscore format. "
+                                    "Primary tag first, subtopics after. "
+                                    "Examples: ['schrodinger_equation'], ['wave_function', 'probability'], "
+                                    "['_profile']. Tags are auto-normalized to lowercase."
                                 ),
                             },
                             "lesson": {
                                 "type": "string",
-                                "description": (
-                                    "Lesson context, e.g. 'lesson_2' or 'introduction_to_superposition'. "
-                                    "Helps organize notes by where in the course they apply."
-                                ),
+                                "description": "Lesson context, e.g. 'lesson_2'.",
                             },
                             "note": {
                                 "type": "string",
