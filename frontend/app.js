@@ -933,21 +933,24 @@ function buildCourseContext() {
   if (!map) return 'No course map loaded.';
 
   const cp = state.checkpoint;
-  const lines = [`${map.title}\n`];
+  const courseTitle = map.title || (map.course && map.course.title) || 'Course';
+  const lines = [`${courseTitle}\n`];
 
-  for (const mod of map.modules) {
+  for (const mod of (map.modules || [])) {
     lines.push(`Module: ${mod.title}`);
-    for (const lesson of mod.lessons) {
-      const dur = lesson.duration_seconds ? `${Math.round(lesson.duration_seconds / 60)} min` : '';
-      const isCurrent = lesson.lesson_id === cp.currentLessonId;
+    const modLessons = mod.lessons || (map.lessons || []).filter(l => l.module_id === mod.id);
+    for (const lesson of modLessons) {
+      const lid = lesson.lesson_id || lesson.id;
+      const dur = (lesson.duration_seconds || lesson.duration) ? `${Math.round((lesson.duration_seconds || lesson.duration) / 60)} min` : '';
+      const isCurrent = lid === cp.currentLessonId;
       const marker = isCurrent ? ' << CURRENT LESSON' : '';
       const videoTag = lesson.video_url ? ` [video: ${lesson.video_url}]` : ' [no video]';
-      lines.push(`  Lesson ${lesson.lesson_id}: ${lesson.title} (${dur})${videoTag}${marker}`);
+      lines.push(`  Lesson ${lid}: ${lesson.title} (${dur})${videoTag}${marker}`);
 
       // Only show sections for current lesson (keeps context compact)
       if (isCurrent && lesson.sections) {
         for (const sec of lesson.sections) {
-          const key = `${lesson.lesson_id}:${sec.index}`;
+          const key = `${lid}:${sec.index}`;
           const isDone = cp.completedSections.includes(key);
           const isCurrentSec = sec.index === cp.currentSectionIndex;
 
