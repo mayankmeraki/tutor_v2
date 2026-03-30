@@ -525,6 +525,15 @@ function sanitizeCode(code) {
   code = code.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
   code = code.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
 
+  // Fix "Function statements require a function name" —
+  // LLM sometimes wraps code in function(p,W,H){...} which is invalid
+  // as a statement. Convert to IIFE or strip the wrapper.
+  code = code.trim();
+  if (/^function\s*\(/.test(code)) {
+    // Anonymous function wrapper — convert to IIFE
+    code = '(' + code + ')(p, W, H);';
+  }
+
   return code;
 }
 
@@ -783,6 +792,8 @@ function detectBlank(canvasWrap, entry, cmd, retryKey, attempt) {
         else if (entry.container && entry.container.parentNode) entry.container.parentNode.removeChild(entry.container);
         var idx = board.animations.indexOf(entry);
         if (idx >= 0) board.animations.splice(idx, 1);
+        // Mark as retried so it won't trigger another blank detection
+        board.animRetries.set(retryKey, 99);
         createAnimation(Object.assign({}, cmd, { code: data.code }));
       })
       .catch(function() {
