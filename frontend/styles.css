@@ -4594,16 +4594,7 @@ body {
   .speed-toggle-btn { font-size: 10px; padding: 3px 6px; }
 }
 
-/* ─── Assessment Checkpoint Dividers ────────────────────── */
-.assessment-divider { text-align: center; margin: 1rem 0; }
-.assessment-badge {
-  display: inline-block; padding: 6px 18px; border-radius: 20px;
-  background: rgba(100, 120, 255, 0.15); color: #8090ff;
-  font-size: 0.85rem; font-weight: 600; letter-spacing: 0.03em;
-}
-.assessment-badge.complete { background: rgba(34, 238, 102, 0.15); color: #22ee66; }
-.assessment-badge.handback { background: rgba(255, 170, 50, 0.15); color: #ffaa32; }
-.assessment-divider-block .block-card { background: transparent; border: none; box-shadow: none; padding: 0; }
+/* Assessment checkpoint dividers — REMOVED (assessment renders on board now) */
 
 /* ─── Assessment Summary Card ──────────────────────────── */
 .assessment-summary-card {
@@ -4750,7 +4741,8 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
-/* ─── Assessment Spotlight ──────────────────────────────── */
+/* Assessment Spotlight — REMOVED (renders on board now) */
+/* Legacy styles kept minimal for backwards compat */
 
 .assessment-spotlight-container {
   display: flex;

@@ -3493,9 +3493,80 @@ function openVideoInSpotlight(lessonId, start, end, label, options = {}) {
 // openAssessmentSpotlight — REMOVED. Assessment renders inline on the board.
 
 function renderAssessmentQuestion(tag, type) {
-  // Assessment renders inline — no separate spotlight panel
+  // Assessment renders ON THE BOARD as board commands
   state.assessment.questionNumber++;
-  _renderInlineAssessmentFallback(tag, type);
+
+  // Convert teaching tag to board command and push to board engine
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.queueCommand) {
+    const progress = { done: state.assessment.questionNumber - 1, total: state.assessment.maxQuestions || 5 };
+
+    switch (type) {
+      case 'mcq': {
+        const options = [];
+        // Parse <option> from tag.content (same regex as renderMCQTag)
+        const optRegex = /<option\s+value=(?:"([^"]*)"|'([^']*)')([^>]*)>([^<]*)<\/option>/g;
+        let om;
+        while ((om = optRegex.exec(tag.content || '')) !== null) {
+          options.push({
+            value: om[1] || om[2],
+            text: om[4],
+            correct: (om[3] || '').includes('correct'),
+          });
+        }
+        // Fallback: pipe-separated
+        if (!options.length && tag.attrs?.options) {
+          tag.attrs.options.split('|').forEach((t, i) => {
+            options.push({ value: String.fromCharCode(97 + i), text: t.trim() });
+          });
+        }
+        BoardEngine.queueCommand({
+          cmd: 'assess-mcq',
+          prompt: tag.attrs?.prompt || tag.attrs?.question || '',
+          options: options,
+          progress: progress,
+        });
+        break;
+      }
+      case 'freetext':
+        BoardEngine.queueCommand({
+          cmd: 'assess-freetext',
+          prompt: tag.attrs?.prompt || '',
+          placeholder: tag.attrs?.placeholder || 'Type your answer...',
+          progress: progress,
+        });
+        break;
+      case 'spot-error':
+        BoardEngine.queueCommand({
+          cmd: 'assess-spot-error',
+          prompt: tag.attrs?.prompt || 'What\'s wrong?',
+          quote: tag.attrs?.quote || '',
+          hint: tag.attrs?.hint || '',
+          progress: progress,
+        });
+        break;
+      case 'teachback':
+        BoardEngine.queueCommand({
+          cmd: 'assess-teachback',
+          prompt: tag.attrs?.prompt || '',
+          placeholder: tag.attrs?.placeholder || '',
+          progress: progress,
+        });
+        break;
+      case 'confidence':
+        BoardEngine.queueCommand({
+          cmd: 'assess-confidence',
+          prompt: tag.attrs?.prompt || 'How confident are you?',
+        });
+        break;
+      default:
+        // Fallback for other types — render inline
+        _renderInlineAssessmentFallback(tag, type);
+        break;
+    }
+  } else {
+    // Board engine not available — fallback to inline
+    _renderInlineAssessmentFallback(tag, type);
+  }
 }
 
 function _renderInlineAssessmentFallback(tag, type) {
