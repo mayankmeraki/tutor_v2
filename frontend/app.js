@@ -8814,17 +8814,30 @@ function bdInitToolbar() {
   const toolbar = document.getElementById('bd-toolbar');
   if (!toolbar) return;
   const bd = state.boardDraw;
+  bd.drawingEnabled = false;  // Drawing OFF by default
+
   toolbar.querySelectorAll('.bd-tool-btn[data-color]').forEach(btn => {
     btn.addEventListener('click', () => {
+      const wasActive = btn.classList.contains('active');
       toolbar.querySelectorAll('.bd-tool-btn[data-color]').forEach(b => b.classList.remove('active'));
-      btn.classList.add('active');
-      const color = btn.dataset.color;
-      if (color === 'eraser') {
-        bd.studentColor = '#1a1d2e';
-        bd.studentStrokeW = 12;
+
+      if (wasActive) {
+        // Toggle off — disable drawing
+        bd.drawingEnabled = false;
+        document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'default');
       } else {
-        bd.studentColor = color;
-        bd.studentStrokeW = 2.5;
+        // Toggle on — enable drawing with this color
+        btn.classList.add('active');
+        bd.drawingEnabled = true;
+        document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'crosshair');
+        const color = btn.dataset.color;
+        if (color === 'eraser') {
+          bd.studentColor = '#1a1d2e';
+          bd.studentStrokeW = 12;
+        } else {
+          bd.studentColor = color;
+          bd.studentStrokeW = 2.5;
+        }
       }
     });
   });
@@ -8846,6 +8859,7 @@ function bdInitStudentDrawing(canvasEl) {
   }
 
   function startDraw(e) {
+    if (!bd.drawingEnabled) return;  // Drawing must be toggled on
     e.preventDefault();
     drawing = true;
     const pos = getPos(e);
@@ -11461,7 +11475,7 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
   content.innerHTML = `
     <div class="bd-container" id="bd-container">
       <div class="bd-toolbar" id="bd-toolbar">
-        <button class="bd-tool-btn active" data-color="#22ee66" title="Green pen">
+        <button class="bd-tool-btn" data-color="#22ee66" title="Green pen">
           <span style="color:#22ee66;">&#9679;</span>
         </button>
         <button class="bd-tool-btn" data-color="#ff6666" title="Red pen">
@@ -11473,7 +11487,6 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
         <button class="bd-tool-btn bd-eraser-btn" data-color="eraser" title="Eraser">&#9003;</button>
         <span class="bd-toolbar-divider"></span>
         <button class="bd-tool-btn bd-clear-btn" onclick="bdClearStudentDrawing()" title="Clear my drawing">Clear</button>
-        <button class="bd-tool-btn bd-send-btn" onclick="bdSendDrawing()" title="Send board to tutor">Send &#x2192;</button>
         <span class="bd-toolbar-divider"></span>
         <button class="bd-tool-btn" onclick="bdZoomOut()" title="Zoom out (Ctrl+-)">&#8722;</button>
         <button class="bd-tool-btn" onclick="bdZoomReset()" title="Reset zoom (Ctrl+0)" id="bd-zoom-level" style="min-width:36px;font-size:10px;text-align:center">100%</button>
@@ -13930,9 +13943,22 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   const box = overlay.querySelector('.vm-vid-box');
   const lessonVideoUrl = state.video.lessons[state.video.lessonIndex]?.video_url;
 
-  // Create <video> element
-  box.innerHTML = '<video id="vm-video-el" style="width:100%;aspect-ratio:16/9;background:#000;display:block" autoplay playsinline></video>';
+  // Create <video> element with Plyr controls
+  box.innerHTML = '<video id="vm-video-el" playsinline></video>';
   const video = document.getElementById('vm-video-el');
+  video.style.cssText = 'width:100%;display:block;background:#000';
+
+  // Initialize Plyr for polished controls (play/pause, progress, speed, fullscreen)
+  let plyrInstance = null;
+  if (typeof Plyr !== 'undefined') {
+    plyrInstance = new Plyr(video, {
+      controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+      settings: ['speed'],
+      speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+      keyboard: { focused: true, global: false },
+      tooltips: { controls: true, seek: true },
+    });
+  }
 
   // Get direct stream URL (for YouTube) or use URL directly (for hosted videos)
   const videoId = _extractYTVideoId(lessonVideoUrl);
@@ -13992,12 +14018,14 @@ function _vmOnResume() {
 }
 
 function vmResumeVideo() {
-  if (state.video.player?.play) state.video.player.play();
+  const el = document.getElementById('vm-video-el');
+  if (el?.play) el.play();
   _vmOnResume();
 }
 
 function vmSeekVideo(timestamp) {
-  if (state.video.player) { state.video.player.currentTime = timestamp; }
+  const el = document.getElementById('vm-video-el');
+  if (el) el.currentTime = timestamp;
   state.video.currentTimestamp = timestamp;
 }
 
@@ -14016,7 +14044,18 @@ function _vmSendMessage() {
   const text = (input?.value || '').trim();
   if (!text || state.isStreaming) return;
   input.value = '';
-  streamADK(text, false, false);
+
+  // If student has drawn on the board, auto-capture and include with message
+  if (state.boardDraw.studentDrawing && typeof bdCaptureAndSend === 'function') {
+    // Capture board then send text + image together
+    bdCaptureAndSend();
+    // Also send the text message
+    if (text !== '[Board drawing sent to tutor]') {
+      streamADK(text, false, false);
+    }
+  } else {
+    streamADK(text, false, false);
+  }
 }
 
 document.addEventListener('DOMContentLoaded', () => {
