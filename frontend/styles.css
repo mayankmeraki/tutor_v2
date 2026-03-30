@@ -4741,92 +4741,7 @@ body {
   animation: spin 0.8s linear infinite;
 }
 
-/* Assessment Spotlight — REMOVED (renders on board now) */
-/* Legacy styles kept minimal for backwards compat */
-
-.assessment-spotlight-container {
-  display: flex;
-  flex-direction: column;
-  padding: 16px 24px;
-  overflow-y: auto;
-  flex: 1;
-  min-height: 0;
-}
-
-.assessment-progress {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  margin-bottom: 20px;
-  flex-shrink: 0;
-}
-
-.assessment-progress-bar {
-  flex: 1;
-  height: 4px;
-  background: var(--bg-elevated);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.assessment-progress-fill {
-  height: 100%;
-  background: var(--accent);
-  border-radius: 2px;
-  transition: width 0.4s ease;
-}
-
-.assessment-progress-text {
-  font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 600;
-  white-space: nowrap;
-  font-family: var(--font-sans);
-}
-
-.assessment-question-area {
-  flex: 1;
-  transition: opacity 0.2s ease;
-}
-
-/* Assessment question area: no green/red feedback */
-.assessment-question-area .mcq-option.selected {
-  border-color: var(--accent);
-  background: rgba(52, 211, 153, 0.1);
-}
-.assessment-question-area .mcq-option.correct,
-.assessment-question-area .mcq-option.incorrect {
-  /* Override: no correctness colors in assessment spotlight */
-  border-color: var(--border);
-  background: var(--bg-elevated);
-  opacity: 1;
-}
-.assessment-question-area .mcq-option.selected.submitted {
-  border-color: var(--accent);
-  background: rgba(52, 211, 153, 0.15);
-  opacity: 1;
-}
-.assessment-question-area .mcq-option:not(.selected).submitted {
-  opacity: 0.4;
-}
-
-/* Assessment close prevention notice */
-.assessment-close-notice {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%);
-  background: rgba(100, 120, 255, 0.15);
-  color: #8090ff;
-  padding: 6px 16px;
-  border-radius: 20px;
-  font-size: 12px;
-  font-weight: 500;
-  animation: fadeIn 0.2s ease, fadeSlideUp 0.2s ease;
-  pointer-events: none;
-  z-index: 10;
-  white-space: nowrap;
-}
+/* Assessment spotlight styles — REMOVED (all assessment renders on board) */
 
 /* ═══════════════════════════════════════════════════════════
    Landing Page
@@ -5388,6 +5303,10 @@ body.video-mode #top-bar, body.video-mode #plan-heading-bar { display: none !imp
 
 body.assessment-mode #chat-panel, body.assessment-mode #split-handle { display: none !important; }
 body.assessment-mode #board-panel { flex: 1 !important; }
+
+/* Board-first: always hide chat panel, board is full width */
+#chat-panel, #split-handle { display: none !important; }
+#board-panel { flex: 1 !important; }
 
 .vm-overlay { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
 .vm-overlay .vm-vid-wrap, .vm-overlay .vm-chat-wrap { pointer-events: all; }
