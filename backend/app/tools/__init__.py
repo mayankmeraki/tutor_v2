@@ -996,6 +996,9 @@ VIDEO_FOLLOW_TOOLS = [
     {"name": "get_section_brief", "description": "Get a concise teaching brief for a lecture section: key points, examples, how the professor frames it.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "section_index": {"type": "number"}}, "required": ["lesson_id", "section_index"]}},
     {"name": "resume_video", "description": "Resume video playback. Call when you've answered the student's question. Do NOT ask 'shall we continue?' — just call this.", "input_schema": {"type": "object", "properties": {"message": {"type": "string", "description": "Optional brief note before resuming"}}, "required": []}},
     {"name": "seek_video", "description": "Seek the video to a specific timestamp. Use to point the student to a relevant moment.", "input_schema": {"type": "object", "properties": {"timestamp": {"type": "number"}, "reason": {"type": "string"}}, "required": ["timestamp"]}},
+    {"name": "capture_video_frame", "description": "Capture a screenshot of what the student is currently seeing in the video. Returns the frame as an image. Use when you need to see what's on screen — diagrams, equations, slides, board work — to give a better answer.", "input_schema": {"type": "object", "properties": {}, "required": []}},
 ]
+
+VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video", "capture_video_frame"}
 
 VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video"}

@@ -2252,6 +2252,11 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                                 ts = float(block.input.get("timestamp", 0))
                                 yield _sse({"type": "VIDEO_SEEK", "timestamp": ts})
                                 result = f"Video seeked to {ts:.0f}s."
+                            elif block.name == "capture_video_frame":
+                                yield _sse({"type": "VIDEO_CAPTURE_FRAME"})
+                                # The frontend will capture the frame and include it
+                                # in the next context update. For now, return a note.
+                                result = "Frame capture requested. The video frame will be included in the next context. Describe what you need to see and the student's current frame will be provided."
 
                         # ── Normal tool execution ─────────────────────
                         else:

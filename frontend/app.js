@@ -1570,6 +1570,14 @@ function handleSSEEvent(event) {
       if (typeof vmSeekVideo === 'function') vmSeekVideo(event.timestamp);
       break;
 
+    case 'VIDEO_CAPTURE_FRAME':
+      // Agent requested a screenshot — capture and store for next context
+      if (typeof vmCaptureFrame === 'function') {
+        const frame = vmCaptureFrame();
+        if (frame) state.video._pendingFrame = frame;
+      }
+      break;
+
     case 'VISUAL_READY':
       state.generatedVisuals[event.id] = { title: event.title, html: event.html };
       break;
@@ -1828,12 +1836,13 @@ function buildContext() {
     };
     items.push({ description: 'Video State', value: JSON.stringify(videoCtx) });
 
-    // Capture video frame if paused (gives tutor visual context)
-    if (state.video.isPaused) {
-      const frame = vmCaptureFrame();
+    // Capture video frame if paused OR if agent requested capture
+    if (state.video.isPaused || state.video._pendingFrame) {
+      const frame = state.video._pendingFrame || vmCaptureFrame();
+      state.video._pendingFrame = null;  // clear after use
       if (frame) {
         items.push({
-          description: 'Video Frame — screenshot of what student sees at pause point',
+          description: 'Video Frame — screenshot of what student sees on the video',
           value: frame,
         });
       }
