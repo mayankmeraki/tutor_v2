@@ -5329,6 +5329,16 @@ body.assessment-mode #board-panel { flex: 1 !important; }
 #chat-panel, #split-handle { display: none !important; }
 #board-panel { flex: 1 !important; }
 
+/* Board pen toggle in header */
+.board-pen-toggle {
+  background: none; border: 1px solid var(--border); border-radius: 6px;
+  padding: 4px 8px; cursor: pointer; color: var(--text-dim);
+  display: flex; align-items: center; justify-content: center;
+  transition: all 0.15s; margin-right: 4px;
+}
+.board-pen-toggle:hover { color: var(--text); border-color: rgba(255,255,255,0.15); }
+.board-pen-toggle.active { color: var(--accent); border-color: var(--accent); background: rgba(52,211,153,0.08); }
+
 .vm-overlay { position: fixed; inset: 0; z-index: 9000; pointer-events: none; }
 .vm-overlay .vm-vid-wrap, .vm-overlay .vm-chat-wrap { pointer-events: all; }
 

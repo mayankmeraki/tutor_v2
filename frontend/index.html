@@ -795,6 +795,9 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
               <span class="spotlight-type-badge" id="spotlight-type-badge"></span>
               <span id="spotlight-title">Board</span>
             </div>
+            <button class="board-pen-toggle" id="board-pen-toggle" onclick="toggleBoardPen()" title="Draw on board (toggle)">
+              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+            </button>
             <button class="board-live-btn hidden" id="board-live-btn" onclick="returnToLiveBoard()" title="Return to live board">&#9654; Live</button>
             <button class="board-fullscreen-btn" id="board-fullscreen" onclick="toggleBoardFullscreen()" title="Fullscreen">⛶</button>
           </div>

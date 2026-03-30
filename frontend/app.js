@@ -14060,6 +14060,25 @@ function cleanupVideoMode() {
 }
 
 // Chat input → send via streamADK
+// Board pen toggle — always accessible from header
+window.toggleBoardPen = function() {
+  const btn = document.getElementById('board-pen-toggle');
+  const bd = state.boardDraw;
+  if (!btn) return;
+
+  if (bd.drawingEnabled) {
+    bd.drawingEnabled = false;
+    btn.classList.remove('active');
+    document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'default');
+  } else {
+    bd.drawingEnabled = true;
+    bd.studentColor = '#22ee66';
+    bd.studentStrokeW = 2.5;
+    btn.classList.add('active');
+    document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'crosshair');
+  }
+};
+
 function _vmSendMessage() {
   const input = document.getElementById('vm-chat-input');
   const text = (input?.value || '').trim();
