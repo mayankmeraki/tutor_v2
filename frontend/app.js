@@ -1819,16 +1819,25 @@ function buildContext() {
 
   // Context: Video State (if in video follow-along mode)
   if (state.video && state.video.active) {
-    items.push({
-      description: 'Video State',
-      value: JSON.stringify({
-        lessonId: state.video.lessonId,
-        lessonTitle: state.video.lessonTitle,
-        currentTimestamp: state.video.currentTimestamp,
-        currentSectionIndex: state.video.currentSectionIndex,
-        sectionTitle: state.video.sectionTitle,
-      }),
-    });
+    const videoCtx = {
+      lessonId: state.video.lessonId,
+      lessonTitle: state.video.lessonTitle,
+      currentTimestamp: state.video.currentTimestamp,
+      currentSectionIndex: state.video.currentSectionIndex,
+      sectionTitle: state.video.sectionTitle,
+    };
+    items.push({ description: 'Video State', value: JSON.stringify(videoCtx) });
+
+    // Capture video frame if paused (gives tutor visual context)
+    if (state.video.isPaused) {
+      const frame = vmCaptureFrame();
+      if (frame) {
+        items.push({
+          description: 'Video Frame — screenshot of what student sees at pause point',
+          value: frame,
+        });
+      }
+    }
   }
 
   // Context: Active Simulation State (if student has a simulation open)
@@ -13830,23 +13839,42 @@ document.addEventListener('DOMContentLoaded', () => {
 
 state.video = { active: false, courseId: null, lessonId: null, lessonTitle: '', currentTimestamp: 0, currentSectionIndex: 0, sectionTitle: '', isPaused: false, player: null, sections: [], lessons: [], lessonIndex: 0 };
 
-let _ytApiLoaded = false, _ytApiLoading = false;
-
-function _loadYTApi() {
-  if (_ytApiLoaded || _ytApiLoading) return Promise.resolve();
-  _ytApiLoading = true;
-  return new Promise(resolve => {
-    const tag = document.createElement('script');
-    tag.src = 'https://www.youtube.com/iframe_api';
-    document.head.appendChild(tag);
-    window.onYouTubeIframeAPIReady = () => { _ytApiLoaded = true; _ytApiLoading = false; resolve(); };
-  });
-}
-
 function _extractYTVideoId(url) {
   if (!url) return null;
   const m = url.match(/(?:youtu\.be\/|v=|\/embed\/)([A-Za-z0-9_-]{11})/);
   return m ? m[1] : null;
+}
+
+// Get direct stream URL from YouTube via backend yt-dlp
+async function _getStreamUrl(videoUrl) {
+  try {
+    const res = await fetch(`${state.apiUrl}/api/v1/content/video-stream?url=${encodeURIComponent(videoUrl)}`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) throw new Error(`${res.status}`);
+    const data = await res.json();
+    return data.streamUrl;
+  } catch (e) {
+    console.warn('Failed to get stream URL, falling back to thumbnail:', e);
+    return null;
+  }
+}
+
+// Capture current video frame as base64 image
+function vmCaptureFrame() {
+  const video = document.getElementById('vm-video-el');
+  if (!video || video.readyState < 2) return null;
+  try {
+    const canvas = document.createElement('canvas');
+    canvas.width = video.videoWidth || 640;
+    canvas.height = video.videoHeight || 360;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+    return canvas.toDataURL('image/jpeg', 0.7);
+  } catch (e) {
+    console.warn('Frame capture failed:', e);
+    return null;
+  }
 }
 
 // Called from search results when user picks "Watch the lecture video"
@@ -13894,38 +13922,56 @@ async function vmStartVideoForLesson(courseId, lessonId) {
 
   Router.navigate(`/session/${state.sessionId}`, { replace: true, skipHandler: true });
 
-  // Load YouTube player
-  await _loadYTApi();
+  // Set up custom video player
   const overlay = document.getElementById('vm-video-overlay');
   overlay.classList.remove('hidden');
-
-  // Ensure player div exists
-  const box = overlay.querySelector('.vm-vid-box');
-  if (!document.getElementById('vm-yt-player')) box.innerHTML = '<div id="vm-yt-player"></div>';
   document.getElementById('vm-vid-wrap').classList.remove('vm-mini');
 
-  const videoId = _extractYTVideoId(state.video.lessons[state.video.lessonIndex]?.video_url);
-  if (!videoId) return;
+  const box = overlay.querySelector('.vm-vid-box');
+  const lessonVideoUrl = state.video.lessons[state.video.lessonIndex]?.video_url;
 
-  if (state.video.player?.destroy) { try { state.video.player.destroy(); } catch (e) {} }
+  // Create <video> element
+  box.innerHTML = '<video id="vm-video-el" style="width:100%;aspect-ratio:16/9;background:#000;display:block" autoplay playsinline></video>';
+  const video = document.getElementById('vm-video-el');
 
-  state.video.player = new YT.Player('vm-yt-player', {
-    videoId,
-    playerVars: { autoplay: 1, rel: 0, modestbranding: 1, enablejsapi: 1, origin: window.location.origin },
-    events: { onStateChange: _vmOnStateChange },
+  // Get direct stream URL (for YouTube) or use URL directly (for hosted videos)
+  const videoId = _extractYTVideoId(lessonVideoUrl);
+  if (videoId) {
+    // YouTube — extract stream URL via backend
+    const streamUrl = await _getStreamUrl(lessonVideoUrl);
+    if (streamUrl) {
+      video.src = streamUrl;
+    } else {
+      // Fallback: show thumbnail + message
+      box.innerHTML = `<div style="width:100%;aspect-ratio:16/9;background:#111;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:14px">Video loading failed — tutor will teach from transcript</div>`;
+      return;
+    }
+  } else if (lessonVideoUrl) {
+    // Direct URL (MP4, HLS, etc.)
+    video.src = lessonVideoUrl;
+  } else {
+    box.innerHTML = '';
+    overlay.classList.add('hidden');
+    return;
+  }
+
+  // Store reference
+  state.video.player = video;
+
+  // Event listeners
+  video.addEventListener('pause', () => { if (state.video.active) _vmOnPause(); });
+  video.addEventListener('playing', () => { if (state.video.active && state.video.isPaused) _vmOnResume(); });
+  video.addEventListener('timeupdate', () => {
+    if (state.video.active && video.currentTime) {
+      state.video.currentTimestamp = video.currentTime;
+    }
   });
-}
-
-function _vmOnStateChange(event) {
-  if (!state.video.active) return;
-  if (event.data === YT.PlayerState.PAUSED) _vmOnPause();
-  else if (event.data === YT.PlayerState.PLAYING && state.video.isPaused) _vmOnResume();
 }
 
 function _vmOnPause() {
   if (state.video.isPaused) return;
   state.video.isPaused = true;
-  if (state.video.player?.getCurrentTime) state.video.currentTimestamp = state.video.player.getCurrentTime();
+  if (state.video.player?.currentTime) state.video.currentTimestamp = state.video.player.currentTime;
 
   const t = state.video.currentTimestamp;
   const section = state.video.sections.find(s => s.start_seconds <= t && s.end_seconds >= t) || state.video.sections[state.video.sections.length - 1];
@@ -13946,21 +13992,21 @@ function _vmOnResume() {
 }
 
 function vmResumeVideo() {
-  if (state.video.player?.playVideo) state.video.player.playVideo();
+  if (state.video.player?.play) state.video.player.play();
   _vmOnResume();
 }
 
 function vmSeekVideo(timestamp) {
-  if (state.video.player?.seekTo) state.video.player.seekTo(timestamp, true);
+  if (state.video.player) { state.video.player.currentTime = timestamp; }
   state.video.currentTimestamp = timestamp;
 }
 
 function cleanupVideoMode() {
   state.video.active = false;
   document.body.classList.remove('video-mode');
-  if (state.video.player?.destroy) { try { state.video.player.destroy(); } catch (e) {} state.video.player = null; }
+  if (state.video.player) { try { state.video.player.pause(); state.video.player.src = ''; } catch (e) {} state.video.player = null; }
   const overlay = document.getElementById('vm-video-overlay');
-  if (overlay) { overlay.classList.add('hidden'); const box = overlay.querySelector('.vm-vid-box'); if (box && !document.getElementById('vm-yt-player')) box.innerHTML = '<div id="vm-yt-player"></div>'; }
+  if (overlay) { overlay.classList.add('hidden'); }
   document.getElementById('vm-chat-wrap')?.classList.remove('vm-show');
 }
 
