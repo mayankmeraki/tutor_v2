@@ -210,6 +210,47 @@ BOARD DRAW — live chalk drawing (opens in board panel):
     pos: "right" (inline beside), "below", "below-right"
     Use for small annotations like "← THE equation" or "→ forces drive position"
 
+  CODE BLOCK (syntax-highlighted, monospace — for CS/programming topics):
+    {"cmd":"code","lang":"python","text":"def fib(n):\n    if n <= 1: return n\n    return fib(n-1) + fib(n-2)","highlight":[3]}
+    lang: "python", "javascript", "java", "c", etc.
+    highlight: array of line numbers to highlight (1-indexed)
+    filename: optional file name shown in header
+    Use for showing code to the student. Build code incrementally — skeleton first, then fill in.
+
+  3D SCENE (Three.js — for 3D visualizations):
+    {"cmd":"scene3d","title":"Hydrogen Orbital","width":400,"height":300,"code":"...Three.js code..."}
+    code: raw Three.js code that receives THREE, scene, camera, renderer as variables.
+    The scene includes a grid, axes, ambient + directional light, and orbit controls by default.
+    Student can rotate, zoom, and pan the 3D view.
+    autoRotate: true/false (default true)
+    grid: true/false (default true)
+    axes: true/false (default true)
+
+    Use 3D scenes when the concept is fundamentally spatial:
+      - Orbitals, wave functions in 3D, molecular geometry
+      - 3D vectors, cross products, coordinate systems
+      - Crystal lattices, unit cells
+      - Electric/magnetic field lines in 3D
+      - Data structures (3D graphs, spatial trees)
+
+    PREFER 3D over 2D when the topic involves:
+      - Anything with x,y,z coordinates
+      - Rotation, orientation, angular momentum
+      - Fields that exist in 3D space
+      - Molecular or atomic structure
+
+    Example 3D code:
+      var geo = new THREE.SphereGeometry(0.5, 32, 32);
+      var mat = new THREE.MeshPhongMaterial({color: 0x34d399, transparent: true, opacity: 0.6});
+      var sphere = new THREE.Mesh(geo, mat);
+      scene.add(sphere);
+      // Add orbital ring
+      var ring = new THREE.TorusGeometry(1.5, 0.02, 16, 100);
+      var ringMat = new THREE.MeshBasicMaterial({color: 0x5eead4});
+      var ringMesh = new THREE.Mesh(ring, ringMat);
+      ringMesh.rotation.x = Math.PI / 2;
+      scene.add(ringMesh);
+
   COLUMNS (multi-column grid — content flows into columns automatically):
     {"cmd":"columns","cols":2}
     [... content commands flow into the grid left-to-right ...]

@@ -1,0 +1,523 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS Teaching — Board Wireframe</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1012;--surface:#161819;--elevated:#1e2022;--border:rgba(255,255,255,.06);
+  --accent:#34d399;--text:#fafafa;--text-2:#a1a1aa;--text-3:#52525b;
+  --chalk-w:#d4e8dc;--chalk-y:#e8d47a;--chalk-c:#5eead4;--chalk-g:#7ed99a;--chalk-r:#f87171;--chalk-b:#60a5fa;
+  --code-bg:#0d1117;--code-bd:#1e2733;
+  --kw:#ff7b72;--str:#a5d6ff;--cmt:#8b949e;--fn:#d2a8ff;--num:#79c0ff;--typ:#ffa657;
+}
+html{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+body{min-height:100vh;overflow-x:hidden}
+
+/* Layout */
+.screen{min-height:100vh;display:none;flex-direction:column}
+.screen.on{display:flex}
+.topbar{display:flex;align-items:center;gap:12px;padding:0 16px;height:42px;background:var(--surface);border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0}
+.topbar .back{color:var(--text-3);cursor:pointer;display:flex;align-items:center;gap:4px}
+.topbar .badge{padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.5px;background:rgba(52,211,153,.12);color:var(--accent)}
+.topbar .title{font-weight:600;flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.topbar .clock{color:var(--text-3);font-variant-numeric:tabular-nums}
+.board{flex:1;overflow-y:auto;padding:32px clamp(20px,4vw,60px) 100px;
+  background:var(--bg) repeating-conic-gradient(var(--elevated) 0% 25%,transparent 0% 50%) 0 0/40px 40px}
+.subtitle{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);max-width:620px;width:90%;
+  padding:10px 20px;border-radius:10px;background:rgba(0,0,0,.75);backdrop-filter:blur(10px);
+  font-size:14px;text-align:center;border:1px solid rgba(255,255,255,.05);z-index:10}
+.input-bar{position:fixed;bottom:0;left:0;right:0;padding:10px 16px;background:var(--surface);border-top:1px solid var(--border);z-index:10}
+.input-inner{display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:12px;background:var(--elevated);border:1px solid var(--border);max-width:600px;margin:0 auto}
+.input-inner input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:13px}
+.input-inner input::placeholder{color:var(--text-3)}
+.input-inner .send{width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;color:#0f1012;display:grid;place-items:center;font-size:12px;cursor:pointer}
+
+/* Chalk */
+.ck{font-family:'Caveat',cursive}
+.ck-h1{font-size:30px;font-weight:700;color:var(--chalk-y);text-align:center;margin-bottom:6px}
+.ck-h2{font-size:22px;font-weight:600;color:var(--chalk-c);margin:24px 0 10px}
+.ck-t{font-size:18px;color:var(--chalk-w);line-height:1.5;margin-bottom:5px}
+.ck-dim{color:var(--text-3);font-size:16px}
+.ck-call{border-left:3px solid var(--chalk-c);padding-left:12px;margin:10px 0;font-size:17px;color:var(--chalk-g)}
+.ck-step{display:flex;align-items:flex-start;gap:10px;margin-bottom:7px}
+.ck-num{width:26px;height:26px;border-radius:50%;border:2px solid var(--chalk-c);color:var(--chalk-c);display:grid;place-items:center;font-size:13px;font-weight:700;flex-shrink:0;font-family:Inter}
+
+/* ─── Code block ─── */
+.cb{background:var(--code-bg);border:1px solid var(--code-bd);border-radius:10px;margin:14px 0;overflow:hidden;font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7}
+.cb-head{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;background:rgba(255,255,255,.02);border-bottom:1px solid var(--code-bd)}
+.cb-lang{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px}
+.cb-file{font-size:11px;color:var(--text-2)}
+.cb-acts{display:flex;gap:5px}
+.cb-btn{padding:3px 9px;border-radius:5px;border:1px solid var(--code-bd);background:none;color:var(--text-3);font-size:10px;cursor:pointer;transition:all .15s;font-family:Inter}
+.cb-btn:hover{border-color:var(--accent);color:var(--accent)}
+.cb-btn-run{border-color:var(--accent);color:var(--accent)}
+.cb-body{padding:12px 14px;overflow-x:auto}
+.cb-body pre{margin:0;white-space:pre}
+.cl{display:block;padding:1px 0}
+.cl.hi{background:rgba(52,211,153,.07);border-left:3px solid var(--accent);padding-left:11px;margin-left:-14px;margin-right:-14px;padding-right:14px}
+.cl.err{background:rgba(248,113,113,.07);border-left:3px solid var(--chalk-r);padding-left:11px;margin-left:-14px}
+.cl.add{background:rgba(52,211,153,.05)}
+.ln{display:inline-block;width:26px;text-align:right;margin-right:14px;color:var(--text-3);user-select:none;font-size:11px}
+.kw{color:var(--kw)}.str{color:var(--str)}.cmt{color:var(--cmt);font-style:italic}.fn{color:var(--fn)}.nm{color:var(--num)}.tp{color:var(--typ)}.op{color:#ff7b72}.no{color:var(--kw)}
+
+/* ─── Code editor (interactive) ─── */
+.ce{background:var(--code-bg);border:2px solid var(--accent);border-radius:10px;margin:14px 0;overflow:hidden}
+.ce .cb-head{border-bottom-color:rgba(52,211,153,.2)}
+.ce .cb-lang{color:var(--accent)}
+.ce-body{padding:12px 14px}
+.ce-body textarea{width:100%;min-height:140px;background:none;border:none;outline:none;color:var(--text);font-family:'JetBrains Mono',monospace;font-size:13px;line-height:1.7;resize:vertical}
+.ce-foot{display:flex;justify-content:space-between;align-items:center;padding:7px 12px;border-top:1px solid rgba(52,211,153,.15)}
+.ce-hint{font-size:10px;color:var(--text-3)}
+.ce-run{padding:5px 14px;border-radius:6px;border:none;background:var(--accent);color:#0f1012;font-size:11px;font-weight:600;cursor:pointer}
+
+/* ─── Output ─── */
+.out{background:#0a0c0e;border:1px solid var(--code-bd);border-radius:8px;margin:10px 0;padding:10px 14px;font-family:'JetBrains Mono',monospace;font-size:12px}
+.out-label{font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:5px;font-family:Inter}
+.out-ok{color:var(--chalk-g)}.out-err{color:var(--chalk-r)}
+
+/* ─── Trace ─── */
+.trace{background:var(--code-bg);border:1px solid var(--code-bd);border-radius:10px;margin:14px 0;overflow:hidden}
+.trace-head{padding:9px 12px;background:rgba(255,255,255,.02);border-bottom:1px solid var(--code-bd);display:flex;justify-content:space-between;align-items:center}
+.trace-head span{font-size:12px;font-weight:600;color:var(--text-2)}
+.trace-controls{display:flex;gap:4px}
+.trace-ctrl{width:28px;height:28px;border-radius:6px;border:1px solid var(--code-bd);background:none;color:var(--text-3);font-size:12px;cursor:pointer;display:grid;place-items:center;transition:all .12s}
+.trace-ctrl:hover{border-color:var(--accent);color:var(--accent)}
+.trace-ctrl.on{background:var(--accent);color:#0f1012;border-color:var(--accent)}
+.trace-speed{font-size:10px;color:var(--text-3);padding:0 6px;display:grid;place-items:center}
+.trace-body{display:flex;font-family:'JetBrains Mono',monospace;font-size:12px}
+.trace-code{flex:1;border-right:1px solid var(--code-bd);padding:8px 0}
+.trace-line{display:flex;padding:3px 12px}
+.trace-line.active{background:rgba(52,211,153,.08)}
+.trace-line .tl-n{width:24px;text-align:right;margin-right:12px;color:var(--text-3);font-size:11px}
+.trace-line.active .tl-n{color:var(--accent)}
+.trace-line .tl-c{flex:1;color:var(--text-2)}
+.trace-line.active .tl-c{color:var(--text)}
+.trace-line .tl-arrow{color:var(--accent);font-size:10px;margin-right:4px}
+.trace-vars{width:260px;padding:8px 12px}
+.trace-vars-title{font-size:9px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;font-family:Inter}
+.tv{margin-bottom:4px;display:flex;gap:6px}
+.tv-name{color:var(--text-2)}.tv-eq{color:var(--text-3)}.tv-val{color:var(--chalk-y);font-weight:500}
+.tv-changed{color:var(--accent);font-weight:600}
+.tv-old{color:var(--text-3);text-decoration:line-through;font-size:11px;margin-left:4px}
+
+/* ─── Test cases ─── */
+.tests{background:var(--code-bg);border:1px solid var(--code-bd);border-radius:10px;margin:14px 0;overflow:hidden}
+.tests-head{padding:9px 12px;background:rgba(255,255,255,.02);border-bottom:1px solid var(--code-bd);display:flex;justify-content:space-between;align-items:center}
+.tests-head span{font-size:12px;font-weight:600;color:var(--text-2)}
+.tests-score{font-size:11px;font-weight:600}
+.tests-score.pass{color:var(--accent)}.tests-score.partial{color:var(--chalk-y)}.tests-score.fail{color:var(--chalk-r)}
+.tests-table{width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:12px}
+.tests-table th{text-align:left;padding:6px 12px;font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid var(--code-bd);font-family:Inter;font-weight:600}
+.tests-table td{padding:6px 12px;border-bottom:1px solid rgba(255,255,255,.02)}
+.tests-table tr.pass td{color:var(--text-2)}.tests-table tr.fail td{color:var(--chalk-r)}
+.tests-table .status{font-size:14px;text-align:center;width:30px}
+.tests-table tr.fail .actual{font-weight:600}
+
+/* ─── DS Viz ─── */
+.dsv{margin:16px 0;padding:16px;background:rgba(0,0,0,.25);border-radius:10px;border:1px solid var(--code-bd)}
+.dsv-title{font-size:10px;font-weight:600;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;font-family:Inter}
+
+/* Linked list */
+.ll{display:flex;align-items:center;gap:0;flex-wrap:wrap}
+.ll-n{display:flex;flex-direction:column;align-items:center}
+.ll-box{padding:7px 14px;border-radius:6px;border:2px solid var(--chalk-c);color:var(--chalk-w);font-family:'JetBrains Mono';font-size:15px;font-weight:600;background:rgba(94,234,212,.04)}
+.ll-box.act{border-color:var(--accent);background:rgba(52,211,153,.1);color:var(--accent)}
+.ll-box.done{border-color:var(--text-3);color:var(--text-3);opacity:.4}
+.ll-ptr{font-size:9px;font-weight:600;margin-top:3px;font-family:'JetBrains Mono'}
+.ll-ptr.p-prev{color:var(--chalk-r)}.ll-ptr.p-curr{color:var(--accent)}.ll-ptr.p-next{color:var(--chalk-b)}
+.ll-arrow{padding:0 5px;color:var(--chalk-c);font-size:16px}
+.ll-null{color:var(--text-3);font-family:'JetBrains Mono';font-size:13px;padding:0 6px}
+
+/* Array viz */
+.arr{display:flex;gap:2px;align-items:flex-end}
+.arr-cell{display:flex;flex-direction:column;align-items:center}
+.arr-val{padding:8px 12px;border:1px solid var(--code-bd);background:var(--code-bg);font-family:'JetBrains Mono';font-size:14px;font-weight:500;min-width:36px;text-align:center;border-radius:4px}
+.arr-val.hi{border-color:var(--accent);background:rgba(52,211,153,.08);color:var(--accent)}
+.arr-val.found{border-color:var(--chalk-y);background:rgba(232,212,122,.08);color:var(--chalk-y)}
+.arr-val.checked{border-color:var(--text-3);color:var(--text-3)}
+.arr-idx{font-size:9px;color:var(--text-3);margin-top:3px;font-family:'JetBrains Mono'}
+.arr-label{font-size:9px;font-weight:600;margin-top:1px;font-family:'JetBrains Mono'}
+.arr-label.i{color:var(--accent)}.arr-label.j{color:var(--chalk-b)}
+
+/* Tree viz */
+.tree{display:flex;flex-direction:column;align-items:center;gap:8px}
+.tree-row{display:flex;gap:24px;justify-content:center}
+.tree-node{width:36px;height:36px;border-radius:50%;border:2px solid var(--chalk-c);color:var(--chalk-w);display:grid;place-items:center;font-family:'JetBrains Mono';font-size:14px;font-weight:600}
+.tree-node.act{border-color:var(--accent);background:rgba(52,211,153,.1);color:var(--accent)}
+.tree-node.null{border:2px dashed var(--text-3);color:var(--text-3);font-size:10px}
+.tree-edges{font-size:18px;color:var(--chalk-c);text-align:center;margin:-4px 0}
+
+/* Call stack */
+.cstack{display:flex;flex-direction:column;gap:3px;max-width:400px}
+.cs-frame{padding:8px 14px;border-radius:6px;font-family:'JetBrains Mono';font-size:12px;display:flex;justify-content:space-between}
+.cs-frame.waiting{background:rgba(52,211,153,.05);border:1px solid rgba(52,211,153,.12);color:var(--text-2)}
+.cs-frame.active{background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.25);color:var(--accent)}
+.cs-frame.returned{background:rgba(232,212,122,.06);border:1px solid rgba(232,212,122,.15);color:var(--chalk-y)}
+.cs-frame.base{background:rgba(232,212,122,.1);border:1px solid rgba(232,212,122,.25);color:var(--chalk-y)}
+.cs-ret{font-weight:600}
+
+/* Hash map viz */
+.hm{display:flex;flex-direction:column;gap:2px}
+.hm-row{display:flex;align-items:center;gap:8px}
+.hm-bucket{width:28px;height:28px;border:1px solid var(--code-bd);background:var(--code-bg);display:grid;place-items:center;font-family:'JetBrains Mono';font-size:10px;color:var(--text-3);border-radius:4px}
+.hm-entry{display:flex;align-items:center;gap:4px;padding:4px 10px;border-radius:4px;font-family:'JetBrains Mono';font-size:12px;border:1px solid var(--code-bd);background:rgba(255,255,255,.02)}
+.hm-entry.new{border-color:var(--accent);background:rgba(52,211,153,.06)}
+.hm-key{color:var(--chalk-c)}.hm-sep{color:var(--text-3)}.hm-val{color:var(--chalk-y)}
+
+/* Complexity */
+.cx{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:5px;background:rgba(255,255,255,.02);border:1px solid var(--code-bd);margin:6px 4px 6px 0;font-family:'JetBrains Mono';font-size:12px}
+.cx-label{color:var(--text-3);font-size:10px;text-transform:uppercase;font-family:Inter;font-weight:600}
+.cx-val{color:var(--chalk-y);font-weight:600}
+
+/* ─── Nav ─── */
+.nav{position:fixed;bottom:68px;left:50%;transform:translateX(-50%);display:flex;gap:3px;padding:4px;background:var(--surface);border-radius:10px;border:1px solid var(--border);z-index:999;box-shadow:0 6px 24px rgba(0,0,0,.5)}
+.nav button{padding:4px 11px;border-radius:7px;font-size:10px;font-weight:600;color:var(--text-3);background:none;border:none;cursor:pointer;transition:all .12s;white-space:nowrap}
+.nav button.on{background:var(--accent);color:#0f1012}
+.nav button:hover:not(.on){color:var(--text);background:var(--elevated)}
+</style>
+</head>
+<body>
+
+<!-- ══════ 1. TEACH: Code + Diagram ══════ -->
+<div class="screen on" id="s1">
+<div class="topbar"><span class="back">&larr; Courses</span><span class="badge">BOARD</span><span class="title">Reverse a Linked List</span><span>&#9998; Draw</span><span class="clock">4:32</span></div>
+<div class="board">
+  <div class="ck ck-h1">Reversing a Linked List</div>
+  <div class="ck ck-dim" style="text-align:center;margin-bottom:24px">The classic pointer manipulation</div>
+
+  <div class="dsv">
+    <div class="dsv-title">Original list</div>
+    <div class="ll">
+      <div class="ll-n"><div class="ll-box">1</div></div><div class="ll-arrow">&rarr;</div>
+      <div class="ll-n"><div class="ll-box">2</div></div><div class="ll-arrow">&rarr;</div>
+      <div class="ll-n"><div class="ll-box">3</div></div><div class="ll-arrow">&rarr;</div>
+      <div class="ll-n"><div class="ll-box">4</div></div><div class="ll-arrow">&rarr;</div>
+      <div class="ll-null">null</div>
+    </div>
+  </div>
+
+  <div class="ck ck-h2">The Idea</div>
+  <div class="ck ck-call">Walk through. At each node, flip the arrow backwards.</div>
+  <div class="ck ck-t">Three pointers:</div>
+  <div class="ck ck-step"><div class="ck-num">1</div><div class="ck ck-t"><span style="color:var(--chalk-r)">prev</span> &mdash; where we just were</div></div>
+  <div class="ck ck-step"><div class="ck-num">2</div><div class="ck ck-t"><span style="color:var(--accent)">current</span> &mdash; where we are now</div></div>
+  <div class="ck ck-step"><div class="ck-num">3</div><div class="ck ck-t"><span style="color:var(--chalk-b)">next</span> &mdash; saved before we flip</div></div>
+
+  <div class="cb">
+    <div class="cb-head"><span class="cb-lang">Python</span><span class="cb-file">reverse.py</span><div class="cb-acts"><button class="cb-btn">Copy</button><button class="cb-btn cb-btn-run">&#9654; Run</button></div></div>
+    <div class="cb-body"><pre><span class="cl"><span class="ln"> 1</span><span class="kw">def</span> <span class="fn">reverse</span>(<span class="tp">head</span>):</span>
+<span class="cl"><span class="ln"> 2</span>    prev <span class="op">=</span> <span class="no">None</span></span>
+<span class="cl"><span class="ln"> 3</span>    curr <span class="op">=</span> head</span>
+<span class="cl hi"><span class="ln"> 4</span>    <span class="kw">while</span> curr:</span>
+<span class="cl hi"><span class="ln"> 5</span>        nxt <span class="op">=</span> curr.next   <span class="cmt"># save</span></span>
+<span class="cl hi"><span class="ln"> 6</span>        curr.next <span class="op">=</span> prev  <span class="cmt"># flip</span></span>
+<span class="cl hi"><span class="ln"> 7</span>        prev <span class="op">=</span> curr        <span class="cmt"># advance</span></span>
+<span class="cl hi"><span class="ln"> 8</span>        curr <span class="op">=</span> nxt         <span class="cmt"># advance</span></span>
+<span class="cl"><span class="ln"> 9</span>    <span class="kw">return</span> prev</span></pre></div>
+  </div>
+  <div class="cx"><span class="cx-label">Time</span><span class="cx-val">O(n)</span></div>
+  <div class="cx"><span class="cx-label">Space</span><span class="cx-val">O(1)</span></div>
+</div>
+<div class="subtitle">"Save next before you flip &mdash; or you lose your way forward."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="Ask about the code..."><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ 2. TRACE: Step-by-step execution ══════ -->
+<div class="screen" id="s2">
+<div class="topbar"><span class="back">&larr;</span><span class="badge">BOARD</span><span class="title">Trace &mdash; reverse([1,2,3])</span><span class="clock">6:15</span></div>
+<div class="board">
+  <div class="ck ck-h1">Dry Run</div>
+  <div class="ck ck-dim" style="text-align:center;margin-bottom:16px">Stepping through [1 &rarr; 2 &rarr; 3 &rarr; null]</div>
+
+  <div class="dsv">
+    <div class="dsv-title">Step 2 of 3 &mdash; processing node 2</div>
+    <div class="ll">
+      <div class="ll-n"><div class="ll-box done">1</div><div class="ll-ptr p-prev">prev</div></div>
+      <div class="ll-arrow" style="color:var(--chalk-r)">&larr;</div>
+      <div class="ll-n"><div class="ll-box act">2</div><div class="ll-ptr p-curr">curr</div></div>
+      <div class="ll-arrow">&rarr;</div>
+      <div class="ll-n"><div class="ll-box">3</div><div class="ll-ptr p-next">nxt</div></div>
+      <div class="ll-arrow">&rarr;</div>
+      <div class="ll-null">null</div>
+    </div>
+  </div>
+
+  <div class="trace">
+    <div class="trace-head">
+      <span>&#9654; Execution Trace</span>
+      <div class="trace-controls">
+        <button class="trace-ctrl" title="Step back">&#9664;&#9664;</button>
+        <button class="trace-ctrl" title="Step back">&#9664;</button>
+        <button class="trace-ctrl on" title="Playing">&#9654;</button>
+        <button class="trace-ctrl" title="Step forward">&#9654;&#9654;</button>
+        <span class="trace-speed">1x</span>
+      </div>
+    </div>
+    <div class="trace-body">
+      <div class="trace-code">
+        <div class="trace-line"><span class="tl-n">4</span><span class="tl-c"><span class="kw">while</span> curr:</span></div>
+        <div class="trace-line active"><span class="tl-arrow">&#9654;</span><span class="tl-n">5</span><span class="tl-c">nxt = curr.next</span></div>
+        <div class="trace-line"><span class="tl-n">6</span><span class="tl-c">curr.next = prev</span></div>
+        <div class="trace-line"><span class="tl-n">7</span><span class="tl-c">prev = curr</span></div>
+        <div class="trace-line"><span class="tl-n">8</span><span class="tl-c">curr = nxt</span></div>
+      </div>
+      <div class="trace-vars">
+        <div class="trace-vars-title">Variables</div>
+        <div class="tv"><span class="tv-name">prev</span><span class="tv-eq">=</span><span class="tv-val">node(1)</span></div>
+        <div class="tv"><span class="tv-name">curr</span><span class="tv-eq">=</span><span class="tv-val">node(2)</span></div>
+        <div class="tv"><span class="tv-name">nxt</span><span class="tv-eq">=</span><span class="tv-changed">node(3)</span><span class="tv-old">None</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ck ck-call">After step 2: null &larr; 1 &larr; 2 &nbsp;&nbsp; 3 &rarr; null</div>
+</div>
+<div class="subtitle">"See how prev and current leapfrog? That's the whole trick."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="What happens at step 3?"><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ 3. EDITOR: Student writes code ══════ -->
+<div class="screen" id="s3">
+<div class="topbar"><span class="back">&larr;</span><span class="badge">BOARD</span><span class="title">Your Turn &mdash; Two Sum</span><span class="clock">12:40</span></div>
+<div class="board">
+  <div class="ck ck-h1">Your Turn</div>
+  <div class="ck ck-t" style="text-align:center">Find two numbers that add to target. Return their indices.</div>
+
+  <div class="cb"><div class="cb-head"><span class="cb-lang">Example</span></div>
+    <div class="cb-body"><pre><span class="cl">nums <span class="op">=</span> [<span class="nm">2</span>, <span class="nm">7</span>, <span class="nm">11</span>, <span class="nm">15</span>],  target <span class="op">=</span> <span class="nm">9</span></span>
+<span class="cl"><span class="cmt"># Output: [0, 1]  (2 + 7 = 9)</span></span></pre></div>
+  </div>
+
+  <div class="ck ck-h2">Hint</div>
+  <div class="ck ck-call">At each number, ask: "what would complete it?" How do you look that up fast?</div>
+
+  <div class="ce">
+    <div class="cb-head"><span class="cb-lang">&#9998; Your Code &mdash; Python</span><div class="cb-acts"><button class="cb-btn">Reset</button><button class="cb-btn cb-btn-run">&#9654; Run</button></div></div>
+    <div class="ce-body"><textarea spellcheck="false">def two_sum(nums, target):
+    # Your code here
+
+    pass</textarea></div>
+    <div class="ce-foot"><span class="ce-hint">Ctrl+Enter to run &middot; Submit sends to your tutor</span><button class="ce-run">Submit</button></div>
+  </div>
+
+  <div class="tests">
+    <div class="tests-head"><span>Test Cases</span><span class="tests-score partial">0 / 4 passed</span></div>
+    <table class="tests-table">
+      <tr><th>Input</th><th>Expected</th><th>Actual</th><th class="status"></th></tr>
+      <tr class="fail"><td>[2,7,11,15], 9</td><td>[0, 1]</td><td class="actual">&mdash;</td><td class="status">&#9675;</td></tr>
+      <tr class="fail"><td>[3,2,4], 6</td><td>[1, 2]</td><td class="actual">&mdash;</td><td class="status">&#9675;</td></tr>
+      <tr class="fail"><td>[3,3], 6</td><td>[0, 1]</td><td class="actual">&mdash;</td><td class="status">&#9675;</td></tr>
+      <tr class="fail"><td>[1], 2</td><td>None</td><td class="actual">&mdash;</td><td class="status">&#9675;</td></tr>
+    </table>
+  </div>
+</div>
+<div class="subtitle">"What data structure gives you O(1) lookup? That's the key."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="I think I'd use a dictionary..."><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ 4. REVIEW: Tutor reviews student code ══════ -->
+<div class="screen" id="s4">
+<div class="topbar"><span class="back">&larr;</span><span class="badge">BOARD</span><span class="title">Code Review &mdash; Two Sum</span><span class="clock">15:22</span></div>
+<div class="board">
+  <div class="ck ck-h1">Let's Look at Your Code</div>
+
+  <div class="cb"><div class="cb-head"><span class="cb-lang">Your solution</span><span class="cb-file">two_sum.py</span></div>
+    <div class="cb-body"><pre><span class="cl"><span class="ln">1</span><span class="kw">def</span> <span class="fn">two_sum</span>(<span class="tp">nums</span>, <span class="tp">target</span>):</span>
+<span class="cl"><span class="ln">2</span>    seen <span class="op">=</span> {}</span>
+<span class="cl"><span class="ln">3</span>    <span class="kw">for</span> i, num <span class="kw">in</span> <span class="fn">enumerate</span>(nums):</span>
+<span class="cl"><span class="ln">4</span>        comp <span class="op">=</span> target <span class="op">-</span> num</span>
+<span class="cl err"><span class="ln">5</span>        <span class="kw">if</span> comp <span class="kw">in</span> seen:  <span style="color:var(--chalk-r);font-size:11px">&#8592; logic is right!</span></span>
+<span class="cl err"><span class="ln">6</span>            <span class="kw">return</span> [i, seen[comp]]  <span style="color:var(--chalk-r);font-size:11px">&#8592; indices swapped</span></span>
+<span class="cl"><span class="ln">7</span>        seen[num] <span class="op">=</span> i</span></pre></div>
+  </div>
+
+  <!-- Hash map viz showing what "seen" looks like -->
+  <div class="dsv">
+    <div class="dsv-title">What <code style="color:var(--chalk-c)">seen</code> looks like at i=1</div>
+    <div class="hm">
+      <div class="hm-row"><div class="hm-bucket">0</div><div class="hm-entry"><span class="hm-key">2</span><span class="hm-sep">:</span><span class="hm-val">0</span></div></div>
+      <div class="hm-row"><div class="hm-bucket">1</div><div class="hm-entry new"><span class="hm-key">7</span><span class="hm-sep">:</span><span class="hm-val">1</span></div><span style="color:var(--accent);font-size:11px;margin-left:8px">&larr; about to add</span></div>
+    </div>
+  </div>
+
+  <div class="tests">
+    <div class="tests-head"><span>Test Results</span><span class="tests-score partial">3 / 4 passed</span></div>
+    <table class="tests-table">
+      <tr><th>Input</th><th>Expected</th><th>Actual</th><th class="status"></th></tr>
+      <tr class="fail"><td>[2,7,11,15], 9</td><td>[0, 1]</td><td class="actual">[1, 0]</td><td class="status" style="color:var(--chalk-r)">&#10007;</td></tr>
+      <tr class="pass"><td>[3,2,4], 6</td><td>[1, 2]</td><td>[1, 2]</td><td class="status" style="color:var(--accent)">&#10003;</td></tr>
+      <tr class="pass"><td>[3,3], 6</td><td>[0, 1]</td><td>[0, 1]</td><td class="status" style="color:var(--accent)">&#10003;</td></tr>
+      <tr class="pass"><td>[1], 2</td><td>None</td><td>None</td><td class="status" style="color:var(--accent)">&#10003;</td></tr>
+    </table>
+  </div>
+
+  <div class="ck ck-h2">The Fix</div>
+  <div class="ck ck-t">Line 6: swap the indices &mdash; <span style="color:var(--chalk-r)">earlier</span> first, then <span style="color:var(--accent)">current</span>.</div>
+  <div class="cb"><div class="cb-body"><pre><span class="cl add"><span class="ln">6</span>            <span class="kw">return</span> [seen[comp], i]  <span class="cmt"># earlier index first</span></span></pre></div></div>
+  <div class="out"><div class="out-label">Output</div><span class="out-ok">All 4 tests passing &#10003;</span></div>
+
+  <div class="ck ck-call" style="margin-top:16px">Hash map approach is perfect &mdash; O(n) time. Just a minor index order issue.</div>
+</div>
+<div class="subtitle">"Your approach is solid. O(n) with a hash map is exactly right."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="Can we do it without extra space?"><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ 5. CONCEPT: Recursion + Call Stack ══════ -->
+<div class="screen" id="s5">
+<div class="topbar"><span class="back">&larr;</span><span class="badge">BOARD</span><span class="title">Recursion &mdash; Call Stack</span><span class="clock">20:05</span></div>
+<div class="board">
+  <div class="ck ck-h1">How Recursion Works</div>
+
+  <div class="cb"><div class="cb-head"><span class="cb-lang">Python</span></div>
+    <div class="cb-body"><pre><span class="cl"><span class="ln">1</span><span class="kw">def</span> <span class="fn">factorial</span>(<span class="tp">n</span>):</span>
+<span class="cl"><span class="ln">2</span>    <span class="kw">if</span> n <span class="op">&lt;=</span> <span class="nm">1</span>: <span class="kw">return</span> <span class="nm">1</span></span>
+<span class="cl hi"><span class="ln">3</span>    <span class="kw">return</span> n <span class="op">*</span> <span class="fn">factorial</span>(n <span class="op">-</span> <span class="nm">1</span>)</span></pre></div>
+  </div>
+
+  <div class="ck ck-h2">Call Stack for factorial(4)</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;margin:12px 0">
+    <div>
+      <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Builds up &darr;</div>
+      <div class="cstack">
+        <div class="cs-frame waiting">factorial(4)<span>waiting...</span></div>
+        <div class="cs-frame waiting" style="margin-left:12px">factorial(3)<span>waiting...</span></div>
+        <div class="cs-frame active" style="margin-left:24px">factorial(2)<span>waiting...</span></div>
+        <div class="cs-frame base" style="margin-left:36px">factorial(1)<span class="cs-ret">return 1</span></div>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:10px;color:var(--text-3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px">Unwinds &uarr;</div>
+      <div class="cstack">
+        <div class="cs-frame returned">4 &times; 6<span class="cs-ret">= 24 &#10003;</span></div>
+        <div class="cs-frame returned" style="margin-left:12px">3 &times; 2<span class="cs-ret">= 6</span></div>
+        <div class="cs-frame returned" style="margin-left:24px">2 &times; 1<span class="cs-ret">= 2</span></div>
+        <div class="cs-frame base" style="margin-left:36px">base<span class="cs-ret">= 1</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="ck ck-call">Each call waits for the one below. Base case returns, then they all resolve back up.</div>
+
+  <div class="ck ck-h2">The Pattern</div>
+  <div class="ck ck-step"><div class="ck-num">1</div><div class="ck ck-t"><span style="color:var(--chalk-c)">Base case</span> &mdash; when to stop</div></div>
+  <div class="ck ck-step"><div class="ck-num">2</div><div class="ck ck-t"><span style="color:var(--chalk-c)">Shrink</span> &mdash; make problem smaller</div></div>
+  <div class="ck ck-step"><div class="ck-num">3</div><div class="ck ck-t"><span style="color:var(--chalk-c)">Combine</span> &mdash; use the sub-result</div></div>
+</div>
+<div class="subtitle">"Each call waits. Base case triggers the cascade back up."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="What if there's no base case?"><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ 6. ARRAYS: Two-pointer technique ══════ -->
+<div class="screen" id="s6">
+<div class="topbar"><span class="back">&larr;</span><span class="badge">BOARD</span><span class="title">Two Pointers &mdash; Container With Most Water</span><span class="clock">28:10</span></div>
+<div class="board">
+  <div class="ck ck-h1">Two Pointer Technique</div>
+  <div class="ck ck-t" style="text-align:center;margin-bottom:20px">Find two lines that hold the most water.</div>
+
+  <div class="dsv">
+    <div class="dsv-title">Array with pointers i=0, j=8</div>
+    <div class="arr">
+      <div class="arr-cell"><div class="arr-val hi">1</div><div class="arr-idx">0</div><div class="arr-label i">i</div></div>
+      <div class="arr-cell"><div class="arr-val">8</div><div class="arr-idx">1</div></div>
+      <div class="arr-cell"><div class="arr-val">6</div><div class="arr-idx">2</div></div>
+      <div class="arr-cell"><div class="arr-val">2</div><div class="arr-idx">3</div></div>
+      <div class="arr-cell"><div class="arr-val">5</div><div class="arr-idx">4</div></div>
+      <div class="arr-cell"><div class="arr-val">4</div><div class="arr-idx">5</div></div>
+      <div class="arr-cell"><div class="arr-val">8</div><div class="arr-idx">6</div></div>
+      <div class="arr-cell"><div class="arr-val">3</div><div class="arr-idx">7</div></div>
+      <div class="arr-cell"><div class="arr-val hi">7</div><div class="arr-idx">8</div><div class="arr-label j">j</div></div>
+    </div>
+  </div>
+
+  <div class="ck ck-t">Water = min(height[i], height[j]) &times; (j - i)</div>
+  <div class="ck ck-t">= min(1, 7) &times; 8 = <span style="color:var(--chalk-y);font-weight:600">8</span></div>
+
+  <div class="ck ck-h2">The Key Insight</div>
+  <div class="ck ck-call">Move the shorter side inward. Why? Because moving the taller side can only make it worse or the same &mdash; the water level is capped by the short side.</div>
+
+  <div class="cb"><div class="cb-head"><span class="cb-lang">Python</span></div>
+    <div class="cb-body"><pre><span class="cl"><span class="ln">1</span><span class="kw">def</span> <span class="fn">max_water</span>(<span class="tp">height</span>):</span>
+<span class="cl"><span class="ln">2</span>    i, j <span class="op">=</span> <span class="nm">0</span>, <span class="fn">len</span>(height) <span class="op">-</span> <span class="nm">1</span></span>
+<span class="cl"><span class="ln">3</span>    best <span class="op">=</span> <span class="nm">0</span></span>
+<span class="cl hi"><span class="ln">4</span>    <span class="kw">while</span> i <span class="op">&lt;</span> j:</span>
+<span class="cl hi"><span class="ln">5</span>        water <span class="op">=</span> <span class="fn">min</span>(height[i], height[j]) <span class="op">*</span> (j <span class="op">-</span> i)</span>
+<span class="cl hi"><span class="ln">6</span>        best <span class="op">=</span> <span class="fn">max</span>(best, water)</span>
+<span class="cl hi"><span class="ln">7</span>        <span class="kw">if</span> height[i] <span class="op">&lt;</span> height[j]:</span>
+<span class="cl hi"><span class="ln">8</span>            i <span class="op">+=</span> <span class="nm">1</span>  <span class="cmt"># move shorter side</span></span>
+<span class="cl hi"><span class="ln">9</span>        <span class="kw">else</span>:</span>
+<span class="cl hi"><span class="ln">10</span>            j <span class="op">-=</span> <span class="nm">1</span></span>
+<span class="cl"><span class="ln">11</span>    <span class="kw">return</span> best</span></pre></div>
+  </div>
+  <div class="cx"><span class="cx-label">Time</span><span class="cx-val">O(n)</span></div>
+  <div class="cx"><span class="cx-label">Space</span><span class="cx-val">O(1)</span></div>
+</div>
+<div class="subtitle">"Always move the shorter side. The tall side can't help until the short side catches up."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="Why can't we move the taller side?"><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ 7. TREE: BST traversal ══════ -->
+<div class="screen" id="s7">
+<div class="topbar"><span class="back">&larr;</span><span class="badge">BOARD</span><span class="title">Binary Search Tree &mdash; Inorder Traversal</span><span class="clock">35:00</span></div>
+<div class="board">
+  <div class="ck ck-h1">BST Inorder Traversal</div>
+  <div class="ck ck-dim" style="text-align:center;margin-bottom:20px">Left &rarr; Root &rarr; Right gives you sorted order</div>
+
+  <div class="dsv">
+    <div class="dsv-title">Binary Search Tree</div>
+    <div class="tree">
+      <div class="tree-row"><div class="tree-node">8</div></div>
+      <div class="tree-edges">&#x2571; &nbsp;&nbsp;&nbsp;&nbsp; &#x2572;</div>
+      <div class="tree-row"><div class="tree-node act">3</div><div class="tree-node">10</div></div>
+      <div class="tree-edges">&#x2571; &nbsp;&#x2572; &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; &#x2572;</div>
+      <div class="tree-row"><div class="tree-node">1</div><div class="tree-node">6</div><div class="tree-node">14</div></div>
+    </div>
+  </div>
+
+  <div class="ck ck-t" style="text-align:center;margin:14px 0">Inorder: <span style="color:var(--chalk-y)">1</span>, <span style="color:var(--accent);font-weight:600">3</span>, 6, 8, 10, 14 &mdash; sorted!</div>
+
+  <div class="cb"><div class="cb-head"><span class="cb-lang">Python</span></div>
+    <div class="cb-body"><pre><span class="cl"><span class="ln">1</span><span class="kw">def</span> <span class="fn">inorder</span>(<span class="tp">node</span>):</span>
+<span class="cl"><span class="ln">2</span>    <span class="kw">if</span> <span class="kw">not</span> node: <span class="kw">return</span> []</span>
+<span class="cl hi"><span class="ln">3</span>    <span class="kw">return</span> <span class="fn">inorder</span>(node.left) <span class="op">+</span> [node.val] <span class="op">+</span> <span class="fn">inorder</span>(node.right)</span></pre></div>
+  </div>
+
+  <div class="ck ck-h2">Why does inorder give sorted?</div>
+  <div class="ck ck-call">BST property: everything left is smaller, everything right is bigger. Inorder visits left first, then root, then right &mdash; that's small &rarr; medium &rarr; large.</div>
+
+  <div class="ck ck-h2">Call Stack</div>
+  <div class="cstack" style="max-width:340px">
+    <div class="cs-frame waiting">inorder(8)<span>&#8230;</span></div>
+    <div class="cs-frame active" style="margin-left:10px">inorder(3)<span>processing</span></div>
+    <div class="cs-frame returned" style="margin-left:20px">inorder(1)<span class="cs-ret">[1]</span></div>
+  </div>
+</div>
+<div class="subtitle">"Left first, then me, then right. BST guarantees that's sorted."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="What about preorder and postorder?"><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- Nav -->
+<div class="nav">
+  <button class="on" onclick="go(1)">Linked List</button>
+  <button onclick="go(2)">Trace</button>
+  <button onclick="go(3)">Editor</button>
+  <button onclick="go(4)">Review</button>
+  <button onclick="go(5)">Recursion</button>
+  <button onclick="go(6)">Two Ptr</button>
+  <button onclick="go(7)">BST</button>
+</div>
+
+<script>
+function go(n){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById('s'+n).classList.add('on');
+  document.querySelectorAll('.nav button').forEach(b=>b.classList.remove('on'));
+  event.target.classList.add('on');
+  window.scrollTo({top:0,behavior:'instant'});
+}
+</script>
+</body>
+</html>

@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 
-from app.api.routes import auth, chat, content, events, ingestion, learning_tools, sessions
+from app.api.routes import auth, chat, content, events, learning_tools, sessions
 
 log = logging.getLogger(__name__)
 
@@ -40,13 +40,6 @@ async def lifespan(app: FastAPI):
         await ensure_session_indexes()
     except Exception as e:
         log.warning("Failed to ensure session indexes: %s", e)
-
-    # Ensure BYO pipeline indexes
-    from app.services.byo_indexes import ensure_byo_indexes
-    try:
-        await ensure_byo_indexes()
-    except Exception as e:
-        log.warning("Failed to ensure BYO indexes (MongoDB may be unreachable): %s", e)
 
     # Register centralized LLM usage tracking callback
     from app.core.llm import set_usage_callback, LLMResponse, LLMCallMetadata
@@ -318,7 +311,6 @@ app.include_router(content.router)
 app.include_router(learning_tools.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
-app.include_router(ingestion.router)
 app.include_router(chat.router)
 
 
@@ -355,12 +347,19 @@ _index_html = os.path.join(FRONTEND_DIR, "index.html")
 
 @app.get("/login")
 @app.get("/login/")
+@app.get("/home")
+@app.get("/home/")
 @app.get("/dashboard")
 @app.get("/dashboard/")
+@app.get("/courses")
+@app.get("/courses/")
+@app.get("/courses/{course_id}")
+@app.get("/tutor")
+@app.get("/tutor/")
 @app.get("/session/{session_id}")
 @app.get("/session/")
 @app.get("/session")
-async def spa_fallback(session_id: str = ""):
+async def spa_fallback(session_id: str = "", course_id: str = ""):
     return FileResponse(_index_html, media_type="text/html")
 
 # Static files: frontend (must be last — catch-all mount)

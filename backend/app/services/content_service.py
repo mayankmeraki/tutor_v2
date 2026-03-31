@@ -58,11 +58,26 @@ async def get_course_with_hierarchy(db: AsyncSession, course_id: int) -> dict | 
             "lesson_summary": lesson.lesson_summary,
         })
 
+    # Derive thumbnail from first lesson video if no img_link
+    import re as _re
+    thumbnail = course.img_link
+    if not thumbnail and lessons:
+        for l in lessons:
+            if l.video_url:
+                m = _re.search(r'(?:embed/|watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})', l.video_url)
+                if m:
+                    thumbnail = f"https://img.youtube.com/vi/{m[1]}/hqdefault.jpg"
+                    break
+
     return {
         "course": {
             "id": course.id,
             "title": course.title,
             "description": course.description,
+            "difficulty": course.difficulty.value if course.difficulty else None,
+            "tags": course.tags or [],
+            "thumbnail": thumbnail,
+            "rating": float(course.rating) if course.rating else None,
         },
         "modules": [
             {

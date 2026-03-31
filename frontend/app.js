@@ -237,7 +237,7 @@ const SessionManager = (() => {
 
   // ─── Lifecycle ───────────────────────────────────────────
 
-  async function createSession(courseId, studentName, intent, coursePosition, sessionNumber) {
+  async function createSession(courseId, studentName, intent, coursePosition, sessionNumber, scenario) {
     session = {
       sessionId: state.sessionId,
       courseId,
@@ -248,7 +248,7 @@ const SessionManager = (() => {
       startedAt: now(),
       endedAt: null,
       durationSec: 0,
-      intent: { raw: intent || '', scenario: 'course' },
+      intent: { raw: intent || '', scenario: scenario || 'course' },
       coursePosition: {
         startedAt: { lessonId: coursePosition.lessonId, sectionIndex: coursePosition.sectionIndex },
         current: { lessonId: coursePosition.lessonId, sectionIndex: coursePosition.sectionIndex },
@@ -1226,6 +1226,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state._stopRequested = false;
   state._streamReader = null;
   state._lastSSETimestamp = Date.now();
+  _showStopButton(true);
 
   // Voice mode: restore full-screen board if we were in interactive mode
   if (state.teachingMode === 'voice') {
@@ -1360,6 +1361,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state._streamReader = null;
   state._stopRequested = false;
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+  _showStopButton(false);
   // Re-enable quick actions
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = false);
 
@@ -2314,12 +2316,46 @@ function cleanupActiveSession() {
     state.boardDraw.commandQueue = [];
     state.boardDraw.isProcessing = false;
     state.boardDraw.cancelFlag = false;
+    state.boardDraw.dismissed = false;
+    state.boardDraw.complete = false;
+    state.boardDraw.processedLines = 0;
     _sceneSnapshots.length = 0;
   }
   state._startingSession = false; state._resumingSession = false;
+  state._videoPlaylist = null; state._videoPlaylistIndex = 0;
+  if (typeof _hideVideoPlaylist === 'function') _hideVideoPlaylist();
   if (typeof removeStreamingIndicator === 'function') removeStreamingIndicator();
   if (typeof voiceBarSetThinking === 'function') voiceBarSetThinking(false);
   if (typeof hideSessionPrep === 'function') hideSessionPrep();
+
+  // Hide plan sidebar
+  hidePlanSidebar();
+
+  // ── Clear DOM content from previous session ──
+  const spotlightContent = document.getElementById('spotlight-content');
+  if (spotlightContent) spotlightContent.innerHTML = '';
+  const canvasStream = document.getElementById('canvas-stream');
+  if (canvasStream) canvasStream.innerHTML = '';
+  const boardFrameStrip = document.getElementById('board-frame-strip');
+  if (boardFrameStrip) boardFrameStrip.innerHTML = '';
+  const boardEmpty = document.getElementById('board-empty-state');
+  if (boardEmpty) boardEmpty.style.display = '';
+  // Reset board header
+  const spotlightTitle = document.getElementById('spotlight-title');
+  if (spotlightTitle) spotlightTitle.textContent = 'Board';
+  const spotlightBadge = document.getElementById('spotlight-type-badge');
+  if (spotlightBadge) spotlightBadge.textContent = '';
+  // Hide pen toolbar
+  const penToolbar = document.getElementById('pen-draw-toolbar');
+  if (penToolbar) penToolbar.classList.add('hidden');
+  const penBtn = document.getElementById('board-pen-toggle');
+  if (penBtn) penBtn.classList.remove('active');
+  // Reset plan heading
+  const planBar = document.getElementById('plan-heading-bar');
+  if (planBar) planBar.classList.add('hidden');
+  // Clear session messages array
+  state.messages = [];
+  state.sessionId = null;
 }
 
 function handleAgentEvent(event) {
@@ -2596,6 +2632,7 @@ function handlePlanFromAgent(plan, sessionObjective) {
 
   SessionManager.setPlan(plan);
   updateHeadingBar();
+  updatePlanSidebar({ sections: state.plan });
   state.planCallCount++;
 }
 
@@ -2699,11 +2736,14 @@ function startAIMessageStream() {
 function showBoardLoadingSkeleton(type) {
   const content = $('#spotlight-content');
   const empty = $('#board-empty-state');
-  if (!content || content.innerHTML.trim()) return; // board already has content
+  if (!content) return;
   if (empty) empty.style.display = 'none';
   // Don't duplicate
   if (document.getElementById('board-loading-skeleton')) return;
-  const label = type === 'widget' ? 'Building interactive...' : 'Drawing...';
+  const label = type === 'widget' ? 'Building interactive...'
+    : type === '3d' ? 'Rendering 3D scene...'
+    : type === 'code' ? 'Writing code...'
+    : 'Drawing on the board...';
   const skeleton = document.createElement('div');
   skeleton.id = 'board-loading-skeleton';
   skeleton.className = 'board-skeleton';
@@ -2733,11 +2773,15 @@ function updateAIMessageStream(text) {
   if (!el) return;
 
   // Show board loading skeleton when a visual tag is detected but not yet rendered
-  if (!state.boardDraw.canvas && text.includes('<teaching-board-draw')) {
+  if (!state.boardDraw.active && text.includes('<teaching-board-draw')) {
     showBoardLoadingSkeleton('board');
   }
-  if (!state.widget.ready && text.includes('<teaching-widget') && !text.includes('<teaching-widget-update')) {
+  if (!state.widget?.ready && text.includes('<teaching-widget') && !text.includes('<teaching-widget-update')) {
     showBoardLoadingSkeleton('widget');
+  }
+  // Also show skeleton for voice scenes (which render on the board)
+  if (!state.boardDraw.active && text.includes('<teaching-voice-scene') && !text.includes('</teaching-voice-scene')) {
+    showBoardLoadingSkeleton('board');
   }
 
   // Eager voice beat detection — parse and execute beats as they stream in
@@ -6872,98 +6916,700 @@ function deriveCheckpointFromSession(session) {
   };
 }
 
-// ─── Init & Session Lifecycle ─────────────────────────────
+// ─── Init & Screen Management ─────────────────────────────
 
-function showLandingPanel() {
-  UIHints.removeAll();
-  if (typeof DashBg !== 'undefined') DashBg.start();
-  const lp = $('#landing-panel');
-  if (lp) lp.style.display = 'block';
-  $('#login-panel').style.display = 'none';
-  $('#setup-panel').style.display = 'none';
-  $('#teaching-layout').classList.add('hidden');
-  document.body.style.overflow = 'auto';
-  document.body.style.height = 'auto';
+const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen'];
+
+function _hideAllScreens() {
+  ALL_SCREENS.forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  document.getElementById('teaching-layout')?.classList.add('hidden');
 }
+
+function _updateUserPills() {
+  const user = AuthManager.getUser();
+  if (!user) return;
+  const initial = user.name.charAt(0).toUpperCase();
+  const firstName = user.name.split(' ')[0];
+  // Update all avatar/name elements across screens
+  ['dash-avatar', 'course-avatar', 'od-avatar'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = initial;
+  });
+  ['dash-user-name', 'course-user-name', 'od-user-name'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.textContent = firstName;
+  });
+}
+
+function showScreen(screenName, param) {
+  UIHints.removeAll();
+  cleanupActiveSession();
+  disconnectAgentEvents();
+  if (timerInterval) clearInterval(timerInterval);
+  _hideAllScreens();
+
+  const user = AuthManager.getUser();
+  if (screenName !== 'landing' && !user) {
+    return Router.navigate('/login', { replace: true });
+  }
+
+  if (user) {
+    state.studentName = user.name;
+    state.userEmail = user.email;
+    _updateUserPills();
+  }
+
+  switch (screenName) {
+    case 'landing':
+      document.getElementById('landing-screen').style.display = 'block';
+      document.body.style.overflow = 'auto';
+      document.body.style.height = 'auto';
+      _loadLandingCourses();
+      break;
+
+    case 'browse':
+      document.getElementById('browse-screen').style.display = 'block';
+      document.body.style.overflow = 'auto';
+      document.body.style.height = 'auto';
+      // Set greeting with name
+      const browseGreeting = document.getElementById('browse-greeting');
+      if (browseGreeting && user) {
+        const firstName = user.name.split(' ')[0];
+        const hour = new Date().getHours();
+        const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+        browseGreeting.textContent = `${timeGreeting}, ${firstName}`;
+      }
+      _loadBrowseCourses();
+      break;
+
+    case 'course':
+      document.getElementById('course-screen').style.display = 'block';
+      document.body.style.overflow = 'auto';
+      document.body.style.height = 'auto';
+      // Reset start button
+      const modeBtn = document.getElementById('cd-mode-start-btn');
+      if (modeBtn) { modeBtn.disabled = false; modeBtn.innerHTML = 'Start learning <span>&rarr;</span>'; }
+      if (param) _loadCourseDetail(parseInt(param));
+      break;
+
+    case 'ondemand':
+      document.getElementById('ondemand-screen').style.display = 'block';
+      document.body.style.overflow = 'auto';
+      document.body.style.height = 'auto';
+      break;
+  }
+
+  window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+// Keep old names for backward compat
+function showLandingPanel() { showScreen('landing'); }
+function showSetupPanel() { showScreen('browse'); }
 
 function showLoginPanel() {
   UIHints.removeAll();
+  _hideAllScreens();
   if (typeof DashBg !== 'undefined') DashBg.start();
-  const lp = $('#landing-panel');
-  if (lp) lp.style.display = 'none';
-  $('#login-panel').style.display = 'flex';
-  $('#setup-panel').style.display = 'none';
-  $('#teaching-layout').classList.add('hidden');
+  document.getElementById('login-panel').style.display = 'flex';
   document.body.style.overflow = 'hidden';
   document.body.style.height = '100vh';
 }
 
-function updateCourseCardSelection(courseId) {
-  document.querySelectorAll('.dash-course-card').forEach(card => {
-    const cid = card.dataset.course;
-    card.classList.toggle('selected', cid === String(courseId));
-  });
-  // Also update course pills
-  document.querySelectorAll('.dash-course-pill').forEach(pill => {
-    const cid = pill.dataset.course;
-    pill.classList.toggle('selected', cid === String(courseId));
-  });
+function updateCourseCardSelection() { /* no-op — old dashboard compat */ }
+
+// ─── Dynamic course loading ──────────────────────────────
+
+let _cachedCourses = null;
+
+async function _fetchCourses() {
+  if (_cachedCourses) return _cachedCourses;
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (res.ok) {
+      _cachedCourses = await res.json();
+      return _cachedCourses;
+    }
+  } catch (e) { console.warn('Failed to fetch courses:', e); }
+  // Fallback static list (used when API is unavailable)
+  return [
+    { id: 2, title: 'MIT 8.04 Quantum Physics I', description: 'Wave mechanics, Schrodinger equation in one and three dimensions.', lesson_count: 24, module_count: 5, subject: 'Physics', thumbnail: 'https://img.youtube.com/vi/lZ3bPUKo5zc/hqdefault.jpg' },
+    { id: 7, title: 'Calculus 1: Pre-Calc to Differentiation', description: 'Complete calculus course from pre-calculus review through derivatives.', lesson_count: 15, module_count: 4, subject: 'Mathematics', thumbnail: 'https://img.youtube.com/vi/fYyARMqiaag/hqdefault.jpg' },
+    { id: 5, title: 'Electricity & Magnetism', description: 'Electric fields, Gauss\'s law, circuits, and magnetic fields.', lesson_count: 2, module_count: 1, subject: 'Physics', thumbnail: '' },
+    { id: 4, title: 'Quantum Mechanics', description: 'Operators, eigenvalues, measurement, and the hydrogen atom.', lesson_count: 4, module_count: 1, subject: 'Physics', thumbnail: '' },
+    { id: 3, title: 'Classical Mechanics', description: "Newton's laws, energy conservation, rotational dynamics.", lesson_count: 3, module_count: 1, subject: 'Physics', thumbnail: 'https://img.youtube.com/vi/oduZsA0Tk58/hqdefault.jpg' },
+  ];
 }
 
-function showSetupPanel() {
-  UIHints.removeAll();
-  cleanupActiveSession();
-  const _startBtn = $('#btn-start-session');
-  const _dashInput = $('#student-intent-first');
-  if (_startBtn) {
-    _startBtn.disabled = false;
-    if (_startBtn.dataset.origHtml) { _startBtn.innerHTML = _startBtn.dataset.origHtml; delete _startBtn.dataset.origHtml; }
+function _courseThumbStyle(course) {
+  // Returns just the CSS value (no "background:" prefix — callers add that)
+  const thumb = (course.thumbnail || '').trim();
+  if (thumb) {
+    return `url('${thumb}') center/cover no-repeat, linear-gradient(135deg,#151530,#111113)`;
   }
-  if (_dashInput) _dashInput.disabled = false;
-  document.querySelectorAll('.dash-chip').forEach(c => c.style.pointerEvents = '');
+  const s = (course.subject || course.title || '').toLowerCase();
+  if (s.includes('math')) return 'linear-gradient(135deg,#152015,#111113)';
+  if (s.includes('electr') || s.includes('magnet')) return 'linear-gradient(135deg,#251515,#111113)';
+  if (s.includes('computer') || s.includes('dsa')) return 'linear-gradient(135deg,#151520,#111113)';
+  return 'linear-gradient(135deg,#151530,#111113)';
+}
 
-  const user = AuthManager.getUser();
-  if (!user) return Router.navigate('/', { replace: true });
+function _courseTagClass(course) {
+  const s = (course.subject || '').toLowerCase();
+  if (s.includes('math')) return 'tag-math';
+  if (s.includes('computer')) return 'tag-cs';
+  return 'tag-physics';
+}
 
-  state.studentName = user.name;
-  state.userEmail = user.email;
+function _guessSubject(title) {
+  const t = (title || '').toLowerCase();
+  if (/calculus|algebra|math|geometry/.test(t)) return 'Mathematics';
+  if (/quantum|physics|mechanic|electr|magnet/.test(t)) return 'Physics';
+  if (/computer|algorithm|dsa|programming/.test(t)) return 'Computer Science';
+  return 'Course';
+}
 
-  const firstName = user.name.split(' ')[0];
-  const greeting = $('#setup-greeting');
-  if (greeting) greeting.textContent = `What do you want to learn?`;
+async function _loadLandingCourses() {
+  const grid = document.getElementById('lp-courses-grid');
+  if (!grid || grid.dataset.loaded) return;
+  // Show skeleton immediately
+  grid.innerHTML = Array.from({ length: 3 }, () =>
+    `<div class="pcard"><div class="pcard-thumb skeleton-pulse"></div><div class="pcard-body"><div class="skeleton-line w60"></div><div class="skeleton-line w40"></div></div></div>`
+  ).join('');
+  const courses = await _fetchCourses();
+  grid.dataset.loaded = '1';
+  grid.innerHTML = courses.slice(0, 3).map(c => `
+    <div class="pcard" data-course-id="${c.id}">
+      <div class="pcard-thumb" style="background:${_courseThumbStyle(c)}">
 
-  // Update nav user pill
-  const avatar = $('#dash-avatar');
-  if (avatar) avatar.textContent = user.name.charAt(0).toUpperCase();
-  const userName = $('#dash-user-name');
-  if (userName) userName.textContent = firstName;
+        <span class="count">${c.lesson_count || '?'} lessons</span>
+      </div>
+      <div class="pcard-body">
+        <h4>${c.title}</h4>
+        <span>${c.subject || ''} &middot; ~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span>
+      </div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.pcard').forEach(card => {
+    card.addEventListener('click', () => {
+      if (AuthManager.isLoggedIn()) Router.navigate('/courses/' + card.dataset.courseId);
+      else Router.navigate('/login');
+    });
+  });
+}
 
-  const lp = $('#landing-panel');
-  if (lp) lp.style.display = 'none';
-  $('#login-panel').style.display = 'none';
-  $('#setup-panel').style.display = 'flex';
-  $('#teaching-layout').classList.add('hidden');
-  disconnectAgentEvents();
-  if (timerInterval) clearInterval(timerInterval);
-  document.body.style.overflow = 'hidden';
-  document.body.style.height = '100vh';
+function _skeletonCards(n, container) {
+  container.innerHTML = Array.from({ length: n }, () =>
+    `<div class="ccard ccard-skeleton"><div class="ccard-thumb skeleton-pulse"></div><div class="ccard-body"><div class="skeleton-line w60"></div><div class="skeleton-line w90"></div></div></div>`
+  ).join('');
+}
 
-  // Start animated background
-  if (typeof DashBg !== 'undefined') DashBg.start();
+async function _loadBrowseCourses() {
+  const grid = document.getElementById('browse-courses-grid');
+  if (!grid) return;
 
-  // Set default course
-  const courseId = parseInt($('#course-id')?.value) || 2;
+  // Show skeletons immediately
+  _skeletonCards(4, grid);
+
+  const courses = await _fetchCourses();
+  const countEl = document.getElementById('browse-course-count');
+  if (countEl) countEl.textContent = `${courses.length} courses`;
+
+  grid.innerHTML = courses.map(c => `
+    <div class="ccard" data-course-id="${c.id}">
+      <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
+
+        <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
+        <div class="meta"><span>${c.lesson_count || '?'} lessons</span><span>~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span></div>
+      </div>
+      <div class="ccard-body">
+        <h3>${c.title}</h3>
+        <p>${c.description || ''}</p>
+      </div>
+      <div class="ccard-cta">
+        <span class="ccard-lessons">${c.lesson_count || '?'} lessons &middot; ${c.subject || 'Course'}</span>
+        <span>Start learning &rarr;</span>
+      </div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.ccard').forEach(card => {
+    card.addEventListener('click', () => Router.navigate('/courses/' + card.dataset.courseId));
+  });
+}
+
+let _courseDetailData = null; // raw API data for current course detail
+
+function _filterBrowseCourses(query) {
+  const grid = document.getElementById('browse-courses-grid');
+  if (!grid) return;
+  const q = query.toLowerCase().trim();
+  const cards = grid.querySelectorAll('.ccard');
+
+  if (!q) {
+    // Show all cards + hide the "no match" hint
+    cards.forEach(c => c.style.display = '');
+    const hint = document.getElementById('browse-no-match');
+    if (hint) hint.style.display = 'none';
+    return;
+  }
+
+  let visible = 0;
+  cards.forEach(card => {
+    const title = (card.querySelector('h3')?.textContent || '').toLowerCase();
+    const desc = (card.querySelector('p')?.textContent || '').toLowerCase();
+    const match = title.includes(q) || desc.includes(q) || q.split(' ').some(w => w.length > 2 && (title.includes(w) || desc.includes(w)));
+    card.style.display = match ? '' : 'none';
+    if (match) visible++;
+  });
+
+  // Show/create "no match" hint with on-demand CTA
+  let hint = document.getElementById('browse-no-match');
+  if (visible === 0) {
+    if (!hint) {
+      hint = document.createElement('div');
+      hint.id = 'browse-no-match';
+      hint.className = 'browse-no-match';
+      grid.parentElement.insertBefore(hint, grid.nextSibling);
+    }
+    hint.innerHTML = `
+      <p>No courses match "<strong>${q}</strong>"</p>
+      <button class="sc-btn sc-btn-sm sc-btn-accent" onclick="_startOnDemandSession('${q.replace(/'/g, "\\'")}')">
+        Let your tutor teach you this &rarr;
+      </button>
+      <p class="browse-no-match-sub">Your tutor can teach any topic — even without a structured course.</p>
+    `;
+    hint.style.display = '';
+  } else if (hint) {
+    hint.style.display = 'none';
+  }
+}
+
+async function _loadCourseDetail(courseId) {
   state.courseId = courseId;
+  const courseIdEl = document.getElementById('course-id');
+  if (courseIdEl) courseIdEl.value = courseId;
 
-  // Clear previous search results
-  const resultsEl = document.getElementById('nl-results');
-  if (resultsEl) resultsEl.innerHTML = '';
-  const searchInput = document.getElementById('student-intent-first');
-  if (searchInput) searchInput.value = '';
-  const chipsEl = document.getElementById('nl-chips');
-  if (chipsEl) chipsEl.style.display = '';
-  const aiOpt = document.getElementById('nl-ai-option');
-  if (aiOpt) aiOpt.style.display = 'none';
+  // Show skeleton while loading
+  const curEl = document.getElementById('cd-curriculum');
+  if (curEl) curEl.innerHTML = Array.from({ length: 3 }, () =>
+    `<div class="mod-block"><div class="mod-head skeleton-pulse" style="height:44px;border-radius:10px"></div></div>`
+  ).join('');
+
+  try {
+    // Fetch raw API data (not the reshaped courseMap)
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses/${courseId}`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) throw new Error(`API ${res.status}`);
+    const data = await res.json();
+    _courseDetailData = data;
+
+    const course = data.course || {};
+    const modules = data.modules || [];
+    const lessons = data.lessons || [];
+
+    // Header
+    document.getElementById('cd-title').textContent = course.title || 'Course';
+    document.getElementById('cd-description').textContent = course.description || '';
+    document.getElementById('cd-lessons-count').textContent = lessons.length;
+    document.getElementById('cd-modules-count').textContent = modules.length;
+    const totalMin = lessons.reduce((s, l) => s + (l.duration || 50), 0);
+    document.getElementById('cd-hours').textContent = '~' + Math.round(totalMin / 60);
+
+    // Tag — use subject from API
+    const tagEl = document.getElementById('cd-tag');
+    if (tagEl) {
+      const subj = course.tags?.[0] || _guessSubject(course.title);
+      tagEl.textContent = subj;
+      tagEl.className = 'sc-tag ' + _courseTagClass({ subject: subj });
+    }
+
+    // Banner — use course thumbnail or gradient
+    const banner = document.getElementById('cd-banner');
+    if (banner) banner.style.background = _courseThumbStyle(course);
+
+    // Reset tabs to first tab
+    document.querySelectorAll('.cd-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
+    document.querySelectorAll('.cd-tab-content').forEach((c, i) => c.classList.toggle('active', i === 0));
+
+    // Curriculum
+    const curEl = document.getElementById('cd-curriculum');
+    if (curEl) {
+      let lessonNum = 0;
+      curEl.innerHTML = modules.map(mod => {
+        const modLessons = lessons
+          .filter(l => l.module_id === mod.id)
+          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        return `
+          <div class="mod-block">
+            <div class="mod-head"><span>${mod.title}</span><span>${modLessons.length} lessons</span></div>
+            <div class="les-list">${modLessons.map(l => {
+              lessonNum++;
+              const thumb = _ytThumb(l.video_url);
+              const thumbHtml = thumb
+                ? `<div class="les-thumb"><img src="${thumb}" loading="lazy"><span class="les-thumb-dur">${l.duration || '?'}m</span></div>`
+                : `<div class="les-n">${lessonNum}</div>`;
+              return `<div class="les" data-lesson-id="${l.id}" data-lesson-title="${l.title}">
+                ${thumbHtml}
+                <div class="les-info"><h4>${l.title}</h4><span>${l.duration || '?'} min</span></div>
+                <span class="les-go">Start &rarr;</span>
+              </div>`;
+            }).join('')}</div>
+          </div>`;
+      }).join('');
+
+      // Wire lesson clicks → start session for that lesson
+      curEl.querySelectorAll('.les').forEach(row => {
+        row.addEventListener('click', () => {
+          _startFromLesson(courseId, parseInt(row.dataset.lessonId), row.dataset.lessonTitle);
+        });
+      });
+    }
+
+    // Populate mode expansion panels with lesson checkboxes
+    _buildModeExpansions(modules, lessons);
+
+  } catch (e) {
+    console.error('Failed to load course detail:', e);
+    document.getElementById('cd-title').textContent = 'Failed to load course';
+  }
+}
+
+function _buildModeExpansions(modules, lessons) {
+  // Build lesson list HTML for both modes
+  let num = 0;
+  const lessonCheckboxes = lessons
+    .sort((a, b) => (a.order || 0) - (b.order || 0))
+    .map(l => {
+      num++;
+      const hasVideo = l.video_url ? ' <span class="les-video-badge">video</span>' : '';
+      return `<label class="mode-les-row">
+        <input type="checkbox" value="${l.id}" data-title="${l.title}" checked>
+        <span class="mode-les-num">${num}</span>
+        <span class="mode-les-title">${l.title}${hasVideo}</span>
+        <span class="mode-les-dur">${l.duration || '?'}m</span>
+      </label>`;
+    }).join('');
+
+  // Tutor mode expansion
+  const tutorExp = document.getElementById('mode-tutor-expand');
+  if (tutorExp) {
+    tutorExp.innerHTML = `
+      <div class="mode-intent-row">
+        <input type="text" class="mode-intent" id="mode-tutor-intent"
+          placeholder="What do you want to focus on? (optional)">
+      </div>
+      <div class="mode-les-header">
+        <span>Lessons to cover</span>
+        <button class="mode-les-toggle" onclick="this.closest('.mode-expand').querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=!c.checked)">Toggle all</button>
+      </div>
+      <div class="mode-les-list">${lessonCheckboxes}</div>`;
+  }
+
+  // Video mode expansion
+  const videoExp = document.getElementById('mode-video-expand');
+  if (videoExp) {
+    const videoLessons = lessons.filter(l => l.video_url);
+    if (videoLessons.length === 0) {
+      videoExp.innerHTML = `<p class="mode-no-video">No video lectures available for this course.</p>`;
+    } else {
+      let vNum = 0;
+      const videoCheckboxes = videoLessons
+        .sort((a, b) => (a.order || 0) - (b.order || 0))
+        .map(l => {
+          vNum++;
+          return `<label class="mode-les-row">
+            <input type="checkbox" value="${l.id}" data-title="${l.title}" checked>
+            <span class="mode-les-num">${vNum}</span>
+            <span class="mode-les-title">${l.title}</span>
+            <span class="mode-les-dur">${l.duration || '?'}m</span>
+          </label>`;
+        }).join('');
+      videoExp.innerHTML = `
+        <div class="mode-les-header">
+          <span>Lectures to watch</span>
+          <button class="mode-les-toggle" onclick="this.closest('.mode-expand').querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=!c.checked)">Toggle all</button>
+        </div>
+        <div class="mode-les-list">${videoCheckboxes}</div>`;
+    }
+  }
+}
+
+function _getSelectedLessons(modeId) {
+  const expand = document.getElementById(modeId + '-expand');
+  if (!expand) return [];
+  return Array.from(expand.querySelectorAll('input[type=checkbox]:checked'))
+    .map(cb => ({ id: parseInt(cb.value), title: cb.dataset.title }));
+}
+
+async function _startFromLesson(courseId, lessonId, lessonTitle) {
+  const user = AuthManager.getUser();
+  if (!user) return Router.navigate('/login');
+
+  const videoMode = document.getElementById('mode-video');
+  const isVideo = videoMode?.classList.contains('on');
+
+  if (isVideo) {
+    vmStartVideoForLesson(courseId, lessonId);
+    return;
+  }
+
+  const courseIdEl = document.getElementById('course-id');
+  if (courseIdEl) courseIdEl.value = courseId;
+  await startNewSession(user.name, courseId, `Teach me: ${lessonTitle}`, 'course');
+}
+
+function _startFromMode() {
+  const user = AuthManager.getUser();
+  if (!user) return Router.navigate('/login');
+  if (state._startingSession) return;
+  const courseId = state.courseId;
+
+  // Disable the button immediately
+  const btn = document.getElementById('cd-mode-start-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
+
+  const isTutor = document.getElementById('mode-tutor')?.classList.contains('on');
+  const scenario = isTutor ? 'course' : 'video_follow';
+  const modeId = isTutor ? 'mode-tutor' : 'mode-video';
+
+  const selected = _getSelectedLessons(modeId);
+  if (selected.length === 0) return;
+
+  // Build intent from selection
+  const intentInput = document.getElementById('mode-tutor-intent');
+  const customIntent = intentInput?.value?.trim();
+  let intent;
+  if (customIntent) {
+    intent = customIntent + ` (Lessons: ${selected.map(l => l.title).join(', ')})`;
+  } else if (selected.length === 1) {
+    intent = `Teach me: ${selected[0].title}`;
+  } else {
+    intent = `Teach me these lessons: ${selected.map(l => l.title).join(', ')}`;
+  }
+
+  const courseIdEl = document.getElementById('course-id');
+  if (courseIdEl) courseIdEl.value = courseId;
+
+  if (scenario === 'video_follow') {
+    // Video follow-along uses its own flow with custom video player
+    const firstLesson = selected[0];
+    if (firstLesson) {
+      // Show playlist sidebar after video loads
+      if (_courseDetailData) {
+        const allLessons = (_courseDetailData.lessons || [])
+          .filter(l => l.video_url)
+          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        const selectedIds = new Set(selected.map(s => s.id));
+        const playlistLessons = allLessons.filter(l => selectedIds.has(l.id));
+        if (playlistLessons.length > 0) {
+          setTimeout(() => _showVideoPlaylist(playlistLessons, 0), 800);
+        }
+      }
+      vmStartVideoForLesson(courseId, firstLesson.id);
+    }
+    return;
+  }
+
+  _hideVideoPlaylist();
+  startNewSession(user.name, courseId, intent, scenario);
+}
+
+// ─── Video playlist sidebar ──────────────────────────────
+
+function _ytThumb(videoUrl) {
+  if (!videoUrl) return '';
+  const m = videoUrl.match(/(?:embed\/|watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
+  return m ? `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg` : '';
+}
+
+const VPL_PAGE_SIZE = 5;
+
+function _renderVplItems(lessons, activeIndex, startIdx, count) {
+  const end = Math.min(startIdx + count, lessons.length);
+  let html = '';
+  for (let i = startIdx; i < end; i++) {
+    const l = lessons[i];
+    const cls = i === activeIndex ? 'vpl-item active' : (i < activeIndex ? 'vpl-item done' : 'vpl-item');
+    const thumb = _ytThumb(l.video_url);
+    const thumbHtml = thumb
+      ? `<div class="vpl-thumb"><img src="${thumb}" alt="" loading="lazy"><span class="vpl-dur">${l.duration || '?'}m</span>${i === activeIndex ? '<span class="vpl-playing-badge">NOW PLAYING</span>' : ''}</div>`
+      : `<div class="vpl-thumb vpl-thumb-empty"><span>${i + 1}</span></div>`;
+    html += `<div class="${cls}" data-vpl-idx="${i}" data-lesson-id="${l.id}">
+      ${thumbHtml}
+      <div class="vpl-item-info">
+        <div class="vpl-item-title">${l.title}</div>
+        <div class="vpl-item-meta">${l.duration || '?'} min${i < activeIndex ? ' &middot; Watched' : ''}</div>
+      </div>
+    </div>`;
+  }
+  return html;
+}
+
+function _showVideoPlaylist(lessons, activeIndex) {
+  const panel = document.getElementById('video-playlist');
+  const list = document.getElementById('vpl-list');
+  const count = document.getElementById('vpl-count');
+  if (!panel || !list) return;
+
+  panel.classList.remove('hidden');
+  if (count) count.textContent = `${lessons.length} lessons`;
+
+  state._videoPlaylist = lessons;
+  state._videoPlaylistIndex = activeIndex;
+  state._vplRendered = 0;
+
+  // Start from active item (show a couple before it + page after)
+  const startFrom = Math.max(0, activeIndex - 1);
+  const initialCount = Math.min(VPL_PAGE_SIZE, lessons.length - startFrom);
+  list.innerHTML = _renderVplItems(lessons, activeIndex, startFrom, initialCount);
+  state._vplRendered = startFrom + initialCount;
+
+  // Lazy load on scroll
+  list.onscroll = () => {
+    if (state._vplRendered >= lessons.length) return;
+    const { scrollTop, scrollHeight, clientHeight } = list;
+    if (scrollTop + clientHeight >= scrollHeight - 80) {
+      const batch = _renderVplItems(lessons, activeIndex, state._vplRendered, VPL_PAGE_SIZE);
+      list.insertAdjacentHTML('beforeend', batch);
+      state._vplRendered = Math.min(state._vplRendered + VPL_PAGE_SIZE, lessons.length);
+    }
+  };
+}
+
+function _hideVideoPlaylist() {
+  const panel = document.getElementById('video-playlist');
+  if (panel) panel.classList.add('hidden');
+}
+
+function _advanceVideoPlaylist() {
+  if (!state._videoPlaylist) return;
+  const next = (state._videoPlaylistIndex || 0) + 1;
+  if (next < state._videoPlaylist.length) {
+    _showVideoPlaylist(state._videoPlaylist, next);
+  }
+}
+
+async function _startOnDemandSession(intentText) {
+  const user = AuthManager.getUser();
+  if (!user) return Router.navigate('/login');
+  if (!intentText.trim()) return;
+
+  // Backend resolves the best matching course for this intent
+  let courseId = 2; // fallback
+  try {
+    const res = await fetch(
+      `${state.apiUrl || ''}/api/v1/content/resolve-course?q=${encodeURIComponent(intentText)}`,
+      { headers: AuthManager.authHeaders() }
+    );
+    if (res.ok) {
+      const data = await res.json();
+      if (data.courseId) courseId = data.courseId;
+    }
+  } catch (e) {
+    console.warn('Course resolve failed, using fallback:', e);
+  }
+
+  const courseIdEl = document.getElementById('course-id');
+  if (courseIdEl) courseIdEl.value = courseId;
+
+  await startNewSession(user.name, courseId, intentText, 'free');
+}
+
+// ─── Plan sidebar ─────────────────────────────────────────
+
+function showPlanSidebar() {
+  const sb = document.getElementById('plan-sidebar');
+  if (sb) sb.classList.remove('hidden');
+}
+
+function hidePlanSidebar() {
+  const sb = document.getElementById('plan-sidebar');
+  if (sb) sb.classList.add('hidden');
+}
+
+window.togglePlanSidebar = function() {
+  const sb = document.getElementById('plan-sidebar');
+  if (sb) sb.classList.toggle('collapsed');
+};
+
+function updatePlanSidebar(plan) {
+  const body = document.getElementById('psb-body');
+  const progressFill = document.getElementById('psb-progress-fill');
+  const progressText = document.getElementById('psb-progress-text');
+  if (!body) return;
+
+  const sections = plan?.sections || plan?.steps || [];
+  if (!sections.length) {
+    // Still generating
+    body.innerHTML = '<div class="psb-generating"><div class="psb-gen-pulse"></div><span>Building your plan...</span></div>';
+    return;
+  }
+
+  // Hide generating indicator
+  const genEl = document.getElementById('psb-generating');
+  if (genEl) genEl.style.display = 'none';
+
+  // Count done/active
+  const currentIndex = state.currentTopicIndex >= 0 ? state.currentTopicIndex : 0;
+  let doneCount = 0;
+
+  body.innerHTML = sections.map((sec, i) => {
+    const isDone = i < currentIndex;
+    const isActive = i === currentIndex;
+    if (isDone) doneCount++;
+    const cls = isDone ? 'psb-section done' : isActive ? 'psb-section active open' : 'psb-section';
+    const title = sec.title || sec.topic || `Section ${i + 1}`;
+    const topics = sec.topics || sec.steps || [];
+
+    let topicsHtml = '';
+    if (topics.length) {
+      topicsHtml = `<div class="psb-topics">${topics.map((t, j) => {
+        const tDone = isDone ? 'done' : '';
+        const tActive = isActive && j === 0 ? 'active' : '';
+        return `<div class="psb-topic ${tDone} ${tActive}" data-section="${i}" data-topic="${j}">
+          <span class="psb-topic-icon">${isDone ? '&#10003;' : isActive ? '&#9654;' : '&#9675;'}</span>
+          <span>${t.title || t.concept || t}</span>
+          <span class="psb-jump">Jump &rarr;</span>
+        </div>`;
+      }).join('')}</div>`;
+    }
+
+    return `<div class="${cls}">
+      <div class="psb-section-head" onclick="this.parentElement.classList.toggle('open')">
+        <span class="psb-section-dot"></span>
+        <span class="psb-section-title">${title}</span>
+        <span class="psb-section-chevron">&#9654;</span>
+      </div>
+      ${topicsHtml}
+    </div>`;
+  }).join('');
+
+  // Update progress
+  const pct = sections.length > 0 ? Math.round((doneCount / sections.length) * 100) : 0;
+  if (progressFill) progressFill.style.width = pct + '%';
+  if (progressText) progressText.innerHTML = `<span>${doneCount} of ${sections.length}</span><span>${pct}%</span>`;
+
+  // Wire jump clicks
+  body.querySelectorAll('.psb-topic').forEach(el => {
+    el.addEventListener('click', () => {
+      const secIdx = parseInt(el.dataset.section);
+      const topIdx = parseInt(el.dataset.topic);
+      const sec = sections[secIdx];
+      const topic = sec?.topics?.[topIdx] || sec?.steps?.[topIdx];
+      const title = topic?.title || topic?.concept || sec?.title || '';
+      if (title) {
+        // Send a message to jump to this topic
+        streamADK(`I want to jump to: ${title}. Skip ahead to this topic in the plan.`);
+      }
+    });
+  });
+
+  showPlanSidebar();
 }
 
 function handleAuthExpired() {
@@ -7012,7 +7658,7 @@ function initLoginForm() {
     try {
       await AuthManager.login(email, password);
       statusEl.textContent = '';
-      Router.navigate('/dashboard');
+      Router.navigate('/home');
     } catch (e) {
       statusEl.textContent = e.message || 'Login failed';
       statusEl.className = 'setup-status error';
@@ -7052,7 +7698,7 @@ function initLoginForm() {
     try {
       await AuthManager.signup(name, email, password);
       signupStatus.textContent = '';
-      Router.navigate('/dashboard');
+      Router.navigate('/home');
     } catch (e) {
       signupStatus.textContent = e.message || 'Signup failed';
       signupStatus.className = 'setup-status error';
@@ -7089,20 +7735,98 @@ async function initSetup() {
   });
 
   // ─── Landing page CTA wiring ─────────────────────────────
-  const lpSignin = $('#lp-signin');
-  const lpGetStarted = $('#lp-getstarted');
-  const lpCtaStart = $('#lp-cta-start');
-  const lpCtaHow = $('#lp-cta-how');
-  const lpCourseCard = $('#lp-course-card');
-
-  if (lpSignin) lpSignin.addEventListener('click', () => Router.navigate('/login'));
-  if (lpGetStarted) lpGetStarted.addEventListener('click', () => Router.navigate('/login'));
-  if (lpCtaStart) lpCtaStart.addEventListener('click', () => Router.navigate('/login'));
-  if (lpCtaHow) lpCtaHow.addEventListener('click', () => {
-    const howSection = document.getElementById('lp-how');
-    if (howSection) howSection.scrollIntoView({ behavior: 'smooth' });
+  $('#lp-signin')?.addEventListener('click', () => Router.navigate('/login'));
+  $('#lp-getstarted')?.addEventListener('click', () => Router.navigate('/login'));
+  $('#lp-cta-browse')?.addEventListener('click', () => {
+    AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
   });
-  if (lpCourseCard) lpCourseCard.addEventListener('click', () => Router.navigate('/login'));
+  $('#lp-cta-ondemand')?.addEventListener('click', () => {
+    AuthManager.isLoggedIn() ? Router.navigate('/tutor') : Router.navigate('/login');
+  });
+  $('#lp-path-courses')?.addEventListener('click', () => {
+    AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
+  });
+  $('#lp-path-ondemand')?.addEventListener('click', () => {
+    AuthManager.isLoggedIn() ? Router.navigate('/tutor') : Router.navigate('/login');
+  });
+
+  // ─── Browse screen wiring ─────────────────────────────
+  $('#browse-ondemand-banner')?.addEventListener('click', () => Router.navigate('/tutor'));
+
+  // Search bar — filters courses + offers on-demand
+  const browseSearchInput = document.getElementById('browse-search-input');
+  if (browseSearchInput) {
+    let _browseSearchTimer = null;
+    browseSearchInput.addEventListener('input', () => {
+      clearTimeout(_browseSearchTimer);
+      _browseSearchTimer = setTimeout(() => _filterBrowseCourses(browseSearchInput.value), 200);
+    });
+    browseSearchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && browseSearchInput.value.trim()) {
+        // Enter with text → start on-demand session with that intent
+        _startOnDemandSession(browseSearchInput.value.trim());
+      }
+    });
+  }
+
+  // ─── Course detail wiring ─────────────────────────────
+  $('#cd-back')?.addEventListener('click', () => Router.navigate('/home'));
+  $('#cd-mode-start-btn')?.addEventListener('click', () => _startFromMode());
+
+  // Tab switching
+  document.querySelectorAll('.cd-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.cd-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.cd-tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      const target = document.getElementById('cd-tab-' + tab.dataset.tab);
+      if (target) target.classList.add('active');
+    });
+  });
+
+  // Mode toggle — click header area (not expansion panel)
+  document.querySelectorAll('.mode').forEach(m => {
+    m.addEventListener('click', (e) => {
+      if (e.target.closest('.mode-expand')) return;
+      document.querySelectorAll('.mode').forEach(x => x.classList.remove('on'));
+      m.classList.add('on');
+    });
+  });
+  // Nav links back to courses
+  document.querySelectorAll('[data-nav="courses"]').forEach(a => {
+    a.addEventListener('click', (e) => { e.preventDefault(); Router.navigate('/home'); });
+  });
+
+  // ─── On-demand wiring ─────────────────────────────────
+  $('#od-send-btn')?.addEventListener('click', () => {
+    const input = document.getElementById('od-intent-input');
+    if (input?.value.trim()) _startOnDemandSession(input.value.trim());
+  });
+  document.getElementById('od-intent-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const v = e.target.value.trim();
+      if (v) _startOnDemandSession(v);
+    }
+  });
+  // Chip click fills input
+  document.querySelectorAll('#od-chips .chip').forEach(c => {
+    c.addEventListener('click', () => {
+      const input = document.getElementById('od-intent-input');
+      if (input) { input.value = c.textContent; input.focus(); }
+    });
+  });
+
+  // ─── Logout buttons on all screens ─────────────────────
+  ['btn-logout', 'course-logout', 'od-logout'].forEach(id => {
+    document.getElementById(id)?.addEventListener('click', () => {
+      AuthManager.logout();
+      state.studentName = '';
+      state.userEmail = '';
+      _cachedCourses = null;
+      Router.navigate('/');
+    });
+  });
 
   // ─── Course change → fetch sessions ────────────────────
   function onCourseChange() {
@@ -7170,7 +7894,7 @@ async function initSetup() {
   });
 
   $('#btn-back')?.addEventListener('click', () => {
-    Router.navigate('/dashboard');
+    Router.navigate('/home');
   });
 
   // Plan heading bar toggle
@@ -7212,8 +7936,9 @@ async function initSetup() {
 
 }
 
-async function startNewSession(name, courseId, intent) {
+async function startNewSession(name, courseId, intent, scenario) {
   if (!name || !courseId) return;
+  scenario = scenario || 'course';
 
   // Block multiple clicks
   if (state._startingSession) return;
@@ -7333,7 +8058,7 @@ async function startNewSession(name, courseId, intent) {
       };
       await SessionManager.createSession(
         state.courseId, state.studentName, state.studentIntent,
-        coursePosition, state.checkpoint.sessionCount,
+        coursePosition, state.checkpoint.sessionCount, scenario,
       );
       // Attach previous session summaries for AI context
       if (prevSessions.length > 0) {
@@ -7373,33 +8098,25 @@ async function startNewSession(name, courseId, intent) {
 
 OPENING INSTRUCTIONS:
 - Greet warmly (1 short sentence, use their name, acknowledge what they want).
-- DO NOT give an MCQ or quiz. No cold assessment on the opening message.
-- If returning: check [Student Notes] for what they covered. Reference it naturally ("Last time you had a great insight about..."). Ask ONE casual probing question in conversation (not an MCQ) to verify they remember.
-- A planning agent has ALREADY been spawned in the background — do NOT spawn another one. Do NOT call get_section_content yourself.
-- Start TEACHING with a board-draw or widget in this same message. The board should NOT be empty after your first response.
-- Keep chat brief (2-3 sentences). The visual does the teaching.`;
+- Check your current MODE in the system prompt. If you see [CURRENT MODE: TRIAGE], follow those instructions first — quick diagnostic questions using the board, then call complete_triage when done. The planner will be spawned AFTER triage.
+- If NOT in triage mode: A planning agent is running in the background. Start TEACHING with a board-draw immediately. Keep chat brief, the visual does the teaching.
+- DO NOT give formal MCQs on the opening message.`;
     } else if (hasProgress) {
-      trigger = `[SYSTEM] ${timeCtx} Returning student "${state.studentName}" — session ${state.checkpoint.sessionCount}. Completed ${completed} sections. Position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}.
+      trigger = `[SYSTEM] ${timeCtx} Returning student "${state.studentName}" — session ${state.checkpoint.sessionCount}. Completed ${completed} sections. Position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}. The student said: "${state.studentIntent}".
 
 OPENING INSTRUCTIONS:
-- Greet warmly using their name. Reference what you covered last time from [Student Notes] — use their own words/metaphors if available.
-- DO NOT give an MCQ or quiz. No cold assessment.
-- DO NOT mention lesson numbers or section numbers. The course is invisible.
-- Ask ONE natural conversational question to check if prior concepts are still solid ("Last time we explored how [X] works — does that still feel clear, or should we revisit?").
-- Based on their response, either revisit briefly or continue forward.
-- Start TEACHING with a visual (board-draw or widget) in this message. Board should not be empty.
-- A planning agent has ALREADY been spawned — do NOT spawn another or call get_section_content yourself.`;
+- Greet warmly using their name. Reference what you covered last time from [Student Notes].
+- Check your current MODE. If [CURRENT MODE: TRIAGE]: run diagnostic first, call complete_triage when done.
+- If NOT in triage: Start teaching with a visual. A planning agent is running in background.
+- DO NOT mention lesson numbers or section numbers.`;
     } else {
-      trigger = `[SYSTEM] ${timeCtx} New student "${state.studentName}" — first session.
+      trigger = `[SYSTEM] ${timeCtx} New student "${state.studentName}" — first session. The student said: "${state.studentIntent}".
 
 OPENING INSTRUCTIONS:
-- Greet warmly using their name. Make them feel welcome, not like they're starting software.
-- DO NOT give an MCQ or quiz. No assessment on the first message ever.
-- DO NOT mention lessons, sections, or course structure. You're a tutor, not courseware.
-- Briefly set the stage: what you'll explore today and why it's interesting (1-2 sentences, no jargon).
-- Start TEACHING with a board-draw or widget immediately. The board should NOT be empty.
-- A planning agent has ALREADY been spawned — do NOT spawn another or call get_section_content yourself.
-- Gauge their level THROUGH teaching ("Does this connect to anything you've seen before?"), not through quizzing.`;
+- Greet warmly using their name.
+- Check your current MODE in the system prompt. If you see [CURRENT MODE: TRIAGE], follow those instructions — ask diagnostic questions, use the board, and call complete_triage when done. Do NOT start teaching content until triage is complete.
+- If NOT in triage mode: Start teaching with a board-draw. The board should NOT be empty.
+- DO NOT mention course structure, lessons, or sections. You're a tutor.`;
     }
 
     updateSessionPrep('Starting your session...');
@@ -7422,15 +8139,9 @@ window.continueSession = async function(sessionId) {
   if (state._resumingSession) return;
   state._resumingSession = true;
 
-  // Show a loading state immediately — don't leave the page blank
-  const setupPanel = $('#setup-panel');
-  const teachingLayout = $('#teaching-layout');
-  const loginPanel = $('#login-panel');
-  const landingPanel = $('#landing-panel');
-  if (setupPanel) setupPanel.style.display = 'none';
-  if (loginPanel) loginPanel.style.display = 'none';
+  // Show a loading state immediately — hide all screens
+  _hideAllScreens();
   if (typeof DashBg !== 'undefined') DashBg.stop();
-  if (landingPanel) landingPanel.style.display = 'none';
   // Show full-screen loading overlay while session loads
   if (!document.getElementById('session-resume-overlay')) {
     const overlay = document.createElement('div');
@@ -7629,7 +8340,7 @@ OPENING INSTRUCTIONS:
     const _overlay = document.getElementById('session-resume-overlay');
     if (_overlay) _overlay.remove();
     setStatus(`Failed to resume: ${err.message}`, 'error');
-    Router.navigate('/dashboard', { replace: true });
+    Router.navigate('/home', { replace: true });
   }
 };
 
@@ -7802,9 +8513,14 @@ function showTeachingLayout(courseMap) {
   const sidebarStatus = $('#sidebar-status');
   if (sidebarStatus) sidebarStatus.textContent = state.studentName;
 
-  $('#setup-panel').style.display = 'none';
+  _hideAllScreens();
   $('#teaching-layout').classList.remove('hidden');
   if (typeof DashBg !== 'undefined') DashBg.stop();
+
+  // Show plan sidebar (will show "Building your plan..." until plan arrives)
+  showPlanSidebar();
+  // Hide video playlist (will show if video mode)
+  _hideVideoPlaylist();
 
   // Apply teaching mode (text or voice) — locked for this session
   applyTeachingMode();
@@ -7822,6 +8538,26 @@ function showTeachingLayout(courseMap) {
   `);
 
   setTimeout(() => { initDragDrop(); }, 100);
+
+  // Initialize board with a welcome heading
+  setTimeout(() => {
+    const sc = document.getElementById('spotlight-content');
+    if (!sc) return;
+    state.boardDraw.active = false;
+    state.boardDraw.dismissed = false;
+    state.boardDraw.complete = false;
+    state.boardDraw.processedLines = 0;
+
+    const intent = state.studentIntent || courseMap.title || 'Session';
+    const title = intent.length > 50 ? intent.slice(0, 50) + '...' : intent;
+    const cmds = [
+      `{"cmd":"h1","text":"${title.replace(/"/g, '\\\\"')}"}`,
+      `{"cmd":"gap","height":20}`,
+      `{"cmd":"text","text":"Getting ready...","color":"#52525b"}`,
+    ];
+    const fakeTag = `<teaching-board-draw title="${title.replace(/"/g, '&quot;')}">\n${cmds.join('\n')}\n</teaching-board-draw>`;
+    bdProcessStreaming(fakeTag);
+  }, 300);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -8840,19 +9576,33 @@ function bdInitStudentDrawing(canvasEl) {
   let drawing = false;
   let lastX = 0, lastY = 0;
 
+  // Find the drawing context — use bd.ctx if available, else get from the canvas directly
+  function getCtx() {
+    if (bd.ctx) return bd.ctx;
+    return canvasEl.getContext('2d');
+  }
+
   function getPos(e) {
     const rect = canvasEl.getBoundingClientRect();
-    const scaleX = canvasEl.width / (bd.DPR * rect.width);
-    const scaleY = canvasEl.height / (bd.DPR * rect.height);
-    if (e.touches) {
-      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
-    }
-    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
+    // Account for CSS scaling and DPR
+    const dpr = bd.DPR || (window.devicePixelRatio || 1);
+    const scaleX = canvasEl.width / rect.width;
+    const scaleY = canvasEl.height / rect.height;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    // Also account for scroll position of the canvas wrapper
+    const wrap = canvasEl.closest('#bd-canvas-wrap') || canvasEl.parentElement;
+    const scrollTop = wrap ? wrap.scrollTop : 0;
+    return {
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top + scrollTop) * scaleY
+    };
   }
 
   function startDraw(e) {
-    if (!bd.drawingEnabled) return;  // Drawing must be toggled on
+    if (!bd.drawingEnabled) return;
     e.preventDefault();
+    e.stopPropagation();
     drawing = true;
     const pos = getPos(e);
     lastX = pos.x;
@@ -8864,12 +9614,11 @@ function bdInitStudentDrawing(canvasEl) {
     if (!drawing) return;
     e.preventDefault();
     const pos = getPos(e);
-    const ctx = bd.ctx;
+    const ctx = getCtx();
     if (!ctx) return;
     ctx.save();
-    ctx.setTransform(bd.DPR, 0, 0, bd.DPR, 0, 0);
     ctx.strokeStyle = bd.studentColor;
-    ctx.lineWidth = bd.studentStrokeW;
+    ctx.lineWidth = bd.studentStrokeW * (bd.DPR || 1);
     ctx.lineCap = 'round';
     ctx.lineJoin = 'round';
     ctx.beginPath();
@@ -11121,12 +11870,20 @@ function bdProcessStreaming(fullText) {
     // Open the board panel if not already open
     if (!bd.active) {
       const titleMatch = attrStr.match(/title\s*=\s*["']([^"']*)["']/);
-      const streamTitle = titleMatch ? titleMatch[1] : 'Board';
+      let streamTitle = titleMatch ? titleMatch[1] : 'Board';
+      // Fix unicode escapes in title
+      if (streamTitle.includes('\\u')) {
+        streamTitle = streamTitle.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      }
       openBoardDrawSpotlight(streamTitle, null, { clear: true, skipReference: true });
     }
     bd.active = true;
     bd._streamingHandled = true;
     bd.dismissed = false;
+    // Reset cancel flag in case a previous stop left it on
+    if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+      BoardEngine.state.cancelFlag = false;
+    }
     bd.contentStartIdx = m.index + m[0].length;
     bd.processedLines = 0;
     bd.complete = false;
@@ -11147,7 +11904,15 @@ function bdProcessStreaming(fullText) {
     // Skip voice beat tags — they're handled by the voice scene parser, not JSONL
     if (ln.startsWith('<vb') || ln.startsWith('</vb') || ln.startsWith('<teaching-voice')) continue;
     try {
-      BoardEngine.queueCommand(JSON.parse(ln));
+      const cmd = JSON.parse(ln);
+      // Fix double-escaped unicode (LLM sometimes outputs \\u0027 instead of ')
+      if (cmd.text && cmd.text.includes('\\u')) {
+        cmd.text = cmd.text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      }
+      if (cmd.note && cmd.note.includes('\\u')) {
+        cmd.note = cmd.note.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex) => String.fromCharCode(parseInt(hex, 16)));
+      }
+      BoardEngine.queueCommand(cmd);
     } catch (e) {
       if (ln.includes('"animation"') || ln.includes('"cmd":"animation"')) {
         console.warn('Board: failed to parse animation JSONL, will retry on completion.\nLine:', ln.slice(0, 300), '\nError:', e.message);
@@ -11463,6 +12228,10 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
 
   if (titleEl) titleEl.textContent = title;
   if (typeBadge) { typeBadge.textContent = 'Board'; typeBadge.setAttribute('data-type', 'board-draw'); typeBadge.style.display = ''; }
+
+  // Hide empty state
+  const emptyState = document.getElementById('board-empty-state');
+  if (emptyState) emptyState.style.display = 'none';
 
   content.innerHTML = `
     <div class="bd-container" id="bd-container">
@@ -12456,6 +13225,11 @@ function _eagerBeatWatcher(text) {
 function _eagerInitBoard(title) {
   console.log(`[EagerBeat] Scene init: "${title}"`);
 
+  // Ensure board engine is ready to accept commands (reset cancel flag from any prior stop)
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+    BoardEngine.state.cancelFlag = false;
+  }
+
   if (!state.boardDraw.active) {
     openBoardDrawSpotlight(title, null, { clear: true });
     state._voiceSceneYOffset = 0;
@@ -12468,12 +13242,22 @@ function _eagerInitBoard(title) {
 
     state._voiceSceneYOffset = 0;
 
-    // Scroll to the fresh canvas (bottom of the stack)
+    // snapshotScene already scrolls to the new scene
+    // Just reset the student scroll flag so auto-scroll resumes
     state.boardDraw._studentScrolledRecently = false;
     const wrap = document.getElementById('bd-canvas-wrap');
     if (wrap) {
       requestAnimationFrame(() => {
-        wrap.scrollTo({ top: wrap.scrollHeight, behavior: 'smooth' });
+        // Scroll to show the new live scene near the top
+        const liveScene = document.getElementById('bd-live-scene');
+        if (liveScene) {
+          const wrapRect = wrap.getBoundingClientRect();
+          const sceneRect = liveScene.getBoundingClientRect();
+          const targetTop = wrap.scrollTop + (sceneRect.top - wrapRect.top) - 20;
+          wrap.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+        } else {
+          wrap.scrollTo({ top: wrap.scrollHeight, behavior: 'smooth' });
+        }
       });
     }
   }
@@ -13425,42 +14209,149 @@ function voiceBarSetThinking(isThinking) {
 function stopGeneration() {
   if (!state.isStreaming) return;
   state._stopRequested = true;
-  // Cancel the stream reader immediately
+
+  // Cancel the stream reader immediately (drops HTTP connection)
   if (state._streamReader) {
     try { state._streamReader.cancel(); } catch (e) {}
+    state._streamReader = null;
   }
-  // Stop any active voice scene and eager beats
-  if (state._voiceSceneActive) {
-    state._voiceSceneActive = false;
-    if (state._currentTTSAudio) {
-      try { state._currentTTSAudio.pause(); state._currentTTSAudio = null; } catch (e) {}
-    }
+
+  // Stop all audio immediately
+  if (state._currentTTSAudio) {
+    try { state._currentTTSAudio.pause(); state._currentTTSAudio = null; } catch (e) {}
   }
   if (state.voiceCurrentAudio) {
     try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {}
     state.voiceCurrentAudio = null;
   }
+  if (state.voiceCurrentSrc) {
+    try { state.voiceCurrentSrc.stop(); } catch(e) {}
+    state.voiceCurrentSrc = null;
+  }
+  state._voiceSceneActive = false;
+
+  // Stop eager beat processing
   if (typeof _eagerReset === 'function') _eagerReset();
-  // Immediate UI feedback
+
+  // Stop board command queue but keep what's already drawn
+  if (typeof BoardEngine !== 'undefined') {
+    // Cancel pending commands
+    BoardEngine.cancel();
+    // IMMEDIATELY reset cancelFlag so new commands can run after stop
+    requestAnimationFrame(() => {
+      if (BoardEngine.state) {
+        BoardEngine.state.cancelFlag = false;
+        BoardEngine.state.isProcessing = false;
+      }
+    });
+  }
+  // Reset local state
+  state.boardDraw.commandQueue = [];
+  state.boardDraw.isProcessing = false;
+  state.boardDraw.cancelFlag = false;
+
+  // Save the partial message
+  if (state.accumulatedText) {
+    const partialText = state.accumulatedText;
+    if (state._streamUpdateTimer) {
+      clearTimeout(state._streamUpdateTimer);
+      state._streamUpdateTimer = null;
+    }
+    updateAIMessageStream(partialText);
+    finalizeAIMessage(partialText);
+
+    state.messages.push({
+      id: state.currentMessageId || generateId(),
+      role: 'assistant',
+      content: partialText + '\n\n[Student interrupted — tutor stopped here]',
+      timestamp: Date.now(),
+      stopped: true,
+    });
+    state.totalAssistantTurns++;
+    state.accumulatedText = '';
+  }
+
+  state.isStreaming = false;
+  state._stopRequested = false;
+
+  // Restore UI to ready state
   voiceBarSetThinking(false);
   removeStreamingIndicator();
-  voiceHideSubtitle();
+  _showStopButton(false);
+
+  // Make sure the input is usable
+  const field = document.getElementById('voice-bar-input');
+  if (field) {
+    field.disabled = false;
+    field.style.opacity = '';
+    field.style.pointerEvents = '';
+    field.placeholder = 'Type your response...';
+  }
+
+  console.log('[Stop] Tutor stopped by student — board preserved');
+}
+
+function _showStopButton(show) {
+  const voiceStop = document.getElementById('voice-bar-stop');
+  const voiceSend = document.getElementById('voice-bar-send');
+  const voiceMic = document.getElementById('voice-mic-btn');
+  const vmStop = document.getElementById('vm-stop-btn');
+  const vmSend = document.getElementById('vm-send-btn');
+
+  if (show) {
+    // Show stop, hide send/mic (only if not recording)
+    if (voiceStop) voiceStop.classList.remove('hidden');
+    if (!_pttActive) {
+      if (voiceSend) voiceSend.classList.add('hidden');
+      if (voiceMic) voiceMic.classList.add('hidden');
+    }
+    if (vmStop) vmStop.classList.remove('hidden');
+    if (vmSend) vmSend.classList.add('hidden');
+  } else {
+    // Restore normal state
+    if (voiceStop) voiceStop.classList.add('hidden');
+    if (voiceSend) voiceSend.classList.remove('hidden');
+    if (voiceMic) voiceMic.classList.remove('hidden');
+    if (vmStop) vmStop.classList.add('hidden');
+    if (vmSend) vmSend.classList.remove('hidden');
+  }
 }
 
 // ── Unified voice bar submit ────────────────────────────────
 
 function submitVoiceBarInput() {
-  if (state.isStreaming) return;
   const field = $('#voice-bar-input');
   if (!field || !field.value.trim()) return;
+
+  // If tutor is streaming, stop it first — student input is an interrupt
+  if (state.isStreaming) {
+    stopGeneration();
+    // Small delay to let stop complete before sending
+    setTimeout(() => {
+      if (field.value.trim()) _doSubmitVoiceBar(field);
+    }, 100);
+    return;
+  }
+  _doSubmitVoiceBar(field);
+}
+
+function _doSubmitVoiceBar(field) {
+  if (state.isStreaming) return; // safety
   const text = field.value.trim();
   field.value = '';
-  field.style.height = 'auto';
+  field.style.height = '';
   field.placeholder = 'Type your response...';
 
-  // Show "You: ..." in subtitle so student knows their message was sent
-  const preview = text.length > 60 ? text.slice(0, 60) + '...' : text;
+  // Show sent confirmation in subtitle — important for student to know their message went through
+  const preview = text.length > 80 ? text.slice(0, 80) + '...' : text;
   voiceShowSubtitle('You: ' + preview);
+
+  // Brief visual flash on the voice bar to confirm send
+  const bar = document.getElementById('voice-bar-main');
+  if (bar) {
+    bar.style.borderColor = 'rgba(52,211,153,0.5)';
+    setTimeout(() => { bar.style.borderColor = ''; }, 600);
+  }
 
   const sendBtn = $('#voice-bar-send');
   if (sendBtn) sendBtn.classList.remove('visible');
@@ -13613,14 +14504,55 @@ function cancelVoiceRecording() {
   }
 }
 
+// Voice bar input — Enter to send + auto-resize
+document.addEventListener('DOMContentLoaded', () => {
+  const vbInput = document.getElementById('voice-bar-input');
+  if (vbInput) {
+    // Enter to send (Shift+Enter for newline)
+    vbInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        submitVoiceBarInput();
+      }
+    });
+    // Auto-resize textarea as user types
+    vbInput.addEventListener('input', () => {
+      vbInput.style.height = '';
+      vbInput.style.height = Math.min(vbInput.scrollHeight, 120) + 'px';
+    });
+    // Show send button when text is present
+    vbInput.addEventListener('input', () => {
+      const sendBtn = document.getElementById('voice-bar-send');
+      if (sendBtn && !state.isStreaming) {
+        sendBtn.style.opacity = vbInput.value.trim() ? '1' : '';
+      }
+    });
+  }
+});
+
 // Floating mic button — toggle click (not hold)
 document.addEventListener('DOMContentLoaded', () => {
   const micBtn = document.getElementById('voice-mic-btn');
   if (micBtn) {
     micBtn.addEventListener('click', (e) => {
       e.preventDefault();
-      if (_pttActive) stopVoiceRecording();
-      else startVoiceRecording();
+
+      // If tutor is streaming, stop it first (interrupt)
+      if (state.isStreaming && !_pttActive) {
+        stopGeneration();
+      }
+
+      if (_pttActive) {
+        // Stop recording AND auto-submit if there's text
+        stopVoiceRecording();
+        const field = document.getElementById('voice-bar-input');
+        if (field && field.value.trim()) {
+          // Small delay so the final transcript chunk arrives
+          setTimeout(() => submitVoiceBarInput(), 150);
+        }
+      } else {
+        startVoiceRecording();
+      }
     });
   }
 });
@@ -13866,6 +14798,7 @@ async function _getStreamUrl(videoUrl) {
 }
 
 // Capture current video frame as base64 image
+let _frameCaptureWarned = false;
 function vmCaptureFrame() {
   const video = document.getElementById('vm-video-el');
   if (!video || video.readyState < 2) return null;
@@ -13877,7 +14810,10 @@ function vmCaptureFrame() {
     ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
     return canvas.toDataURL('image/jpeg', 0.7);
   } catch (e) {
-    console.warn('Frame capture failed:', e);
+    if (!_frameCaptureWarned) {
+      console.info('Frame capture unavailable (cross-origin video) — this is expected for YouTube streams');
+      _frameCaptureWarned = true;
+    }
     return null;
   }
 }
@@ -13909,9 +14845,9 @@ async function vmStartVideoForLesson(courseId, lessonId) {
 
   // Show teaching layout (full-width board, no chat panel)
   document.body.classList.add('video-mode');
-  const panels = ['landing-panel', 'setup-panel', 'login-panel'];
-  panels.forEach(id => { const el = document.getElementById(id); if (el) { el.style.display = 'none'; el.classList.add('hidden'); } });
+  _hideAllScreens();
   document.getElementById('teaching-layout').classList.remove('hidden');
+  hidePlanSidebar(); // No plan sidebar in video mode
   document.getElementById('teaching-layout').style.display = 'flex';
 
   // Create session silently
@@ -13926,6 +14862,48 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   } catch (e) {}
 
   Router.navigate(`/session/${state.sessionId}`, { replace: true, skipHandler: true });
+
+  // Initialize board with session heading via a synthetic board-draw
+  const courseTitle = state.courseMap?.title || state.courseMap?.course?.title || 'Course';
+  const lessonTitle = state.video.lessonTitle || 'Lesson';
+  const sections = state.video.sections || [];
+
+  setTimeout(() => {
+    // Ensure board panel is ready
+    const spotlightContent = document.getElementById('spotlight-content');
+    if (!spotlightContent) { console.warn('Board panel not ready for init'); return; }
+
+    // Update header
+    const spotlightTitle = document.getElementById('spotlight-title');
+    if (spotlightTitle) spotlightTitle.textContent = lessonTitle;
+    const badge = document.getElementById('spotlight-type-badge');
+    if (badge) badge.textContent = 'VIDEO';
+
+    // Reset board state for fresh draw
+    state.boardDraw.active = false;
+    state.boardDraw.dismissed = false;
+    state.boardDraw.complete = false;
+    state.boardDraw.processedLines = 0;
+
+    // Build JSONL commands for the board
+    const cmds = [
+      `{"cmd":"h1","text":"${lessonTitle.replace(/"/g, '\\"')}"}`,
+      `{"cmd":"gap","height":10}`,
+      `{"cmd":"text","text":"${courseTitle.replace(/"/g, '\\"')}","color":"#9a9a9a"}`,
+      `{"cmd":"gap","height":30}`,
+      `{"cmd":"text","text":"What we'll cover:","color":"#5eead4"}`,
+      `{"cmd":"gap","height":10}`,
+    ];
+    sections.slice(0, 6).forEach((s, i) => {
+      cmds.push(`{"cmd":"text","text":"${(i + 1)}. ${(s.title || 'Section ' + (i + 1)).replace(/"/g, '\\"')}"}`);
+    });
+    cmds.push(`{"cmd":"gap","height":30}`);
+    cmds.push(`{"cmd":"text","text":"Pause anytime to ask your tutor about what you see.","color":"#52525b"}`);
+
+    // Simulate a board-draw tag being streamed — this triggers the full board rendering pipeline
+    const fakeTag = `<teaching-board-draw title="${lessonTitle.replace(/"/g, '&quot;')}">\n${cmds.join('\n')}\n</teaching-board-draw>`;
+    bdProcessStreaming(fakeTag);
+  }, 600);
 
   // Set up custom video player
   const overlay = document.getElementById('vm-video-overlay');
@@ -14053,14 +15031,101 @@ window.toggleBoardPen = function() {
     bd.drawingEnabled = false;
     btn.classList.remove('active');
     document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'default');
+    _hidePenToolbar();
   } else {
     bd.drawingEnabled = true;
     bd.studentColor = '#22ee66';
     bd.studentStrokeW = 2.5;
     btn.classList.add('active');
     document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'crosshair');
+    _showPenToolbar();
+
+    // Ensure drawing event listeners are attached to the board canvas
+    const canvas = document.querySelector('#bd-canvas-wrap canvas') || document.querySelector('#spotlight-content canvas');
+    if (canvas && !canvas._bdStudentDrawInit) {
+      bdInitStudentDrawing(canvas);
+      canvas._bdStudentDrawInit = true;
+    }
   }
 };
+
+const PEN_COLORS = [
+  { color: '#22ee66', label: 'Green' },
+  { color: '#f87171', label: 'Red' },
+  { color: '#60a5fa', label: 'Blue' },
+  { color: '#fbbf24', label: 'Yellow' },
+  { color: '#ffffff', label: 'White' },
+];
+
+function _showPenToolbar() {
+  let tb = document.getElementById('pen-draw-toolbar');
+  if (tb) { tb.classList.remove('hidden'); return; }
+
+  tb = document.createElement('div');
+  tb.id = 'pen-draw-toolbar';
+  tb.className = 'pen-toolbar';
+  tb.innerHTML = `
+    <span class="pen-tb-label">Draw</span>
+    ${PEN_COLORS.map((c, i) =>
+      `<button class="pen-tb-color${i === 0 ? ' active' : ''}" data-color="${c.color}" title="${c.label}" style="background:${c.color}"></button>`
+    ).join('')}
+    <span class="pen-tb-sep"></span>
+    <button class="pen-tb-btn" id="pen-tb-eraser" title="Eraser">&#9003;</button>
+    <button class="pen-tb-btn" id="pen-tb-clear" title="Clear your drawings">Clear</button>
+    <span class="pen-tb-sep"></span>
+    <button class="pen-tb-btn pen-tb-close" title="Close pen">&#10005;</button>
+  `;
+
+  // Insert at the top of the board content area
+  const boardPanel = document.getElementById('board-panel');
+  const spotlightContent = document.getElementById('spotlight-content');
+  if (boardPanel && spotlightContent) {
+    boardPanel.insertBefore(tb, spotlightContent);
+  }
+
+  // Wire color buttons
+  tb.querySelectorAll('.pen-tb-color').forEach(btn => {
+    btn.addEventListener('click', () => {
+      tb.querySelectorAll('.pen-tb-color').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      state.boardDraw.studentColor = btn.dataset.color;
+      state.boardDraw.studentStrokeW = 2.5;
+      document.getElementById('pen-tb-eraser')?.classList.remove('active');
+      document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'crosshair');
+    });
+  });
+
+  // Eraser
+  document.getElementById('pen-tb-eraser')?.addEventListener('click', function() {
+    const isErasing = this.classList.toggle('active');
+    if (isErasing) {
+      tb.querySelectorAll('.pen-tb-color').forEach(b => b.classList.remove('active'));
+      state.boardDraw.studentColor = '#0f1012';
+      state.boardDraw.studentStrokeW = 12;
+      document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'cell');
+    } else {
+      const activeColor = tb.querySelector('.pen-tb-color')?.dataset.color || '#22ee66';
+      state.boardDraw.studentColor = activeColor;
+      state.boardDraw.studentStrokeW = 2.5;
+      document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'crosshair');
+    }
+  });
+
+  // Clear
+  document.getElementById('pen-tb-clear')?.addEventListener('click', () => {
+    state.boardDraw.studentDrawing = false;
+    // Clear student strokes by redrawing board without them
+    if (typeof BoardEngine !== 'undefined' && BoardEngine.redraw) BoardEngine.redraw();
+  });
+
+  // Close
+  tb.querySelector('.pen-tb-close')?.addEventListener('click', () => toggleBoardPen());
+}
+
+function _hidePenToolbar() {
+  const tb = document.getElementById('pen-draw-toolbar');
+  if (tb) tb.classList.add('hidden');
+}
 
 function _vmSendMessage() {
   const input = document.getElementById('vm-chat-input');

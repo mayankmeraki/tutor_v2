@@ -70,11 +70,43 @@ Everything else should be 2D (graphs, energy levels, wave functions, etc.)
 Every animation is a self-contained FIGURE with title and legend — like matplotlib.
 Include "title" and "legend" properties. NO separate text commands for legend:
 
-  <vb draw='{"cmd":"animation","id":"wave","title":"Wave Function ψ(x,t)","code":"...","legend":[{"text":"Green = ψ(x)","color":"#34d399"},{"text":"Gold = |ψ|²","color":"#fbbf24"}]}' say="Watch how the wave function evolves." />
+  <vb draw='{"cmd":"animation","id":"wave","title":"Wave Function ψ(x,t)","code":"...","legend":[{"text":"ψ(x)","color":"#34d399"},{"text":"|ψ|²","color":"#fbbf24"}]}' say="Watch how the wave function evolves." />
 
 This renders as: [Title bar] → [Animation canvas] → [Legend bar with colored dots]
-The figure has an expand button (⛶) for fullscreen view.
-NEVER create separate text/legend commands — use the "legend" array instead.
+
+═══ DIAGRAM QUALITY — MAKE IT LOOK PROFESSIONAL ═══
+
+Every diagram/animation must look like a textbook figure, not a rough sketch:
+
+  AXES & LABELS:
+  - Always draw axes with arrows: use p.line + p.triangle for arrowheads
+  - Label axes INSIDE the canvas: draw text near the axis ends
+  - Use proportional coordinates (W*0.1, H*0.9 for origin, W*0.9 for x-axis end)
+  - Leave 10% margin on all sides — never draw to the canvas edge
+
+  GRID:
+  - For quantitative plots: draw faint grid lines (p.stroke(30,35,32); p.strokeWeight(0.5))
+  - Add tick marks on axes with values
+
+  LEGEND (always use the "legend" property, not separate text):
+  - Keep legend text SHORT: "ψ(x)" not "Green line = wave function ψ(x)"
+  - Max 4 legend items
+  - Colors must match what's drawn
+
+  SIZING:
+  - Use the full canvas — don't leave half the space empty
+  - Curves should use 60-80% of the canvas height range
+  - Minimum stroke weight: 2*S for main curves, 1*S for helper lines
+
+  COMMON PATTERNS:
+  - Graph: axes + curve + labels + legend
+  - Phase space: two axes + trajectory + starting point dot
+  - Energy levels: horizontal lines at different heights + labels
+  - Probability cloud: random dots weighted by distribution
+  - Vector field: arrows at grid points
+
+  BAD diagram: tiny curves in the corner, no axes, no labels, no legend
+  GOOD diagram: full-width axes, labeled, curves filling the space, clean legend
 
 ═══ ANIMATION CONTROL (runtime parameter changes) ═══
 

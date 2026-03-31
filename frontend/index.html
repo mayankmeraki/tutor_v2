@@ -3,706 +3,274 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Capacity — Study with an AI tutor that actually teaches</title>
+  <title>Capacity — Learn with an AI tutor that teaches you live</title>
   <link rel="stylesheet" href="/styles.css">
   <link rel="stylesheet" href="/board/styles.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500&family=Caveat:wght@400;500;600;700&display=swap" rel="stylesheet">
 </head>
 <body>
   <div id="app">
 
-    <!-- ═══ Landing Page ═══ -->
-    <div id="landing-panel" style="display:none">
-      <style>:root {
-  --bg: #0a0d0b; --bg-surface: #111413; --bg-elevated: #191c1a;
-  --border: rgba(255,255,255,0.07);
-  --text: #ececec; --text-muted: #9a9a9a; --text-dim: #5a5e5c;
-  --accent: #34d399; --accent-bright: #5eead4; --accent-dim: #1a7a55;
-  --yellow: #fbbf24; --red: #f87171; --blue: #60a5fa; --purple: #a78bfa;
-  --font-sans: 'Inter', -apple-system, sans-serif;
-  --font-board: 'Bright Chalk', 'Caveat', cursive;
-}
-* { margin:0; padding:0; box-sizing:border-box; }
-body { font-family: var(--font-sans); background: var(--bg); color: var(--text); overflow-x: hidden; }
-
-/* ─── Nav ─── */
-nav {
-  position: fixed; top:0; left:0; right:0; z-index:100;
-  display:flex; align-items:center; justify-content:space-between;
-  padding: 12px 32px; background: rgba(10,13,11,0.8); backdrop-filter: blur(16px);
-  border-bottom: 1px solid var(--border);
-}
-.logo { font-size:17px; font-weight:700; color:var(--accent-bright); }
-.logo span { color:var(--text-dim); font-weight:400; }
-.nav-r { display:flex; gap:20px; align-items:center; }
-.nav-r a { color:var(--text-muted); text-decoration:none; font-size:13px; }
-.nav-cta {
-  padding:7px 18px; border-radius:8px; background:var(--accent); color:var(--bg);
-  font-size:13px; font-weight:600; text-decoration:none;
-}
-
-/* ─── Hero ─── */
-.hero {
-  min-height: 100vh; display:flex; flex-direction:column; align-items:center;
-  justify-content:center; padding: 80px 24px 40px; text-align:center;
-  background: radial-gradient(ellipse at 50% 40%, rgba(52,211,153,0.06), transparent 60%);
-}
-.hero h1 {
-  font-size: 48px; font-weight:800; line-height:1.1; letter-spacing:-1.5px;
-  max-width:700px; margin-bottom:16px;
-}
-.hero h1 .g { color:var(--accent-bright); }
-.hero h1 .chalk { font-family:var(--font-board); color:var(--yellow); font-size:54px; }
-.hero p { font-size:17px; color:var(--text-muted); max-width:520px; line-height:1.5; margin-bottom:28px; }
-.hero-cta { display:flex; gap:12px; justify-content:center; margin-bottom:40px; }
-.btn-p {
-  padding:13px 28px; border-radius:10px; background:var(--accent); color:var(--bg);
-  font-size:15px; font-weight:600; border:none; cursor:pointer; text-decoration:none;
-}
-.btn-s {
-  padding:13px 28px; border-radius:10px; background:transparent;
-  border:1px solid var(--border); color:var(--text-muted);
-  font-size:15px; cursor:pointer; text-decoration:none;
-}
-
-/* ─── Board Teaser (main visual) ─── */
-.board-teaser {
-  width:100%; max-width:900px; border-radius:16px; overflow:hidden;
-  border:1px solid rgba(255,255,255,0.1); position:relative;
-  box-shadow: 0 30px 80px rgba(0,0,0,0.5), 0 0 60px rgba(52,211,153,0.04);
-}
-.bt-header {
-  display:flex; align-items:center; gap:6px; padding:8px 14px;
-  background:var(--bg-elevated); border-bottom:1px solid var(--border); font-size:11px;
-}
-.bt-dot { width:8px; height:8px; border-radius:50%; }
-.bt-dot.r{background:#ff5f57}.bt-dot.y{background:#febc2e}.bt-dot.g{background:#28c840}
-.bt-title { color:var(--text-dim); margin-left:8px; }
-.bt-badge { font-size:9px; font-weight:700; background:var(--accent-dim); color:var(--accent); padding:2px 7px; border-radius:4px; margin-left:auto; }
-
-.bt-canvas {
-  min-height:420px; position:relative; overflow:hidden;
-  background: linear-gradient(rgba(255,255,255,0.015) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.015) 1px, transparent 1px), #0d1014;
-  background-size:28px 28px;
-}
-
-/* Chalk content — animated in */
-.chalk { font-family:var(--font-board); position:absolute; opacity:0; animation: chalk-in 0.6s ease forwards; }
-@keyframes chalk-in { to { opacity:1; transform:translateY(0); } }
-.chalk { transform:translateY(6px); }
-
-/* Subtitle bar */
-.bt-sub {
-  position:absolute; bottom:0; left:0; right:0;
-  background: linear-gradient(transparent, rgba(10,13,11,0.92));
-  padding:30px 20px 14px; text-align:center;
-}
-.bt-sub-text { font-size:15px; color:#e8d5b7; text-shadow:0 1px 6px rgba(0,0,0,0.9); }
-.bt-sub-text em { color:var(--yellow); font-style:normal; font-weight:600; }
-
-/* Mic bar */
-.bt-mic {
-  position:absolute; bottom:10px; left:50%; transform:translateX(-50%);
-  display:flex; align-items:center; gap:0;
-}
-.bt-mic-pill {
-  display:flex; align-items:center; gap:6px;
-  background:rgba(17,20,19,0.9); border:1px solid rgba(255,255,255,0.1);
-  border-radius:24px; padding:6px 16px 6px 14px;
-}
-.bt-mic-pill input {
-  background:none; border:none; color:var(--text-dim); font-size:13px;
-  font-family:var(--font-sans); width:180px; outline:none;
-}
-.bt-mic-icon {
-  width:30px; height:30px; border-radius:50%;
-  background:rgba(52,211,153,0.1); border:1px solid rgba(52,211,153,0.25);
-  display:flex; align-items:center; justify-content:center;
-}
-.bt-mic-icon svg { width:14px; height:14px; color:var(--accent); }
-
-/* Hand cursor */
-.hand {
-  position:absolute; z-index:5; pointer-events:none;
-  animation: hand-teach 8s ease-in-out infinite;
-}
-.hand svg { width:20px; height:20px; filter:drop-shadow(0 2px 4px rgba(0,0,0,0.5)); }
-@keyframes hand-teach {
-  0% { left:120px; top:100px; transform:rotate(-12deg); }
-  15% { left:280px; top:100px; transform:rotate(-8deg); }
-  30% { left:280px; top:160px; transform:rotate(-12deg); }
-  45% { left:420px; top:160px; transform:rotate(-6deg); }
-  55% { left:500px; top:240px; transform:rotate(-14deg); }
-  70% { left:350px; top:300px; transform:rotate(-10deg); }
-  85% { left:200px; top:280px; transform:rotate(-8deg); }
-  100% { left:120px; top:100px; transform:rotate(-12deg); }
-}
-
-/* ─── p5 animation on board ─── */
-.board-anim {
-  position:absolute; border-radius:8px; overflow:hidden;
-  border:1px solid rgba(255,255,255,0.05);
-}
-
-/* Voice indicator */
-.bt-voice-ind {
-  position:absolute; top:10px; left:12px;
-  display:flex; align-items:center; gap:6px; padding:4px 10px;
-  border-radius:16px; background:rgba(17,20,19,0.85); border:1px solid var(--border);
-  font-size:10px; color:var(--accent);
-}
-.bt-voice-bars { display:flex; gap:2px; height:12px; align-items:center; }
-.bt-voice-bars .b { width:2px; border-radius:1px; background:var(--accent); height:4px; animation: vb 0.5s ease-in-out infinite alternate; }
-.bt-voice-bars .b:nth-child(1){animation-delay:0s}.bt-voice-bars .b:nth-child(2){animation-delay:.08s}
-.bt-voice-bars .b:nth-child(3){animation-delay:.16s}.bt-voice-bars .b:nth-child(4){animation-delay:.1s}
-@keyframes vb { 0%{height:4px} 100%{height:12px} }
-
-/* ─── Features (visual cards) ─── */
-.features {
-  padding:80px 24px; max-width:1100px; margin:0 auto;
-}
-.features h2 { text-align:center; font-size:32px; font-weight:700; margin-bottom:8px; }
-.features .sub { text-align:center; color:var(--text-muted); font-size:15px; margin-bottom:48px; }
-.feat-grid { display:grid; grid-template-columns:repeat(2, 1fr); gap:20px; }
-.feat-card {
-  border-radius:14px; overflow:hidden; border:1px solid var(--border);
-  background:var(--bg-surface); transition:all 0.25s;
-}
-.feat-card:hover { border-color:rgba(255,255,255,0.12); transform:translateY(-3px); box-shadow:0 12px 40px rgba(0,0,0,0.3); }
-.feat-visual {
-  height:180px; position:relative; overflow:hidden;
-  background: linear-gradient(135deg, var(--bg-elevated), var(--bg));
-}
-.feat-info { padding:20px; }
-.feat-title { font-size:16px; font-weight:600; margin-bottom:6px; }
-.feat-desc { font-size:13px; color:var(--text-muted); line-height:1.5; }
-
-/* Feature visual: chalk mini-boards */
-.mini-board {
-  width:100%; height:100%; position:relative;
-  background: linear-gradient(rgba(255,255,255,0.01) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255,255,255,0.01) 1px, transparent 1px), #0d1014;
-  background-size:20px 20px; padding:20px;
-}
-.mini-board .chalk-t { font-family:var(--font-board); }
-
-/* ─── How It Works (visual steps) ─── */
-.how {
-  padding:80px 24px; max-width:900px; margin:0 auto; text-align:center;
-}
-.how h2 { font-size:32px; font-weight:700; margin-bottom:48px; }
-.how-steps { display:flex; gap:0; }
-.how-step {
-  flex:1; padding:24px; text-align:center; position:relative;
-  border:1px solid var(--border); border-right:none;
-}
-.how-step:first-child { border-radius:14px 0 0 14px; }
-.how-step:last-child { border-radius:0 14px 14px 0; border-right:1px solid var(--border); }
-.how-icon { font-size:32px; margin-bottom:12px; }
-.how-label { font-size:14px; font-weight:600; margin-bottom:4px; }
-.how-desc { font-size:12px; color:var(--text-muted); line-height:1.4; }
-.how-arrow { position:absolute; right:-10px; top:50%; transform:translateY(-50%); color:var(--accent); font-size:16px; z-index:2; background:var(--bg); padding:2px; }
-
-/* ─── CTA ─── */
-.cta {
-  padding:80px 24px; text-align:center;
-  background:radial-gradient(ellipse at center, rgba(52,211,153,0.05), transparent 60%);
-}
-.cta h2 { font-size:28px; font-weight:700; margin-bottom:10px; }
-.cta p { color:var(--text-muted); font-size:15px; margin-bottom:24px; }
-
-footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim); border-top:1px solid var(--border); }
-
-@media(max-width:768px) {
-  .hero h1 { font-size:32px; }
-  .feat-grid { grid-template-columns:1fr; }
-  .how-steps { flex-direction:column; }
-  .how-step { border-right:1px solid var(--border); }
-  .how-step:first-child { border-radius:14px 14px 0 0; }
-  .how-step:last-child { border-radius:0 0 14px 14px; }
-  .how-arrow { display:none; }
-  .board-teaser { border-radius:12px; }
-}</style>
-<nav>
-  <div class="logo">Capacity <span>AI Tutor</span></div>
-  <div class="nav-r">
-    <a href="#features">Features</a>
-    <a href="#how">How it works</a>
-    <a class="nav-cta" id="lp-signin" href="/login">Sign in</a>
-    <a class="nav-cta" id="lp-getstarted" href="/login">Start Free</a>
-  </div>
-</nav>
-
-<!-- ═══ Hero ═══ -->
-<section class="hero">
-  <h1>Learn with a tutor that<br><span class="chalk">draws</span> and <span class="g">speaks</span></h1>
-  <p>An AI that teaches like a real professor — drawing on a live board, explaining with voice, adapting to you.</p>
-  <div class="hero-cta">
-    <a href="/login" class="btn-p" id="lp-cta-start">Start a Free Lesson</a>
-    <a href="#how" class="btn-s" id="lp-cta-how">Watch Demo &#9654;</a>
-  </div>
-
-  <!-- Board teaser — the hero visual -->
-  <div class="board-teaser">
-    <div class="bt-header">
-      <span class="bt-dot r"></span><span class="bt-dot y"></span><span class="bt-dot g"></span>
-      <span class="bt-title">Quantum Physics — The Schrödinger Equation</span>
-      <span class="bt-badge">BOARD</span>
-    </div>
-    <div class="bt-canvas" id="board-canvas">
-      <!-- Voice indicator -->
-      <div class="bt-voice-ind">
-        <div class="bt-voice-bars"><div class="b"></div><div class="b"></div><div class="b"></div><div class="b"></div></div>
-        <span>Euler is speaking</span>
-      </div>
-
-      <!-- Chalk text (animated in with delays) -->
-      <div class="chalk" style="left:40px;top:30px;font-size:24px;color:#5eead4;animation-delay:0s">The Big Question:</div>
-      <div class="chalk" style="left:40px;top:65px;font-size:20px;color:#e8d5b7;animation-delay:0.3s">"I know ψ right now. What is ψ later?"</div>
-
-      <div class="chalk" style="left:40px;top:130px;font-size:14px;color:#5eead4;animation-delay:0.8s">Classical world:</div>
-      <div class="chalk" style="left:40px;top:155px;font-size:22px;color:#e8d5b7;animation-delay:1s">F = ma</div>
-      <div class="chalk" style="left:160px;top:157px;font-size:14px;color:var(--text-dim);animation-delay:1.2s">→ forces drive position</div>
-
-      <div class="chalk" style="left:40px;top:200px;font-size:14px;color:#fbbf24;animation-delay:1.5s">Quantum world:</div>
-      <div class="chalk" style="left:40px;top:225px;font-size:26px;color:#fbbf24;animation-delay:1.7s">iℏ ∂ψ/∂t = Ĥψ</div>
-      <div class="chalk" style="left:280px;top:230px;font-size:14px;color:var(--text-dim);animation-delay:2s">→ energy drives ψ</div>
-
-      <!-- Annotation circle (ephemeral) -->
-      <div style="position:absolute;left:30px;top:215px;width:260px;height:45px;border:2px solid var(--accent);border-radius:50%;opacity:0;animation:chalk-in 0.5s ease 2.5s forwards"></div>
-
-      <!-- p5 animation area -->
-      <canvas id="hero-anim" style="position:absolute;left:480px;top:80px;border-radius:8px;border:1px solid rgba(255,255,255,0.05)"></canvas>
-
-      <!-- Hand cursor -->
-      <div class="hand">
-        <svg viewBox="0 0 24 24" fill="none"><path d="M4 4L11 20L13.5 13.5L20 11L4 4Z" fill="white" stroke="white" stroke-width="0.5"/></svg>
-      </div>
-
-      <!-- Subtitle -->
-      <div class="bt-sub">
-        <div class="bt-sub-text">Energy determines how the quantum state <em>evolves</em>.</div>
-      </div>
-
-      <!-- Mic input pill -->
-      <div class="bt-mic">
-        <div class="bt-mic-pill">
-          <input placeholder="Type your response..." readonly>
-          <div class="bt-mic-icon">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
-              <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/>
-            </svg>
+    <!-- ═══ LANDING SCREEN (visitor) ═══ -->
+    <div id="landing-screen" class="app-screen" style="display:none">
+      <nav class="sc-nav">
+        <div class="sc-logo"><em>C</em>apacity</div>
+        <div class="sc-nav-r">
+          <button class="sc-btn sc-btn-ghost" id="lp-signin">Sign in</button>
+          <button class="sc-btn sc-btn-accent" id="lp-getstarted">Get started</button>
+        </div>
+      </nav>
+      <div class="sc-wrap">
+        <section class="hero stagger">
+          <div><div class="hero-label"><i class="hero-dot"></i> AI-powered tutoring</div></div>
+          <h1>A private tutor that<br><em>teaches you live</em></h1>
+          <p>Not pre-recorded videos. Your tutor draws on a board, speaks, and adapts to you in real time. Pick a course or just tell it what you need.</p>
+          <div class="hero-actions">
+            <button class="sc-btn sc-btn-lg sc-btn-accent" id="lp-cta-browse">Browse courses <span>&rarr;</span></button>
+            <button class="sc-btn sc-btn-lg sc-btn-ghost" id="lp-cta-ondemand">Just start learning</button>
+          </div>
+        </section>
+        <div class="paths stagger">
+          <div class="path" id="lp-path-courses">
+            <h3><span class="path-ico">&#9654;</span> Follow a course</h3>
+            <p>Pick a structured course. Your tutor walks through every lesson with board drawings, quizzes, and worked examples.</p>
+            <span class="path-link">Browse courses &rarr;</span>
+          </div>
+          <div class="path" id="lp-path-ondemand">
+            <div class="path-badge">New</div>
+            <h3><span class="path-ico">&#9997;</span> Tell your tutor what you need</h3>
+            <p>Exam prep, concept review, problem solving. Your tutor picks the right material and teaches you 1-on-1.</p>
+            <span class="path-link">Start a session &rarr;</span>
+          </div>
+        </div>
+        <div class="steps stagger">
+          <p class="steps-label">How it works</p>
+          <div class="step" data-n="01"><h4>Choose your path</h4><p>Follow a course lesson by lesson, or just describe what you need help with.</p></div>
+          <div class="step" data-n="02"><h4>Your tutor teaches live</h4><p>Draws diagrams, speaks naturally, builds concepts step by step on a board. Not a chatbot.</p></div>
+          <div class="step" data-n="03"><h4>Interrupt anytime</h4><p>Ask questions, request more examples, or skip ahead. Your tutor adapts to you.</p></div>
+        </div>
+        <div class="previews stagger">
+          <p class="previews-label">Available courses</p>
+          <div class="previews-grid" id="lp-courses-grid">
+            <!-- Populated dynamically from API, or static fallback -->
           </div>
         </div>
       </div>
     </div>
-  </div>
-</section>
 
-<!-- ═══ Features (visual cards) ═══ -->
-<section class="features" id="features">
-  <h2>Teaching that feels real</h2>
-  <div class="sub">Not a chatbot. A live teaching experience.</div>
-
-  <div class="feat-grid">
-    <!-- Card 1: Board drawing -->
-    <div class="feat-card">
-      <div class="feat-visual">
-        <div class="mini-board">
-          <div class="chalk-t" style="font-size:20px;color:#5eead4;margin-bottom:8px">Operators:</div>
-          <div style="display:flex;align-items:center;gap:10px;margin:12px 0">
-            <span class="chalk-t" style="font-size:24px;color:#e8d5b7">ψ(x)</span>
-            <span style="color:var(--text-dim)">→</span>
-            <span style="border:2px solid var(--yellow);padding:4px 14px;border-radius:6px;font-family:var(--font-board);font-size:22px;color:var(--yellow)">Ô</span>
-            <span style="color:var(--text-dim)">→</span>
-            <span class="chalk-t" style="font-size:24px;color:var(--red)">???</span>
-          </div>
-          <div class="chalk-t" style="font-size:14px;color:var(--text-dim)">Stroke by stroke, like a real chalkboard</div>
-          <!-- Animated hand -->
-          <div style="position:absolute;right:30px;bottom:30px;animation:hand-teach 5s ease-in-out infinite">
-            <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M4 4L11 20L13.5 13.5L20 11L4 4Z" fill="white"/></svg>
-          </div>
-        </div>
-      </div>
-      <div class="feat-info">
-        <div class="feat-title">&#9998; Draws while teaching</div>
-        <div class="feat-desc">Equations and diagrams appear live — pauses, circles key parts, points at what matters.</div>
-      </div>
-    </div>
-
-    <!-- Card 2: Voice -->
-    <div class="feat-card">
-      <div class="feat-visual" style="display:flex;align-items:center;justify-content:center;flex-direction:column;gap:12px">
-        <div style="display:flex;align-items:center;gap:3px;height:40px">
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out infinite alternate;height:8px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.1s infinite alternate;height:16px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.18s infinite alternate;height:28px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.08s infinite alternate;height:20px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.14s infinite alternate;height:12px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.06s infinite alternate;height:24px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.12s infinite alternate;height:16px"></div>
-          <div style="width:4px;border-radius:2px;background:var(--accent);animation:vb 0.4s ease-in-out 0.2s infinite alternate;height:10px"></div>
-        </div>
-        <div style="font-family:var(--font-board);font-size:18px;color:#e8d5b7;text-align:center;max-width:250px">
-          "It just multiplies by x.<br>That's the whole story."
-        </div>
-        <div style="font-size:10px;color:var(--text-dim)">Natural voice — explains meaning, not symbols</div>
-      </div>
-      <div class="feat-info">
-        <div class="feat-title">&#9835; Speaks naturally</div>
-        <div class="feat-desc">Says what equations mean, not reads them. Pauses for emphasis. Like a one-on-one explanation.</div>
-      </div>
-    </div>
-
-    <!-- Card 3: Adaptive -->
-    <div class="feat-card">
-      <div class="feat-visual" style="display:flex;align-items:center;justify-content:center;padding:20px">
-        <div style="width:100%;max-width:280px">
-          <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px">
-            <div style="width:28px;height:28px;border-radius:50%;background:rgba(96,165,250,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--blue)">&#128100;</div>
-            <div style="background:var(--bg-elevated);border:1px solid var(--border);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--text-muted)">I'm confused about eigenfunctions...</div>
-          </div>
-          <div style="display:flex;align-items:flex-start;gap:8px;margin-bottom:12px;justify-content:flex-end">
-            <div style="background:rgba(52,211,153,0.08);border:1px solid rgba(52,211,153,0.12);border-radius:8px;padding:6px 10px;font-size:12px;color:var(--accent-bright);max-width:220px">Let me try a visual approach instead — watch the board</div>
-            <div style="width:28px;height:28px;border-radius:50%;background:rgba(52,211,153,0.15);display:flex;align-items:center;justify-content:center;font-size:12px;color:var(--accent)">&#9998;</div>
-          </div>
-          <div style="display:flex;gap:4px;align-items:center;justify-content:center">
-            <div style="font-size:9px;color:var(--text-dim);background:var(--bg-elevated);padding:2px 6px;border-radius:3px">Switched to visual mode</div>
-            <div style="font-size:9px;color:var(--accent-dim);background:rgba(52,211,153,0.06);padding:2px 6px;border-radius:3px">Adapting difficulty ↓</div>
-          </div>
-        </div>
-      </div>
-      <div class="feat-info">
-        <div class="feat-title">&#127891; Adapts to you</div>
-        <div class="feat-desc">Reads your responses. Struggling? Switches approach. Flying? Challenges you. Every session is personal.</div>
-      </div>
-    </div>
-
-    <!-- Card 4: Animations -->
-    <div class="feat-card">
-      <div class="feat-visual">
-        <canvas id="feat-anim" style="width:100%;height:100%;display:block"></canvas>
-      </div>
-      <div class="feat-info">
-        <div class="feat-title">&#9881; Live animations</div>
-        <div class="feat-desc">Wave functions that move. Energy levels that respond. Interactive physics built right into the lesson.</div>
-      </div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══ How It Works ═══ -->
-<section class="how" id="how">
-  <h2>Start in 30 seconds</h2>
-  <div class="how-steps">
-    <div class="how-step">
-      <div class="how-icon">&#128218;</div>
-      <div class="how-label">Pick a topic</div>
-      <div class="how-desc">"Explain Schrödinger intuitively" or pick a course lecture</div>
-      <span class="how-arrow">→</span>
-    </div>
-    <div class="how-step">
-      <div class="how-icon">&#9998;</div>
-      <div class="how-label">Watch & listen</div>
-      <div class="how-desc">Board draws live while voice explains step by step</div>
-      <span class="how-arrow">→</span>
-    </div>
-    <div class="how-step">
-      <div class="how-icon">&#128172;</div>
-      <div class="how-label">Talk back</div>
-      <div class="how-desc">Ask questions anytime — type or hold Space to speak</div>
-    </div>
-  </div>
-</section>
-
-<!-- ═══ CTA ═══ -->
-<section class="cta">
-  <h2>Ready to try?</h2>
-  <p>Free lesson. No credit card. Just start learning.</p>
-  <a href="/login" class="btn-p" style="font-size:16px;padding:14px 32px">Start Your First Lesson</a>
-</section>
-
-<footer>Capacity AI Tutor · Built for curious minds</footer>
-
-<!-- ═══ Animations ═══ -->
-<script>
-// Hero board animation — wave function
-(function() {
-  const c = document.getElementById('hero-anim');
-  if (!c) return;
-  const W = 380, H = 260;
-  c.width = W * 2; c.height = H * 2;
-  c.style.width = W + 'px'; c.style.height = H + 'px';
-  const ctx = c.getContext('2d');
-  ctx.scale(2, 2);
-
-  let t = 0;
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-
-    // Background
-    ctx.fillStyle = 'rgba(13,16,20,0.95)';
-    ctx.fillRect(0, 0, W, H);
-
-    // Axes
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)';
-    ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(30, H/2); ctx.lineTo(W-10, H/2); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(30, 10); ctx.lineTo(30, H-10); ctx.stroke();
-
-    // Labels
-    ctx.font = '11px Caveat'; ctx.fillStyle = '#5a5e5c';
-    ctx.fillText('ψ', 12, 20);
-    ctx.fillText('x', W-18, H/2-6);
-    ctx.fillText('0', 34, H/2+14);
-
-    // Wave function ψ(x) — gaussian wave packet
-    ctx.strokeStyle = '#5eead4'; ctx.lineWidth = 2;
-    ctx.beginPath();
-    for (let px = 30; px < W-10; px++) {
-      const x = (px - W/2) / 50;
-      const env = Math.exp(-x*x/2) * 80;
-      const wave = env * Math.cos(5*x - t*2);
-      const py = H/2 - wave;
-      px === 30 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-
-    // Probability |ψ|² — envelope
-    ctx.strokeStyle = '#fbbf24'; ctx.lineWidth = 1.5;
-    ctx.setLineDash([4, 3]);
-    ctx.beginPath();
-    for (let px = 30; px < W-10; px++) {
-      const x = (px - W/2) / 50;
-      const env = Math.exp(-x*x/2) * 80;
-      const py = H/2 - env;
-      px === 30 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-    ctx.setLineDash([]);
-
-    // Legend
-    ctx.font = '12px Inter'; ctx.fillStyle = '#5eead4'; ctx.fillText('● ψ(x,t)', 50, H-16);
-    ctx.fillStyle = '#fbbf24'; ctx.fillText('● |ψ|²', 140, H-16);
-
-    // Title
-    ctx.font = 'italic 14px Caveat'; ctx.fillStyle = '#5eead4';
-    ctx.fillText('Wave function evolving in time', W/2 - 80, 20);
-
-    t += 0.02;
-    requestAnimationFrame(draw);
-  }
-  draw();
-})();
-
-// Feature card animation — harmonic oscillator
-(function() {
-  const c = document.getElementById('feat-anim');
-  if (!c) return;
-  const rect = c.parentElement.getBoundingClientRect();
-  const W = Math.round(rect.width) || 400, H = 180;
-  c.width = W * 2; c.height = H * 2;
-  c.style.width = W + 'px'; c.style.height = H + 'px';
-  const ctx = c.getContext('2d');
-  ctx.scale(2, 2);
-
-  let t = 0;
-  function draw() {
-    ctx.clearRect(0, 0, W, H);
-    ctx.fillStyle = '#0d1014'; ctx.fillRect(0, 0, W, H);
-
-    // Energy levels
-    const levels = [0.5, 1.5, 2.5, 3.5];
-    const colors = ['#5eead4', '#60a5fa', '#a78bfa', '#fbbf24'];
-    const mid = W/2;
-
-    // Parabolic potential
-    ctx.strokeStyle = 'rgba(255,255,255,0.08)'; ctx.lineWidth = 1;
-    ctx.beginPath();
-    for (let px = 40; px < W-40; px++) {
-      const x = (px - mid) / 80;
-      const py = H - 20 - x*x*30;
-      if (py < 10) continue;
-      px === 40 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-    }
-    ctx.stroke();
-
-    // Energy level lines + wave functions
-    levels.forEach((n, i) => {
-      const baseY = H - 20 - n * 35;
-      if (baseY < 15) return;
-      const halfW = Math.sqrt(n * 35) * 80 / 30;
-
-      // Level line
-      ctx.strokeStyle = 'rgba(255,255,255,0.06)'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(mid - halfW, baseY); ctx.lineTo(mid + halfW, baseY); ctx.stroke();
-
-      // Wave function
-      ctx.strokeStyle = colors[i]; ctx.lineWidth = 1.5;
-      ctx.beginPath();
-      for (let px = mid - halfW; px < mid + halfW; px++) {
-        const x = (px - mid) / 30;
-        const amp = 12 * Math.exp(-x*x/2);
-        const phase = t * (1 + i * 0.5);
-        const wave = amp * Math.cos((i+1) * x * 1.2 + phase);
-        const py = baseY - wave;
-        px === mid - halfW ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
-      }
-      ctx.stroke();
-
-      // Label
-      ctx.font = '10px JetBrains Mono'; ctx.fillStyle = colors[i];
-      ctx.fillText(`n=${i}`, mid + halfW + 6, baseY + 4);
-    });
-
-    // Title
-    ctx.font = 'italic 13px Caveat'; ctx.fillStyle = '#fbbf24';
-    ctx.fillText('Quantum Harmonic Oscillator', mid - 70, 16);
-
-    t += 0.03;
-    requestAnimationFrame(draw);
-  }
-  setTimeout(draw, 500);
-})();
-</script>
-    </div>
-
-    <!-- ═══ Login / Signup Panel ═══ -->
+    <!-- ═══ LOGIN SCREEN ═══ -->
     <div id="login-panel" style="display:none">
       <div class="setup-inner">
         <div class="auth-tabs">
           <button class="auth-tab active" data-tab="signin">Sign In</button>
           <button class="auth-tab" data-tab="signup">Create Account</button>
         </div>
-
-        <!-- Sign In Form -->
         <div id="auth-signin" class="auth-form-section">
           <p class="setup-subtitle">Log in with your account to start learning.</p>
           <div class="setup-form">
-            <div class="setup-row">
-              <label for="login-email">Email</label>
-              <input type="email" id="login-email" placeholder="you@example.com" autocomplete="email">
-            </div>
-            <div class="setup-row">
-              <label for="login-password">Password</label>
-              <input type="password" id="login-password" placeholder="Password" autocomplete="current-password">
-            </div>
+            <div class="setup-row"><label for="login-email">Email</label><input type="email" id="login-email" placeholder="you@example.com" autocomplete="email"></div>
+            <div class="setup-row"><label for="login-password">Password</label><input type="password" id="login-password" placeholder="Password" autocomplete="current-password"></div>
             <div class="setup-status" id="login-status"></div>
             <button class="btn btn-primary setup-start" id="btn-login">Sign In</button>
           </div>
         </div>
-
-        <!-- Create Account Form -->
         <div id="auth-signup" class="auth-form-section" style="display:none">
           <p class="setup-subtitle">Create a new account to get started.</p>
           <div class="setup-form">
-            <div class="setup-row">
-              <label for="signup-name">Name</label>
-              <input type="text" id="signup-name" placeholder="Your name" autocomplete="name">
-            </div>
-            <div class="setup-row">
-              <label for="signup-email">Email</label>
-              <input type="email" id="signup-email" placeholder="you@example.com" autocomplete="email">
-            </div>
-            <div class="setup-row">
-              <label for="signup-password">Password</label>
-              <input type="password" id="signup-password" placeholder="At least 6 characters" autocomplete="new-password">
-            </div>
+            <div class="setup-row"><label for="signup-name">Name</label><input type="text" id="signup-name" placeholder="Your name" autocomplete="name"></div>
+            <div class="setup-row"><label for="signup-email">Email</label><input type="email" id="signup-email" placeholder="you@example.com" autocomplete="email"></div>
+            <div class="setup-row"><label for="signup-password">Password</label><input type="password" id="signup-password" placeholder="At least 6 characters" autocomplete="new-password"></div>
             <div class="setup-status" id="signup-status"></div>
             <button class="btn btn-primary setup-start" id="btn-signup">Create Account</button>
           </div>
         </div>
       </div>
     </div>
-      <canvas id="dash-bg-canvas"></canvas>
-      <div class="dash-bg-mask"></div>
+    <canvas id="dash-bg-canvas"></canvas>
+    <div class="dash-bg-mask"></div>
 
-    <!-- ═══ Setup Panel (Post-Signup Dashboard) ═══ -->
-    <div id="setup-panel" style="display:none">
-      <!-- Hidden controls that app.js needs -->
-      <select id="course-id" style="display:none">
-        <option value="">Select a course...</option>
-        <option value="2" selected>MIT 8.04 Quantum Physics I, 2013</option>
-        <option value="4">Quantum Mechanics (4 lessons)</option>
-      </select>
-      <input type="text" id="api-url" value="" style="display:none">
-      <textarea id="student-intent" style="display:none"></textarea>
-      <button id="btn-new-session" style="display:none"></button>
-      <div id="session-first-time" class="hidden"></div>
-
-      <!-- Top nav -->
-      <nav class="dash-nav">
-        <div>
-          <div class="lp-logo">Capacity</div>
-          <div class="lp-logo-sub">by MerakiLabs</div>
+    <!-- ═══ BROWSE SCREEN (logged in home) ═══ -->
+    <div id="browse-screen" class="app-screen" style="display:none">
+      <nav class="sc-nav">
+        <div class="sc-logo"><em>C</em>apacity</div>
+        <div class="sc-nav-r">
+          <a href="#" class="sc-nav-link active" data-nav="courses">Courses</a>
+          <div class="sc-pill" id="btn-logout">
+            <div class="sc-pill-avatar" id="dash-avatar">?</div>
+            <span id="dash-user-name">User</span>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+          </div>
         </div>
-        <div class="dash-user-pill" id="btn-logout">
-          <div class="dash-user-avatar" id="dash-avatar">?</div>
-          <span id="dash-user-name">User</span>
-          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="2"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9"/></svg>
+      </nav>
+      <div class="sc-wrap stagger">
+        <div class="browse-welcome">
+          <h1 id="browse-greeting">Welcome back</h1>
+          <p class="browse-sub">What do you want to learn today?</p>
+          <div class="browse-search-bar">
+            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
+            <input placeholder="Search courses or describe what you need..." id="browse-search-input">
+          </div>
+        </div>
+
+        <div class="banner" id="browse-ondemand-banner">
+          <div class="banner-ico">&#9997;</div>
+          <div class="banner-text">
+            <h3>Need help with something specific?</h3>
+            <p>Tell your tutor what you need &mdash; exam prep, concept review, problem solving. No course needed.</p>
+          </div>
+          <span class="sc-btn sc-btn-sm sc-btn-accent" style="flex-shrink:0">Start session</span>
+        </div>
+
+        <div id="browse-continue-section" style="display:none">
+          <div class="sec-head"><h2>Continue learning</h2></div>
+          <div class="cont-row" id="browse-continue-row"></div>
+        </div>
+
+        <div class="sec-head"><h2>All courses</h2><span id="browse-course-count"></span></div>
+        <div class="c-grid" id="browse-courses-grid">
+          <!-- Populated dynamically -->
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ COURSE DETAIL SCREEN ═══ -->
+    <div id="course-screen" class="app-screen" style="display:none">
+      <nav class="sc-nav">
+        <div class="sc-logo"><em>C</em>apacity</div>
+        <div class="sc-nav-r">
+          <a href="#" class="sc-nav-link" data-nav="courses">Courses</a>
+          <div class="sc-pill" id="course-logout">
+            <div class="sc-pill-avatar" id="course-avatar">?</div>
+            <span id="course-user-name">User</span>
+          </div>
         </div>
       </nav>
 
-      <!-- Search-first landing -->
-      <div class="dash-center" id="dash-search-landing">
-        <div class="nl-inner">
-          <h2 id="setup-greeting" class="nl-greeting">What do you want to learn?</h2>
-          <p class="dash-subline" id="dash-subline" style="display:none"></p>
-
-          <div class="nl-search-wrap">
-            <div class="nl-search-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.3-4.3"/></svg>
-            </div>
-            <input class="nl-search-input" id="student-intent-first" placeholder=" " autocomplete="off" />
-            <div class="nl-typed-wrap" id="nl-typed-wrap"><span id="nl-typed"></span><span class="nl-cursor"></span></div>
-            <button class="dash-send" id="btn-start-session" style="position:absolute;right:10px;top:50%;transform:translateY(-50%)">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0a0d0b" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-            </button>
+      <!-- Full-width hero banner -->
+      <div class="cd-banner" id="cd-banner">
+        <div class="cd-banner-overlay"></div>
+        <div class="cd-banner-content">
+          <div class="cd-back" id="cd-back">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z"/></svg>
+            Back to courses
           </div>
-
-          <div class="nl-chips" id="nl-chips">
-            <button class="nl-chip" data-q="Schrodinger equation">Schrodinger equation</button>
-            <button class="nl-chip" data-q="wave particle duality">Wave-particle duality</button>
-            <button class="nl-chip" data-q="harmonic oscillator">Harmonic oscillator</button>
-            <button class="nl-chip" data-q="newton laws">Newton's laws</button>
+          <span class="sc-tag" id="cd-tag"></span>
+          <h1 id="cd-title"></h1>
+          <p id="cd-description"></p>
+          <div class="cd-stats">
+            <div class="cd-stat"><div class="cd-stat-v" id="cd-lessons-count">0</div><div class="cd-stat-l">Lessons</div></div>
+            <div class="cd-stat"><div class="cd-stat-v" id="cd-modules-count">0</div><div class="cd-stat-l">Modules</div></div>
+            <div class="cd-stat"><div class="cd-stat-v" id="cd-hours">~0</div><div class="cd-stat-l">Hours</div></div>
           </div>
-
-          <!-- Search results (shown when typing) -->
-          <div class="nl-results" id="nl-results"></div>
-
-          <!-- AI tutor option (shown with results) -->
-          <div class="nl-ai-option" id="nl-ai-option" style="display:none">
-            <div class="nl-ai-icon">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-            </div>
-            <div class="nl-ai-body">
-              <div class="nl-ai-title">Learn with AI tutor</div>
-              <div class="nl-ai-desc">Interactive board teaching — no video needed</div>
-            </div>
+          <div class="cd-banner-actions">
+            <span class="cd-sub">Your AI tutor teaches each lesson interactively</span>
           </div>
         </div>
-        <div class="setup-status" id="setup-status"></div>
       </div>
 
-      <!-- Hidden compat elements -->
-      <div style="display:none">
-        <div class="dash-course-pills">
-          <div class="dash-course-pill selected" data-course="2"><span class="dash-pill-dot"></span>MIT 8.04</div>
-          <div class="dash-course-pill" data-course="4"><span class="dash-pill-dot"></span>QM</div>
+      <!-- Tabs: How to learn | Curriculum -->
+      <div class="cd-body">
+        <div class="cd-tabs">
+          <button class="cd-tab active" data-tab="mode">How to learn</button>
+          <button class="cd-tab" data-tab="curriculum">Curriculum</button>
         </div>
+
+        <!-- Tab: Mode selection -->
+        <div class="cd-tab-content active" id="cd-tab-mode">
+          <div class="modes">
+            <div class="mode on" id="mode-tutor" data-mode="tutor">
+              <div class="mode-header">
+                <h3><span class="mode-dot"></span> Tutor teaches you</h3>
+                <div class="mode-rec">Recommended</div>
+              </div>
+              <p>Sit back. Your tutor draws on a board, explains step by step, quizzes you, adapts to your pace. No video &mdash; pure 1-on-1 teaching.</p>
+              <div class="mode-expand" id="mode-tutor-expand"></div>
+            </div>
+            <div class="mode" id="mode-video" data-mode="video">
+              <div class="mode-header">
+                <h3><span class="mode-dot"></span> Follow along with video</h3>
+                <div class="mode-alt">Watch the original lectures</div>
+              </div>
+              <p>Watch the professor's lecture video while your tutor follows along. Pause anytime to ask questions about what you just saw.</p>
+              <div class="mode-expand" id="mode-video-expand"></div>
+            </div>
+          </div>
+          <button class="sc-btn sc-btn-lg sc-btn-accent cd-mode-go" id="cd-mode-start-btn">Start learning <span>&rarr;</span></button>
+        </div>
+
+        <!-- Tab: Curriculum -->
+        <div class="cd-tab-content" id="cd-tab-curriculum">
+          <div id="cd-curriculum"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ ON-DEMAND SCREEN ═══ -->
+    <div id="ondemand-screen" class="app-screen" style="display:none">
+      <nav class="sc-nav">
+        <div class="sc-logo"><em>C</em>apacity</div>
+        <div class="sc-nav-r">
+          <a href="#" class="sc-nav-link" data-nav="courses">Courses</a>
+          <div class="sc-pill" id="od-logout">
+            <div class="sc-pill-avatar" id="od-avatar">?</div>
+            <span id="od-user-name">User</span>
+          </div>
+        </div>
+      </nav>
+      <div class="od stagger">
+        <div><h1>What do you need help with?</h1></div>
+        <p>Your tutor finds the right material, builds a plan, and teaches you live.</p>
+        <div class="od-input-wrap">
+          <input class="od-input" id="od-intent-input" placeholder="e.g. I have a quantum mechanics exam on Friday...">
+          <button class="od-send" id="od-send-btn">
+            <svg width="16" height="16" viewBox="0 0 20 20" fill="#09090b"><path d="M3.105 2.29a1 1 0 011.22-.72l13 4a1 1 0 010 1.9l-13 4a1 1 0 01-1.22-.72L2 6l5-1.5L2 3l1.105-.71z"/></svg>
+          </button>
+        </div>
+        <div class="chips" id="od-chips">
+          <span class="chip">Explain eigenvalues simply</span>
+          <span class="chip">Prep me for a calculus midterm</span>
+          <span class="chip">I'm stuck on Gauss's law</span>
+          <span class="chip">Teach me wave equation from scratch</span>
+          <span class="chip">Quiz me on angular momentum</span>
+        </div>
+        <div class="od-how">
+          <h3>What happens next</h3>
+          <div class="od-step"><div class="od-step-n">1</div><p><strong>Finds the right material</strong> &mdash; searches across all courses for the best content.</p></div>
+          <div class="od-step"><div class="od-step-n">2</div><p><strong>Builds a plan</strong> &mdash; creates a sequence, checks prerequisites, adjusts depth.</p></div>
+          <div class="od-step"><div class="od-step-n">3</div><p><strong>Teaches you live</strong> &mdash; draws on the board, speaks, asks questions, adapts in real time.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Hidden compat elements that app.js references -->
+    <div style="display:none">
+      <select id="course-id"><option value="2" selected>MIT 8.04</option></select>
+      <input type="text" id="api-url" value="">
+      <textarea id="student-intent"></textarea>
+      <button id="btn-new-session"></button>
+      <button id="btn-start-session"></button>
+      <div id="session-first-time" class="hidden"></div>
+      <div id="setup-panel" style="display:none">
+        <div id="dash-search-landing"></div>
+        <input id="student-intent-first" style="display:none">
+        <div id="nl-results"></div>
+        <div id="nl-chips"></div>
+        <div id="nl-ai-option"></div>
+        <div id="setup-status"></div>
+        <div id="session-list-panel">
+          <div id="session-list-active"></div>
+          <div id="dash-session-empty"></div>
+          <div id="session-list-completed"><button id="btn-show-completed" class="hidden"></button><div id="session-list-completed-items" class="hidden"></div></div>
+        </div>
+        <div class="dash-course-pill selected" data-course="2"></div>
         <div class="dash-course-card selected" data-course="2"></div>
-        <div class="dash-course-card" data-course="4"></div>
         <span id="dash-course-progress"></span>
-        <div id="session-list-panel" style="display:none">
-          <div class="dash-sessions-grid" id="session-list-active"></div>
-          <div class="dash-session-empty" id="dash-session-empty" style="display:none"></div>
-          <div id="session-list-completed"><button class="dash-completed-toggle hidden" id="btn-show-completed"></button><div class="dash-sessions-completed-list hidden" id="session-list-completed-items"></div></div>
-        </div>
       </div>
+      <p id="setup-greeting"></p>
+      <p id="dash-subline"></p>
     </div>
 
     <!-- ═══ Teaching Layout — Split View ═══ -->
@@ -711,11 +279,10 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
       <!-- Top Bar -->
       <header id="top-bar">
         <div class="top-left">
-          <button id="btn-back" class="icon-btn">← Dashboard</button>
+          <button id="btn-back" class="icon-btn">&larr; Courses</button>
           <span class="course-title" id="course-title">Teaching Session</span>
         </div>
         <div class="top-right">
-          <!-- Speed Control -->
           <div class="speed-wrap hidden" id="speed-wrap">
             <button class="speed-toggle-btn" id="speed-toggle-btn" onclick="toggleSpeedMenu()">
               <span class="speed-label">Speed</span>
@@ -734,16 +301,17 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
         </div>
       </header>
 
-      <!-- Video overlay (visible only in video follow-along mode) -->
+      <!-- Video overlay -->
       <div id="vm-video-overlay" class="vm-overlay hidden">
-        <div class="vm-vid-wrap" id="vm-vid-wrap">
-          <div class="vm-vid-box"></div>
-        </div>
+        <div class="vm-vid-wrap" id="vm-vid-wrap"><div class="vm-vid-box"></div></div>
         <div class="vm-chat-wrap" id="vm-chat-wrap">
           <div class="vm-chat-bar">
-            <input class="vm-chat-input" id="vm-chat-input" placeholder="Ask about what you just saw..." />
+            <input class="vm-chat-input" id="vm-chat-input" placeholder="Ask about what you just saw...">
             <button class="vm-chat-btn vm-send-btn" id="vm-send-btn">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
+            </button>
+            <button class="vm-chat-btn vm-stop-btn hidden" id="vm-stop-btn" onclick="stopGeneration()" title="Stop tutor">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
             </button>
           </div>
         </div>
@@ -755,14 +323,14 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
         <div class="plan-hb-content" id="plan-hb-toggle">
           <span class="plan-hb-dot" id="plan-hb-dot"></span>
           <span class="plan-hb-section" id="plan-hb-section"></span>
-          <span class="plan-hb-sep">›</span>
+          <span class="plan-hb-sep">&rsaquo;</span>
           <span class="plan-hb-topic" id="plan-hb-topic"></span>
           <span class="plan-hb-detour hidden" id="plan-hb-detour">DETOUR</span>
           <span class="plan-hb-meta" id="plan-hb-meta"></span>
         </div>
       </div>
 
-      <!-- Plan Panel Overlay (click heading bar to toggle) -->
+      <!-- Plan Panel Overlay -->
       <div id="plan-panel-overlay" class="plan-panel-overlay hidden">
         <div class="plan-panel" id="plan-panel">
           <div class="plan-panel-header">
@@ -775,75 +343,80 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
 
       <!-- Main Layout — Split: Chat Left, Board Right -->
       <main id="main-layout">
-
-        <!-- LEFT: Chat Panel -->
         <div id="chat-panel">
           <div id="agent-indicators"></div>
-          <section id="canvas-stream">
-            <!-- Chat messages flow here -->
-          </section>
+          <section id="canvas-stream"></section>
         </div>
-
-        <!-- Resize Handle -->
         <div id="split-handle" title="Drag to resize"></div>
-
-        <!-- RIGHT: Board Panel (replaces spotlight — always visible) -->
         <div id="board-panel">
-          <!-- Board panel header (same IDs as old spotlight for JS compatibility) -->
           <div id="spotlight-panel" class="board-panel-header">
             <div class="spotlight-header-left">
               <span class="spotlight-type-badge" id="spotlight-type-badge"></span>
               <span id="spotlight-title">Board</span>
+              <button class="board-pen-toggle" id="board-pen-toggle" onclick="toggleBoardPen()" title="Draw on board">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+                <span class="pen-label">Draw</span>
+              </button>
             </div>
-            <button class="board-pen-toggle" id="board-pen-toggle" onclick="toggleBoardPen()" title="Draw on board (toggle)">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-            </button>
             <button class="board-live-btn hidden" id="board-live-btn" onclick="returnToLiveBoard()" title="Return to live board">&#9654; Live</button>
-            <button class="board-fullscreen-btn" id="board-fullscreen" onclick="toggleBoardFullscreen()" title="Fullscreen">⛶</button>
+            <button class="board-fullscreen-btn" id="board-fullscreen" onclick="toggleBoardFullscreen()" title="Fullscreen">&#9974;</button>
           </div>
-
-          <!-- Board content (same ID as old spotlight-content for JS compatibility) -->
           <div id="spotlight-content" class="board-content"></div>
-
-          <!-- Board frame thumbnails -->
-          <div id="board-frame-strip">
-            <!-- Thumbnails of previous boards populate here -->
-          </div>
-
-          <!-- Quick actions removed — chat input handles student interaction -->
-
-          <!-- Empty state when no board active -->
+          <div id="board-frame-strip"></div>
           <div id="board-empty-state" class="board-empty">
-            <div class="board-empty-icon">✎</div>
-            <div class="board-empty-text">Euler will draw here</div>
+            <div class="board-empty-icon">&#9998;</div>
+            <div class="board-empty-text">Your tutor will draw here</div>
           </div>
         </div>
 
+        <!-- Video playlist sidebar (video follow-along mode only) -->
+        <div id="video-playlist" class="vpl hidden">
+          <div class="vpl-header">
+            <span class="vpl-title">Up next</span>
+            <span class="vpl-count" id="vpl-count"></span>
+          </div>
+          <div class="vpl-list" id="vpl-list"></div>
+        </div>
+
+        <!-- Plan sidebar -->
+        <div id="plan-sidebar" class="psb hidden">
+          <div class="psb-collapsed-tab" id="psb-collapsed-tab" onclick="togglePlanSidebar()" title="Show plan">
+            <span>P</span><span>L</span><span>A</span><span>N</span>
+          </div>
+          <div class="psb-header">
+            <span class="psb-title">Plan</span>
+            <button class="psb-toggle" id="psb-toggle" onclick="togglePlanSidebar()" title="Collapse">&#9664;</button>
+          </div>
+          <div class="psb-progress">
+            <div class="psb-progress-bar"><div class="psb-progress-fill" id="psb-progress-fill"></div></div>
+            <div class="psb-progress-text" id="psb-progress-text"></div>
+          </div>
+          <div class="psb-body" id="psb-body">
+            <!-- Populated dynamically from plan data -->
+            <div class="psb-generating" id="psb-generating">
+              <div class="psb-gen-pulse"></div>
+              <span>Building your plan...</span>
+            </div>
+          </div>
+        </div>
       </main>
 
-      <!-- Voice Mode Overlays (outside main layout, fixed positioned) -->
-
-      <!-- Subtitle bar — bottom of screen, shows what tutor is saying -->
+      <!-- Voice overlays -->
       <div id="voice-subtitle-bar" class="voice-subtitle-bar hidden">
         <div class="voice-subtitle-text" id="voice-subtitle-text"></div>
       </div>
-
-      <!-- Voice indicator — top left, shows speaking/listening state -->
       <div id="voice-indicator" class="voice-indicator hidden">
-        <div class="voice-indicator-bars">
-          <div class="vbar"></div><div class="vbar"></div><div class="vbar"></div>
-          <div class="vbar"></div><div class="vbar"></div>
-        </div>
+        <div class="voice-indicator-bars"><div class="vbar"></div><div class="vbar"></div><div class="vbar"></div><div class="vbar"></div><div class="vbar"></div></div>
         <span class="voice-indicator-label" id="voice-indicator-label">Euler is speaking</span>
       </div>
-
-      <!-- Voice input bar — one unified pill -->
       <div id="voice-mic-float" class="voice-bar-wrap hidden">
         <div class="voice-bar" id="voice-bar-main">
-          <textarea class="voice-bar-input" id="voice-bar-input" rows="1"
-                 placeholder="Type your response..." autocomplete="off"></textarea>
+          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Type your response..." autocomplete="off"></textarea>
           <button class="voice-bar-send" id="voice-bar-send" onclick="submitVoiceBarInput()">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </button>
+          <button class="voice-bar-stop hidden" id="voice-bar-stop" onclick="stopGeneration()" title="Stop tutor">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
           </button>
           <button class="voice-bar-mic" id="voice-mic-btn" title="Hold to talk">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -852,17 +425,14 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
           </button>
         </div>
       </div>
-
-      <!-- Hand cursor — overlays on board, follows drawing commands -->
       <div id="voice-hand-cursor" class="voice-hand hidden">
         <svg viewBox="0 0 24 24" fill="none"><path d="M4 4L11 20L13.5 13.5L20 11L4 4Z" fill="white" stroke="white" stroke-width="0.5"/></svg>
       </div>
 
-
     </div>
   </div>
 
-  <!-- Session Prep Overlay — animated loading during session start -->
+  <!-- Session Prep Overlay -->
   <div id="session-prep-overlay" class="session-prep hidden">
     <div class="session-prep-content">
       <div class="session-prep-orb"></div>
@@ -883,6 +453,8 @@ footer { padding:32px; text-align:center; font-size:11px; color:var(--text-dim);
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/build/three.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/three@0.148.0/examples/js/controls/OrbitControls.js"></script>
   <script src="https://cdn.plyr.io/3.7.8/plyr.polyfilled.js"></script>
 
   <script src="/dash-bg.js"></script>

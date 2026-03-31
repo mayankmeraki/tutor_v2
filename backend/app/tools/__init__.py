@@ -119,6 +119,66 @@ TUTOR_TOOLS = [
         },
     },
     {
+        "name": "content_read",
+        "description": (
+            "Get full teaching content for a ref — transcript, key points, formulas. "
+            "Use when grounding your teaching in actual lecture content. "
+            "Refs: lesson:ID:section:IDX for a specific section, lesson:ID for a lesson overview, "
+            "sim:ID for simulation details."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": 'Content ref, e.g. "lesson:3:section:2" or "lesson:5"',
+                },
+            },
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "content_peek",
+        "description": (
+            "Quick look at a ref — title, concepts, key points (~100 tokens). "
+            "Use for planning or finding the right section before reading full content. "
+            "For lesson refs: returns section listing with refs. "
+            "For section refs: returns compact teaching brief."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": 'Content ref, e.g. "lesson:3" or "lesson:3:section:2"',
+                },
+            },
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "content_search",
+        "description": (
+            "Search across all course content for a topic or concept. "
+            "Returns matching items with refs you can pass to content_read or content_peek. "
+            "Use when the student asks about something not in the current plan."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query — concept name, topic, or question",
+                },
+                "limit": {
+                    "type": "number",
+                    "description": "Max results (default 5)",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
         "name": "control_simulation",
         "description": (
             "Control the student's active simulation by setting parameters or clicking buttons. "
@@ -558,6 +618,74 @@ TUTOR_TOOLS = [
             "required": ["notes"],
         },
     },
+    {
+        "name": "complete_triage",
+        "description": (
+            "Call this when triage is done — you've gathered enough diagnostic signal "
+            "to plan the session. Include your findings: what gaps you found, what's strong, "
+            "and where to start teaching. After calling this, you'll transition to teaching mode."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "diagnosed_gaps": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific weak areas found during triage",
+                },
+                "confirmed_strong": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Areas the student demonstrated strength in",
+                },
+                "student_level": {
+                    "type": "string",
+                    "description": "One-line characterization of where the student is",
+                },
+                "recommended_start": {
+                    "type": "string",
+                    "description": "Where to begin teaching and what approach to use",
+                },
+                "content_refs": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Specific lesson/section refs to use (from content_search)",
+                },
+            },
+            "required": ["diagnosed_gaps", "student_level", "recommended_start"],
+        },
+    },
+    {
+        "name": "session_signal",
+        "description": (
+            "Emit a session signal after your teaching response. Call this at the end "
+            "of each teaching turn to indicate progress and student state. "
+            "This helps the system know when to run checkpoints or adjust approach."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "section_progress": {
+                    "type": "string",
+                    "enum": ["in_progress", "wrapping_up", "complete"],
+                    "description": "Current section teaching progress",
+                },
+                "student_state": {
+                    "type": "string",
+                    "enum": ["engaged", "confused", "struggling", "ahead"],
+                    "description": "How the student seems based on their responses",
+                },
+                "needs_diagnostic": {
+                    "type": "boolean",
+                    "description": (
+                        "Set true if student seems fundamentally lost — "
+                        "missing prerequisites, not just confused on current topic"
+                    ),
+                },
+            },
+            "required": ["section_progress", "student_state"],
+        },
+    },
 ]
 
 
@@ -602,7 +730,11 @@ RETURN_TO_TUTOR_TOOL = {
 
 DELEGATION_TOOLS = [
     t for t in TUTOR_TOOLS
-    if t["name"] in ("search_images", "web_search", "get_simulation_details", "get_section_content", "control_simulation")
+    if t["name"] in (
+        "search_images", "web_search", "get_simulation_details",
+        "get_section_content", "control_simulation",
+        "content_read", "content_peek", "content_search",
+    )
 ]
 
 
@@ -714,194 +846,12 @@ HANDBACK_TO_TUTOR_TOOL = {
 # Assessment tools: content tools + knowledge tools + completion tools
 ASSESSMENT_TOOLS = [
     t for t in TUTOR_TOOLS
-    if t["name"] in ("search_images", "web_search", "get_section_content", "query_knowledge", "update_student_model")
+    if t["name"] in (
+        "search_images", "web_search", "get_section_content",
+        "query_knowledge", "update_student_model",
+        "content_read", "content_peek",
+    )
 ] + [COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL]
-
-
-# ── MQL Tool Schemas (BYO Material Query Layer) ─────────────────────────────
-
-MQL_TOOLS = [
-    {
-        "name": "browse_topics",
-        "description": (
-            "List all topics in the student's collection with difficulty and exercise counts. "
-            "Like 'ls' — shows what's available to teach. Start here to plan a session."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "browse_topic",
-        "description": (
-            "Open a specific topic — shows its chunks, concepts, exercises, and assets. "
-            "Like opening a directory. Use to plan how to teach a specific topic."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "topic_id": {"type": "string", "description": "The topicId to explore"},
-            },
-            "required": ["topic_id"],
-        },
-    },
-    {
-        "name": "get_flow",
-        "description": (
-            "Read the teaching sequence — chapters with ordered topics and estimated times. "
-            "Like reading a README. Use to understand the recommended learning path."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "read_chunk",
-        "description": (
-            "Read a content chunk — full transcript, key points, formulas, linked visuals. "
-            "Like 'cat' — the actual content to teach from. Use when delivering a lesson."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "chunk_id": {"type": "string", "description": "The chunkId to read"},
-            },
-            "required": ["chunk_id"],
-        },
-    },
-    {
-        "name": "search_content",
-        "description": (
-            "Text search across all chunks in the collection. "
-            "Like 'grep' — find where a concept or topic is discussed."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search text (concept name, formula, keyword)"},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "grep_material",
-        "description": (
-            "Search within a specific material's chunks. "
-            "Like 'grep file' — narrower search within one document/video."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "material_id": {"type": "string", "description": "The materialId to search within"},
-                "query": {"type": "string", "description": "Search text"},
-            },
-            "required": ["material_id", "query"],
-        },
-    },
-    {
-        "name": "find_concept",
-        "description": (
-            "Look up a concept by name — definition, prerequisites, formulas, where it appears. "
-            "Use before teaching a concept to see its full context."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "concept_name": {"type": "string", "description": "Concept name or alias to find"},
-            },
-            "required": ["concept_name"],
-        },
-    },
-    {
-        "name": "search_concepts",
-        "description": (
-            "Fuzzy search across all concepts in the collection. "
-            "Use when you're not sure of the exact concept name."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {"type": "string", "description": "Search term"},
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "get_exercises",
-        "description": (
-            "Get practice problems, optionally filtered by topic or difficulty. "
-            "Use for drills, assessments, or checking if exercises exist for a topic."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "topic_id": {"type": "string", "description": "Filter by topicId (optional)"},
-                "difficulty": {
-                    "type": "string",
-                    "enum": ["beginner", "intermediate", "advanced"],
-                    "description": "Filter by difficulty (optional)",
-                },
-                "limit": {"type": "number", "description": "Max results (default 5)"},
-            },
-        },
-    },
-    {
-        "name": "get_mastery",
-        "description": (
-            "Get student's mastery state — completed topics, concept levels, observations. "
-            "Use to adapt teaching approach based on what the student knows."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {},
-        },
-    },
-    {
-        "name": "log_observation",
-        "description": (
-            "Log a mastery observation about the student's understanding of a concept. "
-            "Use after interactions that reveal what the student knows or struggles with."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "concept_id": {
-                    "type": "string",
-                    "description": "Concept name or ID",
-                },
-                "observation": {
-                    "type": "string",
-                    "description": (
-                        "Freehand observation. Cover: mastery level, what they can do, "
-                        "what trips them up, what approach worked."
-                    ),
-                },
-            },
-            "required": ["concept_id", "observation"],
-        },
-    },
-    {
-        "name": "get_assets",
-        "description": (
-            "Get teaching assets — diagrams, board captures, video clips — for a topic. "
-            "Use to find visual aids to show the student."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "topic_id": {"type": "string", "description": "Filter by topicId (optional)"},
-                "asset_type": {
-                    "type": "string",
-                    "enum": ["board", "equation", "diagram", "slide", "chart"],
-                    "description": "Filter by type (optional)",
-                },
-                "limit": {"type": "number", "description": "Max results (default 10)"},
-            },
-        },
-    },
-]
 
 
 # ── Dispatchers ──────────────────────────────────────────────────────────────
@@ -914,10 +864,9 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
             return await web_search(tool_input["query"], tool_input.get("limit", 5))
         elif name == "get_simulation_details":
             return await get_simulation_details(tool_input["simulation_id"])
-        elif name == "content_map":
-            # Returns the course structure — fetched from session context
-            # The actual data comes from chat.py which has the course_id
-            return "Use the teaching plan for navigation. Call get_section_content(lesson_id, section_index) for specific content."
+        elif name in ("content_map", "content_read", "content_peek", "content_search"):
+            # Handled by adapter in chat.py (needs course_id + db session)
+            return "Content tool must be routed through the adapter. Check chat.py dispatch."
         elif name == "get_section_content":
             return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
         elif name == "get_transcript_context":
@@ -936,74 +885,6 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
         return f"Tool {name} encountered an error. Try a different approach."
 
 
-async def execute_mql_tool(name: str, tool_input: dict, collection_id: str, user_email: str, session_id: str = "") -> str:
-    """Execute a Material Query Layer tool."""
-    from app.services.mql import (
-        browse_topic,
-        browse_topics,
-        find_concept,
-        get_assets,
-        get_exercises,
-        get_flow,
-        get_mastery,
-        grep_material,
-        log_observation,
-        read_chunk,
-        search_concepts,
-        search_content,
-    )
-
-    try:
-        if name == "browse_topics":
-            return await browse_topics(collection_id)
-        elif name == "browse_topic":
-            return await browse_topic(collection_id, tool_input["topic_id"])
-        elif name == "get_flow":
-            return await get_flow(collection_id)
-        elif name == "read_chunk":
-            return await read_chunk(collection_id, tool_input["chunk_id"])
-        elif name == "search_content":
-            return await search_content(collection_id, tool_input["query"])
-        elif name == "grep_material":
-            return await grep_material(collection_id, tool_input["material_id"], tool_input["query"])
-        elif name == "find_concept":
-            return await find_concept(collection_id, tool_input["concept_name"])
-        elif name == "search_concepts":
-            return await search_concepts(collection_id, tool_input["query"])
-        elif name == "get_exercises":
-            return await get_exercises(
-                collection_id,
-                topic_id=tool_input.get("topic_id"),
-                difficulty=tool_input.get("difficulty"),
-                limit=int(tool_input.get("limit", 5)),
-            )
-        elif name == "get_mastery":
-            return await get_mastery(collection_id, user_email)
-        elif name == "log_observation":
-            return await log_observation(
-                collection_id, user_email,
-                tool_input["concept_id"], tool_input["observation"],
-                session_id=session_id,
-            )
-        elif name == "get_assets":
-            return await get_assets(
-                collection_id,
-                topic_id=tool_input.get("topic_id"),
-                asset_type=tool_input.get("asset_type"),
-                limit=int(tool_input.get("limit", 10)),
-            )
-        else:
-            return f"Unknown MQL tool: {name}"
-    except KeyError as e:
-        log.warning("MQL tool %s missing required param: %s", name, e)
-        return f"Tool error: missing required parameter {e}"
-    except Exception:
-        log.error("MQL tool %s failed", name, exc_info=True)
-        return f"Tool {name} encountered an error. Try a different approach."
-
-
-# Set of MQL tool names for dispatch routing
-MQL_TOOL_NAMES = {t["name"] for t in MQL_TOOLS}
 
 # ── Video Follow-Along Tools ─────────────────────────────────────────────────
 
@@ -1018,5 +899,3 @@ VIDEO_FOLLOW_TOOLS = [
 ]
 
 VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video", "capture_video_frame"}
-
-VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video"}

@@ -18,6 +18,7 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import StreamingResponse
 
 from app.agents.agent_runtime import AgentRuntime, AssessmentState, DelegationState
+from app.agents.session import SessionPhase
 from app.core.llm import (
     llm_stream,
     is_retryable,
@@ -29,7 +30,7 @@ from app.core.llm import (
     LLMCallMetadata,
 )
 from app.core.logging_config import SessionLogger
-from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_byo_tutor_prompt, build_assessment_prompt
+from app.agents.prompts import SKILL_MAP, build_tutor_prompt, build_assessment_prompt
 from app.agents.prompts.teaching_delegate import build_delegation_prompt
 from app.agents.session import get_or_create_session, get_session_lock
 from app.services.knowledge_state import (
@@ -42,8 +43,6 @@ from app.services.knowledge_state import (
 from app.services.session_service import sync_backend_state
 from app.tools import (
     TUTOR_TOOLS,
-    MQL_TOOLS,
-    MQL_TOOL_NAMES,
     DELEGATION_TOOLS,
     ASSESSMENT_TOOLS,
     COMPLETE_ASSESSMENT_TOOL,
@@ -52,7 +51,6 @@ from app.tools import (
     VIDEO_FOLLOW_TOOLS,
     VIDEO_CONTROL_TOOLS,
     execute_tutor_tool,
-    execute_mql_tool,
 )
 
 from app.core.rate_limit import check_rate_limit_chat as _check_rate_limit
@@ -175,16 +173,110 @@ def _extract_teaching_mode(context_data: dict) -> str:
         return "text"
 
 
-def _extract_collection_id(context_data: dict) -> str | None:
-    """Extract collectionId from student profile (BYO mode indicator)."""
-    profile_str = context_data.get("studentProfile", "")
-    if not profile_str:
-        return None
-    try:
-        profile = json.loads(profile_str)
-        return profile.get("collectionId")
-    except (json.JSONDecodeError, TypeError):
-        return None
+CONTENT_TOOL_NAMES = {"content_map", "content_read", "content_peek", "content_search"}
+
+
+# ── Session Phase Controller ──────────────────────────────────────────────────
+
+def _should_skip_triage(session, context_data: dict) -> bool:
+    """Determine if triage can be skipped.
+
+    Almost never skip. The triage agent itself decides how much probing is needed.
+    Only skip on between-chunk transitions where assessment just ran.
+    """
+    # Skip if triage already completed this session (don't re-triage)
+    if session.triage_result:
+        return True
+
+    # Skip if continuing from a recent assessment with decent score
+    if session.last_assessment_summary:
+        score_pct = session.last_assessment_summary.get("score", {}).get("pct", 0)
+        if score_pct >= 60:
+            return True
+
+    return False
+
+
+def _init_session_phase(session, context_data: dict, slog):
+    """Set the initial session phase based on intent + student model."""
+    if _should_skip_triage(session, context_data):
+        session.phase = SessionPhase.TEACHING
+        slog.info("Phase: skip triage → TEACHING", extra={"reason": "clear_intent_or_rich_model"})
+    else:
+        session.phase = SessionPhase.TRIAGE
+        slog.info("Phase: starting with TRIAGE", extra={"intent": (session.student_intent or "")[:50]})
+
+
+def _check_phase_transition(session, agent_output: dict) -> SessionPhase | None:
+    """Check if the session should transition to a new phase based on agent signals."""
+    phase = session.phase
+
+    if phase == SessionPhase.TRIAGE:
+        # Triage runs as tutor prompt overlay — transition happens via complete_triage tool.
+        # This branch handles legacy delegation-based triage (if any).
+        reason = agent_output.get("reason")
+        if reason == "task_complete":
+            session.triage_result = agent_output.get("student_performance") or {}
+            return SessionPhase.PLANNING
+
+    elif phase == SessionPhase.TEACHING:
+        signals = session.last_signals
+        # Section complete → assess
+        if signals.get("section_progress") == "complete":
+            return SessionPhase.ASSESSMENT
+        # Tutor flagged student is fundamentally lost
+        if signals.get("needs_diagnostic"):
+            session.struggle_streak = 0
+            return SessionPhase.TRIAGE
+        # Student confused multiple turns in a row
+        if signals.get("student_state") == "struggling":
+            session.struggle_streak += 1
+            if session.struggle_streak >= 3:
+                session.struggle_streak = 0
+                return SessionPhase.TRIAGE
+        else:
+            session.struggle_streak = 0
+
+    elif phase == SessionPhase.ASSESSMENT:
+        score = agent_output.get("score", {}).get("pct", 100)
+        if score < 40:
+            # Failed badly — triage to find what's missing
+            return SessionPhase.TRIAGE
+        if score < 70:
+            # Partial — reteach, no triage needed (assessment IS the triage)
+            return SessionPhase.TEACHING
+        # Passed — triage for next chunk (light, may be 0 questions)
+        return SessionPhase.TRIAGE
+
+    return None  # Stay in current phase
+
+
+async def _run_content_tool(tool_name: str, tool_input: dict, context_data: dict, request) -> str:
+    """Dispatch a content tool through the ContentProvider adapter."""
+    course_id, _ = _extract_student_info(context_data)
+    if not course_id:
+        return "No course context available."
+
+    from app.services.content_providers import create_adapter
+    from app.core.database import get_db
+
+    db_session = request.state.db if hasattr(request.state, "db") else None
+    if not db_session:
+        db_gen = get_db()
+        db_session = await db_gen.__anext__()
+    adapter = create_adapter(course_id, db_session)
+
+    if tool_name == "content_map":
+        return await adapter.content_map()
+    elif tool_name == "content_read":
+        return await adapter.content_read(tool_input.get("ref", ""))
+    elif tool_name == "content_peek":
+        return await adapter.content_peek(tool_input.get("ref", ""))
+    elif tool_name == "content_search":
+        return await adapter.content_search(
+            tool_input.get("query", ""), limit=int(tool_input.get("limit", 5))
+        )
+    return f"Unknown content tool: {tool_name}"
 
 
 async def _load_knowledge_context(context_data: dict) -> dict:
@@ -557,6 +649,35 @@ def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
             "lastAssessmentSummary": None,
             "tutorNotes": None,
         }
+
+        # Include triage diagnostic if available
+        triage_info = ""
+        if session.triage_result:
+            tr = session.triage_result
+            triage_parts = []
+            if tr.get("diagnosed_gaps"):
+                triage_parts.append(f"Gaps: {', '.join(tr['diagnosed_gaps'])}")
+            if tr.get("confirmed_strong"):
+                triage_parts.append(f"Strong: {', '.join(tr['confirmed_strong'])}")
+            if tr.get("student_level"):
+                triage_parts.append(f"Level: {tr['student_level']}")
+            if tr.get("recommended_start"):
+                triage_parts.append(f"Start with: {tr['recommended_start']}")
+            if tr.get("content_refs"):
+                triage_parts.append(f"Content refs: {', '.join(tr['content_refs'])}")
+            triage_info = "\n\n[TRIAGE DIAGNOSTIC]\n" + "\n".join(triage_parts)
+
+        # Include content brief if resolved
+        content_brief_str = ""
+        if hasattr(session, '_content_brief') and session._content_brief:
+            from app.services.content_resolver import format_content_brief
+            content_brief_str = f"\n\n{format_content_brief(session._content_brief)}"
+
+        # Include delegation summary (triage conversation summary)
+        triage_summary = ""
+        if session.delegation_result and session.delegation_result.get("summary"):
+            triage_summary = f"\n\n[TRIAGE SUMMARY]\n{session.delegation_result['summary']}"
+
         runtime.spawn(
             agent_type="planning",
             description=f"Plan session: {intent[:60]}",
@@ -564,6 +685,7 @@ def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
                 f"The student wants to study: {intent}\n"
                 "Create a teaching plan based on the course content and student knowledge state.\n"
                 "Use get_section_content to inspect relevant sections, then output JSONL."
+                f"{triage_info}{content_brief_str}{triage_summary}"
             ),
             context=spawn_context,
         )
@@ -834,8 +956,8 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
         yield _sse({"type": "RUN_FINISHED"})
         return
 
-    # Build sub-agent tools: content tools + return_to_tutor
-    sub_tools = DELEGATION_TOOLS + [RETURN_TO_TUTOR_TOOL]
+    # Build sub-agent tools: use delegation-specific tools if set, else defaults
+    sub_tools = (delegation.tools or DELEGATION_TOOLS) + [RETURN_TO_TUTOR_TOOL]
 
     rounds = 0
     while rounds < MAX_ROUNDS:
@@ -929,6 +1051,20 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                     yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
                     yield _sse({"type": "TEACHING_DELEGATION_END", "reason": session.delegation_result["reason"]})
 
+                    # ── Phase transition after delegation ──
+                    new_phase = _check_phase_transition(session, session.delegation_result)
+                    if new_phase:
+                        old_phase = session.phase
+                        session.phase = new_phase
+                        slog.info("Phase transition", extra={"from": old_phase, "to": new_phase})
+
+                        # TRIAGE → PLANNING: spawn planner with triage diagnostic
+                        if old_phase == SessionPhase.TRIAGE and new_phase == SessionPhase.PLANNING:
+                            session.phase = SessionPhase.TEACHING  # Move to teaching immediately
+                            if session.agent_runtime:
+                                _auto_spawn_planner(session, session.agent_runtime, context_data, slog)
+                                slog.info("Planner spawned with triage diagnostic")
+
                     # Sync session state after delegation ends
                     try:
                         await sync_backend_state(session_id, session)
@@ -948,6 +1084,16 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                     )
                     result = f"Simulation control sent: {step_descs}."
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+                elif block.name in CONTENT_TOOL_NAMES:
+                    try:
+                        result = await _run_content_tool(block.name, block.input, context_data, request)
+                    except Exception as e:
+                        slog.error("Content adapter failed (delegation): %s", e, exc_info=True, extra={"tool": block.name})
+                        result = f"Content tool error: {str(e)[:200]}"
+                    result_str = result if isinstance(result, str) else json.dumps(result)
+                    if not result_str.strip():
+                        result_str = "(no output)"
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result_str})
                 else:
                     try:
                         result = await execute_tutor_tool(block.name, block.input)
@@ -1132,6 +1278,16 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                         "recommendation": result_data.get("recommendation", ""),
                     })
 
+                    # Phase transition after assessment
+                    new_phase = _check_phase_transition(session, result_data)
+                    if new_phase:
+                        old_phase = session.phase
+                        session.phase = new_phase
+                        slog.info("Phase transition after assessment", extra={
+                            "from": old_phase, "to": new_phase,
+                            "score_pct": result_data.get("score", {}).get("pct", 0),
+                        })
+
                     # Sync session state
                     try:
                         from app.services.session_service import sync_backend_state
@@ -1178,6 +1334,10 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                         "concepts": result_data.get("concepts", []),
                         "recommendation": result_data.get("recommendation", ""),
                     })
+
+                    # Handback = student struggling → go to triage
+                    session.phase = SessionPhase.TRIAGE
+                    slog.info("Phase → TRIAGE after assessment handback")
 
                     try:
                         from app.services.session_service import sync_backend_state
@@ -1241,6 +1401,18 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     else:
                         result = "Cannot query knowledge: missing student info"
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
+
+                # ── Content provider tools ─────────────────────
+                elif block.name in CONTENT_TOOL_NAMES:
+                    try:
+                        result = await _run_content_tool(block.name, block.input, context_data, request)
+                    except Exception as e:
+                        slog.error("Content adapter failed (assessment): %s", e, exc_info=True, extra={"tool": block.name})
+                        result = f"Content tool error: {str(e)[:200]}"
+                    result_str = result if isinstance(result, str) else json.dumps(result)
+                    if not result_str.strip():
+                        result_str = "(no output)"
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result_str})
 
                 # ── Normal content tools ────────────────────────
                 else:
@@ -1387,12 +1559,13 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             if is_video_mode:
                 session.active_scenario = "video_follow"
 
-            # ── Step 2b: Auto-spawn planning agent on session start ───
-            # Pre-spawn so plan builds while tutor greets / calibrates.
-            # Skip in video mode — the video IS the plan.
+            # ── Step 2b: Session phase — triage or teach ──────────────
+            if is_session_start and not is_video_mode:
+                _init_session_phase(session, context_data, slog)
+
+            # Auto-spawn planning agent (skip if triage is active — plan after triage)
             if is_session_start and not session.current_plan and context_data.get("courseMap") and not is_video_mode:
-                collection_id_check = _extract_collection_id(context_data)
-                if not collection_id_check:  # skip BYO — only course mode
+                if session.phase != SessionPhase.TRIAGE:
                     _auto_spawn_planner(session, runtime, context_data, slog)
 
             # ── Step 3a: Check assessment → route to assessment agent ──
@@ -1410,7 +1583,57 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                     yield chunk
                 return
 
-            # ── Step 3b: Check delegation → route to sub-agent ────────
+            # ── Step 3b: Build triage context for tutor prompt overlay ──
+            # (Triage runs through the tutor loop — same voice, board, everything)
+            if session.phase == SessionPhase.TRIAGE:
+                # Safety: auto-complete triage after 5 assistant turns
+                triage_turns = sum(1 for m in session.messages if m.get("role") == "assistant") if session.messages else 0
+                if triage_turns >= 5:
+                    slog.info("Triage auto-completed after %d turns", triage_turns)
+                    session.phase = SessionPhase.TEACHING
+                    if session.agent_runtime and not session.current_plan:
+                        _auto_spawn_planner(session, session.agent_runtime, context_data, slog)
+                    # Fall through to normal tutor prompt (no triage overlay)
+                else:
+                    pass  # continue with triage overlay below
+
+            if session.phase == SessionPhase.TRIAGE:
+                triage_ctx = {}
+                # Resolve content brief on first triage
+                if not session.triage_result and session.student_intent:
+                    try:
+                        from app.services.content_resolver import resolve_content, format_content_brief
+                        db_session = request.state.db if hasattr(request.state, 'db') else None
+                        if not db_session:
+                            from app.core.database import get_db
+                            db_gen = get_db()
+                            db_session = await db_gen.__anext__()
+                        brief = await resolve_content(session.student_intent, db_session=db_session)
+                        triage_ctx["contentBrief"] = format_content_brief(brief)
+                        # Store brief on session for planner to use later
+                        if not hasattr(session, '_content_brief'):
+                            session._content_brief = brief
+                    except Exception as e:
+                        slog.warning("Content resolve failed: %s", e)
+                # Upcoming topics from plan
+                if session.current_topics and session.current_topic_index >= 0:
+                    upcoming = session.current_topics[session.current_topic_index:][:5]
+                    if upcoming:
+                        triage_ctx["upcomingTopics"] = "\n".join(
+                            f"  - {t.get('title', '?')}" for t in upcoming
+                        )
+                # Last assessment
+                if session.last_assessment_summary:
+                    la = session.last_assessment_summary
+                    score = la.get("score", {})
+                    triage_ctx["lastAssessment"] = (
+                        f"Score: {score.get('correct',0)}/{score.get('total',0)} ({score.get('pct',0)}%)"
+                    )
+                context_data["triageContext"] = triage_ctx
+                context_data["sessionPhase"] = "triage"
+                slog.info("Phase TRIAGE: injecting triage overlay into tutor prompt")
+
+            # ── Step 3c: Check delegation → route to sub-agent ────────
             if session.delegation:
                 slog.info(
                     "Routing to delegated sub-agent",
@@ -1542,65 +1765,37 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 except Exception as e:
                     slog.warning("Failed to load knowledge summary: %s", e)
 
-            # ── Step 5: Detect BYO/voice mode and build appropriate prompt ───
+            # ── Step 5: Build prompt and select tools ───
             agent_results_str = _format_agent_results(completed) if completed else None
-            collection_id = _extract_collection_id(context_data)
             user_email = _extract_user_email(context_data)
             teaching_mode = _extract_teaching_mode(context_data)
             session.teaching_mode = teaching_mode  # Persist for session restore
-            is_byo = bool(collection_id)
 
-            if is_byo:
-                # BYO mode — build lean context and use MQL tools
-                try:
-                    from app.services.lean_context import build_lean_context
-                    lean_ctx = await build_lean_context(
-                        collection_id, user_email or "anonymous", session_id
-                    )
-                    context_data["leanContext"] = lean_ctx
-                except Exception as e:
-                    slog.warning("Failed to build lean context: %s", e)
-                    context_data["leanContext"] = f"[Error loading context for collection {collection_id}]"
-
-                tutor_prompt = build_byo_tutor_prompt({
-                    **context_data,
-                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
-                    "agentResults": agent_results_str,
-                    "assessmentResult": assessment_result_ctx,
-                })
-                active_tools = MQL_TOOLS + [t for t in TUTOR_TOOLS if t["name"] in (
-                    "search_images", "web_search", "control_simulation",
-                    "spawn_agent", "check_agents", "update_student_model",
-                    "handoff_to_assessment", "delegate_teaching",
-                    "log_knowledge", "query_knowledge",
-                )]
-                slog.info("BYO mode active, MQL tools enabled")
+            tutor_prompt = build_tutor_prompt({
+                **context_data,
+                "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
+                "currentTopic": (
+                    json.dumps(session.current_topics[session.current_topic_index], indent=2)
+                    if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
+                    else None
+                ),
+                "completedTopics": _format_completed(session.completed_topics),
+                "sessionScope": _format_session_scope(session),
+                "agentResults": agent_results_str,
+                "delegationResult": delegation_result_ctx,
+                "assessmentResult": assessment_result_ctx,
+                "preAssessmentNote": _format_pre_assessment_note(session.pre_assessment_note),
+                "lastAssessmentSummary": session.last_assessment_summary,
+                "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
+                "planAccountability": _build_plan_accountability(session),
+                "teachingMode": teaching_mode,
+            })
+            if is_video_mode:
+                active_tools = VIDEO_FOLLOW_TOOLS
+                slog.info("Video follow-along mode: using VIDEO_FOLLOW_TOOLS")
             else:
-                tutor_prompt = build_tutor_prompt({
-                    **context_data,
-                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
-                    "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
-                    "currentTopic": (
-                        json.dumps(session.current_topics[session.current_topic_index], indent=2)
-                        if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
-                        else None
-                    ),
-                    "completedTopics": _format_completed(session.completed_topics),
-                    "sessionScope": _format_session_scope(session),
-                    "agentResults": agent_results_str,
-                    "delegationResult": delegation_result_ctx,
-                    "assessmentResult": assessment_result_ctx,
-                    "preAssessmentNote": _format_pre_assessment_note(session.pre_assessment_note),
-                    "lastAssessmentSummary": session.last_assessment_summary,
-                    "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
-                    "planAccountability": _build_plan_accountability(session),
-                    "teachingMode": teaching_mode,
-                })
-                if is_video_mode:
-                    active_tools = VIDEO_FOLLOW_TOOLS
-                    slog.info("Video follow-along mode: using VIDEO_FOLLOW_TOOLS")
-                else:
-                    active_tools = TUTOR_TOOLS
+                active_tools = TUTOR_TOOLS
 
             prompt_size = sum(len(p) for p in tutor_prompt) if isinstance(tutor_prompt, tuple) else len(tutor_prompt)
             slog.info("Tutor prompt built", extra={"token_count": prompt_size // 4})
@@ -2230,19 +2425,6 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                             else:
                                 result = "Cannot query knowledge: missing student info (courseId or userEmail)"
 
-                        # ── MQL tool execution (BYO mode) ────────────
-                        elif is_byo and block.name in MQL_TOOL_NAMES:
-                            try:
-                                result = await execute_mql_tool(
-                                    block.name, block.input,
-                                    collection_id=collection_id,
-                                    user_email=user_email or "anonymous",
-                                    session_id=session_id,
-                                )
-                            except Exception as e:
-                                slog.error("MQL tool failed: %s", e, exc_info=True, extra={"tool": block.name})
-                                result = f"Tool error ({block.name}): {str(e)[:200]}"
-
                         # ── Video control tools (resume/seek) ────────
                         elif block.name in VIDEO_CONTROL_TOOLS:
                             if block.name == "resume_video":
@@ -2258,34 +2440,45 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                                 # in the next context update. For now, return a note.
                                 result = "Frame capture requested. The video frame will be included in the next context. Describe what you need to see and the student's current frame will be provided."
 
-                        # ── content_map tool — return course structure on demand ──
-                        elif block.name == "content_map":
-                            course_id, _ = _extract_student_info(context_data)
-                            if course_id:
-                                try:
-                                    from app.services.content_service import get_course_with_hierarchy
-                                    db_session = request.state.db if hasattr(request.state, 'db') else None
-                                    if not db_session:
-                                        from app.core.database import get_db
-                                        db_gen = get_db()
-                                        db_session = await db_gen.__anext__()
-                                    map_data = await get_course_with_hierarchy(db_session, course_id)
-                                    if map_data:
-                                        lines = [f"{map_data['course']['title']}\n"]
-                                        for mod in map_data.get('modules', []):
-                                            lines.append(f"Module: {mod['title']}")
-                                            mod_lessons = [l for l in map_data.get('lessons', []) if l['module_id'] == mod['id']]
-                                            for l in sorted(mod_lessons, key=lambda x: x.get('order', 0)):
-                                                dur = f"{l.get('duration', '')} min" if l.get('duration') else ''
-                                                vid = ' [has video]' if l.get('video_url') else ''
-                                                lines.append(f"  Lesson {l['id']}: {l['title']} ({dur}){vid}")
-                                        result = "\n".join(lines)
-                                    else:
-                                        result = "No course data found."
-                                except Exception as e:
-                                    result = f"Failed to load content map: {str(e)[:100]}"
-                            else:
-                                result = "No course context available."
+                        # ── Content provider tools (adapter-based) ──
+                        elif block.name in CONTENT_TOOL_NAMES:
+                            try:
+                                result = await _run_content_tool(block.name, block.input, context_data, request)
+                            except Exception as e:
+                                slog.error("Content adapter failed: %s", e, exc_info=True, extra={"tool": block.name})
+                                result = f"Content tool error: {str(e)[:200]}"
+
+                        # ── Complete triage → transition to teaching ──
+                        elif block.name == "complete_triage":
+                            session.triage_result = {
+                                "diagnosed_gaps": block.input.get("diagnosed_gaps", []),
+                                "confirmed_strong": block.input.get("confirmed_strong", []),
+                                "student_level": block.input.get("student_level", ""),
+                                "recommended_start": block.input.get("recommended_start", ""),
+                                "content_refs": block.input.get("content_refs", []),
+                            }
+                            session.phase = SessionPhase.TEACHING
+                            slog.info("Triage complete → TEACHING", extra=session.triage_result)
+                            # Spawn planner with triage diagnostic
+                            if session.agent_runtime and not session.current_plan:
+                                _auto_spawn_planner(session, session.agent_runtime, context_data, slog)
+                            result = (
+                                "Triage complete. You now have a clear picture of the student. "
+                                "Start teaching — use the board, draw, explain. "
+                                "Do NOT repeat the diagnostic to the student."
+                            )
+
+                        # ── Session signal (phase controller) ────────
+                        elif block.name == "session_signal":
+                            session.last_signals = block.input or {}
+                            slog.info("Session signal", extra=block.input or {})
+                            # Check phase transition
+                            new_phase = _check_phase_transition(session, {})
+                            if new_phase and new_phase != session.phase:
+                                old_phase = session.phase
+                                session.phase = new_phase
+                                slog.info("Phase transition from signal", extra={"from": old_phase, "to": new_phase})
+                            result = "Signal received."
 
                         # ── Normal tool execution ─────────────────────
                         else:

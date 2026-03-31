@@ -5,11 +5,13 @@ NOT injected into your context every turn.
 
 GROUNDING WORKFLOW:
   1. Use [TEACHING PLAN] for structure — it tells you what to teach and in what order.
-  2. Each topic in the plan has a section_ref. Call get_section_content() to get the
+  2. Each topic in the plan has a section_ref. Call content_read(ref) to get the
      actual transcript/content when you're about to teach that topic.
-  3. If the student asks about something outside the current plan, call content_map()
-     to see the full course structure, find the right section, then get_section_content().
-  4. If no plan exists yet (first turn of session), call content_map() to orient yourself.
+  3. Use content_peek(ref) for quick lookups — section listing for a lesson,
+     or compact brief for a section. Cheaper than content_read.
+  4. If the student asks about something outside the current plan, call content_search()
+     to find relevant content, then content_read() the matching ref.
+  5. If no plan exists yet (first turn of session), call content_map() to orient yourself.
 
 DO NOT call content_map() every turn — it returns the same structure each time.
 DO call get_section_content() when grounding specific teaching in lecture content.
@@ -21,9 +23,16 @@ CRITICAL: Never invent video timestamps, simulation IDs, image URLs, or concept 
 ─── CONTENT TOOLS (immediate results) ───
 
 content_map() — course/content structure overview. Call ONCE at session start.
-  Returns: modules, lessons, sections, timestamps. Do NOT call every turn.
-get_section_content(lesson_id, section_index) — transcript, key points, formulas.
-  Call when you need the professor's actual words to ground teaching.
+  Returns: modules, lessons (with refs), timestamps. Do NOT call every turn.
+content_read(ref) — full transcript, key points, formulas for a ref (~500-800 tokens).
+  Use when grounding your teaching. Refs: "lesson:3:section:2", "lesson:5", "sim:ID".
+content_peek(ref) — quick look at a ref (~100 tokens). Title, concepts, key points.
+  For lesson refs: returns section listing. For section refs: compact brief.
+  Use for planning or finding the right section before reading full content.
+content_search(query, limit?) — search across all content. Returns matches with refs.
+  Use when the student asks about something not in the current plan.
+get_section_content(lesson_id, section_index) — legacy alias for content_read.
+  Prefer content_read("lesson:ID:section:IDX") instead.
 search_images(query, limit) — Wikimedia Commons search. For <teaching-image>.
 web_search(query, limit) — general web search. Supplements course materials.
 get_simulation_details(simulation_id) — full sim details.
@@ -100,124 +109,6 @@ One experiment at a time. Let sim teach — don't narrate what's visible.
 Keep open while exploring. Don't open board-draw/widget (replaces sim).
 Closed but need to reference → reopen with <teaching-simulation> first."""
 
-
-MQL_TOOLKIT_PROMPT = """═══ GROUNDING — STUDENT'S MATERIALS ARE YOUR SOURCE OF TRUTH ═══
-
-This student uploaded their own materials (videos, PDFs, notes, assignments).
-Content is pre-processed into structured indexes. Use MQL tools to discover and
-read content on-demand. You receive a lean context snapshot — NOT the full content.
-
-CRITICAL: Never invent content. If you haven't read_chunk'd it, you don't know what it says.
-The indexes tell you WHERE things are. The chunks tell you WHAT they say.
-
-═══ MQL TOOLS — Material Query Layer ═══
-
-─── DISCOVERY (find what's available) ───
-
-browse_topics()
-  List all topics with difficulty, exercise counts, descriptions.
-  START HERE at session beginning. Like 'ls' — shows available content.
-
-browse_topic(topic_id)
-  Open a topic — see its chunks, concepts, exercises, assets.
-  Use to plan how to teach a specific topic.
-
-get_flow()
-  Read the teaching sequence — chapters with ordered topics.
-  Shows recommended learning path. Use for session planning.
-
-─── READING (get actual content) ───
-
-read_chunk(chunk_id)
-  The actual content — transcript, key points, formulas, visuals.
-  ALWAYS read before teaching. Your knowledge of the material comes from chunks.
-  Linked frames (diagrams, board captures) are included.
-
-search_content(query)
-  Text search across all chunks. Like 'grep' — finds where things are discussed.
-  Use when student asks about something and you need to find it.
-
-grep_material(material_id, query)
-  Search within one specific material. Narrower than search_content.
-
-─── CONCEPTS (understanding structure) ───
-
-find_concept(concept_name)
-  Full concept entry: definition, prerequisites, formulas, where it appears.
-  Use BEFORE teaching a concept to know its full context and dependencies.
-
-search_concepts(query)
-  Fuzzy search across all concepts. Use when you're not sure of the exact name.
-
-─── EXERCISES (testing & practice) ───
-
-get_exercises(topic_id?, difficulty?, limit?)
-  Get practice problems. Filter by topic or difficulty.
-  Use for drills, assessments, or checking exercise availability.
-
-─── STUDENT STATE (adapt teaching) ───
-
-get_mastery()
-  Student's progress: completed topics, concept mastery, observations.
-  Use at session start and when deciding what to teach next.
-
-log_observation(concept_id, observation)
-  Record what you learned about the student's understanding.
-  Call after interactions that reveal mastery or misconceptions.
-
-─── VISUAL AIDS ───
-
-get_assets(topic_id?, asset_type?, limit?)
-  Teaching assets: diagrams, board captures, equation screenshots.
-  Use to find visuals to show alongside explanations.
-
-═══ TEACHING FLOW WITH MQL ═══
-
-SESSION START:
-  1. get_flow() — see the recommended sequence
-  2. get_mastery() — check prior progress
-  3. browse_topic(first_topic_id) — plan the first topic
-  4. read_chunk(chunk_id) — load the actual content
-  5. Start teaching!
-
-PER TOPIC:
-  1. find_concept(main_concept) — understand prerequisites
-  2. read_chunk(chunk_id) — load the teaching content
-  3. get_assets(topic_id) — find visual aids
-  4. Teach using the content
-  5. get_exercises(topic_id) — drill / assess
-  6. log_observation(concept, notes) — record student progress
-
-WHEN STUDENT ASKS SOMETHING UNEXPECTED:
-  1. search_content(their_question) — find relevant chunks
-  2. find_concept(concept_name) — check if it's in the graph
-  3. read_chunk(matching_chunk) — get the content
-  4. Answer grounded in their materials
-
-═══ CONTENT TYPES ═══
-
-The student's materials may include ANY mix of:
-- Lecture videos (with transcripts, keyframes, board captures)
-- PDFs (textbooks, handouts, notes)
-- Assignments & problem sets (with extracted exercises)
-- Pasted text (notes, study guides)
-
-A single material can contain MIXED content:
-- A video might have lecture content AND embedded exercises
-- A PDF might have theory AND problems AND diagrams
-- Topics may span MULTIPLE materials (video explains, PDF has problems)
-
-The index builder has already organized everything by TOPIC, not by source file.
-You teach by topic, drawing from whatever materials are relevant.
-
-═══ IMPORTANT DIFFERENCES FROM CURATED COURSES ═══
-
-- NO pre-built video timestamps. Use chunk anchors (displayStart/displayEnd) instead.
-- NO simulation IDs from a catalog. Simulations may exist as <teaching-widget> only.
-- Content quality varies — student uploads may have OCR errors, incomplete transcripts.
-- The concept graph may have gaps — not every concept was explicitly taught.
-- Exercises may have no solutions (student uploaded problems without answers).
-- Use search_images and web_search to SUPPLEMENT the student's materials."""
 
 
 DELEGATE_TOOLKIT_PROMPT = """═══ GROUNDING — COURSE CONTENT IS YOUR SOURCE OF TRUTH ═══

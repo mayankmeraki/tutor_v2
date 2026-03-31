@@ -4,11 +4,14 @@ The Tutor spawns background agents via AgentRuntime
 and can delegate teaching to focused sub-agents via DelegationState.
 
 Sessions are restored from MongoDB on cache miss (server restart).
+
+Session phases: TRIAGE → PLAN → TEACH → ASSESS (→ loop)
 """
 
 from __future__ import annotations
 
 import asyncio
+import enum
 import logging
 import time
 import uuid
@@ -22,6 +25,14 @@ log = logging.getLogger(__name__)
 
 MAX_SESSIONS = 500
 SESSION_TTL_SECONDS = 1800  # 30 minutes
+
+
+class SessionPhase(str, enum.Enum):
+    """Session lifecycle phases."""
+    TRIAGE = "triage"
+    PLANNING = "planning"
+    TEACHING = "teaching"
+    ASSESSMENT = "assessment"
 
 
 @dataclass
@@ -38,6 +49,12 @@ class Session:
     completion_reason: str | None = None
     pause_note: str | None = None
     teaching_mode: str = "voice"  # voice mode is default
+
+    # ── Session phase (TRIAGE → PLAN → TEACH → ASSESS) ──
+    phase: SessionPhase = SessionPhase.TEACHING  # Overridden by _init_session_phase on first turn
+    triage_result: dict | None = None            # Diagnostic output from triage
+    struggle_streak: int = 0                     # Consecutive confused signals from tutor
+    last_signals: dict = field(default_factory=dict)  # Latest session_signal from tutor
 
     # ── Housekeeping ──
     last_accessed: float = field(default_factory=time.time)

@@ -112,6 +112,10 @@
 #bd-board-content {
   position: relative;
   transform-origin: top left;
+  /* Large bottom padding so content is never hidden behind fixed subtitle + input bars */
+  padding-bottom: 200px;
+  /* Minimum height ensures the board is always scrollable (like Excel adding empty rows) */
+  min-height: calc(100vh + 200px);
 }
 
 
@@ -600,31 +604,37 @@
 
 /* Figure container — wraps title + canvas + legend like matplotlib */
 .bd-anim-figure {
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 6px;
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 12px;
   overflow: hidden;
-  background: rgba(10, 14, 12, 0.8);
-  box-shadow: 0 2px 20px rgba(0, 0, 0, 0.3);
+  background: #0c0f11;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
   margin-top: var(--bd-el-gap);
 }
 
-/* Figure title bar — like plt.title() */
+/* Figure title bar */
 .bd-anim-title {
-  padding: 6px 12px;
+  padding: 8px 14px;
   border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-  font-style: italic;
-  opacity: 0.85;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--bd-cyan);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255,255,255,0.02);
 }
 
-/* Legend bar — inline below canvas, horizontal layout */
+/* Legend bar — horizontal, inside the figure frame */
 .bd-anim-legend-bar {
   display: flex;
   flex-wrap: wrap;
-  gap: 12px 20px;
-  padding: 6px 12px;
+  gap: 10px 18px;
+  padding: 8px 14px;
   border-top: 1px solid rgba(255, 255, 255, 0.06);
-  font-size: var(--bd-small);
-  color: var(--bd-dim);
+  font-size: 12px;
+  color: rgba(255,255,255,0.55);
+  background: rgba(255,255,255,0.02);
 }
 .bd-anim-legend-item {
   display: flex;
@@ -632,32 +642,39 @@
   gap: 6px;
 }
 .bd-anim-legend-dot {
-  width: 10px;
-  height: 10px;
+  width: 8px;
+  height: 8px;
   border-radius: 50%;
   flex-shrink: 0;
+  box-shadow: 0 0 6px currentColor;
 }
 
 /* Canvas area inside figure */
 .bd-anim-box {
   display: block;
   overflow: hidden;
-  background: rgba(15, 20, 16, 1);
+  background: #0a0e10;
   position: relative;
-  min-height: 200px;
-  aspect-ratio: 3 / 2;
+  min-height: 220px;
+  aspect-ratio: 4 / 3;
+}
+/* Ensure p5 canvas fills the box */
+.bd-anim-box canvas {
+  display: block;
+  width: 100% !important;
+  height: 100% !important;
 }
 
-/* Figure inside a row — constrained width for side-by-side layout */
+/* Figure inside a row */
 .bd-row > .bd-anim-figure {
   flex: 0 0 50%;
-  max-width: 420px;
+  max-width: 480px;
 }
 
-/* Standalone figure — larger default */
+/* Standalone figure — take more space */
 .bd-anim-figure:not(.bd-row *) {
-  width: 65%;
-  max-width: 550px;
+  width: 70%;
+  max-width: 600px;
 }
 
 /* Fullscreen mode — fixed overlay */
@@ -831,12 +848,13 @@
 /* Board content wrapper — scrollable with max-width */
 .bd-canvas-wrap {
   flex: 1;
-  overflow: auto;
-  overflow-y: scroll;
+  overflow-x: hidden;
+  overflow-y: scroll !important;
   position: relative;
   -webkit-overflow-scrolling: touch;
   touch-action: pan-x pan-y pinch-zoom;
   background: var(--bd-bg);
+  scroll-behavior: smooth;
 }
 
 /* Scale down spacing and fonts on narrow screens */
@@ -1010,3 +1028,41 @@
 .bd-prog-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255, 255, 255, 0.08); }
 .bd-prog-dot.bd-prog-done { background: var(--bd-green); }
 .bd-prog-dot.bd-prog-active { background: rgba(255, 255, 255, 0.3); }
+
+/* ── Code block on board ─── */
+.bd-code-block { background: #0d1117; border: 1px solid #1e2733; border-radius: 10px;
+  margin: 10px 0; overflow: hidden; max-width: 600px; }
+.bd-code-header { display: flex; justify-content: space-between; align-items: center;
+  padding: 6px 12px; background: rgba(255,255,255,.02); border-bottom: 1px solid #1e2733; }
+.bd-code-lang { font-size: 10px; font-weight: 600; color: #8b949e; text-transform: uppercase;
+  letter-spacing: .5px; font-family: Inter, sans-serif; }
+.bd-code-file { font-size: 11px; color: #a1a1aa; font-family: 'JetBrains Mono', monospace; }
+.bd-code-body { padding: 10px 14px; overflow-x: auto; font-family: 'JetBrains Mono', monospace;
+  font-size: 13px; line-height: 1.7; color: #e6edf3; white-space: pre; }
+.bd-cl { display: block; padding: 1px 0; }
+.bd-cl-hi { background: rgba(52,211,153,.07); border-left: 3px solid #34d399;
+  padding-left: 11px; margin-left: -14px; margin-right: -14px; padding-right: 14px; }
+.bd-ln { display: inline-block; width: 24px; text-align: right; margin-right: 14px;
+  color: #484f58; user-select: none; font-size: 11px; }
+
+/* ── Three.js 3D scene on board ─── */
+.bd-scene3d { margin: 10px 0; position: relative; }
+.bd-scene3d canvas { display: block; border-radius: 10px; }
+
+/* 3D skeleton loading */
+.bd-3d-skeleton { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: 12px; color: #52525b; font-size: 12px; font-family: Inter, sans-serif; }
+.bd-3d-skeleton-orb { width: 48px; height: 48px; border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(52,211,153,.15), rgba(52,211,153,.03));
+  border: 1px solid rgba(52,211,153,.1);
+  animation: bd3dPulse 2s ease-in-out infinite; }
+@keyframes bd3dPulse {
+  0%, 100% { transform: scale(1); opacity: 0.6; box-shadow: 0 0 20px rgba(52,211,153,.05); }
+  50% { transform: scale(1.1); opacity: 1; box-shadow: 0 0 40px rgba(52,211,153,.15); }
+}
+
+/* 3D fallback (when Three.js unavailable) */
+.bd-3d-fallback { display: flex; flex-direction: column; align-items: center; justify-content: center;
+  height: 100%; gap: 8px; color: #52525b; font-size: 12px; font-family: Inter, sans-serif; }
+.bd-3d-fallback-icon { font-size: 36px; opacity: 0.3; }
+.bd-3d-fallback-sub { font-size: 10px; color: #3f3f46; }

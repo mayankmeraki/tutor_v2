@@ -415,6 +415,18 @@ function snapshotScene() {
   board.liveScene = newScene;
   board.currentRow = null;
   board.animRetries.clear();
+  board._userScrolledUp = false; // Reset scroll lock for new scene
+
+  // Scroll to the new scene so content starts at the top of viewport
+  var wrap = document.getElementById('bd-canvas-wrap');
+  if (wrap) {
+    requestAnimationFrame(function() {
+      var sceneRect = newScene.getBoundingClientRect();
+      var wrapRect = wrap.getBoundingClientRect();
+      var targetTop = wrap.scrollTop + (sceneRect.top - wrapRect.top) - 20;
+      wrap.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
+    });
+  }
 
   console.log('[Scene] Snapshot ' + (board.scenes.length - 1) + ' — DOM preserved (no JPEG)');
 }
@@ -904,11 +916,135 @@ async function runCommand(cmd) {
     case 'matrix':   break;
     case 'voice':    break;
     case 'pause':    break;
+    case 'code':     await renderCode(cmd); break;
+    case 'scene3d':  await renderScene3D(cmd); break;
     default:
       console.warn('[Board] Unknown command:', cmd.cmd);
   }
 
   autoScroll();
+}
+
+// ── Code block (syntax-highlighted, read-only) ──────────────────────
+async function renderCode(cmd) {
+  var el = createElement('div', cmd, 'bd-code-block');
+  var header = document.createElement('div');
+  header.className = 'bd-code-header';
+  header.innerHTML = '<span class="bd-code-lang">' + (cmd.lang || 'code').toUpperCase() + '</span>';
+  if (cmd.filename) header.innerHTML += '<span class="bd-code-file">' + cmd.filename + '</span>';
+  el.appendChild(header);
+
+  var body = document.createElement('pre');
+  body.className = 'bd-code-body';
+  var lines = (cmd.text || '').split('\n');
+  var highlight = cmd.highlight || [];
+  body.innerHTML = lines.map(function(line, i) {
+    var lineNum = i + 1;
+    var cls = highlight.includes(lineNum) ? 'bd-cl bd-cl-hi' : 'bd-cl';
+    return '<span class="' + cls + '"><span class="bd-ln">' + lineNum + '</span>' + escapeHtml(line) + '</span>';
+  }).join('\n');
+  el.appendChild(body);
+
+  placeElement(el, cmd.placement, cmd);
+}
+
+function escapeHtml(t) {
+  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+// ── Three.js 3D scene ───────────────────────────────────────────────
+async function renderScene3D(cmd) {
+  // Show skeleton placeholder immediately
+  var container = createElement('div', cmd, 'bd-scene3d');
+  container.style.width = (cmd.width || 400) + 'px';
+  container.style.height = (cmd.height || 300) + 'px';
+  container.style.borderRadius = '10px';
+  container.style.overflow = 'hidden';
+  container.style.border = '1px solid rgba(255,255,255,0.08)';
+  container.style.background = '#0a0c10';
+  container.style.position = 'relative';
+  placeElement(container, cmd.placement, cmd);
+
+  // Skeleton animation while loading
+  container.innerHTML = '<div class="bd-3d-skeleton"><div class="bd-3d-skeleton-orb"></div><span>' + (cmd.title || 'Loading 3D scene...') + '</span></div>';
+
+  if (typeof THREE === 'undefined') {
+    console.warn('[Board] Three.js not loaded — showing fallback');
+    container.innerHTML = '<div class="bd-3d-fallback">' +
+      '<div class="bd-3d-fallback-icon">&#9674;</div>' +
+      '<span>3D: ' + (cmd.title || 'visualization') + '</span>' +
+      '<span class="bd-3d-fallback-sub">Interactive 3D not available</span></div>';
+    return;
+  }
+
+  // Clear skeleton, set up Three.js
+  container.innerHTML = '';
+  var w = cmd.width || 400, h = cmd.height || 300;
+  var scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0a0c10);
+  var camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000);
+  camera.position.set(cmd.cameraX || 3, cmd.cameraY || 2, cmd.cameraZ || 5);
+  camera.lookAt(0, 0, 0);
+
+  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+  renderer.setSize(w, h);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  container.appendChild(renderer.domElement);
+
+  // Orbit controls for interaction
+  if (THREE.OrbitControls) {
+    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.enableDamping = true;
+    controls.dampingFactor = 0.05;
+    controls.autoRotate = cmd.autoRotate !== false;
+    controls.autoRotateSpeed = cmd.rotateSpeed || 1;
+  }
+
+  // Lighting
+  var ambient = new THREE.AmbientLight(0x404040, 0.6);
+  scene.add(ambient);
+  var dir = new THREE.DirectionalLight(0xffffff, 0.8);
+  dir.position.set(5, 5, 5);
+  scene.add(dir);
+
+  // Grid helper
+  if (cmd.grid !== false) {
+    var grid = new THREE.GridHelper(10, 10, 0x1a3a2a, 0x111413);
+    scene.add(grid);
+  }
+
+  // Axes helper
+  if (cmd.axes !== false) {
+    var axes = new THREE.AxesHelper(2);
+    scene.add(axes);
+  }
+
+  // Execute the setup code (LLM-generated Three.js code)
+  if (cmd.code) {
+    try {
+      var setupFn = new Function('THREE', 'scene', 'camera', 'renderer', cmd.code);
+      setupFn(THREE, scene, camera, renderer);
+    } catch (e) {
+      console.error('[Board] scene3d code error:', e);
+    }
+  }
+
+  // Animation loop
+  var animId;
+  function animate() {
+    animId = requestAnimationFrame(animate);
+    if (controls) controls.update();
+    renderer.render(scene, camera);
+  }
+  animate();
+
+  // Store for cleanup
+  board.animations.push({
+    instance: {
+      remove: function() { cancelAnimationFrame(animId); renderer.dispose(); },
+      noLoop: function() { cancelAnimationFrame(animId); }
+    }
+  });
 }
 
 // ── COLUMNS (grid layout zone) ──
@@ -1824,10 +1960,11 @@ function autoScroll() {
     var wrapRect = wrap.getBoundingClientRect();
     var elRect = lastEl.getBoundingClientRect();
 
-    // Always scroll if content is below visible area
-    if (elRect.bottom > wrapRect.bottom - 40) {
-      // Place the new element's top at about 30% from the top of viewport
-      var targetTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.3;
+    // Scroll if new content is below the top 70% of viewport
+    // This keeps new content appearing near the top, not accumulating at the bottom
+    if (elRect.top > wrapRect.top + wrapRect.height * 0.6 || elRect.bottom > wrapRect.bottom - 40) {
+      // Place the new element near the top (20% from top of viewport)
+      var targetTop = wrap.scrollTop + (elRect.top - wrapRect.top) - wrapRect.height * 0.2;
       wrap.scrollTo({ top: Math.max(0, targetTop), behavior: 'smooth' });
     }
   });

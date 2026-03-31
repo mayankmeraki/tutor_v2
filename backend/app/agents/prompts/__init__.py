@@ -1,6 +1,6 @@
 from .tutor import TUTOR_SYSTEM_PROMPT, build_tutor_system_prompt
 from .planning import PLANNING_PROMPT
-from .toolkit import TOOLKIT_PROMPT, MQL_TOOLKIT_PROMPT
+from .toolkit import TOOLKIT_PROMPT
 from .tags import TAGS_PROMPT
 from .assessment import ASSESSMENT_SYSTEM_PROMPT
 from .teaching_delegate import build_delegation_prompt
@@ -224,8 +224,27 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     # DYNAMIC: context that changes per turn (not cacheable)
     parts = []
 
-    # ─── SECTION 0: TEACHING OVERRIDES (per-student) ───────────
-    # Injected into dynamic context so static prompt stays cacheable.
+    # ─── SECTION 0: SESSION PHASE (triage overlay) ──────────────
+    session_phase = context_data.get("sessionPhase")
+    if session_phase == "triage":
+        from app.agents.prompts.triage import TRIAGE_SYSTEM_PROMPT
+        parts.append("\n═══════════════════════════════════════════════════")
+        parts.append(" CURRENT MODE: TRIAGE — diagnostic before teaching")
+        parts.append("═══════════════════════════════════════════════════\n")
+        parts.append(TRIAGE_SYSTEM_PROMPT)
+        # Include triage-specific context
+        triage_ctx = context_data.get("triageContext") or {}
+        if triage_ctx.get("contentBrief"):
+            parts.append(f"\n{triage_ctx['contentBrief']}\n")
+        elif triage_ctx.get("availableContent"):
+            parts.append(f"\n[AVAILABLE CONTENT]\n{triage_ctx['availableContent']}\n")
+        if triage_ctx.get("upcomingTopics"):
+            parts.append(f"\n[UPCOMING TOPICS]\n{triage_ctx['upcomingTopics']}\n")
+        if triage_ctx.get("lastAssessment"):
+            parts.append(f"\n[LAST ASSESSMENT]\n{triage_ctx['lastAssessment']}\n")
+        parts.append("")
+
+    # ─── SECTION 0b: TEACHING OVERRIDES (per-student) ──────────
     if teaching_overrides:
         parts.append(teaching_overrides)
         parts.append("")
@@ -421,55 +440,6 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
     dynamic_context = "\n".join(parts)
     return (static_prompt, dynamic_context)
-
-
-def build_byo_tutor_prompt(context_data: dict) -> str:
-    """Build tutor prompt for BYO (student-uploaded) collections.
-
-    Uses MQL toolkit instead of curated course toolkit. The lean context
-    snapshot replaces the full course map dump.
-    """
-    parts = [TUTOR_SYSTEM_PROMPT, MQL_TOOLKIT_PROMPT, TAGS_PROMPT]
-
-    # Lean context snapshot (replaces full course map, concepts, simulations)
-    lean_context = context_data.get("leanContext")
-    if lean_context:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" COLLECTION CONTEXT (lean snapshot — use MQL tools for details)")
-        parts.append("═══════════════════════════════════════════════════\n")
-        parts.append(lean_context)
-
-    # Student profile (if available)
-    student_profile = context_data.get("studentProfile")
-    if student_profile:
-        parts.append(f"\n[Student Profile]\n{student_profile}\n")
-
-    # Session metrics
-    session_metrics = context_data.get("sessionMetrics")
-    if session_metrics:
-        parts.append(f"[Session Metrics]\n{session_metrics}\n")
-
-    # Student model
-    student_model = context_data.get("studentModel")
-    if student_model:
-        parts.append(f"[Student Model]\n{student_model}\n")
-
-    # Agent results, delegation results, assessment results — same as curated
-    agent_results = context_data.get("agentResults")
-    if agent_results:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" AGENT RESULTS")
-        parts.append("═══════════════════════════════════════════════════\n")
-        parts.append(agent_results)
-
-    assessment_result = context_data.get("assessmentResult")
-    if assessment_result:
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" ASSESSMENT RESULTS")
-        parts.append("═══════════════════════════════════════════════════\n")
-        parts.append(assessment_result)
-
-    return "\n".join(parts)
 
 
 def build_planning_prompt(context_data: dict) -> str:

@@ -806,27 +806,39 @@ class OpenRouterLLMStream:
         usage_in = 0
         usage_out = 0
         cost_usd = None
+        cached_tokens = 0
         if self._usage:
             usage_in = getattr(self._usage, "prompt_tokens", 0) or 0
             usage_out = getattr(self._usage, "completion_tokens", 0) or 0
             cost_usd = getattr(self._usage, "cost", None)
+            # Extract cache metrics from prompt_tokens_details
+            ptd = getattr(self._usage, "prompt_tokens_details", None)
+            if ptd:
+                cached_tokens = getattr(ptd, "cached_tokens", 0) or 0
 
         elapsed = (
             (time.monotonic() - self._start_time) * 1000
             if self._start_time
             else 0
         )
+        cache_pct = round(cached_tokens / usage_in * 100) if usage_in > 0 and cached_tokens else 0
         log.info(
             "LLM stream complete",
             extra={
                 "model": self._model,
                 "tokens_in": usage_in,
                 "tokens_out": usage_out,
+                "cached_tokens": cached_tokens,
+                "cache_hit_pct": cache_pct,
                 "duration_ms": round(elapsed),
                 "stop_reason": stop_reason,
                 "provider": "openrouter",
             },
         )
+        if cached_tokens > 0:
+            log.info("Prompt cache HIT: %d/%d tokens cached (%d%%)", cached_tokens, usage_in, cache_pct)
+        elif usage_in > 1000:
+            log.warning("Prompt cache MISS: 0/%d tokens cached — check cache_control setup", usage_in)
 
         response = LLMResponse(
             content=content,
@@ -839,6 +851,23 @@ class OpenRouterLLMStream:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+
+
+def _build_anthropic_system(system) -> str | list[dict]:
+    """Convert system prompt to Anthropic format with cache_control.
+
+    If system is a tuple (static, dynamic), returns a list of content blocks
+    with cache_control on the static part. Otherwise returns the string as-is.
+    """
+    if isinstance(system, tuple) and len(system) == 2:
+        static_part, dynamic_part = system
+        blocks = [
+            {"type": "text", "text": static_part, "cache_control": {"type": "ephemeral"}},
+        ]
+        if dynamic_part and dynamic_part.strip():
+            blocks.append({"type": "text", "text": dynamic_part})
+        return blocks
+    return system if isinstance(system, str) else str(system)
 
 
 async def _llm_call_single(
@@ -856,7 +885,7 @@ async def _llm_call_single(
         kwargs: dict = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": "\n\n".join(system) if isinstance(system, tuple) else system,
+            "system": _build_anthropic_system(system),
             "messages": _prepare_messages_anthropic(messages),
         }
         if tools:
@@ -879,6 +908,12 @@ async def _llm_call_single(
             "model": _prefix_model(model),
             "max_tokens": max_tokens,
             "messages": or_messages,
+            "extra_body": {
+                "provider": {
+                    "order": ["Anthropic"],
+                    "allow_fallbacks": False,
+                },
+            },
         }
         if tools:
             kwargs["tools"] = _convert_tools_openrouter(tools)
@@ -944,7 +979,7 @@ def _build_stream(
         kwargs: dict = {
             "model": model,
             "max_tokens": max_tokens,
-            "system": "\n\n".join(system) if isinstance(system, tuple) else system,
+            "system": _build_anthropic_system(system),
             "messages": _prepare_messages_anthropic(messages),
         }
         if tools:
@@ -960,6 +995,13 @@ def _build_stream(
         kwargs = {
             "messages": or_messages,
             "max_tokens": max_tokens,
+            # Enable Anthropic prompt caching via OpenRouter provider config
+            "extra_body": {
+                "provider": {
+                    "order": ["Anthropic"],
+                    "allow_fallbacks": False,
+                },
+            },
         }
         if tools:
             kwargs["tools"] = _convert_tools_openrouter(tools)
