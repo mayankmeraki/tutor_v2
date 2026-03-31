@@ -230,21 +230,10 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         parts.append(teaching_overrides)
         parts.append("")
 
-    # ─── SECTION 1: COURSE CONTEXT ──────────────────────────────
-    # What this course contains — static per course, not per student.
-    parts.append("\n═══════════════════════════════════════════════════")
-    parts.append(" COURSE CONTEXT — the course content (your source of truth)")
-    parts.append("═══════════════════════════════════════════════════\n")
-
-    course_fields = [
-        ("courseMap", "Course Map"),
-        ("concepts", "Course Concepts"),
-        ("simulations", "Available Simulations"),
-    ]
-    for key, label in course_fields:
-        val = context_data.get(key)
-        if val:
-            parts.append(f"[{label}]\n{val}\n")
+    # ─── COURSE CONTEXT ── REMOVED from per-turn injection ─────
+    # Course map, concepts, simulations are NO LONGER sent every turn.
+    # The planner gets them at session start. The tutor uses content_map tool on demand.
+    # This saves ~1700 tokens per turn (~34,000 tokens per 20-turn session).
 
     # ─── SECTION 2: STUDENT CONTEXT ─────────────────────────────
     # Who this student is and what they know — persists across sessions.

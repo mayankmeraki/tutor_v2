@@ -2258,6 +2258,35 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                                 # in the next context update. For now, return a note.
                                 result = "Frame capture requested. The video frame will be included in the next context. Describe what you need to see and the student's current frame will be provided."
 
+                        # ── content_map tool — return course structure on demand ──
+                        elif block.name == "content_map":
+                            course_id, _ = _extract_student_info(context_data)
+                            if course_id:
+                                try:
+                                    from app.services.content_service import get_course_with_hierarchy
+                                    db_session = request.state.db if hasattr(request.state, 'db') else None
+                                    if not db_session:
+                                        from app.core.database import get_db
+                                        db_gen = get_db()
+                                        db_session = await db_gen.__anext__()
+                                    map_data = await get_course_with_hierarchy(db_session, course_id)
+                                    if map_data:
+                                        lines = [f"{map_data['course']['title']}\n"]
+                                        for mod in map_data.get('modules', []):
+                                            lines.append(f"Module: {mod['title']}")
+                                            mod_lessons = [l for l in map_data.get('lessons', []) if l['module_id'] == mod['id']]
+                                            for l in sorted(mod_lessons, key=lambda x: x.get('order', 0)):
+                                                dur = f"{l.get('duration', '')} min" if l.get('duration') else ''
+                                                vid = ' [has video]' if l.get('video_url') else ''
+                                                lines.append(f"  Lesson {l['id']}: {l['title']} ({dur}){vid}")
+                                        result = "\n".join(lines)
+                                    else:
+                                        result = "No course data found."
+                                except Exception as e:
+                                    result = f"Failed to load content map: {str(e)[:100]}"
+                            else:
+                                result = "No course context available."
+
                         # ── Normal tool execution ─────────────────────
                         else:
                             # Cap get_section_content — planning agent handles bulk content loading

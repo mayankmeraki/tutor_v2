@@ -1770,11 +1770,9 @@ function buildContext() {
     }),
   });
 
-  // Context 2: Course Map
-  items.push({
-    description: 'Course Map — full course structure with modules, lessons, sections, timestamps, and video URLs',
-    value: buildCourseContext(),
-  });
+  // Course Map, Concepts, Simulations — NO LONGER sent every turn.
+  // The planner gets these at session start. The tutor calls content_map tool on demand.
+  // This saves ~1700 tokens per turn.
 
   // Context 3: Session Metrics
   const elapsed = state.sessionStartTime
@@ -1789,8 +1787,8 @@ function buildContext() {
     }),
   });
 
-  // Context 5: Available Simulations
-  if (state.simulations && state.simulations.length > 0) {
+  // Simulations — only send if student has one open (active state), not the full catalog
+  if (state.simulations && state.simulations.length > 0 && false) { // DISABLED — moved to content_map tool
     const relevant = state.simulations.filter(s =>
       s.lesson_id === cp.currentLessonId ||
       s.lesson_id === cp.currentLessonId + 1 ||
@@ -1808,22 +1806,7 @@ function buildContext() {
     }
   }
 
-  // Context 6: Course Concepts — compact (names grouped by category)
-  if (state.concepts && state.concepts.length > 0) {
-    const byCategory = {};
-    for (const c of state.concepts) {
-      const cat = c.category || 'general';
-      if (!byCategory[cat]) byCategory[cat] = [];
-      byCategory[cat].push(c.name);
-    }
-    const lines = Object.entries(byCategory).map(([cat, names]) =>
-      `  ${cat}: ${names.join(', ')}`
-    );
-    items.push({
-      description: 'Course Concepts — all concepts taught in this course',
-      value: `${state.concepts.length} concepts by category:\n${lines.join('\n')}`,
-    });
-  }
+  // Course Concepts — REMOVED from per-turn context. Available via content_map tool.
 
   // Context: Video State (if in video follow-along mode)
   if (state.video && state.video.active) {

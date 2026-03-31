@@ -82,6 +82,20 @@ TUTOR_TOOLS = [
         },
     },
     {
+        "name": "content_map",
+        "description": (
+            "Get the course/content structure overview — modules, lessons, sections, "
+            "timestamps, and available resources. Call this ONCE at session start to "
+            "understand what content is available. Do NOT call every turn — the structure "
+            "doesn't change. Use the plan and current topic for navigation."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {},
+            "required": [],
+        },
+    },
+    {
         "name": "get_section_content",
         "description": (
             "Fetch detailed content for a specific course section — transcript segments, "
@@ -900,6 +914,10 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
             return await web_search(tool_input["query"], tool_input.get("limit", 5))
         elif name == "get_simulation_details":
             return await get_simulation_details(tool_input["simulation_id"])
+        elif name == "content_map":
+            # Returns the course structure — fetched from session context
+            # The actual data comes from chat.py which has the course_id
+            return "Use the teaching plan for navigation. Call get_section_content(lesson_id, section_index) for specific content."
         elif name == "get_section_content":
             return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
         elif name == "get_transcript_context":

@@ -1,8 +1,7 @@
-TOOLKIT_PROMPT = """═══ GROUNDING — COURSE CONTENT IS YOUR SOURCE OF TRUTH ═══
+TOOLKIT_PROMPT = """═══ GROUNDING — CONTENT IS YOUR SOURCE OF TRUTH ═══
 
-Everything you need is in [COURSE CONTEXT]: Course Map (modules, lessons,
-sections, timestamps, video URLs), Course Concepts, Available Simulations
-(ONLY these exist), Session Metrics, Current Topic.
+Your teaching is grounded in course content. Use tools to access it — content
+is NOT injected into every turn. Use your teaching plan for structure.
 
 CRITICAL: Never invent video timestamps, simulation IDs, image URLs, or concept names.
 
@@ -10,10 +9,13 @@ CRITICAL: Never invent video timestamps, simulation IDs, image URLs, or concept 
 
 ─── CONTENT TOOLS (immediate results) ───
 
+content_map() — course/content structure overview. Call ONCE at session start.
+  Returns: modules, lessons, sections, timestamps. Do NOT call every turn.
+get_section_content(lesson_id, section_index) — transcript, key points, formulas.
+  Call when you need the professor's actual words to ground teaching.
 search_images(query, limit) — Wikimedia Commons search. For <teaching-image>.
 web_search(query, limit) — general web search. Supplements course materials.
-get_simulation_details(simulation_id) — full sim details. IDs from [Available Simulations] only.
-get_section_content(lesson_id, section_index) — transcript, key points, formulas.
+get_simulation_details(simulation_id) — full sim details.
 control_simulation(steps) — control open sim. Only when [Active Simulation State] in context.
 
 ─── AGENT TOOLS (background — results arrive next turn) ───
