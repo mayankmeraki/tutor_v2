@@ -12825,20 +12825,23 @@ function voiceCleanText(text) {
 
 // Pre-fetch TTS response without consuming the body — used for lookahead prefetching
 async function voiceFetchTTS(text) {
+  if (state._stopRequested) return null; // Don't fetch TTS after stop
   const clean = voiceCleanText(text);
   if (!clean || clean.length < 3) return null;
+  // Truncate to 490 chars to stay within TTS 500 char limit
+  const truncated = clean.length > 490 ? clean.slice(0, 487) + '...' : clean;
   try {
     const resp = await fetch(`${state.apiUrl}/api/tts`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ text: clean, voice_id: ELEVENLABS_VOICE_ID }),
+      body: JSON.stringify({ text: truncated, voice_id: ELEVENLABS_VOICE_ID }),
     });
     return resp.ok ? resp : null;
   } catch { return null; }
 }
 
 async function voiceSpeak(text, prefetchedResp) {
-  if (state.teachingMode !== 'voice' || !text.trim()) return;
+  if (state._stopRequested || state.teachingMode !== 'voice' || !text.trim()) return;
 
   if (!state.voiceAudioCtx) state.voiceAudioCtx = new AudioContext({ sampleRate: 44100 });
   if (state.voiceAudioCtx.state === 'suspended') await state.voiceAudioCtx.resume();
@@ -13270,6 +13273,9 @@ function _eagerInitBoard(title) {
 
 async function _eagerExecutorLoop() {
   while (!_eager.done) {
+    // Check if stopped
+    if (state._stopRequested) { _eager.done = true; break; }
+
     if (_eager.queue.length > 0) {
       const beat = _eager.queue.shift();
 
