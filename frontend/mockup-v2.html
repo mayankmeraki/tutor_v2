@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capacity v2</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{--bg:#09090b;--s:#111113;--e:#18181b;--bd:rgba(255,255,255,.06);
+  --ac:#34d399;--ad:rgba(52,211,153,.08);--t:#fafafa;--t2:#a1a1aa;--t3:#52525b}
+html{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t);-webkit-font-smoothing:antialiased}
+body{min-height:100vh}
+.screen{display:none;min-height:100vh}.screen.on{display:block}
+
+nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
+  padding:0 clamp(16px,4vw,32px);height:48px;background:rgba(9,9,11,.82);backdrop-filter:blur(14px);border-bottom:1px solid var(--bd)}
+.logo{font-size:15px;font-weight:700}.logo em{font-style:normal;color:var(--ac)}
+.nr{display:flex;align-items:center;gap:12px}
+.nr a{font-size:11px;color:var(--t2);cursor:pointer}.nr a:hover,.nr a.on{color:var(--t)}
+.streak{padding:2px 7px;border-radius:8px;background:rgba(251,191,36,.08);font-size:9px;font-weight:600;color:#fbbf24}
+.pill{display:flex;align-items:center;gap:5px;padding:2px 8px 2px 2px;border-radius:14px;background:var(--e);font-size:10px;color:var(--t2);cursor:pointer}
+.pill-a{width:18px;height:18px;border-radius:50%;background:var(--ad);color:var(--ac);display:grid;place-items:center;font-size:8px;font-weight:700}
+.wrap{max-width:800px;margin:0 auto;padding:0 clamp(16px,4vw,32px)}
+.btn{display:inline-flex;align-items:center;gap:5px;font-weight:600;border-radius:8px;border:none;cursor:pointer;font-family:inherit;transition:all .15s}
+.btn-s{padding:5px 12px;font-size:10px}.btn-m{padding:8px 16px;font-size:11px}.btn-l{padding:11px 22px;font-size:12px}
+.btn-ac{background:var(--ac);color:#09090b}.btn-ac:hover{background:#2dd4a0}
+.btn-gh{background:var(--e);color:var(--t2)}.btn-gh:hover{color:var(--t)}
+.sec{padding:24px 0 0}.sec-h{display:flex;justify-content:space-between;align-items:baseline;margin-bottom:10px}
+.sec-h h2{font-size:13px;font-weight:600}.sec-h a{font-size:10px;color:var(--t3);cursor:pointer}.sec-h a:hover{color:var(--ac)}
+.tag-c{background:rgba(99,102,241,.08);color:#a5b4fc;font-size:8px;padding:1px 5px;border-radius:3px;font-weight:600}
+.tag-m{background:rgba(168,85,247,.08);color:#c084fc;font-size:8px;padding:1px 5px;border-radius:3px;font-weight:600}
+
+/* ══════════════════ LANDING ══════════════════
+   The board IS the hero. Show the product working.
+   Minimal text. Maximum demo.
+   ══════════════════════════════════════════════ */
+.land{max-width:900px;margin:0 auto;padding:clamp(32px,6vh,56px) clamp(16px,4vw,32px) 0}
+.land-badge{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:16px;
+  background:var(--ad);color:var(--ac);font-size:10px;font-weight:600;margin-bottom:16px}
+.land-badge i{width:4px;height:4px;border-radius:50%;background:var(--ac);animation:pulse 2s infinite}
+@keyframes pulse{50%{opacity:.3}}
+.land h1{font-size:clamp(28px,5vw,48px);font-weight:700;letter-spacing:-2px;line-height:1.05;margin-bottom:12px}
+.land h1 em{font-style:normal;background:linear-gradient(135deg,var(--ac),#5eead4);-webkit-background-clip:text;-webkit-text-fill-color:transparent}
+.land>p{font-size:clamp(14px,1.5vw,17px);color:var(--t2);line-height:1.6;max-width:480px;margin-bottom:24px}
+.land-actions{display:flex;gap:10px;align-items:center;margin-bottom:48px}
+.land-actions .or{font-size:11px;color:var(--t3)}
+
+/* Live board demo — the actual product, not a mockup description */
+.land-demo{border-radius:16px;overflow:hidden;border:1px solid rgba(255,255,255,.08);
+  background:var(--s);box-shadow:0 20px 80px rgba(0,0,0,.5);margin-bottom:48px}
+.land-demo-bar{display:flex;align-items:center;gap:4px;padding:6px 10px;border-bottom:1px solid var(--bd);font-size:9px;color:var(--t3)}
+.land-demo-bar .dot{width:5px;height:5px;border-radius:50%}
+.land-demo-body{display:flex;height:320px}
+.land-demo-board{flex:1;padding:20px;font-family:'Caveat',cursive;background:#0c0e12;overflow:hidden;position:relative}
+.land-demo-board .h{color:#e8d47a;font-size:22px;font-weight:600;text-align:center;margin-bottom:8px}
+.land-demo-board .eq{color:#5eead4;font-size:18px;margin:6px 0}
+.land-demo-board .txt{color:rgba(255,255,255,.5);font-size:15px;line-height:1.6}
+.land-demo-board .call{border-left:2px solid #5eead4;padding-left:8px;color:#7ed99a;font-size:14px;margin:10px 0}
+.land-demo-board .dim{color:rgba(255,255,255,.2);font-size:12px}
+.land-demo-board .sub{position:absolute;bottom:8px;left:50%;transform:translateX(-50%);
+  padding:4px 12px;border-radius:6px;background:rgba(0,0,0,.6);font-size:10px;color:var(--t2);
+  font-family:Inter;backdrop-filter:blur(6px);white-space:nowrap;max-width:90%}
+.land-demo-plan{width:160px;background:var(--s);border-left:1px solid var(--bd);padding:8px;overflow:hidden}
+.land-demo-plan h3{font-size:9px;font-weight:600;color:var(--t3);margin-bottom:8px;padding:0 4px}
+.ldp-item{display:flex;align-items:flex-start;gap:5px;padding:4px;font-size:9px;color:var(--t2);margin-bottom:3px;border-radius:4px}
+.ldp-item.done{color:var(--t3)}.ldp-item.act{color:var(--ac);font-weight:600;background:rgba(52,211,153,.04)}
+.ldp-dot{width:6px;height:6px;border-radius:50%;border:1.5px solid var(--t3);flex-shrink:0;margin-top:2px}
+.ldp-item.done .ldp-dot{border-color:var(--ac);background:var(--ac)}
+.ldp-item.act .ldp-dot{border-color:var(--ac);box-shadow:0 0 4px rgba(52,211,153,.3)}
+.land-demo-input{display:flex;align-items:center;gap:6px;padding:6px 10px;border-top:1px solid var(--bd);
+  font-size:10px;color:var(--t3)}
+.land-demo-input span{flex:1}
+.land-demo-input .mic{width:18px;height:18px;border-radius:50%;background:var(--ad);border:1px solid rgba(52,211,153,.2);display:grid;place-items:center;font-size:7px;color:var(--ac)}
+.land-demo-input .snd{width:18px;height:18px;border-radius:50%;background:var(--ac);display:grid;place-items:center;font-size:8px;color:#09090b}
+
+/* Social proof / features - minimal */
+.land-features{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;padding-bottom:48px;max-width:900px;margin:0 auto;padding-left:clamp(16px,4vw,32px);padding-right:clamp(16px,4vw,32px)}
+.land-feat h3{font-size:13px;font-weight:600;margin-bottom:3px}
+.land-feat p{font-size:11px;color:var(--t3);line-height:1.5}
+@media(max-width:600px){.land-features{grid-template-columns:1fr}}
+
+/* ══════════════════ HOME ══════════════════
+   Clean: greeting → orchestrator → continue → learning → aids
+   No "what would you like to do" cards.
+   ══════════════════════════════════════════ */
+.hm-hero{text-align:center;padding:clamp(20px,4vh,32px) 0 0}
+.hm-hero h1{font-size:clamp(18px,2.5vw,24px);font-weight:700;letter-spacing:-.3px}
+.hm-hero p{font-size:11px;color:var(--t3);margin-top:2px}
+
+.orch{max-width:500px;margin:14px auto 0}
+.orch-bar{display:flex;align-items:center;gap:7px;padding:10px 14px;border-radius:13px;background:var(--s);border:1px solid var(--bd);transition:border-color .15s}
+.orch-bar:focus-within{border-color:var(--ac)}
+.orch-bar .star{color:var(--ac);font-size:14px}
+.orch-bar input{flex:1;background:none;border:none;outline:none;color:var(--t);font-size:13px}
+.orch-bar input::placeholder{color:var(--t3)}
+.orch-bar .up{width:26px;height:26px;border-radius:7px;background:none;border:1px solid var(--bd);color:var(--t3);display:grid;place-items:center;cursor:pointer;font-size:12px}
+.orch-bar .up:hover{border-color:var(--t2);color:var(--t)}
+.orch-bar .snd{width:26px;height:26px;border-radius:7px;background:var(--ac);border:none;color:#09090b;display:grid;place-items:center;cursor:pointer;font-size:11px}
+.orch-chips{display:flex;flex-wrap:wrap;gap:4px;justify-content:center;margin-top:7px}
+.orch-chip{padding:4px 10px;border-radius:14px;font-size:10px;color:var(--t2);background:var(--s);border:1px solid var(--bd);cursor:pointer;transition:all .12s}
+.orch-chip:hover{border-color:var(--ac);color:var(--t)}
+
+/* Orchestrator response */
+.orch-resp{max-width:500px;margin:10px auto 0;display:none}
+.orch-resp.vis{display:block}
+.orch-msg{padding:12px;border-radius:10px;background:var(--s);border:1px solid var(--bd)}
+.orch-msg p{font-size:12px;line-height:1.5;color:var(--t2);margin-bottom:5px}.orch-msg p b{color:var(--t)}
+.orch-msg .acts{display:flex;gap:4px;flex-wrap:wrap;margin-top:8px}
+.orch-art{display:flex;align-items:center;gap:8px;padding:7px 9px;border-radius:7px;background:var(--e);border:1px solid var(--bd);margin-top:5px;cursor:pointer;transition:all .1s}
+.orch-art:hover{border-color:var(--ac)}
+.orch-art-i{width:24px;height:24px;border-radius:6px;display:grid;place-items:center;font-size:11px;flex-shrink:0}
+.orch-art-i.crs{background:rgba(99,102,241,.08);color:#a5b4fc}
+.orch-art-i.pln{background:var(--ad);color:var(--ac)}
+.orch-art-i.crd{background:rgba(251,191,36,.08);color:#fbbf24}
+.orch-art-i.vid{background:rgba(96,165,250,.08);color:#60a5fa}
+.orch-art h4{font-size:10px;font-weight:500}.orch-art span{font-size:8px;color:var(--t3)}
+.orch-file{display:flex;align-items:center;gap:5px;padding:4px 7px;border-radius:5px;background:var(--e);margin-bottom:3px;font-size:9px}
+.orch-file .fi{width:14px;height:14px;border-radius:3px;display:grid;place-items:center;font-size:7px;flex-shrink:0}
+.orch-file .fi.pdf{background:rgba(248,113,113,.1);color:#f87171}
+.orch-file .fn{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.orch-file .fs{font-size:7px;color:var(--ac);font-weight:600}
+
+/* Continue row */
+.cr{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding-bottom:2px}.cr::-webkit-scrollbar{display:none}
+.ci{flex:0 0 200px;border-radius:9px;background:var(--s);overflow:hidden;cursor:pointer;transition:all .15s;border:1px solid transparent}
+.ci:hover{border-color:var(--ac);transform:translateY(-1px)}
+.ci-prev{height:50px;position:relative;display:flex;align-items:center;justify-content:center;font-family:'Caveat',cursive;font-size:11px;color:rgba(255,255,255,.08);overflow:hidden}
+.ci-badge{position:absolute;top:3px;left:3px}.ci-mode{position:absolute;top:3px;right:3px;font-size:7px;color:var(--t3);padding:1px 4px;border-radius:2px;background:rgba(0,0,0,.4)}
+.ci-bar{height:2px;background:var(--e)}.ci-bar span{display:block;height:100%;background:var(--ac)}
+.ci-info{padding:6px 8px}.ci-info h4{font-size:10px;font-weight:600;margin-bottom:1px}.ci-info p{font-size:8px;color:var(--t3)}
+.ci-steps{display:flex;gap:1px;margin-top:3px}
+.ci-step{width:12px;height:2px;border-radius:1px;background:var(--e)}.ci-step.done{background:var(--ac)}.ci-step.act{background:rgba(52,211,153,.4)}
+
+/* Learning grid */
+.lg{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px}
+.lc{border-radius:9px;overflow:hidden;background:var(--s);cursor:pointer;transition:all .15s;border:1px solid transparent}
+.lc:hover{border-color:var(--ac);transform:translateY(-1px)}
+.lc-th{height:76px;position:relative;overflow:hidden;display:grid;place-items:center}
+.lc-th .tag{position:absolute;top:4px;left:4px}.lc-th .meta{position:absolute;bottom:0;left:0;right:0;padding:3px 6px;background:linear-gradient(transparent,rgba(0,0,0,.6));font-size:8px;color:rgba(255,255,255,.6)}
+.lc-b{padding:6px 8px}.lc-b h3{font-size:11px;font-weight:600;margin-bottom:1px}.lc-b p{font-size:9px;color:var(--t2)}
+.lc-bar{height:2px;background:var(--e)}.lc-bar span{display:block;height:100%;background:var(--ac)}
+.lc-new{border:1.5px dashed rgba(255,255,255,.06);background:none;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;color:var(--t3);min-height:120px;border-radius:9px;cursor:pointer}
+.lc-new:hover{border-color:rgba(52,211,153,.2);color:var(--ac)}
+
+/* Aids row */
+.ar{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none}.ar::-webkit-scrollbar{display:none}
+.ai{flex:0 0 150px;padding:10px;border-radius:8px;background:var(--s);border:1px solid var(--bd);cursor:pointer;transition:all .1s}
+.ai:hover{border-color:var(--ac)}
+.ai .ico{font-size:14px;margin-bottom:4px}
+.ai h4{font-size:10px;font-weight:600;margin-bottom:1px}.ai p{font-size:8px;color:var(--t3)}
+.ai-new{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;min-height:70px;color:var(--t3);font-size:9px;border:1.5px dashed rgba(255,255,255,.06);border-radius:8px;flex:0 0 90px;cursor:pointer}
+.ai-new:hover{border-color:rgba(52,211,153,.2);color:var(--ac)}
+
+/* ══════════════════ SESSION HISTORY ══════════════════ */
+.hist-top{padding:20px 0 16px;display:flex;justify-content:space-between;align-items:center}
+.hist-top h1{font-size:18px;font-weight:700}
+.hist-search{display:flex;align-items:center;gap:6px;padding:7px 12px;border-radius:9px;background:var(--s);border:1px solid var(--bd);width:240px}
+.hist-search:focus-within{border-color:var(--ac)}
+.hist-search svg{width:12px;height:12px;color:var(--t3)}
+.hist-search input{flex:1;background:none;border:none;outline:none;color:var(--t);font-size:11px}
+.hist-search input::placeholder{color:var(--t3)}
+
+.hist-filters{display:flex;gap:4px;margin-bottom:14px}
+.hist-filter{padding:4px 10px;border-radius:12px;font-size:9px;color:var(--t2);background:var(--s);border:1px solid var(--bd);cursor:pointer}
+.hist-filter.on{background:var(--ad);border-color:var(--ac);color:var(--ac)}
+
+.hist-list{display:flex;flex-direction:column;gap:6px}
+.hist-item{display:flex;align-items:center;gap:12px;padding:12px;border-radius:10px;background:var(--s);border:1px solid var(--bd);cursor:pointer;transition:all .12s}
+.hist-item:hover{border-color:var(--ac)}
+.hist-item-preview{width:80px;height:50px;border-radius:6px;background:var(--e);flex-shrink:0;overflow:hidden;display:grid;place-items:center;font-family:'Caveat',cursive;font-size:10px;color:rgba(255,255,255,.08)}
+.hist-item-info{flex:1;min-width:0}
+.hist-item-info h4{font-size:12px;font-weight:600;margin-bottom:2px}
+.hist-item-info p{font-size:10px;color:var(--t3)}
+.hist-item-meta{display:flex;gap:8px;margin-top:3px;font-size:9px;color:var(--t3)}
+.hist-item-meta .badge{font-size:8px;padding:1px 5px;border-radius:3px}
+.hist-item-actions{display:flex;gap:4px;flex-shrink:0}
+
+/* ══════════════════ COURSE PAGE ══════════════════ */
+.cp-ban{min-height:140px;position:relative;display:flex;align-items:flex-end}
+.cp-ban-bg{position:absolute;inset:0;background:linear-gradient(0deg,var(--bg),rgba(9,9,11,.6) 50%,rgba(21,21,48,.25))}
+.cp-ban-c{position:relative;z-index:1;width:100%;max-width:800px;margin:0 auto;padding:0 clamp(16px,4vw,32px) 18px}
+.cp-ban-c .bk{font-size:10px;color:var(--t3);cursor:pointer;margin-bottom:8px;display:inline-block}.cp-ban-c .bk:hover{color:var(--t)}
+.cp-ban-c h1{font-size:clamp(18px,3vw,28px);font-weight:700;letter-spacing:-.7px;margin-bottom:4px}
+.cp-ban-c>p{font-size:11px;color:var(--t2);max-width:440px;margin-bottom:10px}
+.cp-st{display:flex;gap:14px;margin-bottom:12px}
+.cp-st .v{font-size:16px;font-weight:700;color:var(--ac)}.cp-st .l{font-size:8px;color:var(--t3);text-transform:uppercase}
+.cp-bod{max-width:800px;margin:0 auto;padding:14px clamp(16px,4vw,32px) 40px}
+.mod{margin-bottom:8px;border-radius:8px;overflow:hidden}
+.mod-h{display:flex;justify-content:space-between;padding:8px 10px;background:var(--e);font-size:10px;font-weight:600;cursor:pointer}
+.mod-h span{color:var(--t3);font-size:9px}
+.les{display:flex;align-items:center;gap:8px;padding:8px 10px;background:var(--s);border-bottom:1px solid var(--bd);cursor:pointer;transition:background .1s}
+.les:last-child{border:none}.les:hover{background:var(--e)}
+.les-n{width:18px;height:18px;border-radius:50%;border:1.5px solid var(--bd);color:var(--t3);display:grid;place-items:center;font-size:8px;font-weight:600;flex-shrink:0}
+.les:hover .les-n{border-color:var(--ac);color:var(--ac)}
+.les-i{flex:1}.les-i h4{font-size:10px;font-weight:500}.les-i span{font-size:8px;color:var(--t3)}
+.les-go{font-size:8px;color:var(--ac);font-weight:600;opacity:0;transition:opacity .1s}.les:hover .les-go{opacity:1}
+
+/* ══════════════════ BOARD ══════════════════ */
+.tv{display:flex;flex-direction:column;height:100vh}
+.tv-bar{display:flex;align-items:center;gap:7px;padding:0 10px;height:36px;background:var(--s);border-bottom:1px solid var(--bd);font-size:10px}
+.tv-bar .bk{color:var(--t3);cursor:pointer;font-size:9px}.tv-bar .ti{font-weight:600;flex:1}
+.tv-bar .modes{display:flex;gap:2px}
+.tv-bar .mb{padding:2px 6px;border-radius:4px;font-size:8px;font-weight:600;color:var(--t3);background:none;border:1px solid var(--bd);cursor:pointer}
+.tv-bar .mb.on{background:var(--ad);border-color:var(--ac);color:var(--ac)}
+.tv-bar .prog{width:60px;height:2px;background:var(--e);border-radius:1px}.tv-bar .prog span{display:block;height:100%;background:var(--ac)}
+.tv-bar .tm{color:var(--t3);font-size:9px}
+.tv-main{flex:1;display:flex;overflow:hidden}
+.tv-board{flex:1;overflow-y:auto;padding:20px clamp(12px,3vw,36px) 100px;
+  background:var(--bg) repeating-conic-gradient(var(--e) 0% 25%,transparent 0% 50%) 0 0/40px 40px}
+.tv-side{width:200px;flex-shrink:0;background:var(--s);border-left:1px solid var(--bd);display:flex;flex-direction:column}
+.tv-side-h{padding:6px 8px;border-bottom:1px solid var(--bd);font-size:9px;font-weight:600}
+.tv-side-p{padding:4px 8px;border-bottom:1px solid var(--bd)}
+.tv-side-p-bar{height:2px;background:var(--e);border-radius:1px}.tv-side-p-fill{height:100%;background:var(--ac)}
+.tv-side-b{flex:1;overflow-y:auto;padding:2px 0}
+.tv-pi{display:flex;align-items:flex-start;gap:5px;padding:5px 8px;cursor:pointer;border-bottom:1px solid var(--bd);font-size:9px}
+.tv-pi:hover{background:var(--e)}.tv-pi.act{background:rgba(52,211,153,.03)}
+.tv-d{width:7px;height:7px;border-radius:50%;border:1.5px solid var(--t3);flex-shrink:0;margin-top:2px}
+.tv-pi.done .tv-d{border-color:var(--ac);background:var(--ac)}
+.tv-pi.act .tv-d{border-color:var(--ac);box-shadow:0 0 4px rgba(52,211,153,.3)}
+.tv-pi-t{flex:1;color:var(--t2);line-height:1.2}.tv-pi.act .tv-pi-t{color:var(--ac);font-weight:600}.tv-pi.done .tv-pi-t{color:var(--t3)}
+.tv-pi-s{font-size:7px;color:var(--t3)}.tv-pi-j{font-size:7px;color:var(--ac);font-weight:600;opacity:0}.tv-pi:hover .tv-pi-j{opacity:1}
+.tv-side-f{padding:5px 8px;border-top:1px solid var(--bd);font-size:8px;color:var(--t3)}
+.ck{font-family:'Caveat',cursive}.ck1{font-size:22px;font-weight:700;color:#e8d47a;text-align:center;margin-bottom:4px}
+.ck2{font-size:16px;font-weight:600;color:#5eead4;margin:14px 0 4px}.ckt{font-size:14px;color:#d4e8dc;line-height:1.4;margin-bottom:2px}
+.ckc{border-left:2px solid #5eead4;padding-left:8px;margin:6px 0;font-size:13px;color:#7ed99a}
+.ckr{font-size:9px;color:var(--t3);font-family:Inter;font-style:italic}
+.sub{position:fixed;bottom:44px;left:50%;transform:translateX(-50%);max-width:460px;width:86%;padding:6px 12px;border-radius:7px;background:rgba(0,0,0,.7);backdrop-filter:blur(8px);font-size:11px;text-align:center;border:1px solid rgba(255,255,255,.04);z-index:10}
+.ib{position:fixed;bottom:0;left:0;right:0;padding:6px 10px;background:var(--s);border-top:1px solid var(--bd);z-index:10}
+.ib-in{display:flex;align-items:center;gap:5px;padding:6px 10px;border-radius:9px;background:var(--e);border:1px solid var(--bd);max-width:460px;margin:0 auto}
+.ib-in input{flex:1;background:none;border:none;outline:none;color:var(--t);font-size:11px}.ib-in input::placeholder{color:var(--t3)}
+.ib-in .mic{width:22px;height:22px;border-radius:50%;background:var(--ad);border:1px solid rgba(52,211,153,.2);color:var(--ac);display:grid;place-items:center;font-size:9px;cursor:pointer}
+.ib-in .snd{width:22px;height:22px;border-radius:50%;background:var(--ac);border:none;color:#09090b;display:grid;place-items:center;font-size:9px;cursor:pointer}
+
+.dn{position:fixed;bottom:42px;left:50%;transform:translateX(-50%);display:flex;gap:2px;padding:2px;background:var(--s);border-radius:6px;border:1px solid var(--bd);z-index:999}
+.dn button{padding:2px 6px;border-radius:4px;font-size:8px;font-weight:600;color:var(--t3);background:none;border:none;cursor:pointer}
+.dn button.on{background:var(--ac);color:#09090b}.dn button:hover:not(.on){color:var(--t)}
+</style>
+</head>
+<body>
+
+<!-- ══════ LANDING ══════ -->
+<div class="screen on" id="s1">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nr"><button class="btn btn-s btn-gh" onclick="go(2)">Sign in</button><button class="btn btn-s btn-ac" onclick="go(2)">Start free</button></div></nav>
+<div class="land">
+  <div class="land-badge"><i></i> AI tutoring platform</div>
+  <h1>A private tutor that<br><em>teaches you live</em></h1>
+  <p>Your tutor draws on a board, speaks naturally, and adapts to you in real time. Follow structured courses or upload your own materials.</p>
+  <div class="land-actions">
+    <button class="btn btn-l btn-ac" onclick="go(2)">Start learning free &rarr;</button>
+    <span class="or">or</span>
+    <button class="btn btn-l btn-gh" onclick="go(2)">See how it works</button>
+  </div>
+</div>
+<!-- The product IS the demo -->
+<div style="max-width:900px;margin:0 auto;padding:0 clamp(16px,4vw,32px)">
+  <div class="land-demo">
+    <div class="land-demo-bar"><div class="dot" style="background:var(--ac)"></div><div class="dot" style="background:#fbbf24"></div><div class="dot" style="background:#f87171"></div><span style="margin-left:4px">Board</span><span style="margin-left:auto;display:flex;align-items:center;gap:3px"><span style="width:4px;height:4px;border-radius:50%;background:var(--ac)"></span> Euler speaking</span></div>
+    <div class="land-demo-body">
+      <div class="land-demo-board">
+        <div class="h">The Schr&ouml;dinger Equation</div>
+        <div class="eq">i&#x210F; &part;&psi;/&part;t = &#x0124;&psi;</div>
+        <div class="txt">Energy tells &psi; how to change &mdash;<br>that's the whole secret.</div>
+        <div class="call">&#10003; This one equation governs everything in quantum mechanics.</div>
+        <div class="txt" style="margin-top:6px">Think of it as F = ma for quantum:</div>
+        <div class="eq">Classical: force &rarr; position</div>
+        <div class="eq">Quantum: energy &rarr; &psi;</div>
+        <div class="sub">"Energy tells psi how to change. That's it. That's the whole secret."</div>
+      </div>
+      <div class="land-demo-plan">
+        <h3>Plan</h3>
+        <div class="ldp-item done"><div class="ldp-dot"></div>Wave function</div>
+        <div class="ldp-item done"><div class="ldp-dot"></div>Probability</div>
+        <div class="ldp-item act"><div class="ldp-dot"></div>Schr&ouml;dinger eq.</div>
+        <div class="ldp-item"><div class="ldp-dot"></div>Time evolution</div>
+        <div class="ldp-item"><div class="ldp-dot"></div>Stationary states</div>
+        <div class="ldp-item"><div class="ldp-dot"></div>Checkpoint</div>
+      </div>
+    </div>
+    <div class="land-demo-input"><span>Ask anything &mdash; interrupt, skip, go deeper</span><div class="mic">&#127908;</div><div class="snd">&#10148;</div></div>
+  </div>
+</div>
+<div class="land-features">
+  <div class="land-feat"><h3>Not pre-recorded</h3><p>Every session is generated live, adapted to your pace and questions.</p></div>
+  <div class="land-feat"><h3>Your materials, your tutor</h3><p>Upload textbooks, past papers, videos. Your tutor reads them and teaches from them.</p></div>
+  <div class="land-feat"><h3>Courses + freedom</h3><p>Follow structured courses or ask anything. The tutor figures out what you need.</p></div>
+</div>
+</div>
+
+<!-- ══════ HOME ══════ -->
+<div class="screen" id="s2">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nr"><div class="streak">&#128293; 5</div><a class="on">Home</a><a onclick="go(3)">Explore</a><a onclick="go(5)">History</a><div class="pill"><div class="pill-a">M</div>Mayank</div></div></nav>
+<div class="wrap">
+  <div class="hm-hero"><h1>Good evening, Mayank</h1><p>12 sessions &middot; 8.5 hrs learned</p></div>
+
+  <div class="orch">
+    <div class="orch-bar"><span class="star">&#10022;</span><input placeholder="What do you want to study?"><button class="up" title="Upload">&#128206;</button><button class="snd" onclick="showR('e')">&#10148;</button></div>
+    <div class="orch-chips">
+      <span class="orch-chip" onclick="showR('a')">Teach me quantum physics</span>
+      <span class="orch-chip" onclick="showR('b')">Help with my homework</span>
+      <span class="orch-chip" onclick="showR('e')">Prep for my exam</span>
+      <span class="orch-chip" onclick="showR('c')">Make flashcards</span>
+    </div>
+  </div>
+
+  <div class="orch-resp" id="or">
+    <div class="orch-msg scenario" id="sa"><p><b>Quantum physics.</b> We have a full course:</p><div class="orch-art" onclick="go(3)"><div class="orch-art-i crs">&#128218;</div><div><h4>MIT 8.04 Quantum Physics I</h4><span>24 lessons &middot; ~30 hrs</span></div></div><p style="margin-top:5px">Your tutor teaches each lesson on the board.</p><div class="acts"><button class="btn btn-m btn-ac" onclick="go(4)">Start course &rarr;</button><button class="btn btn-m btn-gh" onclick="go(3)">See curriculum</button></div></div>
+    <div class="orch-msg scenario" id="sb" style="display:none"><p><b>Homework help.</b></p><div class="orch-file"><div class="fi pdf">&#128196;</div><span class="fn">Problem_Set_4.pdf</span><span class="fs">8 problems</span></div><p>Your tutor teaches the concepts, then guides you through each problem.</p><div class="acts"><button class="btn btn-m btn-ac" onclick="go(4)">Start session &rarr;</button><button class="btn btn-m btn-gh">Just explain #3</button></div></div>
+    <div class="orch-msg scenario" id="sc" style="display:none"><p><b>Flashcards created.</b></p><div class="orch-art"><div class="orch-art-i crd">&#127183;</div><div><h4>Organic Chemistry — 24 Cards</h4><span>Saved to study aids &#10003;</span></div></div><div class="acts"><button class="btn btn-m btn-ac">Study now</button><button class="btn btn-m btn-gh">Add more</button></div></div>
+    <div class="orch-msg scenario" id="se" style="display:none"><p><b>Exam prep.</b> Reading your materials...</p><div class="orch-file"><div class="fi pdf">&#128196;</div><span class="fn">Textbook_Ch1-4.pdf</span><span class="fs">&#10003; 8 topics</span></div><div class="orch-file"><div class="fi pdf">&#128196;</div><span class="fn">Past_Exam_2024.pdf</span><span class="fs">&#10003; 6 Qs</span></div><p style="margin-top:4px"><b>Pattern:</b> Entropy 4/5 exams, Carnot 3/5, First law 3/5</p><div class="orch-art"><div class="orch-art-i pln">&#128203;</div><div><h4>3-Day Study Plan</h4><span>Day 1: Entropy &middot; Day 2: First law &middot; Day 3: Mock</span></div></div><div class="acts"><button class="btn btn-m btn-ac" onclick="go(4)">Start Day 1 &rarr;</button><button class="btn btn-m btn-gh">Modify</button><button class="btn btn-m btn-gh">Save</button></div></div>
+  </div>
+
+  <div class="sec"><div class="sec-h"><h2>Pick up where you left off</h2><a onclick="go(5)">View all &rarr;</a></div>
+    <div class="cr">
+      <div class="ci" onclick="go(4)"><div class="ci-prev" style="background:linear-gradient(135deg,#151530,var(--e))">i&#x210F;&part;&psi;<span class="ci-badge"><span class="tag-c">Course</span></span><span class="ci-mode">teach</span></div><div class="ci-bar"><span style="width:35%"></span></div><div class="ci-info"><h4>Time Evolution</h4><p>MIT 8.04 &middot; 2h ago</p></div><div class="ci-steps"><div class="ci-step done"></div><div class="ci-step done"></div><div class="ci-step act"></div><div class="ci-step"></div><div class="ci-step"></div></div></div>
+      <div class="ci" onclick="go(4)"><div class="ci-prev" style="background:linear-gradient(135deg,#1a1520,var(--e))">SN1/SN2<span class="ci-badge"><span class="tag-m">Material</span></span><span class="ci-mode">teach</span></div><div class="ci-bar"><span style="width:60%"></span></div><div class="ci-info"><h4>SN1 vs SN2</h4><p>Organic Chem &middot; 1d</p></div><div class="ci-steps"><div class="ci-step done"></div><div class="ci-step done"></div><div class="ci-step done"></div><div class="ci-step act"></div><div class="ci-step"></div></div></div>
+      <div class="ci" onclick="go(4)"><div class="ci-prev" style="background:linear-gradient(135deg,#152015,var(--e))">lim f(x)<span class="ci-badge"><span class="tag-c">Course</span></span><span class="ci-mode">watch</span></div><div class="ci-bar"><span style="width:65%"></span></div><div class="ci-info"><h4>Limits</h4><p>Calc 1 &middot; 3d</p></div><div class="ci-steps"><div class="ci-step done"></div><div class="ci-step done"></div><div class="ci-step done"></div><div class="ci-step act"></div></div></div>
+    </div>
+  </div>
+
+  <div class="sec"><div class="sec-h"><h2>My learning</h2><a onclick="go(3)">Browse all &rarr;</a></div>
+    <div class="lg">
+      <div class="lc" onclick="go(3)"><div class="lc-th" style="background:linear-gradient(135deg,#151530,var(--s))"><span class="tag-c">Course</span><div class="meta">24 lessons</div></div><div class="lc-b"><h3>MIT 8.04 Quantum Physics</h3><p>Wave mechanics</p></div><div class="lc-bar"><span style="width:35%"></span></div></div>
+      <div class="lc" onclick="go(3)"><div class="lc-th" style="background:linear-gradient(135deg,#152015,var(--s))"><span class="tag-c">Course</span><div class="meta">15 lessons</div></div><div class="lc-b"><h3>Calculus 1</h3><p>Derivatives</p></div><div class="lc-bar"><span style="width:65%"></span></div></div>
+      <div class="lc"><div class="lc-th" style="background:linear-gradient(135deg,#1a1520,var(--s))"><span class="tag-m">Material</span><div class="meta">3 PDFs &middot; 2 videos</div></div><div class="lc-b"><h3>Organic Chem Prep</h3><p>Textbook + exams</p></div><div class="lc-bar"><span style="width:60%"></span></div></div>
+      <div class="lc-new"><span style="font-size:16px;opacity:.3">+</span><span style="font-size:9px">Upload materials</span></div>
+    </div>
+  </div>
+
+  <div class="sec" style="padding-bottom:32px"><div class="sec-h"><h2>Study aids</h2></div>
+    <div class="ar">
+      <div class="ai"><div class="ico">&#127183;</div><h4>Quantum — 24 Cards</h4><p>MIT 8.04 &middot; 2d</p></div>
+      <div class="ai"><div class="ico">&#128221;</div><h4>Organic — Notes</h4><p>12 pages &middot; 1d</p></div>
+      <div class="ai"><div class="ico">&#128203;</div><h4>Thermo Plan</h4><p>3 sessions</p></div>
+      <div class="ai-new"><span style="opacity:.3">&#10022;</span><span>Ask tutor</span></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════ COURSE ══════ -->
+<div class="screen" id="s3">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nr"><a onclick="go(2)">Home</a><a class="on">Explore</a><a onclick="go(5)">History</a><div class="pill"><div class="pill-a">M</div>Mayank</div></div></nav>
+<div class="cp-ban" style="background:linear-gradient(135deg,#151530,var(--bg))"><div class="cp-ban-bg"></div>
+  <div class="cp-ban-c"><span class="bk" onclick="go(2)">&larr; Home</span><h1>MIT 8.04 Quantum Physics I</h1><p>Wave mechanics, Schr&ouml;dinger equation.</p>
+    <div class="cp-st"><div><div class="v">24</div><div class="l">Lessons</div></div><div><div class="v">5</div><div class="l">Modules</div></div><div><div class="v">~30</div><div class="l">Hours</div></div></div>
+    <button class="btn btn-l btn-ac" onclick="go(4)">Start learning &rarr;</button></div></div>
+<div class="cp-bod">
+  <div class="mod"><div class="mod-h">Foundations <span>5 lessons</span></div>
+    <div class="les" onclick="go(4)"><div class="les-n">1</div><div class="les-i"><h4>Superposition</h4><span>50m</span></div><span class="les-go">Start &rarr;</span></div>
+    <div class="les" onclick="go(4)"><div class="les-n">2</div><div class="les-i"><h4>Experimental Facts</h4><span>55m</span></div><span class="les-go">Start &rarr;</span></div>
+    <div class="les" onclick="go(4)"><div class="les-n">3</div><div class="les-i"><h4>Wave Function</h4><span>48m</span></div><span class="les-go">Start &rarr;</span></div></div>
+  <div class="mod"><div class="mod-h">Time Evolution <span>5 lessons</span></div>
+    <div class="les" onclick="go(4)"><div class="les-n">6</div><div class="les-i"><h4>Schr&ouml;dinger Equation</h4><span>52m</span></div><span class="les-go">Start &rarr;</span></div>
+    <div class="les" onclick="go(4)"><div class="les-n">7</div><div class="les-i"><h4>Energy Eigenstates</h4><span>48m</span></div><span class="les-go">Start &rarr;</span></div></div>
+</div>
+</div>
+
+<!-- ══════ BOARD ══════ -->
+<div class="screen" id="s4">
+<div class="tv"><div class="tv-bar"><span class="bk" onclick="go(2)">&larr;</span><span class="ti">SN1 vs SN2</span><div class="modes"><button class="mb on" onclick="this.parentElement.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));this.classList.add('on')">Teach</button><button class="mb" onclick="this.parentElement.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));this.classList.add('on')">Watch</button><button class="mb" onclick="this.parentElement.querySelectorAll('.mb').forEach(b=>b.classList.remove('on'));this.classList.add('on')">Quiz</button></div><div class="prog"><span style="width:25%"></span></div><span class="tm">4:32</span></div>
+  <div class="tv-main">
+    <div class="tv-board">
+      <div class="ck ck1">SN1 vs SN2</div>
+      <div class="ck ck2">From your textbook:</div>
+      <div class="ck ckc">"Choice depends on substrate, nucleophile, solvent, leaving group."</div>
+      <div class="ckr">— Organic Chemistry, p. 78</div>
+      <div class="ck ck2">Decision Tree</div>
+      <div class="ck ckt">&bull; <span style="color:#5eead4">Primary</span> &rarr; SN2</div>
+      <div class="ck ckt">&bull; <span style="color:#e8d47a">Secondary</span> &rarr; depends</div>
+      <div class="ck ckt">&bull; <span style="color:#f87171">Tertiary</span> &rarr; SN1</div>
+      <div class="ck ck2">Exam pattern:</div>
+      <div class="ck ckc">4/5 past exams. Q3-4 in 2024.</div>
+    </div>
+    <div class="tv-side"><div class="tv-side-h">Plan <span style="font-size:8px;color:var(--t3)">2/8</span></div>
+      <div class="tv-side-p"><div class="tv-side-p-bar"><div class="tv-side-p-fill" style="width:25%"></div></div></div>
+      <div class="tv-side-b">
+        <div class="tv-pi done"><div class="tv-d"></div><div class="tv-pi-t">Background check</div></div>
+        <div class="tv-pi act"><div class="tv-d"></div><div class="tv-pi-t">SN1 vs SN2<div class="tv-pi-s">p.78</div></div></div>
+        <div class="tv-pi"><div class="tv-d"></div><div class="tv-pi-t">E1 vs E2<div class="tv-pi-s">p.90</div></div><span class="tv-pi-j">Jump</span></div>
+        <div class="tv-pi"><div class="tv-d"></div><div class="tv-pi-t">Watch: Mechanisms<div class="tv-pi-s">Khan 32m</div></div><span class="tv-pi-j">Jump</span></div>
+        <div class="tv-pi"><div class="tv-d"></div><div class="tv-pi-t">Practice Q3-5<div class="tv-pi-s">2024 exam</div></div><span class="tv-pi-j">Jump</span></div>
+        <div class="tv-pi"><div class="tv-d"></div><div class="tv-pi-t">Stereochem<div class="tv-pi-s">ch5</div></div><span class="tv-pi-j">Jump</span></div>
+        <div class="tv-pi"><div class="tv-d"></div><div class="tv-pi-t">Mock exam<div class="tv-pi-s">generated</div></div><span class="tv-pi-j">Jump</span></div>
+      </div>
+      <div class="tv-side-f">Source: Your materials</div>
+    </div>
+  </div>
+</div>
+<div class="sub">"Substrate first — that's the key."</div>
+<div class="ib"><div class="ib-in"><input placeholder="Ask anything — interrupt, skip, go deeper"><button class="mic">&#127908;</button><button class="snd">&#10148;</button></div></div>
+</div>
+
+<!-- ══════ HISTORY ══════ -->
+<div class="screen" id="s5">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nr"><a onclick="go(2)">Home</a><a>Explore</a><a class="on">History</a><div class="pill"><div class="pill-a">M</div>Mayank</div></div></nav>
+<div class="wrap">
+  <div class="hist-top">
+    <h1>Session history</h1>
+    <div class="hist-search"><svg viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg><input placeholder="Search sessions..."></div>
+  </div>
+  <div class="hist-filters">
+    <span class="hist-filter on" onclick="this.parentElement.querySelectorAll('.hist-filter').forEach(f=>f.classList.remove('on'));this.classList.add('on')">All</span>
+    <span class="hist-filter" onclick="this.parentElement.querySelectorAll('.hist-filter').forEach(f=>f.classList.remove('on'));this.classList.add('on')">Courses</span>
+    <span class="hist-filter" onclick="this.parentElement.querySelectorAll('.hist-filter').forEach(f=>f.classList.remove('on'));this.classList.add('on')">Your materials</span>
+    <span class="hist-filter" onclick="this.parentElement.querySelectorAll('.hist-filter').forEach(f=>f.classList.remove('on'));this.classList.add('on')">On-demand</span>
+  </div>
+  <div class="hist-list">
+    <div class="hist-item" onclick="go(4)">
+      <div class="hist-item-preview" style="background:linear-gradient(135deg,#1a1520,var(--e))">SN1/SN2</div>
+      <div class="hist-item-info"><h4>SN1 vs SN2 — Decision Tree</h4><p>Organic Chemistry — Your Materials</p>
+        <div class="hist-item-meta"><span class="badge tag-m">Material</span><span>teach mode</span><span>35 min</span><span>4/8 steps</span><span>Yesterday</span></div></div>
+      <div class="hist-item-actions"><button class="btn btn-s btn-ac">Resume &rarr;</button></div>
+    </div>
+    <div class="hist-item" onclick="go(4)">
+      <div class="hist-item-preview" style="background:linear-gradient(135deg,#151530,var(--e))">i&#x210F;&part;&psi;</div>
+      <div class="hist-item-info"><h4>Time Evolution &amp; Schr&ouml;dinger Equation</h4><p>MIT 8.04 Quantum Physics I</p>
+        <div class="hist-item-meta"><span class="badge tag-c">Course</span><span>teach</span><span>28 min</span><span>3/6 steps</span><span>2 hours ago</span></div></div>
+      <div class="hist-item-actions"><button class="btn btn-s btn-ac">Resume &rarr;</button></div>
+    </div>
+    <div class="hist-item" onclick="go(4)">
+      <div class="hist-item-preview" style="background:linear-gradient(135deg,#152015,var(--e))">lim f(x)</div>
+      <div class="hist-item-info"><h4>Limits and Continuity</h4><p>Calculus 1</p>
+        <div class="hist-item-meta"><span class="badge tag-c">Course</span><span>watch</span><span>42 min</span><span>4/5 steps</span><span>3 days ago</span></div></div>
+      <div class="hist-item-actions"><button class="btn btn-s btn-gh">Review</button></div>
+    </div>
+    <div class="hist-item">
+      <div class="hist-item-preview" style="background:var(--e)">&#9883;</div>
+      <div class="hist-item-info"><h4>Explain eigenvalues simply</h4><p>On-demand session</p>
+        <div class="hist-item-meta"><span>on-demand</span><span>12 min</span><span>completed</span><span>5 days ago</span></div></div>
+      <div class="hist-item-actions"><button class="btn btn-s btn-gh">Review</button></div>
+    </div>
+    <div class="hist-item">
+      <div class="hist-item-preview" style="background:linear-gradient(135deg,#151530,var(--e))">&#968;</div>
+      <div class="hist-item-info"><h4>Introduction to Superposition</h4><p>MIT 8.04 Quantum Physics I</p>
+        <div class="hist-item-meta"><span class="badge tag-c">Course</span><span>teach</span><span>45 min</span><span>completed</span><span>1 week ago</span></div></div>
+      <div class="hist-item-actions"><button class="btn btn-s btn-gh">Review</button></div>
+    </div>
+  </div>
+</div>
+</div>
+
+<div class="dn">
+  <button class="on" onclick="go(1)">Landing</button>
+  <button onclick="go(2)">Home</button>
+  <button onclick="go(3)">Course</button>
+  <button onclick="go(4)">Board</button>
+  <button onclick="go(5)">History</button>
+</div>
+<script>
+function go(n){document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));document.getElementById('s'+n).classList.add('on');document.querySelectorAll('.dn button').forEach(b=>b.classList.remove('on'));event.target.classList.add('on');window.scrollTo({top:0,behavior:'instant'})}
+function showR(id){document.querySelectorAll('.scenario').forEach(s=>s.style.display='none');var e=document.getElementById('s'+id);if(e)e.style.display='block';document.getElementById('or').classList.add('vis')}
+</script>
+</body>
+</html>

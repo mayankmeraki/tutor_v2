@@ -1,0 +1,665 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BYO Materials — Wireframe</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#0f1012;--surface:#161819;--elevated:#1e2022;--border:rgba(255,255,255,.06);
+  --accent:#34d399;--accent-dim:rgba(52,211,153,.1);--text:#fafafa;--text-2:#a1a1aa;--text-3:#52525b;
+  --blue:#60a5fa;--yellow:#fbbf24;--red:#f87171;--purple:#a78bfa;
+}
+html{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);-webkit-font-smoothing:antialiased}
+body{min-height:100vh}
+
+.screen{min-height:100vh;display:none;flex-direction:column}
+.screen.on{display:flex}
+nav{position:sticky;top:0;z-index:100;display:flex;align-items:center;justify-content:space-between;
+  padding:0 clamp(16px,4vw,40px);height:52px;background:rgba(15,16,18,.85);backdrop-filter:blur(16px);
+  border-bottom:1px solid var(--border);font-size:13px}
+.logo{font-size:16px;font-weight:700;letter-spacing:-.5px}.logo em{font-style:normal;color:var(--accent)}
+.nav-r{display:flex;align-items:center;gap:16px}
+.nav-r a{color:var(--text-2);font-size:12px;font-weight:500}
+.pill{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 3px;border-radius:16px;
+  background:var(--elevated);font-size:12px;color:var(--text-2)}
+.pill-av{width:22px;height:22px;border-radius:50%;background:var(--accent-dim);color:var(--accent);
+  display:grid;place-items:center;font-size:10px;font-weight:700}
+.wrap{max-width:960px;margin:0 auto;padding:0 clamp(16px,4vw,40px)}
+.btn{display:inline-flex;align-items:center;gap:6px;font-weight:600;border-radius:8px;border:none;
+  cursor:pointer;transition:all .15s;font-family:inherit}
+.btn-sm{padding:6px 14px;font-size:12px}
+.btn-md{padding:9px 20px;font-size:13px}
+.btn-accent{background:var(--accent);color:#0f1012}
+.btn-accent:hover{background:#2dd4a0}
+.btn-ghost{background:var(--elevated);color:var(--text-2);border:1px solid var(--border)}
+.btn-ghost:hover{border-color:var(--text-3);color:var(--text)}
+
+/* ── Screen 1: Collections list (on browse page) ── */
+.col-section{padding:32px 0}
+.col-section h2{font-size:15px;font-weight:600;margin-bottom:14px}
+.col-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px}
+.col-card{padding:18px;border-radius:12px;background:var(--surface);border:1px solid var(--border);
+  cursor:pointer;transition:all .2s}
+.col-card:hover{border-color:var(--accent);transform:translateY(-2px);box-shadow:0 8px 30px rgba(0,0,0,.25)}
+.col-card-icon{font-size:24px;margin-bottom:10px}
+.col-card h3{font-size:14px;font-weight:600;margin-bottom:3px}
+.col-card p{font-size:11px;color:var(--text-3);line-height:1.4}
+.col-card-meta{display:flex;gap:8px;margin-top:10px;flex-wrap:wrap}
+.col-card-tag{padding:2px 7px;border-radius:4px;font-size:9px;font-weight:600;text-transform:uppercase;letter-spacing:.3px}
+.col-card-tag.pdf{background:rgba(248,113,113,.1);color:var(--red)}
+.col-card-tag.video{background:rgba(96,165,250,.1);color:var(--blue)}
+.col-card-tag.ready{background:var(--accent-dim);color:var(--accent)}
+.col-card-tag.processing{background:rgba(251,191,36,.1);color:var(--yellow)}
+
+.col-new{border:2px dashed rgba(255,255,255,.08);background:none;display:flex;flex-direction:column;
+  align-items:center;justify-content:center;gap:8px;color:var(--text-3);min-height:140px}
+.col-new:hover{border-color:rgba(52,211,153,.3);color:var(--accent)}
+.col-new-icon{font-size:28px;opacity:.5}
+
+/* ── Screen 2: Create collection ── */
+.create-wrap{max-width:580px;margin:0 auto;padding:48px 24px}
+.create-wrap h1{font-size:24px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.create-wrap>p{font-size:14px;color:var(--text-2);margin-bottom:28px}
+.form-group{margin-bottom:20px}
+.form-group label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px}
+.form-input{width:100%;padding:10px 14px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:14px;font-family:inherit;outline:none;transition:border-color .2s}
+.form-input:focus{border-color:var(--accent)}
+.form-input::placeholder{color:var(--text-3)}
+.form-textarea{min-height:80px;resize:vertical}
+
+.intent-chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px}
+.intent-chip{padding:6px 12px;border-radius:20px;background:var(--surface);border:1px solid var(--border);
+  font-size:11px;color:var(--text-2);cursor:pointer;transition:all .15s}
+.intent-chip:hover{border-color:var(--accent);color:var(--text)}
+.intent-chip.on{border-color:var(--accent);background:var(--accent-dim);color:var(--accent)}
+
+/* ── Screen 3: Collection detail + upload ── */
+.cd-header{padding:28px 0 20px;display:flex;justify-content:space-between;align-items:flex-start}
+.cd-header h1{font-size:22px;font-weight:700;letter-spacing:-.3px}
+.cd-header p{font-size:13px;color:var(--text-2);margin-top:3px}
+.cd-stats{display:flex;gap:16px;margin-top:10px}
+.cd-stat{font-size:11px;color:var(--text-3)}
+.cd-stat strong{color:var(--text-2);font-weight:600}
+
+/* Upload zone */
+.upload-zone{border:2px dashed rgba(255,255,255,.08);border-radius:14px;padding:32px;text-align:center;
+  margin-bottom:28px;transition:all .2s;cursor:pointer}
+.upload-zone:hover{border-color:rgba(52,211,153,.3);background:rgba(52,211,153,.02)}
+.upload-zone.dragover{border-color:var(--accent);background:rgba(52,211,153,.05)}
+.upload-icon{font-size:32px;opacity:.3;margin-bottom:10px}
+.upload-zone h3{font-size:14px;font-weight:600;margin-bottom:4px}
+.upload-zone p{font-size:12px;color:var(--text-3)}
+.upload-types{display:flex;gap:12px;justify-content:center;margin-top:12px}
+.upload-type{font-size:10px;color:var(--text-3);display:flex;align-items:center;gap:4px}
+
+/* URL paste */
+.url-paste{display:flex;gap:8px;margin-bottom:28px}
+.url-input{flex:1;padding:10px 14px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:13px;font-family:inherit;outline:none}
+.url-input:focus{border-color:var(--accent)}
+.url-input::placeholder{color:var(--text-3)}
+
+/* Resource list */
+.res-list{margin-bottom:28px}
+.res-item{display:flex;align-items:center;gap:12px;padding:12px 14px;border-radius:10px;
+  background:var(--surface);border:1px solid var(--border);margin-bottom:8px;transition:background .15s}
+.res-item:hover{background:var(--elevated)}
+.res-icon{width:36px;height:36px;border-radius:8px;display:grid;place-items:center;font-size:16px;flex-shrink:0}
+.res-icon.pdf{background:rgba(248,113,113,.1);color:var(--red)}
+.res-icon.video{background:rgba(96,165,250,.1);color:var(--blue)}
+.res-icon.text{background:rgba(168,85,247,.1);color:var(--purple)}
+.res-icon.image{background:rgba(251,191,36,.1);color:var(--yellow)}
+.res-info{flex:1;min-width:0}
+.res-info h4{font-size:13px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-info span{font-size:11px;color:var(--text-3)}
+.res-status{font-size:10px;font-weight:600;padding:3px 8px;border-radius:4px}
+.res-status.ready{background:var(--accent-dim);color:var(--accent)}
+.res-status.processing{background:rgba(251,191,36,.1);color:var(--yellow)}
+.res-status.error{background:rgba(248,113,113,.1);color:var(--red)}
+.res-chunks{font-size:10px;color:var(--text-3);margin-left:8px}
+.res-remove{width:24px;height:24px;border-radius:50%;border:none;background:none;color:var(--text-3);
+  cursor:pointer;display:grid;place-items:center;font-size:14px;transition:all .15s;flex-shrink:0}
+.res-remove:hover{color:var(--red);background:rgba(248,113,113,.1)}
+
+/* Topics discovered */
+.topics-section{margin-bottom:28px}
+.topics-section h3{font-size:13px;font-weight:600;color:var(--text-2);margin-bottom:10px}
+.topic-tags{display:flex;flex-wrap:wrap;gap:6px}
+.topic-tag{padding:4px 10px;border-radius:6px;font-size:11px;background:var(--elevated);color:var(--text-2);
+  border:1px solid var(--border)}
+
+/* Action buttons */
+.cd-actions{display:flex;gap:10px;padding:20px 0;border-top:1px solid var(--border)}
+
+/* ── Screen 4: Processing status ── */
+.proc-wrap{max-width:580px;margin:0 auto;padding:48px 24px}
+.proc-wrap h1{font-size:22px;font-weight:700;margin-bottom:6px}
+.proc-wrap>p{font-size:13px;color:var(--text-2);margin-bottom:28px}
+.proc-item{display:flex;align-items:center;gap:12px;padding:14px;border-radius:10px;
+  background:var(--surface);border:1px solid var(--border);margin-bottom:8px}
+.proc-item-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;flex-shrink:0}
+.proc-item-icon.done{background:var(--accent-dim);color:var(--accent)}
+.proc-item-icon.active{background:rgba(96,165,250,.1);color:var(--blue)}
+.proc-item-icon.pending{background:var(--elevated);color:var(--text-3)}
+.proc-item-info{flex:1}
+.proc-item-info h4{font-size:13px;font-weight:500}
+.proc-item-info span{font-size:11px;color:var(--text-3)}
+.proc-bar{height:3px;background:var(--elevated);border-radius:2px;margin-top:4px;overflow:hidden}
+.proc-bar-fill{height:100%;background:var(--accent);border-radius:2px;transition:width .5s}
+
+/* ── Screen 5: Study mode selection ── */
+.study-wrap{max-width:640px;margin:0 auto;padding:48px 24px}
+.study-wrap h1{font-size:24px;font-weight:700;letter-spacing:-.5px;margin-bottom:6px}
+.study-wrap>p{font-size:14px;color:var(--text-2);margin-bottom:28px;line-height:1.5}
+
+.study-modes{display:flex;flex-direction:column;gap:10px;margin-bottom:28px}
+.study-mode{display:flex;align-items:flex-start;gap:14px;padding:18px;border-radius:12px;
+  background:var(--surface);border:1px solid var(--border);cursor:pointer;transition:all .2s}
+.study-mode:hover{border-color:var(--accent)}
+.study-mode.selected{border-color:var(--accent);background:linear-gradient(135deg,var(--surface),rgba(52,211,153,.04))}
+.study-mode-dot{width:18px;height:18px;border-radius:50%;border:2px solid var(--text-3);display:grid;
+  place-items:center;flex-shrink:0;margin-top:2px;transition:all .15s}
+.study-mode.selected .study-mode-dot{border-color:var(--accent)}
+.study-mode.selected .study-mode-dot::after{content:'';width:10px;height:10px;border-radius:50%;background:var(--accent)}
+.study-mode h3{font-size:14px;font-weight:600;margin-bottom:3px}
+.study-mode p{font-size:12px;color:var(--text-2);line-height:1.5}
+.study-mode-tag{display:inline-block;font-size:9px;font-weight:600;color:var(--accent);margin-top:4px;
+  text-transform:uppercase;letter-spacing:.5px}
+
+.study-intent{margin-bottom:20px}
+.study-intent label{display:block;font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:6px}
+.study-intent textarea{width:100%;padding:12px 14px;border-radius:10px;border:1px solid var(--border);
+  background:var(--surface);color:var(--text);font-size:13px;font-family:inherit;outline:none;
+  min-height:60px;resize:vertical;transition:border-color .2s}
+.study-intent textarea:focus{border-color:var(--accent)}
+.study-intent textarea::placeholder{color:var(--text-3)}
+
+/* ── Screen 6: Generated curriculum preview ── */
+.cur-wrap{max-width:700px;margin:0 auto;padding:48px 24px}
+.cur-wrap h1{font-size:22px;font-weight:700;letter-spacing:-.3px;margin-bottom:4px}
+.cur-wrap>p{font-size:13px;color:var(--text-2);margin-bottom:24px}
+.cur-gen{display:flex;align-items:center;gap:10px;padding:14px;border-radius:10px;
+  background:var(--surface);border:1px solid var(--border);margin-bottom:24px}
+.cur-gen-pulse{width:10px;height:10px;border-radius:50%;background:var(--accent);
+  animation:curPulse 1.5s ease-in-out infinite}
+@keyframes curPulse{0%,100%{opacity:.3;transform:scale(.8)}50%{opacity:1;transform:scale(1.2)}}
+.cur-gen span{font-size:13px;color:var(--text-2)}
+
+.cur-module{margin-bottom:16px}
+.cur-mod-head{display:flex;align-items:center;gap:10px;padding:10px 14px;border-radius:8px;
+  background:var(--elevated);font-size:13px;font-weight:600;cursor:pointer}
+.cur-mod-head .num{color:var(--accent);font-size:11px;font-weight:700}
+.cur-mod-head .source{font-size:10px;color:var(--text-3);margin-left:auto;font-weight:400}
+.cur-lessons{padding:4px 0 4px 24px}
+.cur-lesson{display:flex;align-items:center;gap:8px;padding:8px 10px;font-size:12px;color:var(--text-2);
+  border-radius:6px;cursor:pointer;transition:background .1s}
+.cur-lesson:hover{background:var(--elevated)}
+.cur-lesson-icon{font-size:10px;color:var(--text-3)}
+.cur-lesson-source{font-size:10px;color:var(--text-3);margin-left:auto}
+.cur-lesson.assessment{color:var(--yellow)}
+
+.cur-footer{display:flex;gap:10px;padding-top:20px;border-top:1px solid var(--border);margin-top:8px}
+
+/* ── Screen 7: Teaching view (BYO) ── */
+.teach-bar{display:flex;align-items:center;gap:12px;padding:0 16px;height:42px;background:var(--surface);
+  border-bottom:1px solid var(--border);font-size:12px;flex-shrink:0}
+.teach-bar .back{color:var(--text-3);cursor:pointer}
+.teach-bar .badge{padding:2px 7px;border-radius:4px;font-size:9px;font-weight:700;text-transform:uppercase;
+  letter-spacing:.5px;background:rgba(168,85,247,.12);color:var(--purple)}
+.teach-bar .title{font-weight:600;flex:1}
+.teach-body{flex:1;display:flex;overflow:hidden}
+.teach-board{flex:1;overflow-y:auto;padding:32px clamp(20px,4vw,60px) 120px;
+  background:var(--bg) repeating-conic-gradient(var(--elevated) 0% 25%,transparent 0% 50%) 0 0/40px 40px}
+.teach-sidebar{width:260px;flex-shrink:0;background:var(--surface);border-left:1px solid var(--border);
+  display:flex;flex-direction:column;overflow:hidden}
+.teach-sidebar-head{padding:10px 12px;border-bottom:1px solid var(--border);font-size:12px;font-weight:600}
+.teach-sidebar-body{flex:1;overflow-y:auto;padding:6px 0}
+.teach-ref{padding:8px 12px;font-size:11px;color:var(--text-2);cursor:pointer;border-bottom:1px solid var(--border);
+  transition:background .15s}
+.teach-ref:hover{background:var(--elevated)}
+.teach-ref.active{background:rgba(52,211,153,.06);border-left:2px solid var(--accent)}
+.teach-ref h4{font-size:11px;font-weight:500;margin-bottom:2px}
+.teach-ref span{font-size:10px;color:var(--text-3)}
+.teach-ref-tag{font-size:8px;padding:1px 5px;border-radius:3px;margin-left:4px}
+
+.subtitle{position:fixed;bottom:64px;left:50%;transform:translateX(-50%);max-width:600px;width:90%;
+  padding:10px 20px;border-radius:10px;background:rgba(0,0,0,.75);backdrop-filter:blur(10px);
+  font-size:14px;text-align:center;border:1px solid rgba(255,255,255,.05);z-index:10}
+.input-bar{position:fixed;bottom:0;left:0;right:0;padding:10px 16px;background:var(--surface);
+  border-top:1px solid var(--border);z-index:10}
+.input-inner{display:flex;align-items:center;gap:8px;padding:9px 14px;border-radius:12px;
+  background:var(--elevated);border:1px solid var(--border);max-width:600px;margin:0 auto}
+.input-inner input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:13px}
+.input-inner input::placeholder{color:var(--text-3)}
+.input-inner .send{width:28px;height:28px;border-radius:50%;background:var(--accent);border:none;
+  color:#0f1012;display:grid;place-items:center;font-size:12px;cursor:pointer}
+
+/* Chalk */
+.ck{font-family:'Caveat',cursive}
+.ck-h1{font-size:28px;font-weight:700;color:#e8d47a;text-align:center;margin-bottom:6px}
+.ck-h2{font-size:20px;font-weight:600;color:#5eead4;margin:20px 0 8px}
+.ck-t{font-size:17px;color:#d4e8dc;line-height:1.5;margin-bottom:4px}
+.ck-dim{color:var(--text-3);font-size:15px}
+.ck-call{border-left:3px solid #5eead4;padding-left:12px;margin:8px 0;font-size:16px;color:#7ed99a}
+.ck-ref{font-size:12px;color:var(--text-3);margin-top:4px;font-family:Inter,sans-serif;font-style:italic}
+
+/* Nav */
+.dnav{position:fixed;bottom:68px;left:50%;transform:translateX(-50%);display:flex;gap:3px;padding:4px;
+  background:var(--surface);border-radius:10px;border:1px solid var(--border);z-index:999;
+  box-shadow:0 6px 24px rgba(0,0,0,.5)}
+.dnav button{padding:4px 10px;border-radius:7px;font-size:9px;font-weight:600;color:var(--text-3);
+  background:none;border:none;cursor:pointer;transition:all .12s;white-space:nowrap}
+.dnav button.on{background:var(--accent);color:#0f1012}
+.dnav button:hover:not(.on){color:var(--text);background:var(--elevated)}
+</style>
+</head>
+<body>
+
+<!-- ══════ 1. Collections on browse page ══════ -->
+<div class="screen on" id="s1">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nav-r"><a>Courses</a><a style="color:var(--text);font-weight:600">My Materials</a><div class="pill"><div class="pill-av">M</div>Mayank</div></div></nav>
+<div class="wrap">
+  <div class="col-section">
+    <h2>Your collections</h2>
+    <div class="col-grid">
+      <div class="col-card" onclick="go(3)">
+        <div class="col-card-icon">&#128218;</div>
+        <h3>Organic Chemistry — Final Prep</h3>
+        <p>Textbook chapters, past papers, homework sets</p>
+        <div class="col-card-meta">
+          <span class="col-card-tag pdf">3 PDFs</span>
+          <span class="col-card-tag video">2 Videos</span>
+          <span class="col-card-tag ready">Ready</span>
+        </div>
+      </div>
+      <div class="col-card" onclick="go(3)">
+        <div class="col-card-icon">&#9889;</div>
+        <h3>Physics 201</h3>
+        <p>Khan Academy lectures + problem sets</p>
+        <div class="col-card-meta">
+          <span class="col-card-tag video">5 Videos</span>
+          <span class="col-card-tag pdf">1 PDF</span>
+          <span class="col-card-tag processing">Processing</span>
+        </div>
+      </div>
+      <div class="col-card col-new" onclick="go(2)">
+        <div class="col-new-icon">+</div>
+        <span style="font-size:13px;font-weight:600">New collection</span>
+        <span style="font-size:11px">Upload your study materials</span>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════ 2. Create collection ══════ -->
+<div class="screen" id="s2">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nav-r"><div class="pill"><div class="pill-av">M</div>Mayank</div></div></nav>
+<div class="create-wrap">
+  <h1>New collection</h1>
+  <p>Give your collection a name and tell us what you want to achieve. We'll figure out the rest.</p>
+
+  <div class="form-group">
+    <label>Collection name</label>
+    <input class="form-input" placeholder="e.g. Organic Chemistry — Final Prep">
+  </div>
+
+  <div class="form-group">
+    <label>What do you want to do with these materials?</label>
+    <textarea class="form-input form-textarea" placeholder="e.g. I have my textbook and past exam papers. I want to prepare for my final exam in 5 days."></textarea>
+    <div class="intent-chips">
+      <span class="intent-chip on">Exam prep</span>
+      <span class="intent-chip">Learn the material</span>
+      <span class="intent-chip">Homework help</span>
+      <span class="intent-chip">Quick reference</span>
+      <span class="intent-chip">Understand a paper</span>
+    </div>
+  </div>
+
+  <button class="btn btn-md btn-accent" onclick="go(3)" style="width:100%">Create collection &rarr;</button>
+</div>
+</div>
+
+<!-- ══════ 3. Collection detail + upload ══════ -->
+<div class="screen" id="s3">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nav-r"><a onclick="go(1)" style="cursor:pointer">&larr; Collections</a><div class="pill"><div class="pill-av">M</div>Mayank</div></div></nav>
+<div class="wrap">
+  <div class="cd-header">
+    <div>
+      <h1>Organic Chemistry — Final Prep</h1>
+      <p>Exam prep &middot; Created today</p>
+      <div class="cd-stats">
+        <span class="cd-stat"><strong>5</strong> resources</span>
+        <span class="cd-stat"><strong>127</strong> chunks</span>
+        <span class="cd-stat"><strong>12</strong> topics</span>
+      </div>
+    </div>
+    <button class="btn btn-md btn-accent" onclick="go(5)">Start learning &rarr;</button>
+  </div>
+
+  <div class="upload-zone">
+    <div class="upload-icon">&#128206;</div>
+    <h3>Add more materials</h3>
+    <p>Drop files here or click to browse</p>
+    <div class="upload-types">
+      <span class="upload-type">&#128196; PDF</span>
+      <span class="upload-type">&#127909; Video</span>
+      <span class="upload-type">&#128196; Images</span>
+      <span class="upload-type">&#128221; Text</span>
+    </div>
+  </div>
+
+  <div class="url-paste">
+    <input class="url-input" placeholder="Paste a YouTube link, article URL, or DOI...">
+    <button class="btn btn-sm btn-ghost">Add</button>
+  </div>
+
+  <div class="res-list">
+    <div class="res-item">
+      <div class="res-icon pdf">&#128196;</div>
+      <div class="res-info"><h4>Organic_Chemistry_Textbook_Ch5-8.pdf</h4><span>45 pages &middot; 4.2 MB</span></div>
+      <span class="res-status ready">Ready</span>
+      <span class="res-chunks">68 chunks</span>
+      <button class="res-remove">&times;</button>
+    </div>
+    <div class="res-item">
+      <div class="res-icon pdf">&#128196;</div>
+      <div class="res-info"><h4>Past_Exam_2024.pdf</h4><span>8 pages &middot; 1.1 MB</span></div>
+      <span class="res-status ready">Ready</span>
+      <span class="res-chunks">15 chunks</span>
+      <button class="res-remove">&times;</button>
+    </div>
+    <div class="res-item">
+      <div class="res-icon pdf">&#128196;</div>
+      <div class="res-info"><h4>Past_Exam_2023.pdf</h4><span>7 pages &middot; 0.9 MB</span></div>
+      <span class="res-status ready">Ready</span>
+      <span class="res-chunks">12 chunks</span>
+      <button class="res-remove">&times;</button>
+    </div>
+    <div class="res-item">
+      <div class="res-icon video">&#127909;</div>
+      <div class="res-info"><h4>Khan Academy — Reaction Mechanisms</h4><span>32 min &middot; YouTube</span></div>
+      <span class="res-status ready">Ready</span>
+      <span class="res-chunks">8 segments</span>
+      <button class="res-remove">&times;</button>
+    </div>
+    <div class="res-item">
+      <div class="res-icon video">&#127909;</div>
+      <div class="res-info"><h4>Prof. Smith — Organic Synthesis Overview</h4><span>48 min &middot; YouTube</span></div>
+      <span class="res-status processing">Processing...</span>
+      <div class="proc-bar" style="width:120px;margin-left:8px"><div class="proc-bar-fill" style="width:60%"></div></div>
+      <button class="res-remove">&times;</button>
+    </div>
+  </div>
+
+  <div class="topics-section">
+    <h3>Topics discovered</h3>
+    <div class="topic-tags">
+      <span class="topic-tag">Reaction mechanisms</span>
+      <span class="topic-tag">SN1 / SN2</span>
+      <span class="topic-tag">Elimination</span>
+      <span class="topic-tag">Stereochemistry</span>
+      <span class="topic-tag">Carbonyl chemistry</span>
+      <span class="topic-tag">Acid-base</span>
+      <span class="topic-tag">Spectroscopy</span>
+      <span class="topic-tag">Retrosynthesis</span>
+      <span class="topic-tag">Alkenes</span>
+      <span class="topic-tag">Alcohols</span>
+      <span class="topic-tag">Aromaticity</span>
+      <span class="topic-tag">Carboxylic acids</span>
+    </div>
+  </div>
+
+  <div class="cd-actions">
+    <button class="btn btn-md btn-accent" onclick="go(5)">Start learning &rarr;</button>
+    <button class="btn btn-md btn-ghost" onclick="go(4)">View processing details</button>
+  </div>
+</div>
+</div>
+
+<!-- ══════ 4. Processing status ══════ -->
+<div class="screen" id="s4">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nav-r"><a onclick="go(3)" style="cursor:pointer">&larr; Collection</a></div></nav>
+<div class="proc-wrap">
+  <h1>Processing your materials</h1>
+  <p>We're extracting content, building searchable chunks, and discovering topics.</p>
+
+  <div class="proc-item">
+    <div class="proc-item-icon done">&#10003;</div>
+    <div class="proc-item-info">
+      <h4>Organic_Chemistry_Textbook_Ch5-8.pdf</h4>
+      <span>68 chunks &middot; 12 topics discovered</span>
+    </div>
+  </div>
+  <div class="proc-item">
+    <div class="proc-item-icon done">&#10003;</div>
+    <div class="proc-item-info">
+      <h4>Past_Exam_2024.pdf</h4>
+      <span>15 chunks &middot; 8 problems extracted</span>
+    </div>
+  </div>
+  <div class="proc-item">
+    <div class="proc-item-icon done">&#10003;</div>
+    <div class="proc-item-info">
+      <h4>Past_Exam_2023.pdf</h4>
+      <span>12 chunks &middot; 7 problems extracted</span>
+    </div>
+  </div>
+  <div class="proc-item">
+    <div class="proc-item-icon done">&#10003;</div>
+    <div class="proc-item-info">
+      <h4>Khan Academy — Reaction Mechanisms</h4>
+      <span>8 segments &middot; 32 min transcript</span>
+    </div>
+  </div>
+  <div class="proc-item">
+    <div class="proc-item-icon active" style="position:relative">
+      <div style="width:14px;height:14px;border:2px solid var(--blue);border-top-color:transparent;border-radius:50%;animation:spin .8s linear infinite"></div>
+    </div>
+    <div class="proc-item-info">
+      <h4>Prof. Smith — Organic Synthesis Overview</h4>
+      <span>Extracting transcript...</span>
+      <div class="proc-bar"><div class="proc-bar-fill" style="width:60%"></div></div>
+    </div>
+  </div>
+  <style>@keyframes spin{to{transform:rotate(360deg)}}</style>
+
+  <div style="margin-top:24px;padding:16px;border-radius:10px;background:var(--surface);border:1px solid var(--border)">
+    <div style="font-size:12px;font-weight:600;color:var(--text-2);margin-bottom:8px">Overall progress</div>
+    <div class="proc-bar" style="height:6px"><div class="proc-bar-fill" style="width:82%"></div></div>
+    <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:11px;color:var(--text-3)">
+      <span>4 of 5 resources ready</span><span>82%</span>
+    </div>
+  </div>
+</div>
+</div>
+
+<!-- ══════ 5. Study mode selection ══════ -->
+<div class="screen" id="s5">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nav-r"><a onclick="go(3)" style="cursor:pointer">&larr; Collection</a></div></nav>
+<div class="study-wrap">
+  <h1>How would you like to study?</h1>
+  <p>Your tutor will use your materials — textbook chapters, past papers, and lecture videos — to teach you.</p>
+
+  <div class="study-modes">
+    <div class="study-mode selected" onclick="this.parentElement.querySelectorAll('.study-mode').forEach(m=>m.classList.remove('selected'));this.classList.add('selected')">
+      <span class="study-mode-dot"></span>
+      <div>
+        <h3>Prepare me for the exam</h3>
+        <p>Your tutor analyses past papers, identifies high-frequency topics, and builds a study plan targeting your weak areas.</p>
+        <span class="study-mode-tag">Recommended based on your intent</span>
+      </div>
+    </div>
+    <div class="study-mode" onclick="this.parentElement.querySelectorAll('.study-mode').forEach(m=>m.classList.remove('selected'));this.classList.add('selected')">
+      <span class="study-mode-dot"></span>
+      <div>
+        <h3>Teach me the material</h3>
+        <p>Go through the textbook content topic by topic, with board explanations, examples, and checkpoints.</p>
+      </div>
+    </div>
+    <div class="study-mode" onclick="this.parentElement.querySelectorAll('.study-mode').forEach(m=>m.classList.remove('selected'));this.classList.add('selected')">
+      <span class="study-mode-dot"></span>
+      <div>
+        <h3>Help with homework</h3>
+        <p>Guide you through problem sets step by step. Teaches the concepts, doesn't just give answers.</p>
+      </div>
+    </div>
+    <div class="study-mode" onclick="this.parentElement.querySelectorAll('.study-mode').forEach(m=>m.classList.remove('selected'));this.classList.add('selected')">
+      <span class="study-mode-dot"></span>
+      <div>
+        <h3>Follow along with videos</h3>
+        <p>Watch your lecture videos with your tutor. Pause anytime to ask questions about what you see.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="study-intent">
+    <label>Anything specific? (optional)</label>
+    <textarea placeholder="e.g. Focus on reaction mechanisms — I always get SN1 vs SN2 wrong"></textarea>
+  </div>
+
+  <button class="btn btn-md btn-accent" onclick="go(6)" style="width:100%">Build my study plan &rarr;</button>
+</div>
+</div>
+
+<!-- ══════ 6. Generated curriculum preview ══════ -->
+<div class="screen" id="s6">
+<nav><div class="logo"><em>C</em>apacity</div><div class="nav-r"><a onclick="go(5)" style="cursor:pointer">&larr; Back</a></div></nav>
+<div class="cur-wrap">
+  <h1>Your study plan</h1>
+  <p>Built from your materials — 5 resources, 12 topics, focused on exam prep.</p>
+
+  <div class="cur-gen" id="cur-gen">
+    <div class="cur-gen-pulse"></div>
+    <span>Analysing past papers and building your plan...</span>
+  </div>
+
+  <div class="cur-module">
+    <div class="cur-mod-head"><span class="num">01</span> High-Frequency: Reaction Mechanisms <span class="source">textbook ch 6 + past papers</span></div>
+    <div class="cur-lessons">
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> SN1 vs SN2 — when to use which <span class="cur-lesson-source">textbook p. 78-85</span></div>
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> E1 vs E2 elimination <span class="cur-lesson-source">textbook p. 90-98</span></div>
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#127909;</span> Khan Academy — Reaction Mechanisms <span class="cur-lesson-source">video, 32 min</span></div>
+      <div class="cur-lesson assessment"><span class="cur-lesson-icon">&#9733;</span> Practice: Past exam 2024, Q3-Q5 <span class="cur-lesson-source">past paper</span></div>
+    </div>
+  </div>
+
+  <div class="cur-module">
+    <div class="cur-mod-head"><span class="num">02</span> Stereochemistry <span class="source">textbook ch 5</span></div>
+    <div class="cur-lessons">
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> R/S configuration and chirality <span class="cur-lesson-source">textbook p. 55-65</span></div>
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> Optical activity and resolution <span class="cur-lesson-source">textbook p. 66-72</span></div>
+      <div class="cur-lesson assessment"><span class="cur-lesson-icon">&#9733;</span> Practice: Past exam 2023, Q2 <span class="cur-lesson-source">past paper</span></div>
+    </div>
+  </div>
+
+  <div class="cur-module">
+    <div class="cur-mod-head"><span class="num">03</span> Carbonyl Chemistry <span class="source">textbook ch 7-8</span></div>
+    <div class="cur-lessons">
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> Nucleophilic addition <span class="cur-lesson-source">textbook p. 110-120</span></div>
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> Aldol and Claisen condensation <span class="cur-lesson-source">textbook p. 125-135</span></div>
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#127909;</span> Prof. Smith — Synthesis Overview <span class="cur-lesson-source">video, 48 min</span></div>
+      <div class="cur-lesson assessment"><span class="cur-lesson-icon">&#9733;</span> Practice: Past exam 2024, Q7-Q8 <span class="cur-lesson-source">past paper</span></div>
+    </div>
+  </div>
+
+  <div class="cur-module">
+    <div class="cur-mod-head"><span class="num">04</span> Final Review <span class="source">all materials</span></div>
+    <div class="cur-lessons">
+      <div class="cur-lesson"><span class="cur-lesson-icon">&#9654;</span> Weak area review (based on practice results)</div>
+      <div class="cur-lesson assessment"><span class="cur-lesson-icon">&#9733;</span> Timed mock exam — 90 min <span class="cur-lesson-source">generated from past papers</span></div>
+    </div>
+  </div>
+
+  <div class="cur-footer">
+    <button class="btn btn-md btn-accent" onclick="go(7)" style="flex:1">Start studying &rarr;</button>
+    <button class="btn btn-md btn-ghost">Modify plan</button>
+  </div>
+</div>
+</div>
+
+<!-- ══════ 7. Teaching view (BYO) ══════ -->
+<div class="screen" id="s7">
+<div style="display:flex;flex-direction:column;height:100vh">
+  <div class="teach-bar">
+    <span class="back" onclick="go(6)">&larr;</span>
+    <span class="badge">YOUR MATERIALS</span>
+    <span class="title">SN1 vs SN2 — When to Use Which</span>
+    <span style="color:var(--text-3)">4:32</span>
+  </div>
+  <div class="teach-body">
+    <div class="teach-board">
+      <div class="ck ck-h1">SN1 vs SN2</div>
+      <div class="ck ck-dim" style="text-align:center;margin-bottom:20px">The two paths for nucleophilic substitution</div>
+
+      <div class="ck ck-h2">From your textbook (p. 78):</div>
+      <div class="ck ck-call">"The choice between SN1 and SN2 depends on the substrate, nucleophile, solvent, and leaving group."</div>
+      <div class="ck ck-ref">— Organic Chemistry, Ch. 6, p. 78</div>
+
+      <div class="ck ck-h2">The Decision Tree</div>
+      <div class="ck ck-t">1. Look at the substrate carbon:</div>
+      <div class="ck ck-t" style="padding-left:20px">&bull; <span style="color:#5eead4">Primary (1&deg;)</span> &rarr; SN2 (almost always)</div>
+      <div class="ck ck-t" style="padding-left:20px">&bull; <span style="color:#e8d47a">Secondary (2&deg;)</span> &rarr; depends on nucleophile + solvent</div>
+      <div class="ck ck-t" style="padding-left:20px">&bull; <span style="color:#f87171">Tertiary (3&deg;)</span> &rarr; SN1 (almost always)</div>
+
+      <div class="ck ck-h2">Past exam pattern:</div>
+      <div class="ck ck-call">This topic appeared in 4 out of 5 past exams. Questions 3 and 4 in 2024 were both SN1/SN2.</div>
+      <div class="ck ck-ref">— Past Exam 2024, Q3-Q4</div>
+    </div>
+
+    <div class="teach-sidebar">
+      <div class="teach-sidebar-head">Sources used</div>
+      <div class="teach-sidebar-body">
+        <div class="teach-ref active">
+          <h4>&#128196; Textbook Ch. 6</h4>
+          <span>p. 78-85 &middot; Nucleophilic Substitution</span>
+        </div>
+        <div class="teach-ref">
+          <h4>&#128196; Past Exam 2024</h4>
+          <span>Q3-Q5 &middot; Mechanisms</span>
+        </div>
+        <div class="teach-ref">
+          <h4>&#128196; Past Exam 2023</h4>
+          <span>Q4 &middot; SN1 vs SN2</span>
+        </div>
+        <div class="teach-ref">
+          <h4>&#127909; Khan Academy</h4>
+          <span>12:30-18:45 &middot; Substitution</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<div class="subtitle">"Your textbook puts it perfectly: it depends on the substrate. Let me show you the decision tree."</div>
+<div class="input-bar"><div class="input-inner"><input placeholder="Ask about your materials..."><button class="send">&#10148;</button></div></div>
+</div>
+
+<!-- Nav -->
+<div class="dnav">
+  <button class="on" onclick="go(1)">Collections</button>
+  <button onclick="go(2)">Create</button>
+  <button onclick="go(3)">Detail</button>
+  <button onclick="go(4)">Processing</button>
+  <button onclick="go(5)">Study Mode</button>
+  <button onclick="go(6)">Curriculum</button>
+  <button onclick="go(7)">Teaching</button>
+</div>
+
+<script>
+function go(n){
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('on'));
+  document.getElementById('s'+n).classList.add('on');
+  document.querySelectorAll('.dnav button').forEach(b=>b.classList.remove('on'));
+  event.target.classList.add('on');
+  window.scrollTo({top:0,behavior:'instant'});
+}
+document.querySelectorAll('.intent-chip').forEach(c=>{
+  c.addEventListener('click',()=>c.classList.toggle('on'));
+});
+</script>
+</body>
+</html>
