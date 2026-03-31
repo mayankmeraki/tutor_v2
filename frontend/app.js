@@ -1217,6 +1217,8 @@ function generateId() {
   return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 }
 
+let _streamGeneration = 0;  // Increments on each new stream — prevents old cleanup from interfering
+
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
   if (state.isStreaming) return;
   const _now = Date.now();
@@ -1226,6 +1228,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state._stopRequested = false;
   state._streamReader = null;
   state._lastSSETimestamp = Date.now();
+  const thisGen = ++_streamGeneration;  // Track this stream's generation
   _showStopButton(true);
 
   // Voice mode: restore full-screen board if we were in interactive mode
@@ -1358,11 +1361,13 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   }
 
   // Clean up after stop or normal completion
+  // Only if this is still the active stream (prevents stale cleanup from killing a new stream)
+  if (_streamGeneration !== thisGen) return;
   const wasStopped = state._stopRequested;
   state.isStreaming = false;
   state._streamReader = null;
   state._stopRequested = false;
-  hideSessionPrep(); // Always dismiss loading overlay
+  hideSessionPrep();
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
   _showStopButton(false);
   // Re-enable quick actions
@@ -14225,15 +14230,20 @@ function stopGeneration() {
   if (!state.isStreaming) return;
 
   console.log('[Stop] Stopping tutor...');
-  state._stopRequested = true;
 
-  // 1. Cancel the HTTP stream FIRST (stops data flow)
+  // Set stop flag FIRST — stream loop and all async handlers check this
+  state._stopRequested = true;
+  // NOTE: Do NOT reset _stopRequested here — the stream loop's catch block
+  // needs to see it as true to suppress the error toast. The stream loop's
+  // cleanup code resets it after the catch block runs.
+
+  // 1. Cancel the HTTP stream (stops data flow from backend)
   if (state._streamReader) {
     try { state._streamReader.cancel(); } catch (e) {}
     state._streamReader = null;
   }
 
-  // 2. Kill ALL audio sources immediately
+  // 2. Stop ALL audio immediately
   [state._currentTTSAudio, state.voiceCurrentAudio].forEach(audio => {
     if (audio) { try { audio.pause(); audio.src = ''; } catch(e) {} }
   });
@@ -14243,27 +14253,24 @@ function stopGeneration() {
     try { state.voiceCurrentSrc.stop(); } catch(e) {}
     state.voiceCurrentSrc = null;
   }
-  // Kill any pending TTS audio context buffers
+  // Suspend (not close!) AudioContext — stops buffered audio but allows reuse
   if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'running') {
-    try { state.voiceAudioCtx.close(); } catch(e) {}
-    state.voiceAudioCtx = null;
+    try { state.voiceAudioCtx.suspend(); } catch(e) {}
   }
 
-  // 3. Reset voice scene completely — prevent ANY further beat execution
+  // 3. Kill voice scene — prevent ANY further beat execution
   state._voiceSceneActive = false;
   if (typeof _eagerReset === 'function') _eagerReset();
-  // Also clear the voice scene queue to prevent ghost beats
   if (typeof _eager !== 'undefined') {
     _eager.done = true;
     _eager.queue = [];
     _eager.running = false;
-    _eager.parsedCount = 999999; // Prevent re-parsing old beats
+    _eager.parsedCount = 999999;
   }
 
   // 4. Stop board queue but preserve what's drawn
   if (typeof BoardEngine !== 'undefined') {
     BoardEngine.cancel();
-    // Reset cancel flag on next frame so new commands work
     setTimeout(() => {
       if (BoardEngine.state) {
         BoardEngine.state.cancelFlag = false;
@@ -14275,17 +14282,11 @@ function stopGeneration() {
   state.boardDraw.isProcessing = false;
   state.boardDraw.cancelFlag = false;
 
-  // 5. Clear any pending stream update timers
-  if (state._streamUpdateTimer) {
-    clearTimeout(state._streamUpdateTimer);
-    state._streamUpdateTimer = null;
-  }
-  if (state._streamingTimeout) {
-    clearTimeout(state._streamingTimeout);
-    state._streamingTimeout = null;
-  }
+  // 5. Clear pending timers
+  if (state._streamUpdateTimer) { clearTimeout(state._streamUpdateTimer); state._streamUpdateTimer = null; }
+  if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
 
-  // 6. Save partial message
+  // 6. Save partial message — this becomes part of the conversation context
   if (state.accumulatedText) {
     const partialText = state.accumulatedText;
     updateAIMessageStream(partialText);
@@ -14301,9 +14302,8 @@ function stopGeneration() {
     state.accumulatedText = '';
   }
 
-  // 7. Reset all state flags
+  // 7. Mark streaming as done (but keep _stopRequested TRUE for catch block)
   state.isStreaming = false;
-  state._stopRequested = false;
 
   // 8. Restore UI
   voiceBarSetThinking(false);
@@ -14320,7 +14320,7 @@ function stopGeneration() {
     field.placeholder = 'Type your response...';
   }
 
-  console.log('[Stop] Tutor stopped — board preserved, audio killed, beats cleared');
+  console.log('[Stop] Tutor stopped — board preserved, audio suspended, beats cleared');
 }
 
 function _showStopButton(show) {
@@ -14358,10 +14358,11 @@ function submitVoiceBarInput() {
   // If tutor is streaming, stop it first — student input is an interrupt
   if (state.isStreaming) {
     stopGeneration();
-    // Small delay to let stop complete before sending
+    // Wait for stream loop cleanup to fully complete before sending new message
+    // The async cleanup (catch block + cleanup code) needs ~200ms
     setTimeout(() => {
-      if (field.value.trim()) _doSubmitVoiceBar(field);
-    }, 100);
+      if (field.value.trim() && !state.isStreaming) _doSubmitVoiceBar(field);
+    }, 300);
     return;
   }
   _doSubmitVoiceBar(field);
