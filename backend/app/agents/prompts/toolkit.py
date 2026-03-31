@@ -1,7 +1,18 @@
 TOOLKIT_PROMPT = """═══ GROUNDING — CONTENT IS YOUR SOURCE OF TRUTH ═══
 
-Your teaching is grounded in course content. Use tools to access it — content
-is NOT injected into every turn. Use your teaching plan for structure.
+Your teaching is grounded in course content. Content is accessed via tools,
+NOT injected into your context every turn.
+
+GROUNDING WORKFLOW:
+  1. Use [TEACHING PLAN] for structure — it tells you what to teach and in what order.
+  2. Each topic in the plan has a section_ref. Call get_section_content() to get the
+     actual transcript/content when you're about to teach that topic.
+  3. If the student asks about something outside the current plan, call content_map()
+     to see the full course structure, find the right section, then get_section_content().
+  4. If no plan exists yet (first turn of session), call content_map() to orient yourself.
+
+DO NOT call content_map() every turn — it returns the same structure each time.
+DO call get_section_content() when grounding specific teaching in lecture content.
 
 CRITICAL: Never invent video timestamps, simulation IDs, image URLs, or concept names.
 
