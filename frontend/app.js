@@ -13179,15 +13179,19 @@ function _eagerReset() {
 }
 
 function _eagerBeatWatcher(text) {
-  if (_eager.done) return;
+  if (_eager.done || state._stopRequested) return;
 
-  // Count completed <vb ... /> tags
+  // Only parse <vb> tags from the LAST voice scene (not previous scenes in same stream)
+  const lastSceneIdx = text.lastIndexOf('<teaching-voice-scene');
+  const searchText = lastSceneIdx >= 0 ? text.slice(lastSceneIdx) : text;
+
+  // Count completed <vb ... /> tags in the current scene only
   const vbRegex = /<vb\s+[\s\S]*?\/>/g;
   let match;
   let count = 0;
   const newRawBeats = [];
 
-  while ((match = vbRegex.exec(text)) !== null) {
+  while ((match = vbRegex.exec(searchText)) !== null) {
     count++;
     if (count > _eager.parsedCount) {
       newRawBeats.push(match[0]);
@@ -14219,58 +14223,73 @@ function voiceBarSetThinking(isThinking) {
 
 function stopGeneration() {
   if (!state.isStreaming) return;
+
+  console.log('[Stop] Stopping tutor...');
   state._stopRequested = true;
 
-  // Cancel the stream reader immediately (drops HTTP connection)
+  // 1. Cancel the HTTP stream FIRST (stops data flow)
   if (state._streamReader) {
     try { state._streamReader.cancel(); } catch (e) {}
     state._streamReader = null;
   }
 
-  // Stop all audio immediately
-  if (state._currentTTSAudio) {
-    try { state._currentTTSAudio.pause(); state._currentTTSAudio = null; } catch (e) {}
-  }
-  if (state.voiceCurrentAudio) {
-    try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {}
-    state.voiceCurrentAudio = null;
-  }
+  // 2. Kill ALL audio sources immediately
+  [state._currentTTSAudio, state.voiceCurrentAudio].forEach(audio => {
+    if (audio) { try { audio.pause(); audio.src = ''; } catch(e) {} }
+  });
+  state._currentTTSAudio = null;
+  state.voiceCurrentAudio = null;
   if (state.voiceCurrentSrc) {
     try { state.voiceCurrentSrc.stop(); } catch(e) {}
     state.voiceCurrentSrc = null;
   }
+  // Kill any pending TTS audio context buffers
+  if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'running') {
+    try { state.voiceAudioCtx.close(); } catch(e) {}
+    state.voiceAudioCtx = null;
+  }
+
+  // 3. Reset voice scene completely — prevent ANY further beat execution
   state._voiceSceneActive = false;
-
-  // Stop eager beat processing
   if (typeof _eagerReset === 'function') _eagerReset();
+  // Also clear the voice scene queue to prevent ghost beats
+  if (typeof _eager !== 'undefined') {
+    _eager.done = true;
+    _eager.queue = [];
+    _eager.running = false;
+    _eager.parsedCount = 999999; // Prevent re-parsing old beats
+  }
 
-  // Stop board command queue but keep what's already drawn
+  // 4. Stop board queue but preserve what's drawn
   if (typeof BoardEngine !== 'undefined') {
-    // Cancel pending commands
     BoardEngine.cancel();
-    // IMMEDIATELY reset cancelFlag so new commands can run after stop
-    requestAnimationFrame(() => {
+    // Reset cancel flag on next frame so new commands work
+    setTimeout(() => {
       if (BoardEngine.state) {
         BoardEngine.state.cancelFlag = false;
         BoardEngine.state.isProcessing = false;
       }
-    });
+    }, 50);
   }
-  // Reset local state
   state.boardDraw.commandQueue = [];
   state.boardDraw.isProcessing = false;
   state.boardDraw.cancelFlag = false;
 
-  // Save the partial message
+  // 5. Clear any pending stream update timers
+  if (state._streamUpdateTimer) {
+    clearTimeout(state._streamUpdateTimer);
+    state._streamUpdateTimer = null;
+  }
+  if (state._streamingTimeout) {
+    clearTimeout(state._streamingTimeout);
+    state._streamingTimeout = null;
+  }
+
+  // 6. Save partial message
   if (state.accumulatedText) {
     const partialText = state.accumulatedText;
-    if (state._streamUpdateTimer) {
-      clearTimeout(state._streamUpdateTimer);
-      state._streamUpdateTimer = null;
-    }
     updateAIMessageStream(partialText);
     finalizeAIMessage(partialText);
-
     state.messages.push({
       id: state.currentMessageId || generateId(),
       role: 'assistant',
@@ -14282,15 +14301,17 @@ function stopGeneration() {
     state.accumulatedText = '';
   }
 
+  // 7. Reset all state flags
   state.isStreaming = false;
   state._stopRequested = false;
 
-  // Restore UI to ready state
+  // 8. Restore UI
   voiceBarSetThinking(false);
   removeStreamingIndicator();
+  voiceHideSubtitle();
   _showStopButton(false);
+  hideSessionPrep();
 
-  // Make sure the input is usable
   const field = document.getElementById('voice-bar-input');
   if (field) {
     field.disabled = false;
@@ -14299,7 +14320,7 @@ function stopGeneration() {
     field.placeholder = 'Type your response...';
   }
 
-  console.log('[Stop] Tutor stopped by student — board preserved');
+  console.log('[Stop] Tutor stopped — board preserved, audio killed, beats cleared');
 }
 
 function _showStopButton(show) {
