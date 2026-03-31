@@ -152,12 +152,15 @@ async def _evict_stale_sessions() -> None:
         if now - s.last_accessed > SESSION_TTL_SECONDS
     ]
     for sid in stale_ids:
+        session = _sessions.get(sid)
+        if not session:
+            continue  # Already evicted by another coroutine
         try:
             from app.services.session_service import sync_backend_state
-            await sync_backend_state(sid, _sessions[sid])
+            await sync_backend_state(sid, session)
         except Exception as e:
             log.warning("Failed to sync stale session %s before eviction: %s", sid[:8], e)
-        del _sessions[sid]
+        _sessions.pop(sid, None)
         _session_locks.pop(sid, None)
         log.info("Evicted stale session: %s", sid[:8])
 
@@ -166,12 +169,15 @@ async def _evict_stale_sessions() -> None:
         sorted_ids = sorted(_sessions, key=lambda sid: _sessions[sid].last_accessed)
         to_evict = sorted_ids[: len(_sessions) - MAX_SESSIONS]
         for sid in to_evict:
+            session = _sessions.get(sid)
+            if not session:
+                continue
             try:
                 from app.services.session_service import sync_backend_state
-                await sync_backend_state(sid, _sessions[sid])
+                await sync_backend_state(sid, session)
             except Exception as e:
                 log.warning("Failed to sync capped session %s before eviction: %s", sid[:8], e)
-            del _sessions[sid]
+            _sessions.pop(sid, None)
             _session_locks.pop(sid, None)
             log.info("Evicted session (cap): %s", sid[:8])
 

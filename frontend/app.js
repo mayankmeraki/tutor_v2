@@ -1351,7 +1351,9 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
     if (!state._stopRequested) {
       removeStreamingIndicator();
       removeAssessmentTransition();
+      hideSessionPrep(); // Dismiss loading overlay on error
       renderAIError(err.message);
+      console.error('[Stream] Error:', err.message);
     }
   }
 
@@ -1360,6 +1362,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state.isStreaming = false;
   state._streamReader = null;
   state._stopRequested = false;
+  hideSessionPrep(); // Always dismiss loading overlay
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
   _showStopButton(false);
   // Re-enable quick actions
@@ -1515,7 +1518,9 @@ function handleSSEEvent(event) {
       removeStreamingIndicator();
       removeAssessmentTransition();
       cleanupToolIndicators();
-      renderAIError(event.message || 'Unknown error');
+      hideSessionPrep();
+      _showStopButton(false);
+      renderAIError(event.message || 'Something went wrong. Try again.');
       break;
 
     case 'PLAN_UPDATE':
