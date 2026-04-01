@@ -7100,7 +7100,7 @@ function showScreen(screenName, param) {
   _hideAllScreens();
 
   const user = AuthManager.getUser();
-  if (screenName !== 'landing' && !user) {
+  if (screenName !== 'landing' && screenName !== 'business' && !user) {
     return Router.navigate('/login', { replace: true });
   }
 
@@ -18277,6 +18277,7 @@ async function submitFeedback(e) {
     type: document.getElementById('fb-type').value,
     name: document.getElementById('fb-name').value.trim(),
     email: document.getElementById('fb-email').value.trim(),
+    phone: document.getElementById('fb-phone')?.value.trim() || '',
     message: document.getElementById('fb-message').value.trim(),
     page: window.location.pathname,
     attachments: _fbAttachments,

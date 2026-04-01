@@ -376,6 +376,7 @@ async def submit_feedback(request: Request):
     name = body.get("name", "Anonymous")
     email = body.get("email", "")
     message = body.get("message", "")
+    phone = body.get("phone", "")
     page = body.get("page", "")
     user_agent = request.headers.get("user-agent", "")
     attachments = body.get("attachments", [])  # [{filename, content (base64)}]
@@ -394,7 +395,7 @@ async def submit_feedback(request: Request):
 
     html_body = f"""
     <h2>{type_labels.get(feedback_type, 'Feedback')}</h2>
-    <p><strong>From:</strong> {name} ({email or 'no email'})</p>
+    <p><strong>From:</strong> {name} ({email or 'no email'}){f' | Phone: {phone}' if phone else ''}</p>
     <p><strong>Page:</strong> {page or 'N/A'}</p>
     <p><strong>Browser:</strong> {user_agent[:120]}</p>
     <hr>
@@ -403,7 +404,7 @@ async def submit_feedback(request: Request):
 
     # Build Resend payload
     payload = {
-        "from": "Euler Feedback <feedback@seekcapacity.ai>",
+        "from": "Euler Feedback <onboarding@resend.dev>",
         "to": [to_email],
         "subject": subject,
         "html": html_body,
