@@ -19,7 +19,7 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
-          <a class="sc-btn sc-btn-ghost" href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Business</a>
+          <a class="sc-btn sc-btn-ghost" href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Institutions</a>
           <button class="sc-btn sc-btn-ghost" id="lp-signin">Sign in</button>
           <button class="sc-btn sc-btn-accent" id="lp-getstarted">Get started</button>
         </div>
@@ -35,6 +35,12 @@
               <div class="lp-hero-input-wrap">
                 <input type="text" class="lp-hero-input" id="lp-hero-input" placeholder="What do you want to learn?" autocomplete="off" name="euler-prompt">
                 <button class="lp-hero-btn" id="lp-hero-btn">Try it now &rarr;</button>
+              </div>
+              <div class="lp-hero-chips">
+                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Build me flashcards for organic chemistry</span>
+                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Prepare me for my physics exam on Friday</span>
+                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Teach me quantum entanglement visually</span>
+                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Research latest transformer papers and explain</span>
               </div>
               <span class="lp-hero-note">Free to try &middot; No credit card required</span>
             </div>

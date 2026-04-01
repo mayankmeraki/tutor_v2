@@ -133,6 +133,11 @@ body {
   -webkit-background-clip:text; -webkit-text-fill-color:transparent }
 .lp-hero-text p { font-size:16px; color:var(--text-muted); line-height:1.7; margin-bottom:28px }
 .lp-hero-text p strong { color:var(--text); font-weight:600 }
+.lp-hero-chips { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 10px; justify-content:flex-start }
+.lp-chip { padding:6px 14px; border-radius:20px; background:rgba(255,255,255,.04);
+  border:1px solid var(--border); color:var(--text-muted); font-size:12px; cursor:pointer;
+  transition:all .2s; white-space:nowrap }
+.lp-chip:hover { border-color:var(--accent); color:var(--accent); background:rgba(52,211,153,.06) }
 .lp-hero-note { font-size:12px; color:var(--text-dim) }
 
 /* Board teaser — animated teaching sequence */
