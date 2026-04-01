@@ -216,25 +216,8 @@ function placeElement(element, placement, cmd) {
 
     canvas.appendChild(element);
 
-    // Overlap prevention within the canvas
-    requestAnimationFrame(function() {
-      var elRect = element.getBoundingClientRect();
-      var canvasRect = canvas.getBoundingClientRect();
-
-      var positioned = canvas.querySelectorAll('.bd-positioned');
-      for (var pi = 0; pi < positioned.length; pi++) {
-        var other = positioned[pi];
-        if (other === element) continue;
-        var otherRect = other.getBoundingClientRect();
-        var overlapX = elRect.left < otherRect.right && elRect.right > otherRect.left;
-        var overlapY = elRect.top < otherRect.bottom && elRect.bottom > otherRect.top;
-        if (overlapX && overlapY) {
-          var nudgeY = otherRect.bottom - canvasRect.top + 6;
-          element.style.top = (nudgeY / canvasRect.height * 100).toFixed(1) + '%';
-          elRect = element.getBoundingClientRect();
-        }
-      }
-    });
+    // No overlap nudging — the tutor has explicit x,y control and spacing guidance.
+    // Post-render nudging was causing cascading displacement that destroyed layouts.
     return;
   }
 
@@ -1835,7 +1818,58 @@ async function renderEquation(cmd) {
   }
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(main, cmd.text, { charDelay: cmd.charDelay });
+
+  // Try KaTeX rendering for LaTeX expressions, fall back to text animation
+  var text = cmd.text || '';
+  var rendered = false;
+
+  if (typeof katex !== 'undefined') {
+    // Strip surrounding $ or $$ if present
+    var latex = text;
+    if (latex.startsWith('$$') && latex.endsWith('$$')) {
+      latex = latex.slice(2, -2);
+    } else if (latex.startsWith('$') && latex.endsWith('$')) {
+      latex = latex.slice(1, -1);
+    }
+
+    // Convert common Unicode math symbols to LaTeX
+    latex = latex
+      .replace(/ℏ/g, '\\hbar').replace(/ψ/g, '\\psi').replace(/φ/g, '\\phi')
+      .replace(/Ψ/g, '\\Psi').replace(/Φ/g, '\\Phi')
+      .replace(/∂/g, '\\partial').replace(/∇/g, '\\nabla')
+      .replace(/α/g, '\\alpha').replace(/β/g, '\\beta').replace(/γ/g, '\\gamma')
+      .replace(/δ/g, '\\delta').replace(/ε/g, '\\epsilon').replace(/θ/g, '\\theta')
+      .replace(/λ/g, '\\lambda').replace(/σ/g, '\\sigma').replace(/ω/g, '\\omega')
+      .replace(/π/g, '\\pi').replace(/μ/g, '\\mu').replace(/τ/g, '\\tau')
+      .replace(/Ω/g, '\\Omega').replace(/Σ/g, '\\Sigma').replace(/Δ/g, '\\Delta')
+      .replace(/∫/g, '\\int').replace(/∑/g, '\\sum').replace(/∞/g, '\\infty')
+      .replace(/≈/g, '\\approx').replace(/≠/g, '\\neq').replace(/≤/g, '\\leq').replace(/≥/g, '\\geq')
+      .replace(/→/g, '\\rightarrow').replace(/←/g, '\\leftarrow')
+      .replace(/·/g, '\\cdot').replace(/×/g, '\\times').replace(/±/g, '\\pm')
+      .replace(/²/g, '^{2}').replace(/³/g, '^{3}').replace(/₀/g, '_{0}')
+      .replace(/₁/g, '_{1}').replace(/₂/g, '_{2}').replace(/₃/g, '_{3}')
+      .replace(/ₙ/g, '_{n}').replace(/ₓ/g, '_{x}').replace(/ᵢ/g, '_{i}');
+
+    // Detect if this looks like LaTeX (has commands or math operators)
+    var hasLatex = /[\\{}^_]|\\frac|\\partial|\\sum|\\int|\\hbar|\\psi|\\phi|\\nabla|\\vec|\\hat|\\dot|\\sqrt|\\infty|\\alpha|\\beta|\\gamma|\\delta|\\epsilon|\\theta|\\lambda|\\sigma|\\omega|\\cdot|\\times|\\approx|\\neq|\\leq|\\geq|\\rightarrow/.test(latex);
+
+    if (hasLatex) {
+      try {
+        main.innerHTML = katex.renderToString(latex, {
+          displayMode: false,
+          throwOnError: false,
+          trust: true,
+        });
+        rendered = true;
+      } catch (e) {
+        // KaTeX failed — fall back to text
+      }
+    }
+  }
+
+  if (!rendered) {
+    await animateText(main, text, { charDelay: cmd.charDelay });
+  }
 }
 
 async function renderCompare(cmd) {
@@ -1845,42 +1879,52 @@ async function renderCompare(cmd) {
 
   var leftCol = document.createElement('div');
   leftCol.className = 'bd-compare-col ' + colorClass(left.color);
-  if (left.title) {
-    var h = document.createElement('div');
-    h.className = 'bd-compare-col-label ' + sizeClass('h2');
-    h.textContent = left.title;
-    leftCol.appendChild(h);
-  }
-  (left.items || []).forEach(function(item) {
-    var li = document.createElement('div');
-    li.className = 'bd-compare-item ' + sizeClass('text');
-    li.textContent = '\u2022 ' + item;
-    leftCol.appendChild(li);
-  });
 
   var sep = document.createElement('div');
   sep.className = 'bd-compare-sep';
 
   var rightCol = document.createElement('div');
   rightCol.className = 'bd-compare-col ' + colorClass(right.color);
-  if (right.title) {
-    var h = document.createElement('div');
-    h.className = 'bd-compare-col-label ' + sizeClass('h2');
-    h.textContent = right.title;
-    rightCol.appendChild(h);
-  }
-  (right.items || []).forEach(function(item) {
-    var li = document.createElement('div');
-    li.className = 'bd-compare-item ' + sizeClass('text');
-    li.textContent = '\u2022 ' + item;
-    rightCol.appendChild(li);
-  });
 
   el.appendChild(leftCol);
   el.appendChild(sep);
   el.appendChild(rightCol);
 
   placeElement(el, cmd.placement, cmd);
+
+  // Animate titles first, then items one-by-one, alternating left/right
+  if (left.title) {
+    var h = document.createElement('div');
+    h.className = 'bd-compare-col-label ' + sizeClass('h2');
+    leftCol.appendChild(h);
+    await animateText(h, left.title);
+  }
+  if (right.title) {
+    var h = document.createElement('div');
+    h.className = 'bd-compare-col-label ' + sizeClass('h2');
+    rightCol.appendChild(h);
+    await animateText(h, right.title);
+  }
+
+  // Animate items alternating left/right for natural feel
+  var leftItems = left.items || [];
+  var rightItems = right.items || [];
+  var maxLen = Math.max(leftItems.length, rightItems.length);
+
+  for (var i = 0; i < maxLen; i++) {
+    if (i < leftItems.length) {
+      var li = document.createElement('div');
+      li.className = 'bd-compare-item ' + sizeClass('text');
+      leftCol.appendChild(li);
+      await animateText(li, '\u2022 ' + leftItems[i]);
+    }
+    if (i < rightItems.length) {
+      var li = document.createElement('div');
+      li.className = 'bd-compare-item ' + sizeClass('text');
+      rightCol.appendChild(li);
+      await animateText(li, '\u2022 ' + rightItems[i]);
+    }
+  }
 }
 
 async function renderStep(cmd) {

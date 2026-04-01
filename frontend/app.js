@@ -335,6 +335,16 @@ const SessionManager = (() => {
         // Voice mode state
         teachingMode: state.teachingMode,
         voiceSpeed: state.voiceSpeed,
+        // Video state — for resuming watch-along sessions
+        videoState: state.video.active ? {
+          lessonId: state.video.lessonId,
+          lessonTitle: state.video.lessonTitle,
+          currentTimestamp: state.video.currentTimestamp,
+          currentSectionIndex: state.video.currentSectionIndex,
+          sectionTitle: state.video.sectionTitle,
+          isPaused: state.video.isPaused,
+          lessonIndex: state.video.lessonIndex,
+        } : null,
       });
     } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
@@ -617,7 +627,7 @@ const SessionManager = (() => {
     };
     const overviewStr = JSON.stringify(overview);
     tokensUsed += estimateTokens(overviewStr);
-    parts.push({ description: 'Session State — plan & section statuses', value: overviewStr });
+    parts.push({ description: 'Session context — plan & section statuses', value: overviewStr });
 
     // Completed sections: newest raw, older summaries
     const remaining = tokenBudget - tokensUsed;
@@ -1525,6 +1535,11 @@ function handleSSEEvent(event) {
       cleanupToolIndicators();
       hideSessionPrep();
       _showStopButton(false);
+      // Clear voice/speaking indicators
+      const voiceBar = document.querySelector('.bd-voice-indicator, .voice-status');
+      if (voiceBar) voiceBar.style.display = 'none';
+      document.querySelectorAll('.euler-is-speaking, [class*="speaking"]').forEach(el => el.style.display = 'none');
+      // Show error with retry on the board
       renderAIError(event.message || 'Something went wrong. Try again.');
       break;
 
@@ -2106,7 +2121,7 @@ function buildPlanSummary() {
 function buildPlanDirective() {
   // No plan yet — tell tutor to generate one
   if (state.plan.length === 0) {
-    return 'NO TEACHING PLAN EXISTS YET. You MUST spawn a planning agent NOW: spawn_agent("planning", ...) to generate a <teaching-plan>. Do this in your FIRST response while also teaching.';
+    return 'NO TEACHING PLAN EXISTS YET. You MUST spawn a planning agent NOW: spawn_agents to generate a <teaching-plan>. Do this in your FIRST response while also teaching.';
   }
 
   const activeSection = state.plan.find(s => s.status === 'active');
@@ -2265,6 +2280,39 @@ function removeAssessmentTransition() {
 // Module 8b: Agent Event System (persistent SSE)
 // ═══════════════════════════════════════════════════════════
 
+// ── Plan polling — independent of chat stream ──
+let _planPollTimer = null;
+
+function startPlanPolling() {
+  stopPlanPolling();
+  if (!state.sessionId || state.plan.length > 0) return;
+
+  _planPollTimer = setInterval(async () => {
+    if (state.plan.length > 0) { stopPlanPolling(); return; }
+    try {
+      const res = await fetch(`${state.apiUrl}/api/session/${state.sessionId}/plan`, {
+        headers: AuthManager.authHeaders(),
+      });
+      if (!res.ok) return;
+      const data = await res.json();
+      if (data.status === 'ready' && data.plan) {
+        handlePlanFromAgent(data.plan, data.sessionObjective);
+        stopPlanPolling();
+      } else if (data.status === 'error') {
+        console.warn('[PlanPoll] Plan generation failed:', data.error);
+        stopPlanPolling();
+        // Update sidebar to show error
+        const body = document.getElementById('psb-body');
+        if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
+      }
+    } catch (e) { /* ignore poll errors */ }
+  }, 3000); // poll every 3 seconds
+}
+
+function stopPlanPolling() {
+  if (_planPollTimer) { clearInterval(_planPollTimer); _planPollTimer = null; }
+}
+
 function connectAgentEvents() {
   disconnectAgentEvents();
   if (!state.sessionId) return;
@@ -2291,6 +2339,7 @@ function connectAgentEvents() {
 }
 
 function disconnectAgentEvents() {
+  stopPlanPolling();
   if (state.agentEventSource) {
     state.agentEventSource.close();
     state.agentEventSource = null;
@@ -2643,6 +2692,11 @@ function handlePlanFromAgent(plan, sessionObjective) {
   SessionManager.setPlan(plan);
   updateHeadingBar();
   updatePlanSidebar({ sections: state.plan });
+
+  // Show the plan sidebar (it starts hidden)
+  const psb = document.getElementById('plan-sidebar');
+  if (psb) psb.classList.remove('hidden');
+
   state.planCallCount++;
 }
 
@@ -5081,7 +5135,7 @@ function handleToolCallStart(event) {
 
   // Internal/background tools run silently — no UI indicators
   const silentTools = [
-    'spawn_agent', 'check_agents', 'advance_topic', 'delegate_teaching',
+    'spawn_agents', 'check_agents', 'advance_topic', 'delegate_teaching',
     'update_student_model', 'upsert_concept_note', 'log_knowledge',
     'request_board_image', 'reset_plan',
   ];
@@ -7189,7 +7243,7 @@ function _initHomeTabs() {
       const target = document.getElementById('tab-' + tab.dataset.homeTab);
       if (target) target.classList.add('active');
       // Load content for the tab if needed
-      if (tab.dataset.homeTab === 'explore') _loadBrowseCourses();
+      if (tab.dataset.homeTab === 'explore') { _loadBrowseCourses(); _loadRecentSessions(); }
       if (tab.dataset.homeTab === 'materials') { _loadByoMaterials(); _loadLearningAids(); }
     });
   });
@@ -7203,6 +7257,115 @@ function _initHomeTabs() {
       _timer = setTimeout(() => _filterBrowseCourses(searchInput.value), 200);
     });
   }
+}
+
+async function _loadRecentSessions() {
+  const section = document.getElementById('explore-sessions-section');
+  const row = document.getElementById('explore-sessions-row');
+  if (!section || !row) return;
+
+  try {
+    // Fetch sessions across all courses for this user
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/sessions/me/all`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) {
+      // Try fetching without course filter
+      section.style.display = 'none';
+      return;
+    }
+    const sessions = await res.json();
+    if (!sessions.length) { section.style.display = 'none'; return; }
+
+    section.style.display = '';
+    row.innerHTML = '';
+
+    // Show up to 5 recent sessions
+    const recent = sessions.slice(0, 5);
+    for (const s of recent) {
+      const card = document.createElement('div');
+      card.className = 'session-card';
+      const ago = _timeAgo(s.startedAt);
+      const headline = s.headline || s.intent?.raw || 'Teaching session';
+      const desc = s.headlineDescription || '';
+      const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
+      const isActive = s.status === 'active';
+      const topics = (s.sections || []).filter(sec => sec.status === 'done').map(sec => sec.title).slice(0, 3);
+
+      card.innerHTML = `
+        <div class="session-card-top">
+          <span class="session-card-time">${ago}</span>
+          ${dur ? `<span class="session-card-dur">${dur}</span>` : ''}
+        </div>
+        <div class="session-card-title">${_escHtml(headline)}</div>
+        ${desc ? `<div class="session-card-desc">${_escHtml(desc)}</div>` : ''}
+        ${topics.length ? `<div class="session-card-topics">${topics.map(t => `<span class="session-card-topic">${_escHtml(t)}</span>`).join('')}</div>` : ''}
+        <div class="session-card-cta">${isActive ? 'Continue' : 'Review'} &rarr;</div>`;
+      card.addEventListener('click', () => {
+        state.courseId = s.courseId;
+        Router.navigate('/session/' + s.sessionId);
+      });
+      row.appendChild(card);
+    }
+
+    // Session search wiring
+    const searchInput = document.getElementById('session-search-input');
+    if (searchInput && !searchInput._wired) {
+      searchInput._wired = true;
+      let timer = null;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(timer);
+        timer = setTimeout(() => _searchSessions(searchInput.value), 300);
+      });
+    }
+  } catch (e) {
+    console.warn('Failed to load sessions:', e);
+    section.style.display = 'none';
+  }
+}
+
+async function _searchSessions(query) {
+  const row = document.getElementById('explore-sessions-row');
+  if (!row || !query.trim()) { _loadRecentSessions(); return; }
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/sessions/search/all?q=${encodeURIComponent(query)}`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) return;
+    const results = await res.json();
+
+    row.innerHTML = '';
+    if (!results.length) {
+      row.innerHTML = '<div class="session-empty">No sessions match your search.</div>';
+      return;
+    }
+
+    for (const s of results.slice(0, 8)) {
+      const card = document.createElement('div');
+      card.className = 'session-card';
+      card.innerHTML = `
+        <div class="session-card-title">${_escHtml(s.headline || s.intent?.raw || 'Session')}</div>
+        <div class="session-card-desc">${_escHtml(s.headlineDescription || '')}</div>
+        <div class="session-card-cta">${s.status === 'active' ? 'Continue' : 'Review'} &rarr;</div>`;
+      card.addEventListener('click', () => {
+        state.courseId = s.courseId;
+        Router.navigate('/session/' + s.sessionId);
+      });
+      row.appendChild(card);
+    }
+  } catch (e) { console.warn('Session search failed:', e); }
+}
+
+function _timeAgo(isoStr) {
+  if (!isoStr) return '';
+  const d = new Date(isoStr);
+  const sec = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (sec < 60) return 'just now';
+  if (sec < 3600) return `${Math.floor(sec / 60)}m ago`;
+  if (sec < 86400) return `${Math.floor(sec / 3600)}h ago`;
+  if (sec < 604800) return `${Math.floor(sec / 86400)}d ago`;
+  return d.toLocaleDateString();
 }
 
 async function _loadLearningAids() {
@@ -7293,6 +7456,31 @@ function _initEuler() {
   _wireEulerInput('euler-input', 'euler-send-btn');
   _wireEulerInput('euler-input-active', 'euler-send-btn-active');
 
+  // Check for pending prompt from landing page (saved before login redirect)
+  const pendingPrompt = sessionStorage.getItem('capacity_pending_prompt');
+  if (pendingPrompt) {
+    sessionStorage.removeItem('capacity_pending_prompt');
+    setTimeout(() => {
+      const input = document.getElementById('euler-input');
+      if (input) { input.value = pendingPrompt; }
+      _eulerSend();
+    }, 500);
+  }
+
+  // Attachment buttons
+  _wireAttachments('euler-attach-btn', 'euler-file-input', 'euler-attach-preview');
+  _wireAttachments('euler-attach-btn-active', 'euler-file-input-active', 'euler-attach-preview-active');
+
+  // Drag & drop on the chat messages area
+  const msgArea = document.getElementById('euler-messages');
+  if (msgArea) {
+    msgArea.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    msgArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      if (e.dataTransfer.files?.length) _handleEulerAttachFiles(e.dataTransfer.files, 'euler-attach-preview-active');
+    });
+  }
+
   // Preview panel close
   document.getElementById('ep-close')?.addEventListener('click', _closePreviewPanel);
 
@@ -7301,11 +7489,37 @@ function _initEuler() {
     _eulerFullReset();
   });
 
-  // BYO upload wiring
-  document.getElementById('byo-upload-card')?.addEventListener('click', () => {
+  // BYO upload wiring — browse button + drag & drop + link input
+  document.getElementById('byo-browse-link')?.addEventListener('click', (e) => {
+    e.stopPropagation();
+    document.getElementById('byo-file-input')?.click();
+  });
+  document.getElementById('byo-drop-area')?.addEventListener('click', () => {
     document.getElementById('byo-file-input')?.click();
   });
   document.getElementById('byo-file-input')?.addEventListener('change', _handleByoUpload);
+
+  // Drag & drop on the drop area
+  const dropArea = document.getElementById('byo-drop-area');
+  if (dropArea) {
+    let byoDragCount = 0;
+    dropArea.addEventListener('dragenter', (e) => { e.preventDefault(); byoDragCount++; dropArea.classList.add('byo-drag-over'); });
+    dropArea.addEventListener('dragleave', (e) => { e.preventDefault(); byoDragCount--; if (byoDragCount <= 0) { byoDragCount = 0; dropArea.classList.remove('byo-drag-over'); } });
+    dropArea.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
+    dropArea.addEventListener('drop', (e) => {
+      e.preventDefault();
+      byoDragCount = 0;
+      dropArea.classList.remove('byo-drag-over');
+      const files = e.dataTransfer.files;
+      if (files && files.length) _handleByoDroppedFiles(files);
+    });
+  }
+
+  // Link input
+  document.getElementById('byo-link-btn')?.addEventListener('click', _handleByoLinkAdd);
+  document.getElementById('byo-link-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') _handleByoLinkAdd();
+  });
 
   // Back button — return to idle/home
   document.getElementById('euler-back-btn')?.addEventListener('click', () => {
@@ -7319,6 +7533,78 @@ function _initEuler() {
     chip.addEventListener('click', () => {
       const input = document.getElementById('euler-input');
       if (input) { input.value = chip.textContent; input.focus(); }
+    });
+  });
+
+  // Capability card clicks — fill input and send
+  document.querySelectorAll('.cap-card').forEach(card => {
+    card.addEventListener('click', () => {
+      const prompt = card.dataset.prompt;
+      if (prompt) {
+        const input = document.getElementById('euler-input');
+        if (input) { input.value = prompt; }
+        _eulerSend();
+      }
+    });
+  });
+}
+
+// ── Euler attachment handling ──
+let _eulerAttachments = []; // [{name, type, dataUrl, base64}]
+
+function _wireAttachments(btnId, fileInputId, previewId) {
+  const btn = document.getElementById(btnId);
+  const fileInput = document.getElementById(fileInputId);
+  if (!btn || !fileInput) return;
+
+  btn.addEventListener('click', () => fileInput.click());
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files?.length) _handleEulerAttachFiles(e.target.files, previewId);
+    e.target.value = '';
+  });
+}
+
+const MAX_ATTACHMENTS = 5;
+
+function _handleEulerAttachFiles(files, previewId) {
+  for (const file of files) {
+    if (_eulerAttachments.length >= MAX_ATTACHMENTS) {
+      alert(`Maximum ${MAX_ATTACHMENTS} attachments allowed`); break;
+    }
+    if (file.size > 20 * 1024 * 1024) { alert('File too large (max 20MB)'); continue; }
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const attachment = {
+        name: file.name,
+        type: file.type,
+        dataUrl: reader.result,
+        base64: reader.result.split(',')[1],
+      };
+      _eulerAttachments.push(attachment);
+      _renderAttachPreview(previewId);
+    };
+    reader.readAsDataURL(file);
+  }
+}
+
+function _renderAttachPreview(previewId) {
+  const preview = document.getElementById(previewId);
+  if (!preview) return;
+  if (!_eulerAttachments.length) { preview.style.display = 'none'; return; }
+
+  preview.style.display = 'flex';
+  preview.innerHTML = _eulerAttachments.map((a, i) => {
+    const isImage = a.type.startsWith('image/');
+    const thumb = isImage ? `<img src="${a.dataUrl}" alt="">` : '';
+    const icon = isImage ? '' : '&#128196; ';
+    return `<div class="euler-attach-item">${thumb}${icon}${_escHtml(a.name)}<span class="euler-attach-remove" data-idx="${i}">&times;</span></div>`;
+  }).join('');
+
+  preview.querySelectorAll('.euler-attach-remove').forEach(btn => {
+    btn.addEventListener('click', () => {
+      _eulerAttachments.splice(parseInt(btn.dataset.idx), 1);
+      _renderAttachPreview(previewId);
     });
   });
 }
@@ -7361,8 +7647,20 @@ function _eulerSend() {
     if (chat) chat.style.display = 'flex';
   }
 
+  // Build attachment thumbnails for the message bubble
+  let attachHtml = '';
+  if (_eulerAttachments.length > 0) {
+    attachHtml = '<div class="euler-msg-attachments">' +
+      _eulerAttachments.map(a => {
+        if (a.type.startsWith('image/')) {
+          return `<div class="euler-msg-attach"><img src="${a.dataUrl}" alt="${_escHtml(a.name)}"></div>`;
+        }
+        return `<div class="euler-msg-attach euler-msg-attach-file"><span>&#128196;</span><span class="euler-msg-attach-name">${_escHtml(a.name)}</span></div>`;
+      }).join('') + '</div>';
+  }
+
   // Add user message to UI + history
-  _eulerAddMessage('user', text);
+  _eulerAddMessage('user', text + attachHtml);
   _eulerHistory.push({ role: 'user', content: text });
 
   // Clear input
@@ -7568,10 +7866,24 @@ async function _eulerStreamResponse(text) {
   _eulerSuppressText = false;  // new message, allow text again
 
   try {
+    // Include attachments as multimodal content
+    const attachments = _eulerAttachments.length > 0
+      ? _eulerAttachments.map(a => ({
+          filename: a.name,
+          mime_type: a.type,
+          data: a.base64,
+        }))
+      : undefined;
+
+    // Clear attachments after sending
+    _eulerAttachments = [];
+    _renderAttachPreview('euler-attach-preview');
+    _renderAttachPreview('euler-attach-preview-active');
+
     const res = await fetch(`${state.apiUrl || ''}/api/euler`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ message: text, history: _eulerHistory }),
+      body: JSON.stringify({ message: text, history: _eulerHistory, attachments }),
     });
 
     if (!res.ok) {
@@ -7615,11 +7927,19 @@ function _handleEulerEvent(evt) {
       break;
 
     case 'TEXT_DELTA': {
+      if (!evt.text) break;
       _eulerRemoveThinking();
       _eulerCurrentResponse += evt.text;
 
       // Suppress text after permission/session cards
       if (_eulerSuppressText) break;
+
+      // Collapse tool pills when text arrives — they're done, hide them like Claude
+      const activeToolRow = document.getElementById('euler-tool-active');
+      if (activeToolRow && _eulerSeenToolsSinceText) {
+        activeToolRow.classList.add('euler-tools-collapsed');
+        activeToolRow.removeAttribute('id'); // detach so next tool batch gets a fresh row
+      }
 
       // If tools ran since last text, start a NEW bubble (avoids run-on paragraphs)
       let last = null;
@@ -7628,6 +7948,8 @@ function _handleEulerEvent(evt) {
       }
       if (!last) {
         _eulerSeenToolsSinceText = false;
+        // Remove streaming class from ALL previous bubbles to prevent multiple cursors
+        document.querySelectorAll('#euler-messages .euler-euler-bubble.streaming').forEach(b => b.classList.remove('streaming'));
         _eulerAddMessage('euler', '');
         last = document.querySelector('#euler-messages .euler-msg-euler:last-of-type .euler-euler-bubble');
       }
@@ -7647,7 +7969,10 @@ function _handleEulerEvent(evt) {
         search_courses: 'Searching courses',
         search_materials: 'Searching your materials',
         get_student_context: 'Checking learning history',
-        spawn_agent: 'Working on it',
+        spawn_agents: 'Working on it',
+        background_generate: 'Generating in background',
+        byo_read: 'Reading your materials',
+        byo_list: 'Listing your materials',
         create_artifact: 'Creating study aid',
         generate_document: 'Generating document',
         start_tutor_session: 'Starting session',
@@ -7711,10 +8036,8 @@ function _handleEulerEvent(evt) {
           }
         }
       }
-      // Render course cards from search results
-      if (evt.tool === 'search_courses' && evt.result && evt.result.includes('id=')) {
-        _renderEulerCourseCards(evt.result);
-      }
+      // Course cards are NOT auto-rendered from search results — they're internal context.
+      // The orchestrator shows courses via navigate_ui or text links when appropriate.
       break;
     }
 
@@ -7816,6 +8139,8 @@ function _eulerRemoveToolIndicator() {
 //   BYO — Student materials upload
 // ═══════════════════════════════════════════════════════════════
 
+let _byoPollTimer = null;
+
 async function _loadByoMaterials() {
   const grid = document.getElementById('byo-grid');
   if (!grid) return;
@@ -7827,30 +8152,120 @@ async function _loadByoMaterials() {
     if (!res.ok) return;
     const collections = await res.json();
 
-    // Keep the upload card, add material cards before it
-    const uploadCard = document.getElementById('byo-upload-card');
+    // Keep the upload zone, add material cards before it
+    const uploadZone = document.getElementById('byo-upload-zone');
     // Remove old material cards
     grid.querySelectorAll('.byo-material-card').forEach(c => c.remove());
+
+    let hasProcessing = false;
 
     for (const col of collections) {
       const card = document.createElement('div');
       card.className = 'byo-material-card';
       const icon = _byoIcon(col);
-      const status = col.status === 'ready'
+      const isReady = col.status === 'ready';
+      const isError = col.status === 'error';
+      const status = isReady
         ? '<span class="byo-material-status byo-status-ready">Ready</span>'
+        : isError
+        ? '<span class="byo-material-status byo-status-error">Error</span>'
         : '<span class="byo-material-status byo-status-processing">Processing...</span>';
+      if (!isReady && !isError) hasProcessing = true;
+
+      const fileCount = col.stats?.resources || 0;
       card.innerHTML = `
         <div class="byo-material-icon">${icon}</div>
         <div class="byo-material-body">
           <div class="byo-material-title">${_escHtml(col.title || col.collection_id)}</div>
-          <div class="byo-material-meta">${col.stats?.resources || 0} files</div>
+          <div class="byo-material-meta">${fileCount} file${fileCount !== 1 ? 's' : ''}</div>
           ${status}
         </div>`;
-      grid.insertBefore(card, uploadCard);
+      card.addEventListener('click', () => _openByoCollection(col));
+      grid.insertBefore(card, uploadZone);
+    }
+
+    // Auto-poll while any collection is still processing
+    if (hasProcessing && !_byoPollTimer) {
+      _byoPollTimer = setInterval(() => {
+        _loadByoMaterials();
+      }, 4000); // refresh every 4 seconds
+    } else if (!hasProcessing && _byoPollTimer) {
+      clearInterval(_byoPollTimer);
+      _byoPollTimer = null;
     }
   } catch (e) {
     console.warn('Failed to load BYO materials:', e);
   }
+}
+
+async function _openByoCollection(col) {
+  // Fetch resources in this collection and open the first one in preview panel
+  try {
+    const res = await fetch(
+      `${state.apiUrl || ''}/api/v1/byo/collections/${col.collection_id}/resources`,
+      { headers: AuthManager.authHeaders() },
+    );
+    if (!res.ok) return;
+    const resources = await res.json();
+
+    if (!resources.length) {
+      _openPreviewPanel('collection', col.title || 'Collection', {
+        markdown: `*No files in this collection yet.*`,
+      });
+      return;
+    }
+
+    // If single resource, open it directly
+    if (resources.length === 1) {
+      _openByoResource(resources[0]);
+      return;
+    }
+
+    // Multiple resources — show a list, each clickable
+    const listHtml = resources.map(r => {
+      const icon = _mimeIcon(r.mime_type);
+      const size = r.file_size ? `${(r.file_size / 1024).toFixed(0)} KB` : '';
+      return `<div class="ep-resource-item" data-rid="${r.resource_id}" data-mime="${_escHtml(r.mime_type || '')}">
+        <span class="ep-resource-icon">${icon}</span>
+        <span class="ep-resource-name">${_escHtml(r.original_name || 'file')}</span>
+        <span class="ep-resource-size">${size}</span>
+      </div>`;
+    }).join('');
+
+    _openPreviewPanel('collection', col.title || 'Collection', { markdown: '' });
+    const body = document.getElementById('ep-body');
+    if (body) {
+      body.innerHTML = `<div class="ep-resource-list">${listHtml}</div>`;
+      body.querySelectorAll('.ep-resource-item').forEach(item => {
+        item.addEventListener('click', () => {
+          const r = resources.find(r => r.resource_id === item.dataset.rid);
+          if (r) _openByoResource(r);
+        });
+      });
+    }
+  } catch (e) {
+    console.warn('Failed to open collection:', e);
+  }
+}
+
+function _openByoResource(resource) {
+  const fileUrl = `${state.apiUrl || ''}/api/v1/byo/resources/${resource.resource_id}/file`;
+  _openPreviewPanel(
+    resource.mime_type || 'file',
+    resource.original_name || 'File',
+    { _fileUrl: fileUrl, _mimeType: resource.mime_type || '' },
+  );
+}
+
+function _mimeIcon(mime) {
+  if (!mime) return '&#128196;';
+  if (mime === 'application/pdf') return '&#128196;';
+  if (mime.startsWith('video/')) return '&#127909;';
+  if (mime.startsWith('audio/')) return '&#127925;';
+  if (mime.startsWith('image/')) return '&#128247;';
+  if (mime.includes('word') || mime.includes('docx')) return '&#128196;';
+  if (mime === 'text/plain' || mime === 'text/markdown') return '&#128221;';
+  return '&#128218;';
 }
 
 function _byoIcon(col) {
@@ -7859,6 +8274,84 @@ function _byoIcon(col) {
   if (t.includes('video') || t.includes('.mp4')) return '&#127909;';
   if (t.includes('note')) return '&#128221;';
   return '&#128218;';
+}
+
+async function _handleByoDroppedFiles(files) {
+  // Wrap FileList into a synthetic event-like call to reuse _handleByoUpload logic
+  const title = files.length === 1 ? files[0].name : `Upload (${files.length} files)`;
+  try {
+    const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ title }),
+    });
+    if (!createRes.ok) { alert('Failed to create collection'); return; }
+    const col = await createRes.json();
+    const colId = col.collection_id;
+
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('file', file);
+      await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
+        method: 'POST',
+        headers: AuthManager.authHeaders(),
+        body: formData,
+      });
+    }
+    _loadByoMaterials();
+  } catch (err) {
+    console.error('Drop upload failed:', err);
+    alert('Upload failed. Please try again.');
+  }
+}
+
+async function _handleByoLinkAdd() {
+  const input = document.getElementById('byo-link-input');
+  const btn = document.getElementById('byo-link-btn');
+  if (!input) return;
+  const url = input.value.trim();
+  if (!url) return;
+
+  // Basic URL validation
+  if (!url.startsWith('http://') && !url.startsWith('https://')) {
+    alert('Please enter a valid URL starting with http:// or https://');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Adding...';
+  try {
+    // Create collection titled after the URL
+    const title = url.includes('youtube') || url.includes('youtu.be')
+      ? 'YouTube video'
+      : new URL(url).hostname.replace('www.', '');
+    const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ title }),
+    });
+    if (!createRes.ok) { alert('Failed to create collection'); return; }
+    const col = await createRes.json();
+
+    // Add URL as resource
+    const formData = new FormData();
+    formData.append('url', url);
+    formData.append('title', title);
+    await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${col.collection_id}/resources`, {
+      method: 'POST',
+      headers: AuthManager.authHeaders(),
+      body: formData,
+    });
+
+    input.value = '';
+    _loadByoMaterials();
+  } catch (err) {
+    console.error('Link add failed:', err);
+    alert('Failed to add link. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Add link';
+  }
 }
 
 async function _handleByoUpload(e) {
@@ -7913,7 +8406,60 @@ function _openPreviewPanel(type, title, content) {
   typeEl.textContent = type;
   titleEl.textContent = title;
 
-  // Render content based on type
+  // ── File-based content (from materials page or BYO resources) ──
+  if (content._fileUrl) {
+    const mime = content._mimeType || '';
+    const url = content._fileUrl;
+
+    if (mime === 'application/pdf') {
+      body.innerHTML = `<iframe src="${_escHtml(url)}" class="ep-file-viewer ep-pdf" title="PDF viewer"></iframe>`;
+    } else if (mime.startsWith('video/')) {
+      body.innerHTML = `<video controls class="ep-file-viewer ep-video" src="${_escHtml(url)}">
+        Your browser does not support video playback.</video>`;
+    } else if (mime.startsWith('audio/')) {
+      body.innerHTML = `<div class="ep-audio-wrap">
+        <div class="ep-audio-icon">&#127925;</div>
+        <audio controls class="ep-audio" src="${_escHtml(url)}">
+          Your browser does not support audio playback.</audio>
+      </div>`;
+    } else if (mime.startsWith('image/')) {
+      body.innerHTML = `<img src="${_escHtml(url)}" class="ep-file-viewer ep-image" alt="${_escHtml(title)}">`;
+    } else if (mime === 'text/plain' || mime === 'text/markdown') {
+      // Fetch and render as markdown
+      fetch(url).then(r => r.text()).then(text => {
+        body.innerHTML = `<div class="av-markdown">${_renderMarkdownFull(text)}</div>`;
+        _renderKatexIn(body);
+      }).catch(() => {
+        body.innerHTML = `<div class="ep-unsupported">Could not load text file.</div>`;
+      });
+    } else {
+      body.innerHTML = `<div class="ep-unsupported">
+        <div class="ep-unsupported-icon">&#128196;</div>
+        <div class="ep-unsupported-text">Preview not available for ${_escHtml(mime || 'this file type')}.</div>
+        <a href="${_escHtml(url)}" download class="ep-download-btn">Download file</a>
+      </div>`;
+    }
+
+    panel.style.display = 'flex';
+    return;
+  }
+
+  // ── Audio artifact (from TTS) ──
+  if (content.audio_url) {
+    const duration = content.duration_estimate ? Math.round(content.duration_estimate) : '';
+    const durationStr = duration ? `${Math.floor(duration / 60)}:${String(duration % 60).padStart(2, '0')}` : '';
+    body.innerHTML = `<div class="ep-audio-wrap">
+      <div class="ep-audio-icon">&#127911;</div>
+      <div class="ep-audio-title">${_escHtml(title)}</div>
+      ${durationStr ? `<div class="ep-audio-duration">~${durationStr}</div>` : ''}
+      <audio controls class="ep-audio" src="${_escHtml(content.audio_url)}" preload="auto">
+        Your browser does not support audio playback.</audio>
+    </div>`;
+    panel.style.display = 'flex';
+    return;
+  }
+
+  // ── Artifact content (from Euler) ──
   if (type === 'flashcards' && content.cards) {
     body.innerHTML = content.cards.map((c, i) => `
       <div class="ep-fc" data-index="${i}">
@@ -7964,8 +8510,8 @@ let _avCards = [];    // current flashcard set
 let _avIndex = 0;     // current card index
 let _avData = null;   // full artifact data
 
-function openArtifactViewer(artifactType, title, content) {
-  _avData = { type: artifactType, title, content };
+function openArtifactViewer(artifactType, title, content, artifactId) {
+  _avData = { type: artifactType, title, content, artifactId };
   const overlay = document.getElementById('artifact-viewer');
   const typeEl = document.getElementById('av-type');
   const titleEl = document.getElementById('av-title');
@@ -8010,6 +8556,24 @@ function openArtifactViewer(artifactType, title, content) {
 
 window.closeArtifactViewer = function() {
   document.getElementById('artifact-viewer')?.classList.add('hidden');
+};
+
+// Spaced repetition rating for flashcards
+window.rateFlashcard = async function(rating) {
+  if (!_avData || !_avData.artifactId) {
+    // No artifact ID — just advance to next card
+    navArtifactCard(1);
+    return;
+  }
+  try {
+    await fetch(`${state.apiUrl || ''}/api/v1/artifacts/${_avData.artifactId}/sr`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ card_index: _avIndex, rating }),
+    });
+  } catch (e) { /* ignore */ }
+  // Show SR buttons after flip, advance after rating
+  navArtifactCard(1);
 };
 
 // Keyboard: Escape closes, arrows navigate flashcards, space flips
@@ -8075,12 +8639,50 @@ function _renderKatexIn(el) {
 }
 
 function _renderMarkdownFull(text) {
-  // More complete markdown rendering
-  return text
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+  // Parse pipe tables BEFORE escaping HTML
+  const lines = text.split('\n');
+  const out = [];
+  let i = 0;
+  while (i < lines.length) {
+    // Detect pipe table: current line has |, next line is separator (|---|---|)
+    if (lines[i].includes('|') && i + 1 < lines.length && /^\|?\s*[-:]+[-|:\s]+$/.test(lines[i + 1])) {
+      const headerCells = lines[i].split('|').map(c => c.trim()).filter(Boolean);
+      const alignRow = lines[i + 1].split('|').map(c => c.trim()).filter(Boolean);
+      const aligns = alignRow.map(c => {
+        if (c.startsWith(':') && c.endsWith(':')) return 'center';
+        if (c.endsWith(':')) return 'right';
+        return 'left';
+      });
+      let table = '<table><thead><tr>';
+      headerCells.forEach((c, ci) => {
+        table += `<th style="text-align:${aligns[ci] || 'left'}">${_escHtml(c)}</th>`;
+      });
+      table += '</tr></thead><tbody>';
+      i += 2; // skip header + separator
+      while (i < lines.length && lines[i].includes('|')) {
+        const cells = lines[i].split('|').map(c => c.trim()).filter(Boolean);
+        table += '<tr>';
+        cells.forEach((c, ci) => {
+          table += `<td style="text-align:${aligns[ci] || 'left'}">${_inlineMarkdown(_escHtml(c))}</td>`;
+        });
+        table += '</tr>';
+        i++;
+      }
+      table += '</tbody></table>';
+      out.push(table);
+    } else {
+      // Escape HTML for non-table lines (tables already escaped above)
+      out.push(lines[i].replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'));
+      i++;
+    }
+  }
+
+  // Now render the non-table lines as markdown
+  return out.join('\n')
     .replace(/^### (.+)$/gm, '<h3>$1</h3>')
     .replace(/^## (.+)$/gm, '<h2>$1</h2>')
     .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^---$/gm, '<hr>')
     .replace(/^\- (.+)$/gm, '<li>$1</li>')
     .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
@@ -8088,6 +8690,13 @@ function _renderMarkdownFull(text) {
     .replace(/`(.+?)`/g, '<code>$1</code>')
     .replace(/\n\n/g, '</p><p>')
     .replace(/\n/g, '<br>');
+}
+
+function _inlineMarkdown(text) {
+  return text
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>');
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -8202,7 +8811,13 @@ function _renderMarkdown(text) {
     .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
     .replace(/`(.+?)`/g, '<code>$1</code>')
-    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, function(_, text, url) {
+      if (url.startsWith('/')) {
+        // Internal link — use router navigation
+        return `<a href="${url}" class="euler-internal-link" onclick="event.preventDefault();Router.navigate('${url}')">${text}</a>`;
+      }
+      return `<a href="${url}" target="_blank" rel="noopener">${text}</a>`;
+    })
     .replace(/\n/g, '<br>');
 }
 
@@ -8824,11 +9439,47 @@ async function initSetup() {
   // ─── Landing page CTA wiring ─────────────────────────────
   $('#lp-signin')?.addEventListener('click', () => Router.navigate('/login'));
   $('#lp-getstarted')?.addEventListener('click', () => Router.navigate('/login'));
-  $('#lp-cta-browse')?.addEventListener('click', () => {
-    AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
+  $('#lp-hero-btn')?.addEventListener('click', () => {
+    const input = document.getElementById('lp-hero-input');
+    _lpTryIt(input?.value || 'Teach me something new');
+  });
+  document.getElementById('lp-hero-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') _lpTryIt(e.target.value || 'Teach me something new');
   });
   $('#lp-cta-bottom')?.addEventListener('click', () => {
     AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
+  });
+
+  // Try-it input on landing page — check auth, then send to Euler
+  function _lpTryIt(prompt) {
+    if (!prompt || !prompt.trim()) return;
+    if (AuthManager.isLoggedIn()) {
+      // Go to home, fill Euler input, and send
+      Router.navigate('/home');
+      setTimeout(() => {
+        const input = document.getElementById('euler-input');
+        if (input) { input.value = prompt; }
+        _eulerSend();
+      }, 300);
+    } else {
+      // Save prompt, send to login, after login it'll auto-send
+      sessionStorage.setItem('capacity_pending_prompt', prompt);
+      Router.navigate('/login');
+    }
+  }
+  $('#lp-try-btn')?.addEventListener('click', () => {
+    const input = document.getElementById('lp-try-input');
+    _lpTryIt(input?.value || '');
+  });
+  document.getElementById('lp-try-input')?.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { _lpTryIt(e.target.value); }
+  });
+  document.querySelectorAll('.lp-try-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const input = document.getElementById('lp-try-input');
+      if (input) input.value = chip.dataset.prompt;
+      _lpTryIt(chip.dataset.prompt);
+    });
   });
 
   // ─── Home screen tabs + Euler ─────────────────────────────
@@ -9113,8 +9764,9 @@ async function startNewSession(name, courseId, intent, scenario) {
 
     Router.navigate('/session/' + state.sessionId, { skipHandler: true });
 
-    // Connect persistent SSE for agent events
+    // Connect persistent SSE for agent events + plan polling
     connectAgentEvents();
+    startPlanPolling();
 
     try {
       const coursePosition = {
@@ -9252,7 +9904,7 @@ window.continueSession = async function(sessionId) {
     // Derive checkpoint from session's course position
     state.checkpoint = deriveCheckpointFromSession(sessionData);
 
-    showTeachingLayout(courseMap);
+    showTeachingLayout(courseMap, { skipBoardInit: true });
 
     // Resume the SessionManager
     SessionManager.resumeSession(sessionData);
@@ -9296,9 +9948,27 @@ window.continueSession = async function(sessionId) {
       state.widget.liveState = sessionData.widgetLiveState;
     }
 
-    // Restore active board-draw content (for context builder)
+    // Restore active board-draw content
     if (sessionData.activeBoardDrawContent) {
       state.boardDraw.rawContent = sessionData.activeBoardDrawContent;
+    }
+
+    // Open the board for ANY session that used voice mode or had board content
+    const transcript = sessionData.transcript || [];
+    const isVoiceMode = sessionData.teachingMode === 'voice';
+    const hasBoardContent = sessionData.activeBoardDrawContent ||
+      transcript.some(m => m.role === 'assistant' && m.content && (
+        m.content.includes('teaching-board-draw') ||
+        m.content.includes('teaching-voice-scene') ||
+        m.content.includes('<vb draw=')
+      ));
+
+    if (isVoiceMode || hasBoardContent) {
+      const rawTitle = sessionData.headline || courseMap?.title || 'Session';
+      const lastTitle = rawTitle.length > 40 ? rawTitle.slice(0, 40) + '...' : rawTitle;
+      openBoardDrawSpotlight(lastTitle, null, { clear: true, skipReference: true });
+      // Wait for BoardEngine.init — needs 2 frames for DOM creation + init
+      await new Promise(r => setTimeout(r, 100));
     }
 
     // Restore voice mode state
@@ -9388,19 +10058,14 @@ window.continueSession = async function(sessionId) {
     const timeOfDay = hour < 12 ? 'morning' : hour < 17 ? 'afternoon' : 'evening';
     const dayName = now.toLocaleDateString('en-US', { weekday: 'long' });
 
-    const trigger = `[SYSTEM] Current time: ${dayName} ${timeOfDay}. Returning student "${state.studentName}" — continuing session ${state.checkpoint.sessionCount}. Completed ${completed} sections. Position: lesson ${state.checkpoint.currentLessonId}, section ${state.checkpoint.currentSectionIndex}.
-
-OPENING INSTRUCTIONS:
-- Greet warmly using their name. Reference what you covered from [Student Notes].
-- DO NOT give an MCQ or quiz. No cold assessment.
-- DO NOT mention lesson numbers or section numbers.
-- The student's prior board-draws and chat are already restored above — don't repeat what was said.
-- If the transcript shows you were mid-topic, pick up where you left off naturally.
-- Start with a visual (board-draw or widget) in this message.
-- Keep chat brief. The board does the teaching.`;
-
     state._resumingSession = false;
-    await streamADK(trigger, true, true);
+
+    // Session is restored — board shows previous content, plan is loaded.
+    // DO NOT auto-trigger a tutor response. Wait for the student to send a message.
+    // This prevents: voice replay, duplicate content, tutor re-narrating what's on the board.
+    // The student can type or speak to continue from where they left off.
+    showStreamingIndicator();
+    setTimeout(() => removeStreamingIndicator(), 500); // brief flash to show it's ready
   } catch (err) {
     state._resumingSession = false;
     const _overlay = document.getElementById('session-resume-overlay');
@@ -9484,15 +10149,23 @@ function renderHistoricalTag(tag) {
     'teaching-canvas', 'teaching-teachback'
   ]);
 
-  // Skip tags that don't render well in history
+  // Skip tags that should NEVER replay — plans, structural
   const skipTags = new Set([
     'teaching-plan', 'teaching-plan-update', 'teaching-checkpoint',
-    'teaching-spotlight-dismiss', 'teaching-notebook-step', 'teaching-notebook-comment'
+    'teaching-spotlight-dismiss', 'teaching-notebook-step', 'teaching-notebook-comment',
+    'teaching-video',        // don't auto-play videos
+    'teaching-simulation',   // don't restart simulations
   ]);
 
   if (skipTags.has(tag.name)) return;
 
-  // Render the tag using normal renderer
+  // Voice scenes: extract and render board-draw commands WITHOUT audio
+  if (tag.name === 'teaching-voice-scene') {
+    _replayVoiceSceneBoardOnly(tag);
+    return;
+  }
+
+  // Render the tag using normal renderer (board-draw renders instantly in replayMode)
   renderTeachingTag(tag);
 
   // Mark interactive blocks as resolved so they can't be interacted with
@@ -9506,6 +10179,31 @@ function renderHistoricalTag(tag) {
       lastBlock.querySelectorAll('button, input, textarea, select').forEach(el => {
         el.disabled = true;
       });
+    }
+  }
+}
+
+function _replayVoiceSceneBoardOnly(tag) {
+  // Extract board-draw commands from voice scene content — render them instantly, skip audio
+  const content = tag.content || tag.attrs?.content || '';
+  if (!content) return;
+
+  // Parse <vb draw='{"cmd":"..."}' /> tags from the voice scene
+  const vbRegex = /<vb\s+draw='([^']+)'/g;
+  let match;
+  while ((match = vbRegex.exec(content)) !== null) {
+    try {
+      const cmd = JSON.parse(match[1]);
+      // Open board spotlight if not already open
+      if (!state.boardDraw.active) {
+        const title = tag.attrs?.title || 'Board';
+        openBoardDrawSpotlight(title, null, { clear: true, skipReference: true });
+      }
+      if (typeof BoardEngine !== 'undefined') {
+        BoardEngine.queueCommand(cmd);
+      }
+    } catch (e) {
+      // skip unparseable commands
     }
   }
 }
@@ -9571,7 +10269,8 @@ function hideSessionPrep() {
   if (_prepMsgTimer) { clearInterval(_prepMsgTimer); _prepMsgTimer = null; }
 }
 
-function showTeachingLayout(courseMap) {
+function showTeachingLayout(courseMap, opts) {
+  const skipBoardInit = opts?.skipBoardInit || false;
   document.title = courseMap.title + ' — Capacity';
   $('#course-title').textContent = courseMap.title;
   const sidebarLabel = $('#sidebar-section-label');
@@ -9605,25 +10304,26 @@ function showTeachingLayout(courseMap) {
 
   setTimeout(() => { initDragDrop(); }, 100);
 
-  // Initialize board with a welcome heading
-  setTimeout(() => {
-    const sc = document.getElementById('spotlight-content');
-    if (!sc) return;
-    state.boardDraw.active = false;
-    state.boardDraw.dismissed = false;
-    state.boardDraw.complete = false;
-    state.boardDraw.processedLines = 0;
+  // Initialize board with a welcome heading (skip for session restore — board will be rebuilt from transcript)
+  if (!skipBoardInit) {
+    setTimeout(() => {
+      const sc = document.getElementById('spotlight-content');
+      if (!sc) return;
+      state.boardDraw.active = false;
+      state.boardDraw.dismissed = false;
+      state.boardDraw.complete = false;
+      state.boardDraw.processedLines = 0;
 
-    const intent = state.studentIntent || courseMap.title || 'Session';
-    const title = intent.length > 50 ? intent.slice(0, 50) + '...' : intent;
-    const cmds = [
-      `{"cmd":"h1","text":"${title.replace(/"/g, '\\\\"')}"}`,
-      `{"cmd":"gap","height":20}`,
-      `{"cmd":"text","text":"Getting ready...","color":"#52525b"}`,
-    ];
-    const fakeTag = `<teaching-board-draw title="${title.replace(/"/g, '&quot;')}">\n${cmds.join('\n')}\n</teaching-board-draw>`;
-    bdProcessStreaming(fakeTag);
-  }, 300);
+      const intent = state.studentIntent || courseMap.title || 'Session';
+      const title = intent.length > 40 ? intent.slice(0, 40) + '...' : intent;
+      const cmds = [
+        `{"cmd":"h1","text":"${title.replace(/"/g, '\\\\"')}"}`,
+        `{"cmd":"gap","height":20}`,
+      ];
+      const fakeTag = `<teaching-board-draw title="${title.replace(/"/g, '&quot;')}">\n${cmds.join('\n')}\n</teaching-board-draw>`;
+      bdProcessStreaming(fakeTag);
+    }, 300);
+  }
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -10615,15 +11315,18 @@ function bdInitToolbar() {
       const wasActive = btn.classList.contains('active');
       toolbar.querySelectorAll('.bd-tool-btn[data-color]').forEach(b => b.classList.remove('active'));
 
+      const studentCanvas = document.getElementById('bd-student-canvas');
       if (wasActive) {
         // Toggle off — disable drawing
         bd.drawingEnabled = false;
         document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'default');
+        if (studentCanvas) studentCanvas.style.pointerEvents = 'none';
       } else {
         // Toggle on — enable drawing with this color
         btn.classList.add('active');
         bd.drawingEnabled = true;
         document.getElementById('bd-canvas-wrap')?.style.setProperty('cursor', 'crosshair');
+        if (studentCanvas) studentCanvas.style.pointerEvents = 'auto';
         const color = btn.dataset.color;
         if (color === 'eraser') {
           bd.studentColor = '#1a1d2e';
@@ -13343,13 +14046,45 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
     appendSpotlightReference('board-draw', title, refTag);
   }
 
-  setTimeout(() => {
+  // Init board synchronously — DOM is already created above.
+  // DO NOT use setTimeout here: board commands from the tutor can arrive within
+  // milliseconds of session start. Any delay causes commands to queue before
+  // liveScene exists, silently dropping the first draw operations.
+  requestAnimationFrame(() => {
     hideBoardLoadingSkeleton();
     BoardEngine.init(state.apiUrl);
-    // Mark canvas-compat flag so streaming/voice code knows the board is ready
-    state.boardDraw.canvas = document.getElementById('bd-live-scene');
-    state.boardDraw.ctx = true; // truthy sentinel — no real 2D context needed
+
+    // Create a transparent canvas overlay for student drawing on top of the DOM board
+    const canvasWrap = document.getElementById('bd-canvas-wrap');
+    let drawCanvas = document.getElementById('bd-student-canvas');
+    if (!drawCanvas && canvasWrap) {
+      drawCanvas = document.createElement('canvas');
+      drawCanvas.id = 'bd-student-canvas';
+      drawCanvas.style.cssText = 'position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;z-index:10;';
+      canvasWrap.style.position = 'relative';
+      canvasWrap.appendChild(drawCanvas);
+      // Size the canvas to match the wrap
+      const rect = canvasWrap.getBoundingClientRect();
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      drawCanvas.width = rect.width * dpr;
+      drawCanvas.height = Math.max(rect.height, 800) * dpr;
+      drawCanvas.style.width = rect.width + 'px';
+      drawCanvas.style.height = Math.max(rect.height, 800) + 'px';
+    }
+
+    // Set up drawing context for student drawing
+    state.boardDraw.canvas = drawCanvas || document.getElementById('bd-live-scene');
+    state.boardDraw.ctx = drawCanvas ? drawCanvas.getContext('2d', { willReadFrequently: true }) : null;
+    state.boardDraw.DPR = Math.min(window.devicePixelRatio || 1, 3);
+    state.boardDraw.studentColor = '#22ee66';
+    state.boardDraw.studentStrokeW = 2.5;
     state.boardDraw.active = true;
+
+    // Init student drawing + toolbar if canvas exists
+    if (drawCanvas) {
+      bdInitStudentDrawing(drawCanvas);
+      bdInitToolbar();
+    }
     const v = document.getElementById('bd-voice-text');
     state.boardDraw.voiceEl = v;
     // Ensure new board starts scrolled to the top
@@ -13366,7 +14101,7 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
           'bottom', { left: -60 });
       }
     }, 600);
-  }, 30);
+  });
 }
 
 function bdCleanup() {

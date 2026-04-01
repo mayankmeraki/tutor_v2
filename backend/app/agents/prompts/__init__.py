@@ -23,6 +23,58 @@ SKILL_MAP: dict[str, str | None] = {
 }
 
 
+# ── Subject detection ──────────────────────────────────────────────────
+
+# Map course tags/titles to subject profile IDs
+_SUBJECT_KEYWORDS = {
+    "physics": ["physics", "mechanics", "thermodynamics", "optics", "electromagnetism", "quantum"],
+    "mathematics": ["math", "calculus", "algebra", "geometry", "statistics", "differential", "linear algebra"],
+    "chemistry": ["chemistry", "organic", "inorganic", "biochemistry", "chemical"],
+    "biology": ["biology", "genetics", "ecology", "anatomy", "physiology", "microbiology", "neuroscience"],
+    "business": ["business", "economics", "finance", "marketing", "management", "accounting", "strategy"],
+    "computer_science": ["computer", "programming", "algorithm", "data structure", "software", "machine learning", "AI"],
+}
+
+
+def _detect_subject(context_data: dict) -> str | None:
+    """Detect the subject from course metadata or session context.
+
+    Checks course tags, title, and description for subject keywords.
+    Returns a subject profile ID or None for general mode.
+    """
+    import json
+
+    # Check course map for subject tags
+    course_map_str = context_data.get("courseMap", "")
+    if course_map_str:
+        try:
+            course_map = json.loads(course_map_str) if isinstance(course_map_str, str) else course_map_str
+            title = (course_map.get("title") or "").lower()
+            tags = [t.lower() for t in (course_map.get("tags") or [])]
+            desc = (course_map.get("description") or "").lower()
+            search_text = f"{title} {' '.join(tags)} {desc}"
+
+            for subject_id, keywords in _SUBJECT_KEYWORDS.items():
+                if any(kw in search_text for kw in keywords):
+                    return subject_id
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    # Check student profile for subject hints
+    profile_str = context_data.get("studentProfile", "")
+    if profile_str:
+        try:
+            profile = json.loads(profile_str) if isinstance(profile_str, str) else profile_str
+            course_title = (profile.get("courseTitle") or "").lower()
+            for subject_id, keywords in _SUBJECT_KEYWORDS.items():
+                if any(kw in course_title for kw in keywords):
+                    return subject_id
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    return None  # General mode — no subject-specific instructions
+
+
 def _inject_last_assessment(parts: list[str], summary: dict):
     """Inject persistent assessment summary so tutor always knows recent performance."""
     score = summary.get("score", {})
@@ -208,7 +260,10 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students in same mode)
     teaching_mode = context_data.get("teachingMode", "text")
     is_voice = teaching_mode == "voice"
-    tutor_prompt = build_tutor_system_prompt(voice_mode=is_voice)
+
+    # Detect subject from course metadata or session context
+    subject_id = _detect_subject(context_data)
+    tutor_prompt = build_tutor_system_prompt(voice_mode=is_voice, subject_id=subject_id)
     static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
     scenario_skill = context_data.get("scenarioSkill")

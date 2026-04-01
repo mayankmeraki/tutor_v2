@@ -179,6 +179,51 @@ TUTOR_TOOLS = [
         },
     },
     {
+        "name": "byo_read",
+        "description": (
+            "Read content from the student's uploaded materials (BYO). "
+            "Use when teaching from student's own PDFs, notes, or documents. "
+            "Provide the collection_id (from session context) and optionally a chunk index or search query. "
+            "Returns the actual text content from their uploaded material."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "string",
+                    "description": "BYO collection ID (from session context or enriched_intent)",
+                },
+                "query": {
+                    "type": "string",
+                    "description": "Search within the collection — topic, question text, or keyword",
+                },
+                "chunk_index": {
+                    "type": "number",
+                    "description": "Specific chunk index to read (0-based). Use when you know the exact chunk.",
+                },
+            },
+            "required": ["collection_id"],
+        },
+    },
+    {
+        "name": "byo_list",
+        "description": (
+            "List all chunks/sections in a BYO collection with their topics and labels. "
+            "Use to understand what content is available in the student's uploaded material "
+            "before deciding what to teach."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "collection_id": {
+                    "type": "string",
+                    "description": "BYO collection ID",
+                },
+            },
+            "required": ["collection_id"],
+        },
+    },
+    {
         "name": "control_simulation",
         "description": (
             "Control the student's active simulation by setting parameters or clicking buttons. "
@@ -734,6 +779,7 @@ DELEGATION_TOOLS = [
         "search_images", "web_search", "get_simulation_details",
         "get_section_content", "control_simulation",
         "content_read", "content_peek", "content_search",
+        "byo_read", "byo_list",
     )
 ]
 
@@ -850,6 +896,7 @@ ASSESSMENT_TOOLS = [
         "search_images", "web_search", "get_section_content",
         "query_knowledge", "update_student_model",
         "content_read", "content_peek",
+        "byo_read", "byo_list",
     )
 ] + [COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL]
 
@@ -867,6 +914,10 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
         elif name in ("content_map", "content_read", "content_peek", "content_search"):
             # Handled by adapter in chat.py (needs course_id + db session)
             return "Content tool must be routed through the adapter. Check chat.py dispatch."
+        elif name == "byo_read":
+            return await _execute_byo_read(tool_input)
+        elif name == "byo_list":
+            return await _execute_byo_list(tool_input)
         elif name == "get_section_content":
             return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
         elif name == "get_transcript_context":
@@ -884,6 +935,110 @@ async def execute_tutor_tool(name: str, tool_input: dict) -> str:
         log.error("Tool %s failed", name, exc_info=True)
         return f"Tool {name} encountered an error. Try a different approach."
 
+
+
+# ── BYO Content Tool Implementations ─────────────────────────────────────────
+
+async def _execute_byo_read(tool_input: dict) -> str:
+    """Read content from a BYO collection."""
+    from app.core.mongodb import get_mongo_db
+    db = get_mongo_db()
+
+    collection_id = tool_input.get("collection_id", "")
+    query = tool_input.get("query", "")
+    chunk_index = tool_input.get("chunk_index")
+
+    if not collection_id:
+        return "Error: collection_id is required"
+
+    if chunk_index is not None:
+        # Read specific chunk
+        doc = await db.byo_chunks.find_one(
+            {"collection_id": collection_id, "index": int(chunk_index)},
+            {"_id": 0, "content": 1, "topics": 1, "labels": 1, "anchor": 1},
+        )
+        if not doc:
+            return f"No chunk found at index {chunk_index} in collection {collection_id}"
+        return f"[BYO Chunk {chunk_index}]\nTopics: {', '.join(doc.get('topics', []))}\n\n{doc.get('content', '')}"
+
+    if query:
+        # Search within collection
+        import re
+        words = [w for w in query.strip().split() if len(w) > 2]
+        if not words:
+            return "Search query too short"
+        conditions = []
+        for w in words[:5]:
+            conditions.append({"content": {"$regex": re.escape(w), "$options": "i"}})
+        cursor = db.byo_chunks.find(
+            {"collection_id": collection_id, "$or": conditions},
+            {"_id": 0, "index": 1, "content": 1, "topics": 1},
+        ).limit(3)
+        results = []
+        async for doc in cursor:
+            results.append(f"[Chunk {doc.get('index', '?')}] Topics: {', '.join(doc.get('topics', []))}\n{doc.get('content', '')[:500]}")
+        if not results:
+            return f"No matching content found for '{query}' in this collection."
+        return "\n\n---\n\n".join(results)
+
+    # No query — return first few chunks as overview
+    cursor = db.byo_chunks.find(
+        {"collection_id": collection_id},
+        {"_id": 0, "index": 1, "content": 1, "topics": 1},
+    ).sort("index", 1).limit(3)
+    results = []
+    async for doc in cursor:
+        results.append(f"[Chunk {doc.get('index', '?')}] Topics: {', '.join(doc.get('topics', []))}\n{doc.get('content', '')[:400]}")
+    if not results:
+        # Check collection status for a better error message
+        col = await db.collections.find_one(
+            {"collection_id": collection_id},
+            {"status": 1, "title": 1},
+        )
+        if col and col.get("status") == "processing":
+            return f"Collection '{col.get('title', '?')}' is still being processed."
+        elif col and col.get("status") == "error":
+            return f"Collection '{col.get('title', '?')}' had a processing error — content could not be extracted."
+        return "Collection has no text content. The original file may still be viewable but text extraction produced no results."
+    return "\n\n---\n\n".join(results)
+
+
+async def _execute_byo_list(tool_input: dict) -> str:
+    """List chunks in a BYO collection."""
+    from app.core.mongodb import get_mongo_db
+    db = get_mongo_db()
+
+    collection_id = tool_input.get("collection_id", "")
+    if not collection_id:
+        return "Error: collection_id is required"
+
+    cursor = db.byo_chunks.find(
+        {"collection_id": collection_id},
+        {"_id": 0, "index": 1, "topics": 1, "labels": 1, "tokens": 1},
+    ).sort("index", 1).limit(30)
+
+    lines = [f"Chunks in collection {collection_id}:"]
+    async for doc in cursor:
+        topics = ", ".join(doc.get("topics", [])[:3])
+        labels = ", ".join(doc.get("labels", [])[:2])
+        lines.append(f"  [{doc.get('index', '?')}] {topics} ({labels}) — {doc.get('tokens', 0)} tokens")
+
+    if len(lines) == 1:
+        # Check if collection exists and its status
+        col = await db.collections.find_one(
+            {"collection_id": collection_id},
+            {"status": 1, "title": 1},
+        )
+        if not col:
+            return "Collection not found. Check the collection_id."
+        status = col.get("status", "unknown")
+        title = col.get("title", "?")
+        if status == "processing":
+            return f"Collection '{title}' is still being processed. Content will be available once processing completes."
+        elif status == "error":
+            return f"Collection '{title}' had a processing error — the content could not be extracted."
+        return f"Collection '{title}' is ready but has no extractable text content. The original file may still be viewable."
+    return "\n".join(lines)
 
 
 # ── Video Follow-Along Tools ─────────────────────────────────────────────────

@@ -21,9 +21,19 @@ import logging
 from datetime import datetime
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
+from fastapi.responses import FileResponse
 
 log = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/v1/byo", tags=["byo"])
+
+
+def _validate_local_path(storage_path: str) -> bool:
+    """Validate that a local storage path is safe to serve (no path traversal)."""
+    import os
+    from byo.storage.local import UPLOAD_DIR
+    resolved = os.path.realpath(storage_path)
+    base = os.path.realpath(UPLOAD_DIR)
+    return resolved.startswith(base + os.sep) or resolved.startswith(base)
 
 
 def _get_db():
@@ -170,6 +180,21 @@ async def add_resource(
         if len(contents) > 50 * 1024 * 1024:  # 50MB limit
             raise HTTPException(status_code=413, detail="File too large (max 50MB)")
 
+        # Deduplicate: hash file content, skip if same file already in collection
+        import hashlib
+        file_hash = hashlib.sha256(contents).hexdigest()
+        existing = await db.byo_resources.find_one(
+            {"collection_id": collection_id, "file_hash": file_hash, "status": {"$ne": "error"}},
+            {"resource_id": 1, "original_name": 1},
+        )
+        if existing:
+            return {
+                "resource_id": existing["resource_id"],
+                "job_id": None,
+                "status": "duplicate",
+                "message": f"This file was already uploaded as '{existing.get('original_name', '?')}'",
+            }
+
         mime = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
         storage_path = await storage.save(contents, user["email"], collection_id, file.filename or "upload")
 
@@ -183,6 +208,7 @@ async def add_resource(
             "source_url": None,
             "storage_path": storage_path,
             "file_size": len(contents),
+            "file_hash": file_hash,
             "status": "queued",
             "progress": 0.0,
             "meta": {},
@@ -237,17 +263,31 @@ async def add_resource(
 
     await db.byo_resources.insert_one(doc)
 
-    # Submit processing job
-    from byo.pipeline.orchestrator import submit_processing_job
-    job_id = await submit_processing_job(resource_id, collection_id, user["email"], meta)
+    # Increment collection resource count immediately (so frontend sees "1 file" right away)
+    await db.collections.update_one(
+        {"collection_id": collection_id},
+        {"$inc": {"stats.resources": 1}, "$set": {"updated_at": datetime.utcnow()}},
+    )
+
+    # Submit processing job (wrapped in try/except — resource already exists)
+    job_id = None
+    try:
+        from byo.pipeline.orchestrator import submit_processing_job
+        job_id = await submit_processing_job(resource_id, collection_id, user["email"], meta)
+    except Exception as e:
+        log.error("Failed to submit processing job for %s: %s", resource_id[:8], e)
+        await db.byo_resources.update_one(
+            {"resource_id": resource_id},
+            {"$set": {"status": "error", "error": f"Job submission failed: {str(e)[:200]}"}},
+        )
 
     log.info("Resource added: %s to collection %s, job %s",
-            resource_id[:8], collection_id[:8], job_id[:8])
+            resource_id[:8], collection_id[:8], (job_id or "FAILED")[:8])
 
     return {
         "resource_id": resource_id,
         "job_id": job_id,
-        "status": "queued",
+        "status": "queued" if job_id else "error",
     }
 
 
@@ -264,11 +304,26 @@ async def list_resources(collection_id: str, request: Request, user: dict = Depe
 
 @router.delete("/collections/{collection_id}/resources/{resource_id}")
 async def delete_resource(collection_id: str, resource_id: str, request: Request, user: dict = Depends(_get_user)):
-    """Remove a resource and its chunks."""
+    """Remove a resource, its chunks, and the underlying file."""
     db = _get_db()
+
+    # Get the storage path before deleting
+    resource = await db.byo_resources.find_one(
+        {"resource_id": resource_id, "user_id": user["email"]},
+        {"storage_path": 1},
+    )
+
     await db.byo_chunks.delete_many({"resource_id": resource_id})
     await db.byo_resources.delete_one({"resource_id": resource_id, "user_id": user["email"]})
-    # TODO: delete file from storage
+
+    # Delete the actual file from storage
+    if resource and resource.get("storage_path"):
+        try:
+            storage = _get_storage()
+            await storage.delete(resource["storage_path"])
+        except Exception as e:
+            log.warning("Failed to delete file %s: %s", resource["storage_path"][:40], e)
+
     return {"ok": True}
 
 
@@ -283,3 +338,80 @@ async def get_job(job_id: str, request: Request, user: dict = Depends(_get_user)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
     return status
+
+
+# ── File serving ──────────────────────────────────────────────────────
+
+
+@router.get("/audio/{audio_id}")
+async def serve_audio(audio_id: str, request: Request, user: dict = Depends(_get_user)):
+    """Serve generated audio artifacts (TTS output)."""
+    import os
+    from fastapi.responses import RedirectResponse
+    db = _get_db()
+
+    resource = await db.byo_resources.find_one(
+        {"resource_id": audio_id, "user_id": user["email"]},
+        {"storage_path": 1, "mime_type": 1, "original_name": 1},
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Audio not found")
+
+    storage_path = resource.get("storage_path", "")
+    if storage_path.startswith("gs://"):
+        storage = _get_storage()
+        from byo.storage.gcs import GCSStorage
+        if isinstance(storage, GCSStorage):
+            signed_url = storage.generate_signed_url(storage_path, content_type="audio/mpeg")
+            return RedirectResponse(url=signed_url, status_code=302)
+
+    if not _validate_local_path(storage_path) or not os.path.exists(storage_path):
+        raise HTTPException(status_code=404, detail="Audio file not found")
+
+    return FileResponse(path=storage_path, media_type="audio/mpeg", filename=resource.get("original_name", "audio.mp3"))
+
+
+@router.get("/resources/{resource_id}/file")
+async def serve_resource_file(resource_id: str, request: Request, user: dict = Depends(_get_user)):
+    """Serve the original uploaded file for viewing in the browser.
+
+    - GCS storage: redirects to a signed URL (1-hour expiry)
+    - Local storage: serves file directly with FileResponse
+
+    Works for: PDF, video, audio, images, text, DOCX, etc.
+    """
+    import os
+    from fastapi.responses import RedirectResponse
+    db = _get_db()
+
+    resource = await db.byo_resources.find_one(
+        {"resource_id": resource_id, "user_id": user["email"]},
+        {"storage_path": 1, "mime_type": 1, "original_name": 1},
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    storage_path = resource.get("storage_path")
+    if not storage_path:
+        raise HTTPException(status_code=404, detail="No file path recorded")
+
+    mime_type = resource.get("mime_type", "application/octet-stream")
+
+    # GCS path (gs://...) → redirect to signed URL
+    if storage_path.startswith("gs://"):
+        storage = _get_storage()
+        from byo.storage.gcs import GCSStorage
+        if isinstance(storage, GCSStorage):
+            signed_url = storage.generate_signed_url(storage_path, content_type=mime_type)
+            return RedirectResponse(url=signed_url, status_code=302)
+        raise HTTPException(status_code=500, detail="GCS storage not configured")
+
+    # Local path → validate + serve directly
+    if not _validate_local_path(storage_path) or not os.path.exists(storage_path):
+        raise HTTPException(status_code=404, detail="File not found")
+
+    return FileResponse(
+        path=storage_path,
+        media_type=mime_type,
+        filename=resource.get("original_name", "file"),
+    )

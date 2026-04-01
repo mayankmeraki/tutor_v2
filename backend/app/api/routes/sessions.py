@@ -36,6 +36,57 @@ async def create(request: Request, user: dict = Depends(get_optional_user)):
 
 # ─── Auth-based routes (must come before /{session_id} to avoid conflict) ───
 
+@router.get("/me/all")
+async def all_my_sessions(user: dict = Depends(get_optional_user)):
+    """Get all sessions for the authenticated user across all courses, newest first."""
+    from app.core.mongodb import get_tutor_db
+    db = get_tutor_db()
+    cursor = db["sessions"].find(
+        {"userEmail": user["email"]},
+        {f: 1 for f in [
+            "sessionId", "courseId", "studentName", "startedAt", "status",
+            "headline", "headlineDescription", "intent", "durationSec",
+            "metrics", "sections", "plan.sessionObjective",
+        ]},
+    ).sort("startedAt", -1).limit(20)
+    docs = []
+    async for doc in cursor:
+        doc.pop("_id", None)
+        docs.append(doc)
+    return docs
+
+
+@router.get("/search/all")
+async def search_all(q: str = "", user: dict = Depends(get_optional_user)):
+    """Search sessions across all courses for the authenticated user."""
+    if not q or len(q.strip()) < 2:
+        return []
+    import re as _re
+    from app.core.mongodb import get_tutor_db
+    db = get_tutor_db()
+    safe_query = _re.escape(q.strip())
+    cursor = db["sessions"].find(
+        {
+            "userEmail": user["email"],
+            "$or": [
+                {"headline": {"$regex": safe_query, "$options": "i"}},
+                {"headlineDescription": {"$regex": safe_query, "$options": "i"}},
+                {"intent.raw": {"$regex": safe_query, "$options": "i"}},
+                {"plan.sessionObjective": {"$regex": safe_query, "$options": "i"}},
+            ],
+        },
+        {f: 1 for f in [
+            "sessionId", "courseId", "studentName", "startedAt", "status",
+            "headline", "headlineDescription", "intent", "durationSec",
+        ]},
+    ).sort("startedAt", -1).limit(10)
+    docs = []
+    async for doc in cursor:
+        doc.pop("_id", None)
+        docs.append(doc)
+    return docs
+
+
 @router.get("/me/{course_id}")
 async def my_sessions(course_id: int, user: dict = Depends(get_optional_user)):
     """Get all sessions for the authenticated user + course."""

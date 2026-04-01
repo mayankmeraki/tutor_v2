@@ -29,13 +29,39 @@ Or use flow placements:
   "row-start"   — start side-by-side pair
   "row-next"    — second item in pair
 
+SPATIAL GRID — THE BOARD IS 100x100. RESPECT THESE ZONES:
+
+  The board is divided into a logical grid. Use these reference points:
+
+  LEFT COLUMN:   x: 3-45    (equations, steps, main content)
+  RIGHT COLUMN:  x: 52-95   (meaning, notes, secondary content)
+  TOP BAND:      y: 2-15    (title + subtitle only)
+  MAIN AREA:     y: 18-75   (all teaching content)
+  BOTTOM BAND:   y: 78-95   (results, conclusions, key takeaways)
+
+  MINIMUM SPACING between elements:
+  - Vertically: at least 10 units apart (e.g. y:20 then y:30, never y:20 then y:23)
+  - Horizontally: left column (x:3-45) and right column (x:52-95) never overlap
+  - Elements at the SAME y-level should differ by at most 3 in y (treat as same row)
+
+  SAFE COORDINATE PAIRS (use these as defaults):
+  Row 1: y:18  (left: x:3,  right: x:55)
+  Row 2: y:30  (left: x:3,  right: x:55)
+  Row 3: y:42  (left: x:3,  right: x:55)
+  Row 4: y:54  (left: x:3,  right: x:55)
+  Row 5: y:66  (left: x:3,  right: x:55)
+  Result: y:80  (centered: x:20)
+
 CRITICAL RULES:
   - NEVER split one equation into multiple positioned pieces. Use cmd:"equation"
     which automatically places equation LEFT + note RIGHT in one element.
   - Use x,y to position DIFFERENT concepts relative to each other — NOT to
     arrange parts of the same expression.
-  - GOOD: equation at x:5,y:20 and a separate callout at x:5,y:40
+  - GOOD: equation at x:3,y:18 and a separate callout at x:3,y:30
   - BAD:  "iℏ∂ψ/∂t" at x:5, "=" at x:40, "Ĥψ" at x:55 (split equation!)
+  - Elements are placed EXACTLY where you put them — there is NO automatic
+    repositioning. If you place two elements at the same x,y they WILL overlap.
+    YOU are responsible for spacing.
 
 CONNECTION ARROWS (draw relationships):
   {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
@@ -49,9 +75,14 @@ Compound commands produce richer visuals with fewer tokens. They handle
 layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 
 1. EQUATION — auto-annotated equation (replaces text+beside pattern):
-   {"cmd":"equation","text":"Ĥψ = Eψ","note":"eigenvalue equation","placement":"below","color":"cyan","size":"text","id":"eq1"}
-   → draws equation LEFT, scribbles "← eigenvalue equation" to its right.
+   {"cmd":"equation","text":"\\hat{H}\\psi = E\\psi","note":"eigenvalue equation","placement":"below","color":"cyan","size":"text","id":"eq1"}
+   → renders equation with KaTeX LEFT, scribbles "← eigenvalue equation" to its right.
    EVERY equation should use this. The note is mandatory for teaching.
+   IMPORTANT: Use LaTeX notation for equations, NOT Unicode symbols.
+   GOOD: "\\frac{\\partial^2 \\psi}{\\partial x^2}" — renders as proper math
+   BAD: "∂²ψ/∂x²" — renders as flat text, hard to read
+   Use \\frac{}{} for fractions, ^{} for superscripts, _{} for subscripts,
+   \\partial, \\psi, \\hbar, \\nabla, \\int, \\sum, etc.
 
 2. COMPARE — side-by-side two-column contrast:
    {"cmd":"compare","left":{"title":"Classical","items":["Deterministic","Continuous","F = ma"],"color":"green"},"right":{"title":"Quantum","items":["Probabilistic","Discrete","Ĥψ = Eψ"],"color":"red"},"placement":"below","id":"cmp1"}
@@ -93,6 +124,32 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 10. CONNECT — draw an arrow between ANY two elements:
     {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
     → SVG arrow with optional label. Shows relationships on the board.
+
+═══ WHEN TO USE ANIMATION vs POSITIONED TEXT ═══
+
+USE cmd:"animation" (p5.js sketch) FOR:
+  - Physics diagrams: ray diagrams, force diagrams, circuits, wave patterns
+  - Geometric figures: triangles, circles, coordinate systems, graphs
+  - Anything that needs LINES AT ANGLES, RAYS, or GEOMETRIC SHAPES
+  - Diagrams where spatial relationships ARE the content (reflection, refraction,
+    projectile motion, electric fields, molecular structures)
+
+  These CANNOT be built from positioned text elements. Text + arrows cannot
+  represent angled lines, curves, or geometric relationships. Use a p5.js
+  animation that draws the actual geometry with proper coordinates, angles,
+  and labels built into the sketch.
+
+  Example — Total Internal Reflection (CORRECT):
+  <vb draw='{"cmd":"animation","id":"tir","title":"Total Internal Reflection","code":"function setup(){createCanvas(700,400);noLoop()}function draw(){background(30,35,50);fill(100,180,255,40);noStroke();rect(0,0,700,200);fill(30,35,50,40);rect(0,200,700,200);stroke(255,255,255,60);strokeWeight(1);setLineDash([6,4]);line(350,30,350,370);setLineDash([]);stroke(255);strokeWeight(2);line(0,200,700,200);stroke(52,211,153);strokeWeight(2);line(200,50,350,200);stroke(251,191,36);line(350,200,500,50);push();noStroke();fill(52,211,153);textSize(14);textFont(\"Caveat\");text(\"incident\",220,100);fill(251,191,36);text(\"reflected\",420,100);fill(150,180,255);textSize(16);text(\"GLASS (n₁ = 1.5)\",50,120);fill(200);text(\"AIR (n₂ = 1.0)\",50,280);fill(255,107,107);text(\"✗ No refracted ray\",50,340);pop()}","legend":[{"text":"incident","color":"#34d399"},{"text":"reflected","color":"#fbbf24"}]}' />
+
+  WRONG approach: placing "GLASS", "AIR", arrows, lines as separate positioned
+  text elements with x,y — they scatter and cannot form coherent geometric shapes.
+
+USE POSITIONED TEXT (x,y) FOR:
+  - Equation layouts: equation left, meaning right
+  - Concept maps: ideas scattered across board with connect arrows
+  - Derivation flows: step-by-step with arrows between equations
+  - Comparison layouts: two columns of related concepts
 
 ═══ ANTI-PATTERNS (NEVER DO THESE) ═══
 

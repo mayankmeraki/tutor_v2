@@ -345,7 +345,7 @@ class AgentRuntime:
 
         # ── Round 1: Tool gathering (single round) ──────────────────────
         request_params: dict[str, Any] = {
-            "model": settings.PLANNING_MODEL,
+            "model": settings.planning_model,
             "max_tokens": 4096,
             "system": planning_prompt,
             "messages": messages,
@@ -414,7 +414,7 @@ class AgentRuntime:
             })
 
         request_params_r2: dict[str, Any] = {
-            "model": settings.PLANNING_MODEL,
+            "model": settings.planning_model,
             "max_tokens": 4096,
             "system": planning_prompt,
             "messages": messages,
@@ -501,7 +501,7 @@ class AgentRuntime:
         # Choose model based on type — heavier tasks can use Sonnet
         model = settings.RESEARCH_MODEL  # Haiku default
         if task.type in ("content", "problem_gen", "analysis"):
-            model = settings.PLANNING_MODEL  # Sonnet for heavier work
+            model = settings.planning_model  # Sonnet for heavier work
 
         async def _call():
             return await llm_call(
@@ -632,7 +632,7 @@ class AgentRuntime:
 
         async def _call():
             return await llm_call(
-                model=settings.PLANNING_MODEL,  # Sonnet — good at code generation
+                model=settings.planning_model,  # Sonnet — good at code generation
                 max_tokens=8192,
                 system=system_prompt,
                 messages=[{"role": "user", "content": user_prompt}],

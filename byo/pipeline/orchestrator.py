@@ -148,22 +148,19 @@ async def _claim_job(db) -> dict | None:
             "state": {"$in": [JobState.QUEUED, *PIPELINE_STEPS]},
             "$or": [
                 {"locked_by": None},
-                {"lock_expires": {"$lt": now}},  # expired lock
+                {"lock_expires": {"$lt": now}},
             ],
         },
         {
             "$set": {
                 "locked_by": WORKER_ID,
                 "lock_expires": now + timedelta(seconds=LOCK_DURATION_SECONDS),
-                "started_at": {"$cond": [{"$eq": ["$started_at", None]}, now, "$started_at"]},
                 "updated_at": now,
             }
         },
-        sort=[("created_at", 1)],  # FIFO
+        sort=[("created_at", 1)],
         return_document=True,
     )
-    # findOneAndUpdate with $cond in $set doesn't work in all MongoDB versions.
-    # Simplified: just set started_at if it's the first time
     if job and not job.get("started_at"):
         await db.byo_jobs.update_one(
             {"job_id": job["job_id"]},
@@ -219,6 +216,17 @@ async def _process_job(job: dict):
             # Execute step
             if step == JobState.EXTRACTING:
                 result["extraction"] = await _step_extract(job)
+                # Describe images if any were extracted (runs inline, not a separate step)
+                extraction = result["extraction"]
+                images = extraction.get("images", [])
+                if images:
+                    described = await _describe_images(images, job["resource_id"])
+                    extraction["images"] = described
+                    # Merge image descriptions into markdown at page anchors
+                    extraction["markdown"] = _merge_image_descriptions(
+                        extraction.get("markdown", ""), described
+                    )
+                    result["extraction"] = extraction
             elif step == JobState.CHUNKING:
                 result["chunks"] = await _step_chunk(job, result.get("extraction", {}))
             elif step == JobState.CLASSIFYING:
@@ -231,22 +239,59 @@ async def _process_job(job: dict):
             # Save intermediate result
             await _update_job(db, job_id, {"result": result, "step_index": i + 1})
 
-        # Complete
-        await _update_job(db, job_id, {
-            "state": JobState.COMPLETE,
-            "progress": 1.0,
-            "completed_at": datetime.utcnow(),
-            "locked_by": None,
-        })
-        await db.byo_resources.update_one(
-            {"resource_id": job["resource_id"]},
-            {"$set": {"status": ResourceStatus.READY, "progress": 1.0}},
-        )
+        # Check if extraction actually produced content
+        chunks = result.get("chunks", [])
+        extraction = result.get("extraction", {})
+        extraction_error = extraction.get("meta", {}).get("error") if isinstance(extraction, dict) else None
+
+        if not chunks and extraction_error:
+            # Extraction failed — mark as error, not ready
+            log.warning("Job %s completed but extraction failed: %s", job_id[:8], extraction_error)
+            await _update_job(db, job_id, {
+                "state": JobState.COMPLETE,
+                "progress": 1.0,
+                "completed_at": datetime.utcnow(),
+                "locked_by": None,
+                "error": f"Extraction failed: {extraction_error}",
+            })
+            await db.byo_resources.update_one(
+                {"resource_id": job["resource_id"]},
+                {"$set": {
+                    "status": ResourceStatus.ERROR,
+                    "progress": 1.0,
+                    "error": f"Content extraction failed: {extraction_error}",
+                }},
+            )
+        elif not chunks:
+            # No chunks produced but no explicit error — mark ready with warning
+            log.warning("Job %s completed with 0 chunks (empty content)", job_id[:8])
+            await _update_job(db, job_id, {
+                "state": JobState.COMPLETE,
+                "progress": 1.0,
+                "completed_at": datetime.utcnow(),
+                "locked_by": None,
+            })
+            await db.byo_resources.update_one(
+                {"resource_id": job["resource_id"]},
+                {"$set": {"status": ResourceStatus.READY, "progress": 1.0, "chunk_count": 0}},
+            )
+        else:
+            # Normal completion with chunks
+            await _update_job(db, job_id, {
+                "state": JobState.COMPLETE,
+                "progress": 1.0,
+                "completed_at": datetime.utcnow(),
+                "locked_by": None,
+            })
+            await db.byo_resources.update_one(
+                {"resource_id": job["resource_id"]},
+                {"$set": {"status": ResourceStatus.READY, "progress": 1.0}},
+            )
 
         # Update collection stats
         await _update_collection_stats(db, job["collection_id"])
 
-        log.info("Job %s complete", job_id[:8])
+        log.info("Job %s complete (%d chunks)", job_id[:8], len(chunks))
 
     except Exception as e:
         retries = job.get("retries", 0)
@@ -279,23 +324,181 @@ async def _process_job(job: dict):
 
 # ── Pipeline steps ──────────────────────────────────────────────────────
 
+async def _describe_images(images: list[dict], resource_id: str) -> list[dict]:
+    """Describe images using a vision LLM. Runs pages in parallel batches.
+
+    Each image gets a text description that captures: diagrams, equations,
+    graphs, tables, handwriting, or any visual content relevant to learning.
+    """
+    import base64
+    import httpx
+    from app.core.config import settings
+
+    api_key = settings.OPENROUTER_API_KEY
+    if not api_key:
+        log.warning("No API key for image description — skipping")
+        return images
+
+    # Filter to images with actual data
+    describable = [(i, img) for i, img in enumerate(images) if img.get("data")]
+    if not describable:
+        return images
+
+    log.info("Describing %d images for %s", len(describable), resource_id[:8])
+
+    async def _describe_one(img: dict) -> str:
+        """Describe a single image using vision LLM."""
+        data = img["data"]
+        if isinstance(data, bytes):
+            b64 = base64.b64encode(data).decode("utf-8")
+        else:
+            b64 = data  # already base64
+
+        ext = img.get("path", "").rsplit(".", 1)[-1] or "png"
+        media_type = f"image/{ext}" if ext in ("png", "jpg", "jpeg", "gif", "webp") else "image/png"
+
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={
+                        "model": "anthropic/claude-haiku-4-5-20251001",
+                        "max_tokens": 500,
+                        "messages": [{
+                            "role": "user",
+                            "content": [
+                                {
+                                    "type": "image_url",
+                                    "image_url": {"url": f"data:{media_type};base64,{b64}"},
+                                },
+                                {
+                                    "type": "text",
+                                    "text": (
+                                        "Describe this image from a study document. Focus on: "
+                                        "diagrams, equations, graphs, tables, flowcharts, or any "
+                                        "educational content. Be specific about what's shown — "
+                                        "label values, axis names, relationships. "
+                                        "If it's a math equation, write it in LaTeX. "
+                                        "If it's decorative or irrelevant, say 'decorative image'. "
+                                        "Be concise — 2-3 sentences max."
+                                    ),
+                                },
+                            ],
+                        }],
+                    },
+                )
+                if resp.status_code == 200:
+                    return resp.json()["choices"][0]["message"]["content"].strip()
+                else:
+                    log.warning("Image description API error: %d", resp.status_code)
+                    return ""
+        except Exception as e:
+            log.warning("Image description failed: %s", e)
+            return ""
+
+    # Process in parallel batches of 5 to avoid rate limits
+    BATCH_SIZE = 5
+    for batch_start in range(0, len(describable), BATCH_SIZE):
+        batch = describable[batch_start:batch_start + BATCH_SIZE]
+        descriptions = await asyncio.gather(
+            *[_describe_one(img) for _, img in batch],
+            return_exceptions=True,
+        )
+        for (idx, img), desc in zip(batch, descriptions):
+            if isinstance(desc, str) and desc and desc.lower() != "decorative image":
+                images[idx]["description"] = desc
+                log.debug("Image %s: %s", img.get("path", "?"), desc[:60])
+
+    described_count = sum(1 for img in images if img.get("description"))
+    log.info("Described %d/%d images for %s", described_count, len(describable), resource_id[:8])
+    return images
+
+
+def _merge_image_descriptions(markdown: str, images: list[dict]) -> str:
+    """Merge image descriptions into the markdown at the right page positions.
+
+    Images have anchor.page indicating which page they came from.
+    We insert the description after the page marker comment.
+    """
+    if not images:
+        return markdown
+
+    # Group descriptions by page
+    by_page: dict[int, list[str]] = {}
+    for img in images:
+        desc = img.get("description", "")
+        if not desc:
+            continue
+        page = img.get("anchor", {}).get("page") if isinstance(img.get("anchor"), dict) else None
+        if page:
+            by_page.setdefault(page, []).append(desc)
+
+    if not by_page:
+        return markdown
+
+    # Insert descriptions after page markers
+    import re
+    def _insert_after_page(match):
+        page_num = int(match.group(1))
+        descs = by_page.get(page_num, [])
+        if not descs:
+            return match.group(0)
+        desc_block = "\n".join(f"[Image: {d}]" for d in descs)
+        return f"{match.group(0)}\n{desc_block}"
+
+    result = re.sub(r"<!--\s*page\s+(\d+)\s*-->", _insert_after_page, markdown)
+
+    # Any images without page anchors — append at the end
+    orphans = [img["description"] for img in images
+               if img.get("description") and not (isinstance(img.get("anchor"), dict) and img["anchor"].get("page"))]
+    if orphans:
+        result += "\n\n" + "\n".join(f"[Image: {d}]" for d in orphans)
+
+    return result
+
+
 async def _step_extract(job: dict) -> dict:
-    """Extract content from the resource using the appropriate processor."""
+    """Extract content from the resource using the appropriate processor.
+
+    If the file is in GCS (gs:// path), downloads to a temp file first —
+    processors like PyMuPDF need local file access.
+    """
+    import os
+    import tempfile
     from byo.pipeline.processors import get_processor
 
     mime_type = job["meta"].get("mime_type", "")
     source_url = job["meta"].get("source_url")
     storage_path = job["meta"].get("storage_path")
 
-    processor = get_processor(mime_type)
-    result = await processor.extract(
-        resource_id=job["resource_id"],
-        mime_type=mime_type,
-        source_url=source_url,
-        storage_path=storage_path,
-        meta=job["meta"],
-    )
-    return result.model_dump() if hasattr(result, "model_dump") else result
+    # Download GCS files to temp for local processing
+    temp_path = None
+    if storage_path and storage_path.startswith("gs://"):
+        from byo.storage import default_storage
+        log.info("Downloading from GCS for extraction: %s", storage_path[:60])
+        data = await default_storage.read(storage_path)
+        # Preserve file extension for processor detection
+        ext = os.path.splitext(storage_path)[1] or ".bin"
+        fd, temp_path = tempfile.mkstemp(suffix=ext)
+        os.write(fd, data)
+        os.close(fd)
+        storage_path = temp_path
+
+    try:
+        processor = get_processor(mime_type)
+        result = await processor.extract(
+            resource_id=job["resource_id"],
+            mime_type=mime_type,
+            source_url=source_url,
+            storage_path=storage_path,
+            meta=job["meta"],
+        )
+        return result.model_dump() if hasattr(result, "model_dump") else result
+    finally:
+        # Clean up temp file
+        if temp_path and os.path.exists(temp_path):
+            os.remove(temp_path)
 
 
 async def _step_chunk(job: dict, extraction: dict) -> list[dict]:
@@ -356,6 +559,11 @@ async def _step_store(job: dict, result: dict):
         if i < len(classifications):
             chunk["labels"] = classifications[i].get("labels", [])
             chunk["topics"] = classifications[i].get("topics", [])
+
+    # Delete any existing chunks for this resource (idempotent on retry)
+    deleted = await db.byo_chunks.delete_many({"resource_id": job["resource_id"]})
+    if deleted.deleted_count:
+        log.info("Cleared %d stale chunks for resource %s (retry)", deleted.deleted_count, job["resource_id"][:8])
 
     # Bulk insert chunks
     docs = []

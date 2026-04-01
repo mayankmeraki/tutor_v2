@@ -1,5 +1,6 @@
 """FastAPI app — Sub-Agent Teaching Architecture."""
 
+import asyncio
 import logging
 import os
 from contextlib import asynccontextmanager
@@ -41,6 +42,25 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("Failed to ensure session indexes: %s", e)
 
+    # Ensure BYO pipeline indexes
+    try:
+        from app.core.mongodb import get_mongo_db
+        db = get_mongo_db()
+        await db.byo_resources.create_index([("collection_id", 1), ("user_id", 1)])
+        await db.byo_resources.create_index([("resource_id", 1)], unique=True)
+        await db.byo_resources.create_index([("file_hash", 1), ("collection_id", 1)])
+        await db.byo_chunks.create_index([("collection_id", 1), ("index", 1)])
+        await db.byo_chunks.create_index([("resource_id", 1)])
+        await db.byo_jobs.create_index([("state", 1), ("created_at", 1)])
+        await db.byo_jobs.create_index([("job_id", 1)], unique=True)
+        await db.collections.create_index([("user_id", 1), ("created_at", -1)])
+        await db.collections.create_index([("collection_id", 1)], unique=True)
+        await db.artifacts.create_index([("user_id", 1), ("created_at", -1)])
+        await db.artifacts.create_index([("artifact_id", 1)], unique=True)
+        log.info("BYO pipeline indexes ensured")
+    except Exception as e:
+        log.warning("Failed to ensure BYO indexes: %s", e)
+
     # Register centralized LLM usage tracking callback
     from app.core.llm import set_usage_callback, LLMResponse, LLMCallMetadata
     from app.agents.session import _sessions
@@ -65,7 +85,23 @@ async def lifespan(app: FastAPI):
     log.info("LLM Provider:   %s", settings.LLM_PROVIDER)
     _key = settings.OPENROUTER_API_KEY if settings.LLM_PROVIDER == "openrouter" else settings.ANTHROPIC_API_KEY
     log.info("API Key:        %s", "set" if _key else "MISSING")
+
+    # Start BYO pipeline worker in background
+    _byo_worker_task = None
+    try:
+        import sys
+        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+        from byo.pipeline.orchestrator import run_worker
+        _byo_worker_task = asyncio.create_task(run_worker())
+        log.info("BYO pipeline worker started")
+    except Exception as e:
+        log.warning("BYO worker not started: %s", e)
+
     yield
+
+    # Cancel BYO worker
+    if _byo_worker_task:
+        _byo_worker_task.cancel()
 
     # ── Shutdown: close DB connections ──
     log.info("Shutting down — closing database connections…")

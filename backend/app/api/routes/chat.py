@@ -64,7 +64,7 @@ def _sse_raw(data: dict) -> str:
     """Format a single SSE event as a string (for non-generator error responses)."""
     return f"data: {json.dumps(data)}\n\n"
 
-MAX_ROUNDS = 6  # cap tutor tool rounds — prevents content-gathering loops
+MAX_ROUNDS = 8  # cap tutor tool rounds
 MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
 
@@ -130,6 +130,8 @@ def extract_context(context_items: list[dict] | None) -> dict:
         "active board": "activeBoard",
         "previous boards": "previousBoards",
         "video state": "videoState",
+        "teaching plan": "teachingPlan",
+        "session context": "sessionContext",
     }
     for item in context_items or []:
         desc = (item.get("description") or "").lower()
@@ -632,6 +634,44 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
 
 
 # ── Fast start: auto-spawn planner ─────────────────────────────────────────
+
+def _extract_orchestrator_plan(context_data: dict) -> dict | None:
+    """Extract a pre-built plan from the orchestrator's session context.
+
+    The orchestrator can pass a plan via start_tutor_session(plan=[...]).
+    If present, we convert it to the planner's output format and use it
+    directly — skipping the background planner entirely (0ms latency).
+    """
+    # Check sessionContext for plan from orchestrator
+    session_ctx_str = context_data.get("sessionContext", "")
+    if not session_ctx_str:
+        return None
+
+    try:
+        ctx = json.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
+        plan_steps = ctx.get("plan", [])
+        if not plan_steps or not isinstance(plan_steps, list):
+            return None
+
+        # Convert orchestrator's plan format to planner's output format
+        topics = []
+        for i, step in enumerate(plan_steps):
+            topics.append({
+                "title": step.get("title", f"Topic {i + 1}"),
+                "type": step.get("type", "concept"),
+                "content_refs": step.get("content_refs", []),
+                "teaching_notes": step.get("teaching_notes", ""),
+                "status": "pending",
+            })
+
+        return {
+            "session_objective": ctx.get("enriched_intent", ""),
+            "_topics": topics,
+            "_source": "orchestrator",
+        }
+    except (json.JSONDecodeError, TypeError, AttributeError):
+        return None
+
 
 def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
     """Pre-spawn planning agent at session start so plan builds in background.
@@ -1441,6 +1481,43 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
     yield _sse({"type": "RUN_ERROR", "message": "Too many assessment rounds"})
 
 
+# ── Plan Polling ──────────────────────────────────────────────────────────────
+
+@router.get("/api/session/{session_id}/plan")
+async def get_session_plan(session_id: str, request: Request, user: dict = Depends(get_optional_user)):
+    """Poll for the teaching plan. Returns the plan if ready, or {"status": "pending"}.
+
+    The frontend can poll this independently of the chat stream so the plan
+    sidebar updates even if the tutor's response has already finished streaming.
+    """
+    from app.agents.session import _sessions
+    session = _sessions.get(session_id)
+    if not session:
+        return {"status": "not_found"}
+
+    # Check if planner completed but wasn't promoted yet
+    if not session.current_plan and hasattr(session, 'agent_runtime') and session.agent_runtime:
+        completed = session.agent_runtime.pop_completed()
+        for agent in completed:
+            if agent["type"] == "planning":
+                if agent["status"] == "complete" and agent.get("result"):
+                    _promote_plan(session, agent["result"])
+                elif agent["status"] == "error":
+                    return {
+                        "status": "error",
+                        "error": agent.get("error", "Planning agent failed"),
+                    }
+
+    if session.current_plan:
+        return {
+            "status": "ready",
+            "plan": session.current_plan,
+            "sessionObjective": session.session_objective or "",
+        }
+
+    return {"status": "pending"}
+
+
 # ── Chat Route ───────────────────────────────────────────────────────────────
 
 @router.post("/api/chat", dependencies=[Depends(_check_rate_limit)])
@@ -1563,9 +1640,20 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             if is_session_start and not is_video_mode:
                 _init_session_phase(session, context_data, slog)
 
-            # Auto-spawn planning agent (skip if triage is active — plan after triage)
-            if is_session_start and not session.current_plan and context_data.get("courseMap") and not is_video_mode:
-                if session.phase != SessionPhase.TRIAGE:
+            # Plan setup — prefer orchestrator's pre-built plan, fall back to auto-planner
+            if is_session_start and not session.current_plan and not is_video_mode:
+                orchestrator_plan = _extract_orchestrator_plan(context_data)
+                if orchestrator_plan:
+                    # Orchestrator already built a plan — use it immediately (0ms latency)
+                    slog.info("Using orchestrator-provided plan (skipping planner agent)")
+                    _promote_plan(session, orchestrator_plan)
+                    yield _sse({
+                        "type": "PLAN_UPDATE",
+                        "plan": orchestrator_plan,
+                        "sessionObjective": orchestrator_plan.get("session_objective", ""),
+                    })
+                elif context_data.get("courseMap") and session.phase != SessionPhase.TRIAGE:
+                    # No pre-built plan — spawn background planner
                     _auto_spawn_planner(session, runtime, context_data, slog)
 
             # ── Step 3a: Check assessment → route to assessment agent ──
@@ -1887,6 +1975,20 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
 
                 if await request.is_disconnected():
                     return
+
+                # ── Mid-stream: check for completed background agents (planning, visuals) ──
+                # This ensures the plan appears DURING the first response, not on the next turn.
+                if not session.current_plan:
+                    mid_completed = runtime.pop_completed()
+                    for agent in mid_completed:
+                        if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
+                            slog.info("Plan ready mid-stream — emitting immediately")
+                            _promote_plan(session, agent["result"])
+                            yield _sse({
+                                "type": "PLAN_UPDATE",
+                                "plan": agent["result"],
+                                "sessionObjective": agent["result"].get("session_objective", ""),
+                            })
 
                 # Determine if this round has tool calls (will continue to next round)
                 tool_blocks = [b for b in message.content if b.type == "tool_use"]
@@ -2548,6 +2650,20 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
 
                 # No more tool calls — done. Persist final assistant message.
                 session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
+
+                # Final check for plan completion (planner may have finished during our response)
+                if not session.current_plan and runtime:
+                    final_completed = runtime.pop_completed()
+                    for agent in final_completed:
+                        if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
+                            slog.info("Plan ready at end of turn — emitting")
+                            _promote_plan(session, agent["result"])
+                            yield _sse({
+                                "type": "PLAN_UPDATE",
+                                "plan": agent["result"],
+                                "sessionObjective": agent["result"].get("session_objective", ""),
+                            })
+
                 slog.info("Request complete", extra={"round": rounds, "msg_count": len(session.messages)})
 
                 # Sync session state to MongoDB
@@ -2594,9 +2710,27 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                     yield chunk
                 return
 
-            # Too many rounds
-            slog.warning("Too many tool call rounds", extra={"round": MAX_ROUNDS})
-            yield _sse({"type": "RUN_ERROR", "message": "Too many tool call rounds"})
+            # Too many rounds — force a text response by retrying without tools
+            slog.warning("Too many tool call rounds — forcing text response", extra={"round": MAX_ROUNDS})
+            try:
+                forced_msg = [{"role": "user", "content": [{"type": "tool_result", "tool_use_id": tool_blocks[-1].id if tool_blocks else "forced", "content": "STOP using tools. You have gathered enough content. START TEACHING NOW. Write your board-draw response immediately."}]}]
+                claude_messages.extend(forced_msg)
+                api_kwargs_forced = {**api_kwargs, "tools": [], "tool_choice": None}
+                api_kwargs_forced["messages"] = claude_messages
+                async with await llm_stream(**api_kwargs_forced, metadata=LLMCallMetadata(session_id=session_id, caller="tutor_forced")) as forced_stream:
+                    async for text in forced_stream.text_stream:
+                        if not text_started:
+                            message_id = str(uuid.uuid4())
+                            yield _sse({"type": "TEXT_MESSAGE_START", "messageId": message_id})
+                            text_started = True
+                        yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
+                    if text_started:
+                        yield _sse({"type": "TEXT_MESSAGE_END"})
+                    forced_final = await forced_stream.get_final_message()
+                    session.messages.append({"role": "assistant", "content": _serialize_content(forced_final.content)})
+            except Exception as fe:
+                slog.error("Forced response also failed: %s", fe)
+                yield _sse({"type": "RUN_ERROR", "message": "Taking too long to prepare. Please try again."})
 
         except LLMBadRequestError as e:
             err_body = getattr(e, "body", {}) or {}

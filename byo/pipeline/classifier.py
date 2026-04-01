@@ -13,7 +13,7 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 BATCH_SIZE = 20  # chunks per LLM call
-MAX_CHUNK_PREVIEW = 200  # chars per chunk sent to classifier
+MAX_CHUNK_PREVIEW = 500  # chars per chunk sent to classifier
 
 
 async def classify_chunks_batch(chunks: list[dict]) -> list[dict]:
@@ -47,8 +47,8 @@ async def _classify_batch(chunks: list[dict]) -> list[dict]:
 
         api_key = settings.OPENROUTER_API_KEY
         if not api_key:
-            log.warning("No API key for classifier — skipping classification")
-            return [{"labels": [], "topics": []} for _ in chunks]
+            log.warning("No API key for classifier — using pattern fallback")
+            return [_classify_by_pattern(c) for c in chunks]
 
         # Build prompt with chunk previews
         chunk_previews = []
@@ -84,8 +84,8 @@ Output ONLY the JSON array, no other text."""
             )
 
             if resp.status_code != 200:
-                log.warning("Classifier API error: %d", resp.status_code)
-                return [{"labels": [], "topics": []} for _ in chunks]
+                log.warning("Classifier API error: %d — using pattern fallback", resp.status_code)
+                return [_classify_by_pattern(c) for c in chunks]
 
             text = resp.json()["choices"][0]["message"]["content"].strip()
 
@@ -107,8 +107,41 @@ Output ONLY the JSON array, no other text."""
             return classifications
 
     except json.JSONDecodeError as e:
-        log.warning("Classifier JSON parse error: %s", e)
-        return [{"labels": [], "topics": []} for _ in chunks]
+        log.warning("Classifier JSON parse error: %s — falling back to pattern detection", e)
+        return [_classify_by_pattern(c) for c in chunks]
     except Exception as e:
-        log.error("Classifier failed: %s", e)
-        return [{"labels": [], "topics": []} for _ in chunks]
+        log.error("Classifier failed: %s — falling back to pattern detection", e)
+        return [_classify_by_pattern(c) for c in chunks]
+
+
+def _classify_by_pattern(chunk: dict) -> dict:
+    """Fallback classifier using content patterns when LLM is unavailable."""
+    import re
+    content = chunk.get("content", "").lower()
+    labels = []
+    topics = []
+
+    # Detect content type labels from patterns
+    if re.search(r"(^|\n)\s*(q\.\s*\d|question\s*\d|(\d+)\.\s*(find|solve|prove|show|evaluate|calculate|determine|derive|state))", content):
+        labels.append("question")
+    if re.search(r"(^|\n)\s*(a\.\s|answer|solution)", content):
+        labels.append("solution")
+    if re.search(r"(definition|is defined as|we define)", content):
+        labels.append("definition")
+    if re.search(r"(theorem|lemma|corollary|proposition)\s", content):
+        labels.append("theorem")
+    if re.search(r"(proof|prove that|q\.e\.d)", content):
+        labels.append("proof")
+    if re.search(r"(example\s*\d|for example|e\.g\.|consider the)", content):
+        labels.append("example")
+    if re.search(r"(```|def |class |function |import |#include)", content):
+        labels.append("code")
+    if re.search(r"(\$.*\$|\\frac|\\int|\\sum|\\partial|\\nabla|d[xy]/d[xy])", content):
+        labels.append("formula")
+    if re.search(r"(model question|exam|marks?\)|\d+\s*marks)", content):
+        labels.append("exam_paper")
+
+    if not labels:
+        labels.append("explanation")
+
+    return {"labels": labels, "topics": topics}

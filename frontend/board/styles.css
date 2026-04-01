@@ -4,6 +4,14 @@
    ═══════════════════════════════════════════════════════════ */
 
 @font-face {
+  font-family: 'ChalkBoard';
+  src: url('/fonts/ChalkBoard.ttf') format('truetype');
+  font-weight: normal;
+  font-style: normal;
+  font-display: swap;
+}
+
+@font-face {
   font-family: 'CoalhandLuke';
   src: url('/fonts/CoalhandLuke.ttf') format('truetype');
   font-weight: normal;
@@ -18,7 +26,7 @@
   --bd-bg-dark: rgba(0, 0, 0, 0.25);
   --bd-grid-line: rgba(255, 255, 255, 0.025);
   --bd-grid-spacing: 40px;
-  --bd-font: 'CoalhandLuke', 'Caveat', cursive;
+  --bd-font: 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
   /* Chalk colors */
   --bd-white: #e8e8e0;
@@ -28,18 +36,18 @@
   --bd-green-alt: #34d399;
   --bd-cyan: #53d8fb;
   --bd-red: #ff6b6b;
-  --bd-dim: #94a3b8;
+  --bd-dim: #b0bec5;
 
   /* Chalk glow — applied via text-shadow */
   --bd-glow: 0 0 3px currentColor;
 
   /* Sizing scale — larger for board readability */
-  --bd-h1: 42px;
-  --bd-h2: 34px;
-  --bd-h3: 28px;
-  --bd-text: 24px;
-  --bd-small: 20px;
-  --bd-label: 16px;
+  --bd-h1: 44px;
+  --bd-h2: 36px;
+  --bd-h3: 30px;
+  --bd-text: 26px;
+  --bd-small: 22px;
+  --bd-label: 18px;
 
   /* Spacing */
   --bd-margin: 40px;
@@ -376,11 +384,11 @@
 .bd-equation .bd-eq-note {
   color: var(--bd-dim);
   font-style: italic;
-  font-size: 0.7em;
+  font-size: 0.8em;
   text-shadow: none;
-  opacity: 0.7;
+  opacity: 0.85;
   white-space: nowrap;
-  border-left: 1.5px solid rgba(148, 163, 184, 0.3);
+  border-left: 1.5px solid rgba(176, 190, 197, 0.4);
   padding-left: 8px;
 }
 

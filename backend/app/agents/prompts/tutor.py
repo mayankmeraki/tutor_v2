@@ -27,27 +27,39 @@ from .sections import (
 )
 
 
-def build_tutor_system_prompt(voice_mode: bool = False) -> str:
+def build_tutor_system_prompt(voice_mode: bool = False, subject_id: str | None = None) -> str:
     """Assemble the full tutor system prompt from sections.
 
     All sections here are STATIC (same for every student, every turn).
     Per-student teaching overrides are injected into the DYNAMIC context
     block by build_tutor_prompt() to maximize prompt caching.
 
-    In voice mode, SECTION_SPOTLIGHT_AND_MEDIA is excluded because it
-    contains coordinate-based layout examples that conflict with the
-    placement engine. Voice mode board rules are in the voice prompt.
+    Args:
+        voice_mode: If True, excludes coordinate-based layout examples.
+        subject_id: Optional subject profile ID (e.g. "physics", "mathematics").
+            If provided, subject-specific teaching instructions are injected
+            after identity. If None, tutor operates in general mode.
 
     Returns:
         Complete tutor system prompt string.
     """
     parts = [
         SECTION_IDENTITY,
+    ]
+
+    # Inject subject-specific teaching profile if available
+    if subject_id:
+        from app.agents.prompts.subjects import get_subject_prompt_section
+        subject_section = get_subject_prompt_section(subject_id)
+        if subject_section:
+            parts.append(subject_section)
+
+    parts.extend([
         SECTION_STUDENT_CALIBRATION,
         SECTION_PEDAGOGY,
         SECTION_LEARNING_MODEL,
         SECTION_STUDENT_ADAPTATION,
-    ]
+    ])
 
     if not voice_mode:
         parts.append(SECTION_SPOTLIGHT_AND_MEDIA)

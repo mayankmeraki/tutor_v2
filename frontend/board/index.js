@@ -74,6 +74,21 @@ async function processQueue() {
   if (board.isProcessing) return;
   board.isProcessing = true;
 
+  // Wait for board to be initialized if commands arrived before init()
+  if (!board.liveScene) {
+    let waited = 0;
+    while (!board.liveScene && waited < 2000) {
+      await new Promise(r => setTimeout(r, 16)); // wait one frame
+      waited += 16;
+    }
+    if (!board.liveScene) {
+      console.warn('[Board] liveScene not available after 2s — dropping', board.commandQueue.length, 'commands');
+      board.commandQueue = [];
+      board.isProcessing = false;
+      return;
+    }
+  }
+
   while (board.commandQueue.length > 0) {
     if (board.cancelFlag) {
       board.commandQueue = [];

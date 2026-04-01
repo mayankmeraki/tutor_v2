@@ -1,13 +1,18 @@
-"""Video processor — YouTube captions + Whisper fallback.
+"""Video processor — YouTube captions + ElevenLabs STT fallback.
 
-For YouTube URLs: uses youtube-transcript-api (free, fast, no download).
-For uploaded videos: uses Whisper API for transcription.
+Chain of transcription attempts:
+1. YouTube captions API (free, fast, no download needed)
+2. ElevenLabs Speech-to-Text (high quality, handles audio files)
+3. Return error with clear message if all fail
+
+For uploaded videos: uses ElevenLabs STT directly.
 """
 
 from __future__ import annotations
 
 import logging
 import re
+import tempfile
 from typing import Any
 
 from byo.models import ProcessResult
@@ -31,32 +36,50 @@ class VideoProcessor(BaseProcessor):
         if source_url and ("youtube.com" in source_url or "youtu.be" in source_url):
             return await self._extract_youtube(source_url, resource_id)
 
-        # Uploaded video file
+        # Uploaded video file — transcribe with ElevenLabs
         if storage_path:
-            return await self._extract_whisper(storage_path, resource_id)
+            return await self._extract_elevenlabs(storage_path, resource_id)
 
         return ProcessResult(markdown="", meta={"error": "No video source"})
 
     async def _extract_youtube(self, url: str, resource_id: str) -> ProcessResult:
-        """Extract transcript from YouTube using captions API."""
+        """Extract transcript from YouTube — try captions API first, then ElevenLabs."""
         video_id = self._parse_youtube_id(url)
         if not video_id:
             return ProcessResult(markdown="", meta={"error": f"Could not parse YouTube ID from {url}"})
 
+        # Attempt 1: YouTube captions API (free, fast)
+        result = await self._try_youtube_captions(video_id, resource_id)
+        if result:
+            return result
+
+        # Attempt 2: Download audio + ElevenLabs STT
+        log.info("YouTube captions unavailable for %s — trying ElevenLabs STT", resource_id[:8])
+        result = await self._try_youtube_elevenlabs(url, video_id, resource_id)
+        if result:
+            return result
+
+        return ProcessResult(markdown="", meta={
+            "error": "Could not get transcript — YouTube captions unavailable and audio transcription failed.",
+            "video_id": video_id,
+            "source_url": url,
+        })
+
+    async def _try_youtube_captions(self, video_id: str, resource_id: str) -> ProcessResult | None:
+        """Try YouTube captions API (updated API for v1.x)."""
         try:
             from youtube_transcript_api import YouTubeTranscriptApi
             import asyncio
 
+            ytt_api = YouTubeTranscriptApi()
             loop = asyncio.get_event_loop()
-            transcript_list = await loop.run_in_executor(
-                None, YouTubeTranscriptApi.get_transcript, video_id
-            )
+            transcript = await loop.run_in_executor(None, ytt_api.fetch, video_id)
 
-            # Build timestamped markdown
+            # Build timestamped markdown from transcript snippets
             segments = []
-            for entry in transcript_list:
-                start = entry["start"]
-                text = entry["text"].strip()
+            for snippet in transcript:
+                start = snippet.start
+                text = snippet.text.strip()
                 if text:
                     minutes = int(start // 60)
                     seconds = int(start % 60)
@@ -66,86 +89,192 @@ class VideoProcessor(BaseProcessor):
                         "time_str": f"{minutes}:{seconds:02d}",
                     })
 
-            # Build markdown with timestamp markers
-            markdown_parts = []
-            for seg in segments:
-                markdown_parts.append(f"[{seg['time_str']}] {seg['text']}")
+            if not segments:
+                return None
 
-            markdown = "\n".join(markdown_parts)
+            markdown = "\n".join(f"[{s['time_str']}] {s['text']}" for s in segments)
             duration = segments[-1]["timestamp"] + 10 if segments else 0
 
-            doc_meta = {
+            log.info("YouTube captions extracted: %s — %d segments, %.0f min",
+                    resource_id[:8], len(segments), duration / 60)
+
+            return ProcessResult(markdown=markdown, meta={
                 "duration": duration,
                 "has_transcript": True,
                 "language": "en",
                 "video_id": video_id,
-                "source_url": url,
                 "segment_count": len(segments),
-                "segments": segments,  # keep raw segments for chunking
-            }
-
-            log.info("YouTube extracted: %s — %d segments, %.0f min",
-                    resource_id[:8], len(segments), duration / 60)
-
-            return ProcessResult(markdown=markdown, meta=doc_meta)
+                "source": "youtube_captions",
+            })
 
         except ImportError:
-            log.error("youtube-transcript-api not installed")
-            return ProcessResult(markdown="", meta={"error": "youtube-transcript-api not installed"})
+            log.warning("youtube-transcript-api not installed")
+            return None
         except Exception as e:
-            log.error("YouTube extraction failed for %s: %s", resource_id[:8], e)
-            return ProcessResult(markdown="", meta={"error": str(e)})
+            log.warning("YouTube captions failed for %s: %s", resource_id[:8], e)
+            return None
 
-    async def _extract_whisper(self, file_path: str, resource_id: str) -> ProcessResult:
-        """Transcribe uploaded video using Whisper API."""
+    async def _try_youtube_elevenlabs(self, url: str, video_id: str, resource_id: str) -> ProcessResult | None:
+        """Download YouTube audio and transcribe with ElevenLabs STT."""
+        import asyncio
+
+        # Download audio with yt-dlp
+        audio_path = await self._download_youtube_audio(url, video_id)
+        if not audio_path:
+            return None
+
         try:
-            import httpx
+            result = await self._extract_elevenlabs(audio_path, resource_id, video_id=video_id, source_url=url)
+            return result if result.markdown else None
+        finally:
+            # Clean up temp audio file
+            import os
+            if audio_path and os.path.exists(audio_path):
+                os.remove(audio_path)
 
-            # Use OpenAI Whisper API via OpenRouter
+    async def _download_youtube_audio(self, url: str, video_id: str) -> str | None:
+        """Download audio from YouTube using yt-dlp."""
+        import asyncio
+        import os
+
+        try:
+            import yt_dlp
+        except ImportError:
+            log.warning("yt-dlp not installed — cannot download YouTube audio")
+            return None
+
+        tmp_dir = tempfile.mkdtemp()
+        output_path = os.path.join(tmp_dir, f"{video_id}.mp3")
+
+        opts = {
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(tmp_dir, f"{video_id}.%(ext)s"),
+            "postprocessors": [{
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "128",
+            }],
+            "quiet": True,
+            "no_warnings": True,
+        }
+
+        try:
+            loop = asyncio.get_event_loop()
+            def _download():
+                with yt_dlp.YoutubeDL(opts) as ydl:
+                    ydl.download([url])
+
+            await loop.run_in_executor(None, _download)
+
+            if os.path.exists(output_path):
+                log.info("YouTube audio downloaded: %s (%.1f MB)", video_id, os.path.getsize(output_path) / 1e6)
+                return output_path
+
+            # yt-dlp might use different extension
+            for f in os.listdir(tmp_dir):
+                if f.startswith(video_id):
+                    return os.path.join(tmp_dir, f)
+
+            return None
+        except Exception as e:
+            log.warning("YouTube audio download failed: %s", e)
+            return None
+
+    async def _extract_elevenlabs(
+        self,
+        file_path: str,
+        resource_id: str,
+        video_id: str | None = None,
+        source_url: str | None = None,
+    ) -> ProcessResult:
+        """Transcribe audio/video file using ElevenLabs Speech-to-Text."""
+        try:
+            from elevenlabs import ElevenLabs
             from app.core.config import settings
-            api_key = settings.OPENROUTER_API_KEY or settings.ANTHROPIC_API_KEY
+            import asyncio
 
+            api_key = settings.ELEVENLABS_API_KEY
             if not api_key:
-                return ProcessResult(markdown="", meta={"error": "No API key for Whisper"})
+                log.warning("No ElevenLabs API key — cannot transcribe")
+                return ProcessResult(markdown="", meta={"error": "No ElevenLabs API key for transcription"})
 
-            async with httpx.AsyncClient(timeout=120.0) as client:
+            client = ElevenLabs(api_key=api_key)
+
+            loop = asyncio.get_event_loop()
+            def _transcribe():
                 with open(file_path, "rb") as f:
-                    resp = await client.post(
-                        "https://api.openai.com/v1/audio/transcriptions",
-                        headers={"Authorization": f"Bearer {api_key}"},
-                        files={"file": (file_path, f, "audio/mp4")},
-                        data={"model": "whisper-1", "response_format": "verbose_json"},
+                    return client.speech_to_text.convert(
+                        model_id="scribe_v1",
+                        file=f,
+                        timestamps_granularity="word",
+                        language_code="en",
                     )
 
-                if resp.status_code != 200:
-                    return ProcessResult(markdown="", meta={"error": f"Whisper API {resp.status_code}"})
+            result = await loop.run_in_executor(None, _transcribe)
 
-                data = resp.json()
-                segments = data.get("segments", [])
+            # Build timestamped markdown from result
+            text = result.text if hasattr(result, "text") else ""
+            words = result.words if hasattr(result, "words") else []
 
-                markdown_parts = []
-                for seg in segments:
-                    start = seg.get("start", 0)
-                    text = seg.get("text", "").strip()
+            if not text:
+                return ProcessResult(markdown="", meta={"error": "ElevenLabs returned empty transcript"})
+
+            # Group words into ~30-second segments for timestamped output
+            segments = []
+            current_segment = {"text": [], "start": 0}
+            segment_duration = 30  # seconds per segment
+
+            for word in words:
+                word_start = word.start if hasattr(word, "start") else 0
+                word_text = word.text if hasattr(word, "text") else str(word)
+
+                if not current_segment["text"]:
+                    current_segment["start"] = word_start
+
+                current_segment["text"].append(word_text)
+
+                # Start new segment every ~30 seconds
+                if word_start - current_segment["start"] >= segment_duration:
+                    start = current_segment["start"]
                     minutes = int(start // 60)
                     seconds = int(start % 60)
-                    markdown_parts.append(f"[{minutes}:{seconds:02d}] {text}")
+                    segments.append(f"[{minutes}:{seconds:02d}] {' '.join(current_segment['text'])}")
+                    current_segment = {"text": [], "start": word_start}
 
-                markdown = "\n".join(markdown_parts)
+            # Flush remaining
+            if current_segment["text"]:
+                start = current_segment["start"]
+                minutes = int(start // 60)
+                seconds = int(start % 60)
+                segments.append(f"[{minutes}:{seconds:02d}] {' '.join(current_segment['text'])}")
 
-                doc_meta = {
-                    "duration": data.get("duration", 0),
-                    "has_transcript": True,
-                    "language": data.get("language", "en"),
-                    "segment_count": len(segments),
-                }
+            markdown = "\n".join(segments) if segments else text
 
-                log.info("Whisper extracted: %s — %d segments", resource_id[:8], len(segments))
-                return ProcessResult(markdown=markdown, meta=doc_meta)
+            duration = words[-1].end if words and hasattr(words[-1], "end") else 0
 
+            log.info("ElevenLabs STT complete: %s — %d segments, %.0f min",
+                    resource_id[:8], len(segments), duration / 60)
+
+            meta = {
+                "duration": duration,
+                "has_transcript": True,
+                "language": result.language_code if hasattr(result, "language_code") else "en",
+                "segment_count": len(segments),
+                "source": "elevenlabs_stt",
+            }
+            if video_id:
+                meta["video_id"] = video_id
+            if source_url:
+                meta["source_url"] = source_url
+
+            return ProcessResult(markdown=markdown, meta=meta)
+
+        except ImportError:
+            log.error("elevenlabs SDK not installed")
+            return ProcessResult(markdown="", meta={"error": "elevenlabs SDK not installed"})
         except Exception as e:
-            log.error("Whisper extraction failed for %s: %s", resource_id[:8], e)
-            return ProcessResult(markdown="", meta={"error": str(e)})
+            log.error("ElevenLabs STT failed for %s: %s", resource_id[:8], e)
+            return ProcessResult(markdown="", meta={"error": f"ElevenLabs transcription failed: {e}"})
 
     @staticmethod
     def _parse_youtube_id(url: str) -> str | None:

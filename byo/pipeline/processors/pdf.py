@@ -92,20 +92,32 @@ class PDFProcessor(BaseProcessor):
                 return ProcessResult(markdown="", meta={"error": str(e2)})
 
     def _extract_pymupdf(self, file_path: str, resource_id: str) -> ProcessResult:
-        """Fallback PDF extraction using PyMuPDF."""
+        """Fallback PDF extraction using PyMuPDF.
+
+        Two strategies:
+        1. Text extraction (fast) — works for digital PDFs
+        2. Page-as-image rendering — for pages with little/no text (scanned docs, diagrams)
+           These get described by the vision LLM in the pipeline's image description step.
+        """
         import fitz  # PyMuPDF
 
         doc = fitz.open(file_path)
         pages = []
         images = []
+        low_text_pages = []  # pages with < 50 chars of text (likely scanned/image-heavy)
 
         for page_num in range(len(doc)):
             page = doc[page_num]
             text = page.get_text("text")
+
             if text.strip():
                 pages.append(f"<!-- page {page_num + 1} -->\n{text}")
 
-            # Extract images
+            # Track pages with very little text — need vision fallback
+            if len(text.strip()) < 50:
+                low_text_pages.append(page_num)
+
+            # Extract embedded images
             for img_index, img in enumerate(page.get_images(full=True)):
                 try:
                     xref = img[0]
@@ -121,16 +133,41 @@ class PDFProcessor(BaseProcessor):
                 except Exception:
                     pass
 
+        # For pages with little/no text, render the page as an image for vision LLM
+        # This handles scanned PDFs, handwritten notes, diagram-heavy pages
+        if low_text_pages:
+            log.info("PDF has %d low-text pages — rendering as images for vision", len(low_text_pages))
+            for page_num in low_text_pages[:20]:  # cap at 20 pages to avoid cost explosion
+                try:
+                    page = doc[page_num]
+                    # Render at 150 DPI — good enough for vision, not too large
+                    pix = page.get_pixmap(dpi=150)
+                    img_data = pix.tobytes("png")
+                    images.append({
+                        "path": f"page{page_num + 1}_render.png",
+                        "data": img_data,
+                        "description": "",
+                        "anchor": {"page": page_num + 1},
+                        "_is_page_render": True,
+                    })
+                    # Ensure a page marker exists for this page
+                    marker = f"<!-- page {page_num + 1} -->"
+                    if marker not in "\n".join(pages):
+                        pages.append(f"{marker}\n[Page {page_num + 1}: image/scanned content]")
+                except Exception as e:
+                    log.warning("Failed to render page %d as image: %s", page_num + 1, e)
+
         doc.close()
 
         markdown = "\n\n".join(pages)
         doc_meta = {
-            "pages": len(pages),
+            "pages": len(doc) if hasattr(doc, '__len__') else len(pages),
             "has_images": len(images) > 0,
+            "low_text_pages": len(low_text_pages),
             "extractor": "pymupdf",
         }
 
-        log.info("PDF extracted (PyMuPDF): %s — %d pages, %d images",
-                resource_id[:8], len(pages), len(images))
+        log.info("PDF extracted (PyMuPDF): %s — %d pages, %d images, %d low-text pages",
+                resource_id[:8], len(pages), len(images), len(low_text_pages))
 
         return ProcessResult(markdown=markdown, meta=doc_meta, images=images)
