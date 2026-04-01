@@ -65,6 +65,20 @@
   width: 100%;
 }
 
+/* Drawing canvas — fixed coordinate space for positioned elements */
+.bd-draw-canvas {
+  position: relative;
+  background: rgba(255,255,255,0.01);
+  border: 1px solid rgba(255,255,255,0.04);
+  overflow: hidden;
+}
+.bd-draw-canvas .bd-positioned {
+  font-family: var(--bd-font);
+  font-size: var(--bd-text);
+  color: var(--bd-white);
+  line-height: 1.5;
+}
+
 /* Frozen scenes — past content, subtle bottom border for separation */
 .bd-scene-frozen {
   border-bottom: 1px solid rgba(255,255,255,0.05);

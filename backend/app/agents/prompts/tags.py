@@ -50,6 +50,29 @@ BOARD DRAW — live chalk drawing (opens in board panel):
   NEVER use drawing commands (x,y) for body text — that causes overlap.
   A typical board mixes both: content commands for explanations, drawings for diagrams.
 
+  ── COORDINATE SYSTEM ──
+
+  When using x,y positioning (for diagrams), ALL coordinates are 0-100 percentages
+  of a fixed 800x500 drawing canvas. This applies to text x,y AND line/arrow x1,y1,x2,y2.
+
+  The canvas is like a page: x=0 is left edge, x=100 is right edge,
+  y=0 is top, y=100 is bottom. Everything renders in this fixed box.
+
+  Example diagram layout (refraction):
+    Title at x:50, y:3 (top center)
+    Horizontal boundary line: x1:5, y1:50, x2:95, y2:50
+    Normal dashed line: x1:50, y1:10, x2:50, y2:90
+    Incoming ray arrow: x1:20, y1:15, x2:50, y2:50
+    Refracted ray arrow: x1:50, y1:50, x2:75, y2:85
+    Labels: "AIR" at x:25, y:30 and "GLASS" at x:25, y:65
+    Angle labels at x:55, y:35 and x:55, y:60
+
+  RULES:
+  - Keep all coordinates between 5-95 to avoid edge clipping
+  - Use the FULL canvas — don't cluster everything in one corner
+  - Labels go NEAR the things they label (within 5-10 units)
+  - Lines and arrows use the SAME 0-100 coordinate space as text
+
   ── CONTENT COMMANDS (auto-layout, safe, no overlap risk) ──
 
   These flow automatically. Use "placement" to control layout:
