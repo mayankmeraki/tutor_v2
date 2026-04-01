@@ -718,15 +718,28 @@ def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
         if session.delegation_result and session.delegation_result.get("summary"):
             triage_summary = f"\n\n[TRIAGE SUMMARY]\n{session.delegation_result['summary']}"
 
+        has_course = bool(spawn_context.get("courseMap"))
+        if has_course:
+            plan_instructions = (
+                f"The student wants to study: {intent}\n"
+                "Create a teaching plan based on the course content and student knowledge state.\n"
+                "Use get_section_content to inspect relevant sections (max 2 calls), then output JSONL."
+                f"{triage_info}{content_brief_str}{triage_summary}"
+            )
+        else:
+            plan_instructions = (
+                f"The student wants to study: {intent}\n"
+                "There is NO structured course for this topic. Create a teaching plan from your own knowledge.\n"
+                "DO NOT call get_section_content — there are no sections to fetch.\n"
+                "Instead, output a logical topic structure directly as JSONL based on what a good curriculum would look like.\n"
+                "Keep it focused: 3-5 topics max for a single session."
+                f"{triage_info}{triage_summary}"
+            )
+
         runtime.spawn(
             agent_type="planning",
             description=f"Plan session: {intent[:60]}",
-            instructions=(
-                f"The student wants to study: {intent}\n"
-                "Create a teaching plan based on the course content and student knowledge state.\n"
-                "Use get_section_content to inspect relevant sections, then output JSONL."
-                f"{triage_info}{content_brief_str}{triage_summary}"
-            ),
+            instructions=plan_instructions,
             context=spawn_context,
         )
         # Flag so the tutor doesn't spawn a duplicate planner

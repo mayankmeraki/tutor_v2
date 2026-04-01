@@ -335,21 +335,33 @@ class AgentRuntime:
         planning_prompt = build_planning_prompt(context)
         planning_tools = _get_planning_tools()
 
-        wrapped_instructions = (
-            f"<task>\n{task.instructions}\n</task>\n\n"
-            "Step 1: Call get_section_content for relevant sections (max 2 calls).\n"
-            "Step 2: Output the complete JSONL plan.\n"
-            "Do NOT output narrative text — only tool calls, then JSONL."
-        )
+        # Check if there's a course to ground from — skip tools if not
+        has_course = "courseMap" in context and context.get("courseMap")
+        skip_tools = "DO NOT call get_section_content" in task.instructions
+
+        if skip_tools or not has_course:
+            wrapped_instructions = (
+                f"<task>\n{task.instructions}\n</task>\n\n"
+                "Output the complete JSONL plan directly from your knowledge.\n"
+                "Do NOT call any tools. Just output JSONL."
+            )
+        else:
+            wrapped_instructions = (
+                f"<task>\n{task.instructions}\n</task>\n\n"
+                "Step 1: Call get_section_content for relevant sections (max 2 calls).\n"
+                "Step 2: Output the complete JSONL plan.\n"
+                "Do NOT output narrative text — only tool calls, then JSONL."
+            )
+
         messages: list[dict] = [{"role": "user", "content": wrapped_instructions}]
 
-        # ── Round 1: Tool gathering (single round) ──────────────────────
+        # ── Round 1: Tool gathering (single round) — skip if no course ──
         request_params: dict[str, Any] = {
             "model": settings.planning_model,
             "max_tokens": 4096,
             "system": planning_prompt,
             "messages": messages,
-            "tools": planning_tools,
+            "tools": planning_tools if (has_course and not skip_tools) else [],
             "metadata": self._meta("planning", task.agent_id),
         }
 

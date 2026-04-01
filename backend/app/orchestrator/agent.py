@@ -568,6 +568,8 @@ question text, topic names, course IDs — so the orchestrator can use your find
         {"role": "user", "content": "Begin your task."},
     ]
     tools_spec = [{"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["parameters"]}} for t in SUB_AGENT_TOOLS]
+    # Add web search so sub-agents can research topics
+    tools_spec.append({"type": "openrouter:web_search", "parameters": {"max_results": 3, "search_context_size": "low"}})
 
     final_text = ""
 
@@ -1491,6 +1493,15 @@ async def orchestrate(
         messages.append({"role": "user", "content": user_input})
 
     tools_spec = [{"type": "function", "function": {"name": t["name"], "description": t["description"], "parameters": t["input_schema"]}} for t in ORCHESTRATOR_TOOLS]
+
+    # Add OpenRouter web search server tool — model decides when to search
+    tools_spec.append({
+        "type": "openrouter:web_search",
+        "parameters": {
+            "max_results": 5,
+            "search_context_size": "medium",
+        },
+    })
 
     turns = 0
     while turns < MAX_TURNS:
