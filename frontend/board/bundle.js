@@ -224,13 +224,14 @@ function placeElement(element, placement, cmd) {
       scene.appendChild(canvas);
     }
 
-    var px = Math.max(1, Math.min(96, cmd.x));
-    var py = Math.max(1, Math.min(96, cmd.y));
+    var px = Math.max(0, Math.min(98, cmd.x));
+    var py = Math.max(0, Math.min(98, cmd.y));
 
     element.style.position = 'absolute';
     element.style.left = px + '%';
     element.style.top = py + '%';
-    element.style.maxWidth = Math.min(48, 98 - px) + '%';
+    // Allow wider elements — cap at remaining space or 70%, whichever is smaller
+    element.style.maxWidth = Math.min(70, 99 - px) + '%';
     element.style.zIndex = '2';
     element.classList.add('bd-positioned');
 
@@ -1353,6 +1354,32 @@ function resolveColor(c) {
   return map[c] || c || '#e8e8e0';
 }
 
+// ── Helpers for canvas-based SVG drawing ──
+function _ensureDrawCanvas(scene) {
+  var canvas = scene.querySelector('.bd-draw-canvas');
+  if (!canvas) {
+    canvas = document.createElement('div');
+    canvas.className = 'bd-draw-canvas';
+    canvas.style.cssText = 'position:relative;width:100%;max-width:800px;margin:8px auto;' +
+      'aspect-ratio:8/5;min-height:400px;border-radius:8px;';
+    scene.appendChild(canvas);
+  }
+  return canvas;
+}
+
+function _ensureSvgOverlay(canvas) {
+  var svgOverlay = canvas.querySelector('.bd-svg-overlay');
+  if (!svgOverlay) {
+    svgOverlay = document.createElementNS(svgNS(), 'svg');
+    svgOverlay.classList.add('bd-svg-overlay');
+    svgOverlay.setAttribute('viewBox', '0 0 100 100');
+    svgOverlay.setAttribute('preserveAspectRatio', 'none');
+    svgOverlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
+    canvas.appendChild(svgOverlay);
+  }
+  return svgOverlay;
+}
+
 function renderSvgLine(cmd) {
   // If x,y coordinates present, render inside the drawing canvas using percentages
   if (typeof cmd.x1 === 'number' && typeof cmd.x2 === 'number') {
@@ -1383,32 +1410,16 @@ function renderSvgLine(cmd) {
 function _renderCanvasLine(cmd) {
   var scene = board.liveScene;
   if (!scene) return null;
-  var canvas = scene.querySelector('.bd-draw-canvas');
-  if (!canvas) {
-    canvas = document.createElement('div');
-    canvas.className = 'bd-draw-canvas';
-    canvas.style.cssText = 'position:relative;width:100%;max-width:800px;margin:8px auto;' +
-      'aspect-ratio:8/5;min-height:400px;border-radius:8px;';
-    scene.appendChild(canvas);
-  }
-  // Create an SVG overlay that fills the entire canvas
-  var svgOverlay = canvas.querySelector('.bd-svg-overlay');
-  if (!svgOverlay) {
-    svgOverlay = document.createElementNS(svgNS(), 'svg');
-    svgOverlay.classList.add('bd-svg-overlay');
-    svgOverlay.setAttribute('viewBox', '0 0 100 100');
-    svgOverlay.setAttribute('preserveAspectRatio', 'none');
-    svgOverlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
-    canvas.appendChild(svgOverlay);
-  }
+  var canvas = _ensureDrawCanvas(scene);
+  var svgOverlay = _ensureSvgOverlay(canvas);
   // Draw line using 0-100 percentage coordinates
   var x1 = cmd.x1 || 0, y1 = cmd.y1 || 0, x2 = cmd.x2 || 100, y2 = cmd.y2 || 0;
   var line = document.createElementNS(svgNS(), 'line');
   line.setAttribute('x1', x1); line.setAttribute('y1', y1);
   line.setAttribute('x2', x2); line.setAttribute('y2', y2);
   line.setAttribute('stroke', resolveColor(cmd.color));
-  line.setAttribute('stroke-width', (cmd.w || 2) * 0.3); // Scale stroke for viewBox
-  if (cmd.cmd === 'dashed') line.setAttribute('stroke-dasharray', '2 1');
+  line.setAttribute('stroke-width', cmd.w || 2);
+  if (cmd.cmd === 'dashed') line.setAttribute('stroke-dasharray', '4 3');
   line.setAttribute('stroke-linecap', 'round');
   line.setAttribute('vector-effect', 'non-scaling-stroke');
   svgOverlay.appendChild(line);
@@ -1420,23 +1431,8 @@ function renderSvgArrow(cmd) {
   if (typeof cmd.x1 === 'number' && typeof cmd.x2 === 'number') {
     var scene = board.liveScene;
     if (scene) {
-      var canvas = scene.querySelector('.bd-draw-canvas');
-      if (!canvas) {
-        canvas = document.createElement('div');
-        canvas.className = 'bd-draw-canvas';
-        canvas.style.cssText = 'position:relative;width:100%;max-width:800px;margin:8px auto;' +
-          'aspect-ratio:8/5;min-height:400px;border-radius:8px;';
-        scene.appendChild(canvas);
-      }
-      var svgOverlay = canvas.querySelector('.bd-svg-overlay');
-      if (!svgOverlay) {
-        svgOverlay = document.createElementNS(svgNS(), 'svg');
-        svgOverlay.classList.add('bd-svg-overlay');
-        svgOverlay.setAttribute('viewBox', '0 0 100 100');
-        svgOverlay.setAttribute('preserveAspectRatio', 'none');
-        svgOverlay.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;pointer-events:none;z-index:1;';
-        canvas.appendChild(svgOverlay);
-      }
+      var canvas = _ensureDrawCanvas(scene);
+      var svgOverlay = _ensureSvgOverlay(canvas);
       var x1 = cmd.x1 || 0, y1 = cmd.y1 || 0, x2 = cmd.x2 || 100, y2 = cmd.y2 || 0;
       var color = resolveColor(cmd.color);
       var markerId = 'arr-' + (cmd.id || Math.random().toString(36).slice(2));
@@ -1459,7 +1455,7 @@ function renderSvgArrow(cmd) {
       line.setAttribute('x1', x1); line.setAttribute('y1', y1);
       line.setAttribute('x2', x2); line.setAttribute('y2', y2);
       line.setAttribute('stroke', color);
-      line.setAttribute('stroke-width', (cmd.w || 2) * 0.3);
+      line.setAttribute('stroke-width', cmd.w || 2);
       line.setAttribute('marker-end', 'url(#' + markerId + ')');
       line.setAttribute('vector-effect', 'non-scaling-stroke');
       svgOverlay.appendChild(line);
@@ -1501,9 +1497,31 @@ function renderSvgArrow(cmd) {
 }
 
 function renderSvgRect(cmd) {
-  var rw = cmd.w || 100, rh = cmd.h || 60;
   var color = resolveColor(cmd.color);
 
+  // If x,y coordinates present, render inside the draw canvas SVG overlay
+  if (typeof cmd.x === 'number' && typeof cmd.y === 'number') {
+    var scene = board.liveScene;
+    if (scene) {
+      var canvas = scene.querySelector('.bd-draw-canvas') || _ensureDrawCanvas(scene);
+      var svgOverlay = _ensureSvgOverlay(canvas);
+      var rw = cmd.w || 15, rh = cmd.h || 10; // percentages in viewBox coords
+      var rect = document.createElementNS(svgNS(), 'rect');
+      rect.setAttribute('x', cmd.x); rect.setAttribute('y', cmd.y);
+      rect.setAttribute('width', rw); rect.setAttribute('height', rh);
+      rect.setAttribute('stroke', color);
+      rect.setAttribute('stroke-width', cmd.lw || 1.5);
+      rect.setAttribute('fill', cmd.cmd === 'fillrect' ? color : 'none');
+      rect.setAttribute('rx', 1);
+      rect.setAttribute('vector-effect', 'non-scaling-stroke');
+      if (cmd.cmd === 'fillrect') rect.setAttribute('fill-opacity', '0.15');
+      svgOverlay.appendChild(rect);
+      return;
+    }
+  }
+
+  // Flow-based placement fallback
+  var rw = cmd.w || 100, rh = cmd.h || 60;
   var svg = document.createElementNS(svgNS(), 'svg');
   svg.setAttribute('viewBox', '0 0 ' + (rw + 4) + ' ' + (rh + 4));
   svg.setAttribute('width', Math.min(rw + 4, 500));
@@ -1526,8 +1544,29 @@ function renderSvgRect(cmd) {
 }
 
 function renderSvgCircle(cmd) {
-  var r = cmd.r || 30;
   var color = resolveColor(cmd.color);
+
+  // If x,y coordinates present, render inside the draw canvas SVG overlay
+  if (typeof cmd.x === 'number' && typeof cmd.y === 'number') {
+    var scene = board.liveScene;
+    if (scene) {
+      var canvas = scene.querySelector('.bd-draw-canvas') || _ensureDrawCanvas(scene);
+      var svgOverlay = _ensureSvgOverlay(canvas);
+      var r = cmd.r || 5; // percentage in viewBox coords
+      var circle = document.createElementNS(svgNS(), 'circle');
+      circle.setAttribute('cx', cmd.x); circle.setAttribute('cy', cmd.y);
+      circle.setAttribute('r', r);
+      circle.setAttribute('stroke', color);
+      circle.setAttribute('stroke-width', cmd.lw || 1.5);
+      circle.setAttribute('fill', 'none');
+      circle.setAttribute('vector-effect', 'non-scaling-stroke');
+      svgOverlay.appendChild(circle);
+      return;
+    }
+  }
+
+  // Flow-based placement fallback
+  var r = cmd.r || 30;
   var size = r * 2 + 4;
 
   var svg = document.createElementNS(svgNS(), 'svg');
