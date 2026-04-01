@@ -139,14 +139,30 @@ async function animateText(parentEl, text, options) {
     delay = animCount > 2 ? 15 : animCount > 0 ? 25 : 35;
   }
 
+  // Convert \n to line breaks for multi-line text
+  var hasNewlines = text.indexOf('\n') >= 0;
+  function escapeAndBreak(t) {
+    return t.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/\n/g, '<br>');
+  }
+
   if (instant || delay === 0) {
-    parentEl.textContent = text;
+    if (hasNewlines) {
+      parentEl.innerHTML = escapeAndBreak(text);
+    } else {
+      parentEl.textContent = text;
+    }
     return;
   }
 
   var fragment = document.createDocumentFragment();
   var chars = [];
   for (var ch of text) {
+    if (ch === '\n') {
+      var br = document.createElement('br');
+      br.classList.add('bd-char-visible');
+      fragment.appendChild(br);
+      continue;
+    }
     var span = document.createElement('span');
     span.className = 'bd-char';
     span.textContent = ch;
@@ -164,7 +180,11 @@ async function animateText(parentEl, text, options) {
     await sleep(delay);
   }
 
-  parentEl.textContent = text;
+  if (hasNewlines) {
+    parentEl.innerHTML = escapeAndBreak(text);
+  } else {
+    parentEl.textContent = text;
+  }
 }
 
 // ═══════════════════════════════════════════════════════════════

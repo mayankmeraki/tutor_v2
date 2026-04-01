@@ -193,6 +193,13 @@ async def _try_restore_session(session_id: str) -> Session | None:
             return None
 
         bs = doc["backendState"]
+        # Restore phase
+        phase_str = bs.get("phase", "teaching")
+        try:
+            phase = SessionPhase(phase_str)
+        except (ValueError, KeyError):
+            phase = SessionPhase.TEACHING
+
         session = Session(
             student_model=bs.get("studentModel"),
             student_intent=bs.get("studentIntent"),
@@ -201,6 +208,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
             session_status=bs.get("sessionStatus", "active"),
             completion_reason=bs.get("completionReason"),
             teaching_mode=bs.get("teachingMode", "voice"),
+            phase=phase,
             current_plan=bs.get("currentPlan"),
             current_topics=bs.get("currentTopics", []),
             current_topic_index=bs.get("currentTopicIndex", -1),

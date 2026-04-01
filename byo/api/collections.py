@@ -18,12 +18,15 @@ from __future__ import annotations
 import mimetypes
 import uuid
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import FileResponse
 
 log = logging.getLogger(__name__)
+
+# Collections stuck in "processing" longer than this are marked as errors
+_STALE_PROCESSING_MINUTES = 5
 router = APIRouter(prefix="/api/v1/byo", tags=["byo"])
 
 
@@ -85,13 +88,40 @@ async def create_collection(request: Request, user: dict = Depends(_get_user)):
 
 @router.get("/collections")
 async def list_collections(request: Request, user: dict = Depends(_get_user)):
-    """List user's collections."""
+    """List user's collections. Auto-cleans stuck 'processing' collections."""
     db = _get_db()
+
+    # Auto-cleanup: mark stale "processing" collections as "error"
+    cutoff = datetime.utcnow() - timedelta(minutes=_STALE_PROCESSING_MINUTES)
+    stale = await db.collections.update_many(
+        {
+            "user_id": user["email"],
+            "status": "processing",
+            "updated_at": {"$lt": cutoff},
+        },
+        {"$set": {"status": "error", "updated_at": datetime.utcnow()}},
+    )
+    if stale.modified_count:
+        log.info("Auto-cleaned %d stale processing collections for %s", stale.modified_count, user["email"])
+
     cursor = db.collections.find(
         {"user_id": user["email"]},
         {"_id": 0},
     ).sort("created_at", -1)
-    return [doc async for doc in cursor]
+    collections = [doc async for doc in cursor]
+
+    # Filter out error collections older than 24 hours (auto-remove old failures)
+    day_ago = datetime.utcnow() - timedelta(hours=24)
+    old_errors = [c for c in collections if c.get("status") == "error" and c.get("created_at", datetime.utcnow()) < day_ago]
+    if old_errors:
+        old_ids = [c["collection_id"] for c in old_errors]
+        await db.collections.delete_many({"collection_id": {"$in": old_ids}})
+        await db.byo_resources.delete_many({"collection_id": {"$in": old_ids}})
+        await db.byo_chunks.delete_many({"collection_id": {"$in": old_ids}})
+        log.info("Auto-removed %d old error collections for %s", len(old_ids), user["email"])
+        collections = [c for c in collections if c["collection_id"] not in old_ids]
+
+    return collections
 
 
 @router.get("/collections/{collection_id}")
@@ -378,9 +408,15 @@ async def add_resource(
     await db.byo_resources.insert_one(doc)
 
     # Increment collection resource count immediately (so frontend sees "1 file" right away)
+    update_ops = {"$inc": {"stats.resources": 1}, "$set": {"updated_at": datetime.utcnow()}}
+    # Auto-tag video collections for "My Videos" section
+    if url and ("youtube" in url or "youtu.be" in url):
+        update_ops["$addToSet"] = {"tags": {"$each": ["video", "youtube"]}}
+    elif file and file.content_type and "video" in file.content_type:
+        update_ops["$addToSet"] = {"tags": {"$each": ["video"]}}
     await db.collections.update_one(
         {"collection_id": collection_id},
-        {"$inc": {"stats.resources": 1}, "$set": {"updated_at": datetime.utcnow()}},
+        update_ops,
     )
 
     # Submit processing job (wrapped in try/except — resource already exists)
@@ -452,6 +488,95 @@ async def get_job(job_id: str, request: Request, user: dict = Depends(_get_user)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
     return status
+
+
+# ── Video transcript by timestamp ─────────────────────────────────────
+
+
+@router.get("/resources/{resource_id}/transcript")
+async def get_resource_transcript(
+    resource_id: str,
+    timestamp: float = 0,
+    window: float = 60,
+    request: Request = None,
+    user: dict = Depends(_get_user),
+):
+    """Get transcript around a timestamp for video follow-along.
+
+    Returns chunks with start_time near the requested timestamp.
+    Used by the tutor during BYO video watch-along sessions.
+
+    Args:
+        resource_id: BYO resource ID
+        timestamp: Current video position in seconds
+        window: Seconds of context (default 60s — 30s before, 30s after)
+    """
+    db = _get_db()
+
+    resource = await db.byo_resources.find_one(
+        {"resource_id": resource_id, "user_id": user["email"]},
+        {"_id": 0, "meta": 1, "original_name": 1, "source_url": 1},
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    # Find chunks around the timestamp
+    half = window / 2
+    t_start = max(0, timestamp - half)
+    t_end = timestamp + half
+
+    cursor = db.byo_chunks.find(
+        {
+            "resource_id": resource_id,
+            "$or": [
+                # Chunk overlaps with our window
+                {"anchor.start_time": {"$gte": t_start, "$lte": t_end}},
+                {"anchor.end_time": {"$gte": t_start, "$lte": t_end}},
+                # Chunk spans our entire window
+                {"$and": [
+                    {"anchor.start_time": {"$lte": t_start}},
+                    {"anchor.end_time": {"$gte": t_end}},
+                ]},
+            ],
+        },
+        {"_id": 0, "content": 1, "anchor": 1, "topics": 1, "labels": 1, "index": 1},
+    ).sort("index", 1).limit(10)
+
+    chunks = [doc async for doc in cursor]
+
+    # If no timestamp-based chunks found, try index-based proximity
+    if not chunks:
+        # Estimate chunk index from timestamp (assuming ~30s per chunk)
+        est_index = max(0, int(timestamp / 30))
+        cursor = db.byo_chunks.find(
+            {"resource_id": resource_id, "index": {"$gte": max(0, est_index - 1), "$lte": est_index + 1}},
+            {"_id": 0, "content": 1, "anchor": 1, "topics": 1, "labels": 1, "index": 1},
+        ).sort("index", 1).limit(3)
+        chunks = [doc async for doc in cursor]
+
+    return {
+        "resource_id": resource_id,
+        "timestamp": timestamp,
+        "window": window,
+        "chunks": chunks,
+        "resource_name": resource.get("original_name", ""),
+        "source_url": resource.get("source_url", ""),
+        "duration": resource.get("meta", {}).get("duration", 0),
+    }
+
+
+@router.get("/resources/{resource_id}/info")
+async def get_resource_info(resource_id: str, request: Request = None, user: dict = Depends(_get_user)):
+    """Get resource metadata — used to set up video player."""
+    db = _get_db()
+    resource = await db.byo_resources.find_one(
+        {"resource_id": resource_id, "user_id": user["email"]},
+        {"_id": 0, "resource_id": 1, "collection_id": 1, "original_name": 1,
+         "source_url": 1, "mime_type": 1, "meta": 1, "status": 1},
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+    return resource
 
 
 # ── File serving ──────────────────────────────────────────────────────

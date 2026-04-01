@@ -318,22 +318,16 @@
 
       <!-- ── Tab bar ── -->
       <div class="home-tabs">
-        <button class="home-tab active" data-home-tab="chat">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
-          Euler
+        <button class="home-tab active" data-home-tab="home">
+          Home
         </button>
-        <button class="home-tab" data-home-tab="explore">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
-          Explore
-        </button>
-        <button class="home-tab" data-home-tab="materials">
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
-          Materials
+        <button class="home-tab" data-home-tab="content">
+          My Content
         </button>
       </div>
 
-      <!-- ═══ TAB: Euler Chat ═══ -->
-      <div class="home-tab-content active" id="tab-chat">
+      <!-- ═══ TAB: Home (Euler + Explore merged) ═══ -->
+      <div class="home-tab-content active" id="tab-home">
         <div class="euler-panel" id="euler-panel">
           <!-- Idle state — hero + quick starts -->
           <div class="euler-idle" id="euler-idle">
@@ -359,63 +353,27 @@
               </div>
             </div>
 
-            <!-- Capabilities showcase -->
-            <div class="cap-section">
-              <p class="cap-heading">Everything you need to learn, in one place</p>
-              <div class="cap-grid">
-                <div class="cap-card" data-prompt="Teach me something new">
-                  <div class="cap-icon-wrap cap-icon-blue">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
-                  </div>
-                  <h3>Live board teaching</h3>
-                  <p>Your tutor draws diagrams, writes equations, and explains concepts step by step on a live board — adapting to your pace.</p>
-                  <span class="cap-cta">Start learning &rarr;</span>
-                </div>
+            <!-- Sessions + Courses + Videos (inline below Euler input) -->
+            <div class="home-browse-section" id="home-browse">
+              <!-- Pick up where you left off -->
+              <div id="home-sessions-section" style="display:none">
+                <div class="sec-head"><h2>Pick up where you left off</h2></div>
+                <div class="session-row" id="home-sessions-row"></div>
+              </div>
 
-                <div class="cap-card" data-prompt="I want to follow a course with video lectures">
-                  <div class="cap-icon-wrap cap-icon-purple">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-                  </div>
-                  <h3>Video follow-along</h3>
-                  <p>Watch original university lectures while your AI tutor follows along. Pause anytime — it explains what the professor just said.</p>
-                  <span class="cap-cta">Try it &rarr;</span>
-                </div>
+              <!-- Your Videos (above courses) -->
+              <div id="home-videos-section" style="display:none">
+                <div class="sec-head"><h2>Your videos</h2></div>
+                <div class="session-row" id="home-videos-row"></div>
+              </div>
 
-                <div class="cap-card" data-prompt="I have an exam this week, help me prep">
-                  <div class="cap-icon-wrap cap-icon-amber">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
-                  </div>
-                  <h3>Exam prep</h3>
-                  <p>Tell it your exam date and topics. It builds a focused plan, teaches the hard parts, quizzes you, and tracks what you've mastered.</p>
-                  <span class="cap-cta">Start prepping &rarr;</span>
+              <!-- Courses -->
+              <div id="home-courses-section" style="display:none">
+                <div class="sec-head">
+                  <h2>Pick a course to start</h2>
+                  <span id="home-course-count" class="sec-count"></span>
                 </div>
-
-                <div class="cap-card" data-prompt="Make me revision flashcards for what I've been studying">
-                  <div class="cap-icon-wrap cap-icon-green">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><path d="M2 10h20"/></svg>
-                  </div>
-                  <h3>Study aids</h3>
-                  <p>Flashcards with spaced repetition, revision notes, cheat sheets, formula sheets, audio digests — generated from your courses or materials.</p>
-                  <span class="cap-cta">Create study aids &rarr;</span>
-                </div>
-
-                <div class="cap-card" data-prompt="Help me with problems from my uploaded paper">
-                  <div class="cap-icon-wrap cap-icon-rose">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
-                  </div>
-                  <h3>Your own materials</h3>
-                  <p>Upload PDFs, notes, exam papers, or YouTube videos. Euler reads them and teaches you from your own content — solving your exact questions.</p>
-                  <span class="cap-cta">Upload materials &rarr;</span>
-                </div>
-
-                <div class="cap-card" data-prompt="Generate an audio revision podcast from my course notes">
-                  <div class="cap-icon-wrap cap-icon-cyan">
-                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 00-3 3v8a3 3 0 006 0V4a3 3 0 00-3-3z"/><path d="M19 10v2a7 7 0 01-14 0v-2"/><path d="M12 19v4M8 23h8"/></svg>
-                  </div>
-                  <h3>Audio digests</h3>
-                  <p>Turn any topic or your uploaded notes into a podcast-style audio summary you can listen to on the go.</p>
-                  <span class="cap-cta">Generate audio &rarr;</span>
-                </div>
+                <div class="c-grid c-grid-collapsed" id="home-courses-grid"></div>
               </div>
             </div>
           </div>
@@ -423,11 +381,21 @@
           <div class="euler-chat" id="euler-chat" style="display:none">
             <div class="euler-chat-main">
               <div class="euler-chat-header">
-                <span class="euler-chat-title">Euler</span>
+                <div class="euler-chat-header-left">
+                  <button class="euler-home-btn" id="euler-home-btn" title="Back to home">
+                    <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
+                    Home
+                  </button>
+                  <span class="euler-chat-title">Euler</span>
+                </div>
                 <button class="euler-clear-btn" id="euler-clear-btn" title="New conversation">New chat</button>
               </div>
               <div class="euler-messages" id="euler-messages"></div>
               <div class="euler-chat-input">
+                <div class="euler-processing-bar" id="euler-processing-bar">
+                  <div class="euler-processing-dots"><span></span><span></span><span></span></div>
+                  <span id="euler-processing-label">Euler is thinking...</span>
+                </div>
                 <div class="euler-input-bar">
                   <div class="euler-avatar">E</div>
                   <button class="euler-attach" id="euler-attach-btn-active" title="Attach file">
@@ -460,29 +428,43 @@
         </div>
       </div>
 
-      <!-- ═══ TAB: Explore Courses ═══ -->
-      <div class="home-tab-content" id="tab-explore">
+      <!-- ═══ TAB: Explore (hidden, kept for compat) ═══ -->
+      <div class="home-tab-content" id="tab-explore" style="display:none !important">
         <div class="sc-wrap">
-          <!-- Hero -->
+          <!-- Hero + unified search -->
           <div class="explore-hero">
-            <h2>Explore courses</h2>
-            <p class="explore-hero-sub">Pick a course. Your AI tutor teaches it live on a board — drawing diagrams, explaining step by step, adapting to you.</p>
+            <h2>Explore</h2>
+            <p class="explore-hero-sub">Courses, sessions, videos — all in one place.</p>
             <div class="explore-search explore-search-lg">
               <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
-              <input placeholder="Search for a topic..." id="explore-search-input" class="explore-search-input-lg">
+              <input placeholder="Search courses, sessions, videos..." id="explore-search-input" class="explore-search-input-lg">
             </div>
           </div>
 
-          <!-- My sessions -->
-          <div id="explore-sessions-section" style="display:none">
+          <!-- My sessions — course sessions -->
+          <div id="explore-course-sessions-section" style="display:none">
             <div class="sec-head">
-              <h2>My sessions</h2>
-              <div class="explore-search explore-search-sm">
-                <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
-                <input placeholder="Search sessions..." id="session-search-input" class="explore-search-input-sm">
-              </div>
+              <h2>Course sessions</h2>
             </div>
-            <div class="session-row" id="explore-sessions-row"></div>
+            <div class="session-row" id="explore-course-sessions-row"></div>
+          </div>
+
+          <!-- My sessions — free / on-demand -->
+          <div id="explore-free-sessions-section" style="display:none">
+            <div class="sec-head">
+              <h2>Recent sessions</h2>
+              <span id="explore-free-sessions-count"></span>
+            </div>
+            <div class="session-row" id="explore-free-sessions-row"></div>
+          </div>
+
+          <!-- My Videos -->
+          <div id="explore-my-videos-section" style="display:none">
+            <div class="sec-head">
+              <h2>My videos</h2>
+              <span id="explore-my-videos-count"></span>
+            </div>
+            <div class="session-row" id="explore-my-videos-row"></div>
           </div>
 
           <!-- Continue learning (conditional) -->
@@ -496,7 +478,10 @@
             <h2>All courses</h2>
             <span id="browse-course-count" class="sec-count"></span>
           </div>
-          <div class="c-grid" id="browse-courses-grid"></div>
+          <div class="c-grid c-grid-collapsed" id="browse-courses-grid"></div>
+          <div class="sec-show-all" id="browse-show-all" style="display:none">
+            <button class="show-all-btn" onclick="document.getElementById('browse-courses-grid').classList.remove('c-grid-collapsed');this.parentElement.style.display='none'">Show all courses</button>
+          </div>
 
           <!-- No match fallback -->
           <div id="browse-no-match-zone" style="display:none">
@@ -508,46 +493,43 @@
         </div>
       </div>
 
-      <!-- ═══ TAB: Materials ═══ -->
-      <div class="home-tab-content" id="tab-materials">
+      <!-- ═══ TAB: My Content ═══ -->
+      <div class="home-tab-content" id="tab-content">
         <div class="sc-wrap">
-          <!-- Section 1: Upload zone -->
+          <!-- Upload zone (compact) -->
           <div class="mat-section">
             <div class="mat-section-header">
               <div class="mat-header-row">
-                <h2>Your study materials</h2>
+                <h2>Materials</h2>
                 <div class="mat-search">
                   <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
-                  <input placeholder="Search materials..." id="byo-search-input" autocomplete="off">
+                  <input placeholder="Search..." id="byo-search-input" autocomplete="off">
                 </div>
               </div>
-              <p class="mat-section-sub">Organize your uploads into collections. Tag them, search them, and tell Euler which collection to teach from.</p>
             </div>
-            <div class="byo-grid" id="byo-grid">
-              <div class="byo-upload-zone" id="byo-upload-zone">
-                <div class="byo-drop-area" id="byo-drop-area">
-                  <div class="byo-drop-icon">+</div>
-                  <div class="byo-drop-label">Drop files here or <span class="byo-browse-link" id="byo-browse-link">browse</span></div>
-                  <div class="byo-drop-sub">PDFs, notes, images, videos, DOCX</div>
-                </div>
-                <div class="byo-link-row">
-                  <input type="text" class="byo-link-input" id="byo-link-input" placeholder="Paste a YouTube or article link..." />
-                  <button class="byo-link-btn" id="byo-link-btn">Add link</button>
-                </div>
+            <div class="byo-upload-compact">
+              <div class="byo-drop-area-compact" id="byo-drop-area">
+                <span class="byo-drop-icon-sm">+</span>
+                <span>Drop files or <span class="byo-browse-link" id="byo-browse-link">browse</span></span>
+              </div>
+              <div class="byo-link-row">
+                <input type="text" class="byo-link-input" id="byo-link-input" placeholder="Paste a YouTube or article link..." />
+                <button class="byo-link-btn" id="byo-link-btn">Add</button>
               </div>
             </div>
             <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg">
           </div>
 
-          <!-- Section 2: Learning aids -->
-          <div class="mat-section">
-            <div class="mat-section-header">
-              <h2>Learning aids</h2>
-              <p class="mat-section-sub">Flashcards, revision notes, cheat sheets, and study plans — created by Euler from your courses and materials. Ask Euler to make them, or they're generated during teaching sessions.</p>
-            </div>
-            <div class="aids-grid" id="aids-grid">
-              <div class="aids-empty" id="aids-empty">No learning aids yet. Ask Euler to create flashcards or study plans.</div>
-            </div>
+          <!-- My Uploads (grouped by type) -->
+          <div class="mat-section" id="mat-uploads-section" style="display:none">
+            <div class="mat-section-header"><h2>My uploads</h2></div>
+            <div id="byo-grid"></div>
+          </div>
+
+          <!-- Generated by Euler -->
+          <div class="mat-section" id="mat-generated-section" style="display:none">
+            <div class="mat-section-header"><h2>Generated by Euler</h2></div>
+            <div class="aids-grid" id="aids-grid"></div>
           </div>
         </div>
       </div>
@@ -718,6 +700,7 @@
 
       <!-- Video overlay -->
       <div id="vm-video-overlay" class="vm-overlay hidden">
+        <button class="vm-close-btn" id="vm-close-btn" onclick="vmExitVideoSession()" title="Exit video session">&times;</button>
         <div class="vm-vid-wrap" id="vm-vid-wrap"><div class="vm-vid-box"></div></div>
         <div class="vm-chat-wrap" id="vm-chat-wrap">
           <div class="vm-chat-bar">
@@ -779,8 +762,12 @@
           <div id="spotlight-content" class="board-content"></div>
           <div id="board-frame-strip"></div>
           <div id="board-empty-state" class="board-empty">
-            <div class="board-empty-icon">&#9998;</div>
-            <div class="board-empty-text">Your tutor will draw here</div>
+            <div class="board-empty-anim">
+              <div class="board-empty-pencil">&#9998;</div>
+              <div class="board-empty-dots"><span></span><span></span><span></span></div>
+            </div>
+            <div class="board-empty-text">Euler is preparing the board...</div>
+            <div class="board-empty-hint">Teaching content will appear here momentarily</div>
           </div>
         </div>
 
@@ -904,8 +891,14 @@
           </div>
           <div class="av-fc-hint">Click card to flip &middot; Rate to track progress</div>
         </div>
-        <!-- Generic markdown mode -->
+        <!-- Markdown mode -->
         <div class="av-markdown hidden" id="av-markdown"></div>
+        <!-- PDF viewer -->
+        <iframe class="av-pdf hidden" id="av-pdf" style="width:100%;height:100%;border:none"></iframe>
+        <!-- HTML preview -->
+        <iframe class="av-html hidden" id="av-html" sandbox="allow-scripts allow-same-origin" style="width:100%;height:100%;border:none"></iframe>
+        <!-- Image viewer -->
+        <div class="av-image hidden" id="av-image" style="display:flex;align-items:center;justify-content:center;height:100%"></div>
         <!-- Generic JSON mode -->
         <div class="av-generic hidden" id="av-generic"></div>
       </div>

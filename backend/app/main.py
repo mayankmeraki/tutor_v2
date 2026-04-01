@@ -366,6 +366,20 @@ except Exception as e:
     log.warning("BYO routes not loaded: %s", e)
 
 
+# ─── Document serving ──────────────────────────────────────────────
+
+@app.get("/api/v1/documents/{document_id}")
+async def serve_document(document_id: str):
+    """Serve a generated document (HTML) from MongoDB."""
+    from fastapi.responses import HTMLResponse
+    from app.core.mongodb import get_mongo_db
+    db = get_mongo_db()
+    doc = await db.documents.find_one({"document_id": document_id}, {"html_content": 1, "title": 1})
+    if not doc or not doc.get("html_content"):
+        raise HTTPException(status_code=404, detail="Document not found")
+    return HTMLResponse(content=doc["html_content"], media_type="text/html")
+
+
 # ─── Admin / management endpoints ────────────────────────────────
 
 @app.post("/api/admin/backfill-vectors")

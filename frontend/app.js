@@ -1230,9 +1230,21 @@ function generateId() {
 let _streamGeneration = 0;  // Increments on each new stream — prevents old cleanup from interfering
 
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
-  if (state.isStreaming) return;
+  if (state.isStreaming) {
+    // Visual feedback — don't silently swallow
+    if (!isSystemTrigger) {
+      const bar = document.getElementById('voice-bar-main');
+      if (bar) { bar.style.borderColor = 'rgba(251,191,36,0.4)'; setTimeout(() => { bar.style.borderColor = ''; }, 400); }
+    }
+    return;
+  }
   const _now = Date.now();
-  if (!isSystemTrigger && state._lastChatRequestAt && _now - state._lastChatRequestAt < 1000) return;
+  if (!isSystemTrigger && state._lastChatRequestAt && _now - state._lastChatRequestAt < 1000) {
+    // Throttled — brief amber flash so user knows something happened
+    const bar = document.getElementById('voice-bar-main');
+    if (bar) { bar.style.borderColor = 'rgba(251,191,36,0.4)'; setTimeout(() => { bar.style.borderColor = ''; }, 400); }
+    return;
+  }
   state._lastChatRequestAt = _now;
   state.isStreaming = true;
   state._stopRequested = false;
@@ -2282,13 +2294,26 @@ function removeAssessmentTransition() {
 
 // ── Plan polling — independent of chat stream ──
 let _planPollTimer = null;
+let _planPollAttempts = 0;
+const _PLAN_POLL_MAX = 20; // max 20 attempts = ~60 seconds, then give up
 
 function startPlanPolling() {
   stopPlanPolling();
   if (!state.sessionId || state.plan.length > 0) return;
+  _planPollAttempts = 0;
 
   _planPollTimer = setInterval(async () => {
     if (state.plan.length > 0) { stopPlanPolling(); return; }
+    _planPollAttempts++;
+
+    // Bail out after max attempts — try auto-repair via lightweight endpoint
+    if (_planPollAttempts > _PLAN_POLL_MAX) {
+      console.warn('[PlanPoll] Max attempts reached, trying auto-repair');
+      stopPlanPolling();
+      _autoRepairPlan();
+      return;
+    }
+
     try {
       const res = await fetch(`${state.apiUrl}/api/session/${state.sessionId}/plan`, {
         headers: AuthManager.authHeaders(),
@@ -2301,16 +2326,49 @@ function startPlanPolling() {
       } else if (data.status === 'error') {
         console.warn('[PlanPoll] Plan generation failed:', data.error);
         stopPlanPolling();
-        // Update sidebar to show error
-        const body = document.getElementById('psb-body');
-        if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
+        _autoRepairPlan();
       }
+      // 'pending'/'building' — continue polling (capped by max attempts)
     } catch (e) { /* ignore poll errors */ }
   }, 3000); // poll every 3 seconds
 }
 
 function stopPlanPolling() {
   if (_planPollTimer) { clearInterval(_planPollTimer); _planPollTimer = null; }
+}
+
+async function _autoRepairPlan() {
+  // Lightweight plan repair — asks the backend to generate a quick plan via fast model
+  const intent = state.studentIntent || '';
+  if (!intent || !state.sessionId) {
+    const body = document.getElementById('psb-body');
+    if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
+    return;
+  }
+
+  console.log('[PlanRepair] Attempting auto-repair for:', intent);
+  const body = document.getElementById('psb-body');
+  if (body) body.innerHTML = '<div class="psb-generating"><div class="psb-gen-pulse"></div><span>Rebuilding plan...</span></div>';
+
+  try {
+    const res = await fetch(`${state.apiUrl}/api/session/${state.sessionId}/plan/repair`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ intent }),
+    });
+    if (res.ok) {
+      const data = await res.json();
+      if (data.plan) {
+        handlePlanFromAgent(data.plan, data.sessionObjective || intent);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('[PlanRepair] Failed:', e);
+  }
+
+  // Final fallback
+  if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
 }
 
 function connectAgentEvents() {
@@ -2380,6 +2438,11 @@ function cleanupActiveSession() {
     state.boardDraw.processedLines = 0;
     _sceneSnapshots.length = 0;
   }
+  state.spotlightActive = false; state.spotlightInfo = null;
+  state._videoWatchAlong = false;
+  // Clean up YouTube player
+  if (state.video?._ytTimerInterval) { clearInterval(state.video._ytTimerInterval); state.video._ytTimerInterval = null; }
+  if (state.video?._ytPlayer) { try { state.video._ytPlayer.destroy(); } catch(e) {} state.video._ytPlayer = null; }
   state._startingSession = false; state._resumingSession = false;
   state._videoPlaylist = null; state._videoPlaylistIndex = 0;
   if (typeof _hideVideoPlaylist === 'function') _hideVideoPlaylist();
@@ -2606,7 +2669,11 @@ function transitionOnboardingToTeaching() {
 }
 
 function handlePlanFromAgent(plan, sessionObjective) {
-  if (!plan) return;
+  if (!plan) {
+    // Even with no plan, stop polling so we don't loop forever
+    stopPlanPolling();
+    return;
+  }
   state.currentPlan = plan;
 
   // Build sections from plan — planning agent may output sections or flat topics
@@ -2655,13 +2722,21 @@ function handlePlanFromAgent(plan, sessionObjective) {
     }
   }
 
+  // If plan data was received but has no usable sections, stop polling and show fallback
+  if (newSections.length === 0) {
+    stopPlanPolling();
+    const body = document.getElementById('psb-body');
+    if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
+    return;
+  }
+
   // Append or replace sections
   const hasExistingSections = state.plan.length > 0 && state.plan.some(s => s.status === 'done' || s.status === 'active');
   if (hasExistingSections && newSections.length > 0) {
     const maxN = Math.max(...state.plan.map(s => s.n));
     newSections.forEach((sec, i) => { sec.n = maxN + 1 + i; });
     state.plan.push(...newSections);
-  } else if (newSections.length > 0) {
+  } else {
     state.plan = newSections;
   }
 
@@ -2705,6 +2780,7 @@ function handlePlanReset(reason, keepScope) {
   state.planActiveStep = null;
   state.currentPlan = {};
   updateHeadingBar();
+  updatePlanSidebar({ sections: [] });
 }
 
 function handleTopicComplete(sectionIndex, topicIndex) {
@@ -2729,6 +2805,7 @@ function handleTopicComplete(sectionIndex, topicIndex) {
   }
   SessionManager.completeTopic(sectionIndex, topicIndex);
   updateHeadingBar();
+  updatePlanSidebar({ sections: state.plan });
 }
 
 function handleSectionComplete(index) {
@@ -2757,6 +2834,7 @@ function handleSectionComplete(index) {
   }
   SessionManager.completeSection(index);
   updateHeadingBar();
+  updatePlanSidebar({ sections: state.plan });
 }
 
 function startAIMessageStream() {
@@ -6990,6 +7068,10 @@ function _hideAllScreens() {
     if (el) el.style.display = 'none';
   });
   document.getElementById('teaching-layout')?.classList.add('hidden');
+  // Stop BYO materials polling when switching screens
+  if (typeof _byoPollTimer !== 'undefined' && _byoPollTimer) {
+    clearInterval(_byoPollTimer); _byoPollTimer = null;
+  }
 }
 
 function _updateUserPills() {
@@ -7013,6 +7095,8 @@ function showScreen(screenName, param) {
   cleanupActiveSession();
   disconnectAgentEvents();
   if (timerInterval) clearInterval(timerInterval);
+  // Stop BYO materials poll when leaving home/materials
+  if (_byoPollTimer) { clearInterval(_byoPollTimer); _byoPollTimer = null; }
   _hideAllScreens();
 
   const user = AuthManager.getUser();
@@ -7048,7 +7132,8 @@ function showScreen(screenName, param) {
       }
       // Restore Euler state — keeps chat if there's history
       _eulerResetToIdle();
-      // Pre-fetch courses for explore tab
+      // Load home sections (sessions, courses, videos)
+      _loadHomeSections();
       _fetchCourses();
       break;
 
@@ -7222,6 +7307,12 @@ async function _loadBrowseCourses() {
   grid.querySelectorAll('.ccard').forEach(card => {
     card.addEventListener('click', () => Router.navigate('/courses/' + card.dataset.courseId));
   });
+
+  // Show "Show all" button if more than 3 courses
+  const showAllEl = document.getElementById('browse-show-all');
+  if (showAllEl) {
+    showAllEl.style.display = courses.length > 3 ? '' : 'none';
+  }
 }
 
 let _courseDetailData = null; // raw API data for current course detail
@@ -7243,7 +7334,10 @@ function _initHomeTabs() {
       const target = document.getElementById('tab-' + tab.dataset.homeTab);
       if (target) target.classList.add('active');
       // Load content for the tab if needed
-      if (tab.dataset.homeTab === 'explore') { _loadBrowseCourses(); _loadRecentSessions(); }
+      if (tab.dataset.homeTab === 'home') { _loadHomeSections(); }
+      if (tab.dataset.homeTab === 'content') { _loadByoMaterials(); _loadLearningAids(); }
+      // Legacy compat
+      if (tab.dataset.homeTab === 'explore') { _loadBrowseCourses(); _loadRecentSessions(); _loadMyVideos(); }
       if (tab.dataset.homeTab === 'materials') { _loadByoMaterials(); _loadLearningAids(); }
     });
   });
@@ -7259,74 +7353,256 @@ function _initHomeTabs() {
   }
 }
 
-async function _loadRecentSessions() {
-  const section = document.getElementById('explore-sessions-section');
-  const row = document.getElementById('explore-sessions-row');
+function _loadHomeSections() {
+  // Show skeleton placeholders immediately, then load real data with staggered reveal
+  _showHomeSkeletons();
+  _loadHomeSessions();
+  _loadHomeVideos();
+  _loadHomeCourses();
+}
+
+function _showHomeSkeletons() {
+  const sessSection = document.getElementById('home-sessions-section');
+  const sessRow = document.getElementById('home-sessions-row');
+  const vidSection = document.getElementById('home-videos-section');
+  const vidRow = document.getElementById('home-videos-row');
+  const courseSection = document.getElementById('home-courses-section');
+  const courseGrid = document.getElementById('home-courses-grid');
+
+  // Sessions skeleton
+  if (sessSection && sessRow) {
+    sessRow.innerHTML = Array(3).fill('<div class="skeleton-card"></div>').join('');
+    sessSection.style.display = '';
+    sessSection.style.opacity = '0.5';
+  }
+  // Videos skeleton
+  if (vidSection && vidRow) {
+    vidRow.innerHTML = Array(2).fill('<div class="skeleton-card"></div>').join('');
+    vidSection.style.display = '';
+    vidSection.style.opacity = '0.5';
+  }
+  // Courses skeleton
+  if (courseSection && courseGrid) {
+    courseGrid.innerHTML = Array(3).fill('<div class="skeleton-course"></div>').join('');
+    courseSection.style.display = '';
+    courseSection.style.opacity = '0.5';
+  }
+}
+
+function _revealHomeSection(section, delay) {
+  if (!section) return;
+  setTimeout(() => {
+    section.style.opacity = '';
+    section.classList.add('home-section-reveal');
+  }, delay);
+}
+
+async function _loadHomeSessions() {
+  const section = document.getElementById('home-sessions-section');
+  const row = document.getElementById('home-sessions-row');
   if (!section || !row) return;
 
   try {
-    // Fetch sessions across all courses for this user
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/sessions/me/all`, { headers: AuthManager.authHeaders() });
+    if (!res.ok) { section.style.display = 'none'; return; }
+    const sessions = await res.json();
+    if (!sessions.length) { section.style.display = 'none'; return; }
+
+    row.innerHTML = '';
+    for (const s of sessions.slice(0, 6)) {
+      row.appendChild(_buildSessionCard(s, !!s.courseId));
+    }
+    _revealHomeSection(section, 0);
+  } catch (e) { section.style.display = 'none'; }
+}
+
+async function _loadHomeCourses() {
+  const section = document.getElementById('home-courses-section');
+  const grid = document.getElementById('home-courses-grid');
+  if (!section || !grid) return;
+
+  const courses = await _fetchCourses();
+  if (!courses || !courses.length) { section.style.display = 'none'; return; }
+
+  const countEl = document.getElementById('home-course-count');
+  if (countEl) countEl.textContent = `${courses.length} courses`;
+
+  // Reuse the same card HTML as _loadBrowseCourses
+  grid.innerHTML = courses.slice(0, 4).map(c => `
+    <div class="ccard" data-course-id="${c.id}">
+      <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
+        <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
+        <div class="meta"><span>${c.lesson_count || '?'} lessons</span><span>~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span></div>
+      </div>
+      <div class="ccard-body">
+        <h3>${c.title}</h3>
+        <p>${(c.description || '').slice(0, 100)}${(c.description || '').length > 100 ? '...' : ''}</p>
+      </div>
+    </div>
+  `).join('');
+  grid.querySelectorAll('.ccard').forEach(card => {
+    card.addEventListener('click', () => Router.navigate('/courses/' + card.dataset.courseId));
+  });
+  _revealHomeSection(section, 150);
+}
+
+async function _loadHomeVideos() {
+  const section = document.getElementById('home-videos-section');
+  const row = document.getElementById('home-videos-row');
+  if (!section || !row) return;
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, { headers: AuthManager.authHeaders() });
+    if (!res.ok) { section.style.display = 'none'; return; }
+    const collections = await res.json();
+
+    const videos = collections.filter(c => {
+      const t = (c.title || '').toLowerCase();
+      const d = (c.description || '').toLowerCase();
+      const tags = c.tags || [];
+      return t.includes('video') || t.includes('youtube') || d.includes('youtube') ||
+        tags.includes('video') || tags.includes('watch_along');
+    });
+
+    if (!videos.length) { section.style.display = 'none'; return; }
+
+    row.innerHTML = '';
+    for (const v of videos.slice(0, 4)) {
+      const card = document.createElement('div');
+      const isReady = v.status === 'ready';
+      card.className = 'session-card session-card-video';
+      card.innerHTML = `
+        <div class="session-card-top">
+          <span class="video-card-badge">&#127916; Video</span>
+          <span class="session-card-time">${_timeAgo(v.created_at || v.updated_at)}</span>
+        </div>
+        <div class="session-card-title">${_escHtml(v.title || 'Video')}</div>
+        <div class="session-card-cta" style="color:${isReady ? '#a78bfa' : 'var(--text-dim)'}">
+          ${isReady ? 'Watch with tutor &rarr;' : 'Processing...'}</div>`;
+      if (isReady) {
+        card.addEventListener('click', async () => {
+          try {
+            const rRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${v.collection_id}/resources`, { headers: AuthManager.authHeaders() });
+            if (!rRes.ok) return;
+            const resources = await rRes.json();
+            const videoRes = resources.find(r => r.mime_type?.includes('youtube') || r.mime_type?.includes('video'));
+            if (videoRes) {
+              state.sessionId = generateId();
+              state.studentName = AuthManager.getUser()?.name || 'Student';
+              vmStartBYOVideo(videoRes.resource_id, v.collection_id, v.title, videoRes.source_url || '');
+            }
+          } catch (e) {}
+        });
+      }
+      row.appendChild(card);
+    }
+    _revealHomeSection(section, 80);
+  } catch (e) { section.style.display = 'none'; }
+}
+
+async function _loadRecentSessions() {
+  const courseSection = document.getElementById('explore-course-sessions-section');
+  const courseRow = document.getElementById('explore-course-sessions-row');
+  const freeSection = document.getElementById('explore-free-sessions-section');
+  const freeRow = document.getElementById('explore-free-sessions-row');
+  if (!courseSection || !freeSection) return;
+
+  try {
     const res = await fetch(`${state.apiUrl || ''}/api/v1/sessions/me/all`, {
       headers: AuthManager.authHeaders(),
     });
     if (!res.ok) {
-      // Try fetching without course filter
-      section.style.display = 'none';
+      courseSection.style.display = 'none';
+      freeSection.style.display = 'none';
       return;
     }
     const sessions = await res.json();
-    if (!sessions.length) { section.style.display = 'none'; return; }
-
-    section.style.display = '';
-    row.innerHTML = '';
-
-    // Show up to 5 recent sessions
-    const recent = sessions.slice(0, 5);
-    for (const s of recent) {
-      const card = document.createElement('div');
-      card.className = 'session-card';
-      const ago = _timeAgo(s.startedAt);
-      const headline = s.headline || s.intent?.raw || 'Teaching session';
-      const desc = s.headlineDescription || '';
-      const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
-      const isActive = s.status === 'active';
-      const topics = (s.sections || []).filter(sec => sec.status === 'done').map(sec => sec.title).slice(0, 3);
-
-      card.innerHTML = `
-        <div class="session-card-top">
-          <span class="session-card-time">${ago}</span>
-          ${dur ? `<span class="session-card-dur">${dur}</span>` : ''}
-        </div>
-        <div class="session-card-title">${_escHtml(headline)}</div>
-        ${desc ? `<div class="session-card-desc">${_escHtml(desc)}</div>` : ''}
-        ${topics.length ? `<div class="session-card-topics">${topics.map(t => `<span class="session-card-topic">${_escHtml(t)}</span>`).join('')}</div>` : ''}
-        <div class="session-card-cta">${isActive ? 'Continue' : 'Review'} &rarr;</div>`;
-      card.addEventListener('click', () => {
-        state.courseId = s.courseId;
-        Router.navigate('/session/' + s.sessionId);
-      });
-      row.appendChild(card);
+    if (!sessions.length) {
+      courseSection.style.display = 'none';
+      freeSection.style.display = 'none';
+      return;
     }
 
-    // Session search wiring
-    const searchInput = document.getElementById('session-search-input');
-    if (searchInput && !searchInput._wired) {
-      searchInput._wired = true;
-      let timer = null;
-      searchInput.addEventListener('input', () => {
-        clearTimeout(timer);
-        timer = setTimeout(() => _searchSessions(searchInput.value), 300);
-      });
+    // Split into course sessions vs free/on-demand
+    const courseSessions = sessions.filter(s => s.courseId);
+    const freeSessions = sessions.filter(s => !s.courseId);
+
+    // Render course sessions
+    if (courseSessions.length && courseRow) {
+      courseSection.style.display = '';
+      courseRow.innerHTML = '';
+      for (const s of courseSessions.slice(0, 6)) {
+        courseRow.appendChild(_buildSessionCard(s, true));
+      }
+    } else {
+      courseSection.style.display = 'none';
+    }
+
+    // Render free sessions
+    if (freeSessions.length && freeRow) {
+      freeSection.style.display = '';
+      freeRow.innerHTML = '';
+      const countEl = document.getElementById('explore-free-sessions-count');
+      if (countEl) countEl.textContent = `${freeSessions.length} session${freeSessions.length !== 1 ? 's' : ''}`;
+      for (const s of freeSessions.slice(0, 6)) {
+        freeRow.appendChild(_buildSessionCard(s, false));
+      }
+    } else {
+      freeSection.style.display = 'none';
+    }
+
+    // Session search is handled by the unified explore search bar
+    if (false) { // legacy — kept for reference
     }
   } catch (e) {
     console.warn('Failed to load sessions:', e);
-    section.style.display = 'none';
+    courseSection.style.display = 'none';
+    freeSection.style.display = 'none';
   }
 }
 
+function _buildSessionCard(s, isCourse) {
+  const card = document.createElement('div');
+  card.className = 'session-card' + (isCourse ? ' session-card-course' : ' session-card-free');
+  const ago = _timeAgo(s.startedAt);
+  const headline = s.headline || s.plan?.sessionObjective || s.intent?.raw || 'Teaching session';
+  const desc = s.headlineDescription || '';
+  const dur = s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '';
+  const isActive = s.status === 'active';
+  const topics = (s.sections || []).filter(sec => sec.status === 'done').map(sec => sec.title).slice(0, 3);
+  const courseName = s.courseName || '';
+
+  // Score badge
+  const score = s.metrics?.assessmentScore;
+  const scoreBadge = score?.total
+    ? `<span class="session-card-score${score.pct >= 80 ? ' good' : score.pct >= 50 ? ' ok' : ''}">${score.pct}%</span>`
+    : '';
+
+  card.innerHTML = `
+    <div class="session-card-top">
+      <span class="session-card-time">${ago}</span>
+      <div class="session-card-meta-right">
+        ${scoreBadge}
+        ${dur ? `<span class="session-card-dur">${dur}</span>` : ''}
+      </div>
+    </div>
+    ${isCourse && courseName ? `<div class="session-card-badge">${_escHtml(courseName)}</div>` : ''}
+    <div class="session-card-title">${_escHtml(headline)}</div>
+    ${desc ? `<div class="session-card-desc">${_escHtml(desc)}</div>` : ''}
+    ${topics.length ? `<div class="session-card-topics">${topics.map(t => `<span class="session-card-topic">${_escHtml(t)}</span>`).join('')}</div>` : ''}
+    <div class="session-card-cta">${isActive ? 'Continue' : 'Review'} &rarr;</div>`;
+  card.addEventListener('click', () => {
+    state.courseId = s.courseId;
+    Router.navigate('/session/' + s.sessionId);
+  });
+  return card;
+}
+
 async function _searchSessions(query) {
-  const row = document.getElementById('explore-sessions-row');
-  if (!row || !query.trim()) { _loadRecentSessions(); return; }
+  const courseRow = document.getElementById('explore-course-sessions-row');
+  const freeRow = document.getElementById('explore-free-sessions-row');
+  const freeSection = document.getElementById('explore-free-sessions-section');
+  if (!query.trim()) { _loadRecentSessions(); return; }
 
   try {
     const res = await fetch(`${state.apiUrl || ''}/api/v1/sessions/search/all?q=${encodeURIComponent(query)}`, {
@@ -7335,24 +7611,22 @@ async function _searchSessions(query) {
     if (!res.ok) return;
     const results = await res.json();
 
-    row.innerHTML = '';
+    // Show all search results in the free sessions row, hide course section
+    const courseSection = document.getElementById('explore-course-sessions-section');
+    if (courseSection) courseSection.style.display = 'none';
+
     if (!results.length) {
-      row.innerHTML = '<div class="session-empty">No sessions match your search.</div>';
+      if (freeSection) freeSection.style.display = '';
+      if (freeRow) freeRow.innerHTML = '<div class="session-empty">No sessions match your search.</div>';
       return;
     }
 
-    for (const s of results.slice(0, 8)) {
-      const card = document.createElement('div');
-      card.className = 'session-card';
-      card.innerHTML = `
-        <div class="session-card-title">${_escHtml(s.headline || s.intent?.raw || 'Session')}</div>
-        <div class="session-card-desc">${_escHtml(s.headlineDescription || '')}</div>
-        <div class="session-card-cta">${s.status === 'active' ? 'Continue' : 'Review'} &rarr;</div>`;
-      card.addEventListener('click', () => {
-        state.courseId = s.courseId;
-        Router.navigate('/session/' + s.sessionId);
-      });
-      row.appendChild(card);
+    if (freeSection) freeSection.style.display = '';
+    if (freeRow) {
+      freeRow.innerHTML = '';
+      for (const s of results.slice(0, 8)) {
+        freeRow.appendChild(_buildSessionCard(s, !!s.courseId));
+      }
     }
   } catch (e) { console.warn('Session search failed:', e); }
 }
@@ -7368,9 +7642,79 @@ function _timeAgo(isoStr) {
   return d.toLocaleDateString();
 }
 
+async function _loadMyVideos() {
+  const section = document.getElementById('explore-my-videos-section');
+  const row = document.getElementById('explore-my-videos-row');
+  if (!section || !row) return;
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) { section.style.display = 'none'; return; }
+    const collections = await res.json();
+
+    // Filter to video collections (YouTube or video uploads)
+    const videos = collections.filter(c => {
+      const t = (c.title || '').toLowerCase();
+      const d = (c.description || '').toLowerCase();
+      const tags = c.tags || [];
+      return t.includes('video') || t.includes('youtube') || t.includes('lecture') ||
+        d.includes('youtube') || d.includes('youtu.be') || d.includes('video') ||
+        tags.includes('video') || tags.includes('watch_along');
+    });
+
+    if (!videos.length) { section.style.display = 'none'; return; }
+
+    section.style.display = '';
+    row.innerHTML = '';
+    const countEl = document.getElementById('explore-my-videos-count');
+    if (countEl) countEl.textContent = `${videos.length} video${videos.length !== 1 ? 's' : ''}`;
+
+    for (const v of videos.slice(0, 8)) {
+      const card = document.createElement('div');
+      card.className = 'session-card session-card-video';
+      const isReady = v.status === 'ready';
+      const isProcessing = v.status === 'processing';
+      const chunks = v.stats?.chunks || 0;
+
+      card.innerHTML = `
+        <div class="session-card-top">
+          <span class="video-card-badge">&#127916; Video</span>
+          <span class="session-card-time">${_timeAgo(v.created_at || v.updated_at)}</span>
+        </div>
+        <div class="session-card-title">${_escHtml(v.title || 'Video')}</div>
+        <div class="session-card-desc">${isReady ? `${chunks} transcript segments` : isProcessing ? 'Transcript processing...' : 'Processing failed'}</div>
+        <div class="session-card-cta" style="color:${isReady ? '#a78bfa' : 'var(--text-dim)'}">
+          ${isReady ? 'Watch with tutor &rarr;' : isProcessing ? 'Processing...' : 'Retry'}</div>`;
+
+      if (isReady) {
+        card.addEventListener('click', async () => {
+          // Fetch resources to find the video resource
+          try {
+            const rRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${v.collection_id}/resources`, { headers: AuthManager.authHeaders() });
+            if (!rRes.ok) return;
+            const resources = await rRes.json();
+            const videoRes = resources.find(r => r.mime_type?.includes('youtube') || r.mime_type?.includes('video'));
+            if (videoRes) {
+              state.sessionId = generateId();
+              state.studentName = AuthManager.getUser()?.name || 'Student';
+              vmStartBYOVideo(videoRes.resource_id, v.collection_id, v.title, videoRes.source_url || '');
+            }
+          } catch (e) { console.warn('Failed to start video:', e); }
+        });
+      }
+      row.appendChild(card);
+    }
+  } catch (e) {
+    section.style.display = 'none';
+  }
+}
+
 async function _loadLearningAids() {
   const grid = document.getElementById('aids-grid');
   const empty = document.getElementById('aids-empty');
+  const section = document.getElementById('mat-generated-section');
   if (!grid) return;
 
   try {
@@ -7381,9 +7725,10 @@ async function _loadLearningAids() {
     const artifacts = await res.json();
 
     if (!artifacts.length) {
-      if (empty) empty.style.display = '';
+      if (section) section.style.display = 'none';
       return;
     }
+    if (section) section.style.display = '';
     if (empty) empty.style.display = 'none';
 
     // Remove old aid cards (keep empty state element)
@@ -7448,6 +7793,7 @@ let _eulerHistory = [];        // conversation history sent to backend [{role, c
 let _eulerBusy = false;
 let _eulerStarted = false;     // has conversation started?
 let _eulerCurrentResponse = ''; // accumulates current assistant response for history
+let _eulerActions = [];         // tracks tool actions taken this turn (for history enrichment)
 let _eulerSeenToolsSinceText = false; // tracks if tools ran since last text bubble
 let _eulerSuppressText = false; // suppress text after permission/session cards
 
@@ -7483,6 +7829,12 @@ function _initEuler() {
 
   // Preview panel close
   document.getElementById('ep-close')?.addEventListener('click', _closePreviewPanel);
+
+  // Home button — back to browse
+  document.getElementById('euler-home-btn')?.addEventListener('click', () => {
+    _eulerFullReset();
+    Router.navigate('/home');
+  });
 
   // Clear chat button
   document.getElementById('euler-clear-btn')?.addEventListener('click', () => {
@@ -7694,7 +8046,9 @@ function _eulerAddMessage(role, content, extra) {
     msg.innerHTML = `
       <div class="euler-msg-row">
         <div class="euler-msg-avatar">E</div>
-        <div class="euler-msg-bubble euler-euler-bubble">${content}</div>
+        <div class="euler-msg-content">
+          <div class="euler-msg-bubble euler-euler-bubble">${content}</div>
+        </div>
       </div>`;
   } else if (role === 'thinking') {
     msg.innerHTML = `
@@ -7727,27 +8081,70 @@ function _eulerAddMessage(role, content, extra) {
     }
   } else if (role === 'document') {
     const d = extra || {};
+    const docUrl = d.downloadUrl || '#';
+    const docId = 'doc-' + Math.random().toString(36).slice(2, 8);
     msg.innerHTML = `
       <div class="euler-msg-row">
         <div class="euler-msg-avatar">E</div>
-        <div class="euler-document-card">
+        <div class="euler-document-card" id="${docId}">
           <div class="euler-doc-icon">&#128196;</div>
           <div class="euler-doc-info">
             <div class="euler-doc-title">${_escHtml(d.title || 'Document')}</div>
             <div class="euler-doc-format">${(d.format || 'html').toUpperCase()}</div>
           </div>
-          <a href="${d.downloadUrl || '#'}" target="_blank" class="euler-doc-download">Open</a>
+          <button class="euler-doc-download" data-url="${_escHtml(docUrl)}">Open</button>
+          <a href="${_escHtml(docUrl)}" target="_blank" class="euler-doc-external" title="Open in new tab">&#8599;</a>
         </div>
       </div>`;
+    // Wire inline viewer
+    setTimeout(() => {
+      const card = document.getElementById(docId);
+      if (!card) return;
+      const btn = card.querySelector('.euler-doc-download');
+      if (btn) btn.addEventListener('click', () => {
+        const url = btn.dataset.url;
+        // Open in artifact viewer as HTML/PDF
+        const fmt = (d.format || 'html').toLowerCase();
+        if (fmt === 'pdf') {
+          openArtifactViewer('document', d.title || 'Document', { pdf_url: url });
+        } else {
+          // HTML document — fetch and show inline
+          fetch(url).then(r => r.text()).then(html => {
+            openArtifactViewer('document', d.title || 'Document', { html });
+          }).catch(() => window.open(url, '_blank'));
+        }
+      });
+    }, 50);
   } else if (role === 'permission') {
     const p = extra || {};
+    const ctx = p.context || {};
+    const isWatchAlong = ctx.mode === 'watch_along' || ctx.skill === 'watch_along';
+    const actionType = ctx.action_type || (isWatchAlong ? 'watch_along' : 'tutor');
+
+    // Card appearance based on action type
+    const cardConfig = {
+      watch_along:    { icon: '&#127916;', label: 'Video Follow-Along', cls: 'euler-perm-video' },
+      tutor:          { icon: '&#9997;',   label: 'Live Tutoring',      cls: 'euler-perm-tutor' },
+      study_plan:     { icon: '&#128203;', label: 'Study Plan',         cls: 'euler-perm-plan' },
+      artifact:       { icon: '&#128221;', label: 'Create Resource',    cls: 'euler-perm-artifact' },
+      document:       { icon: '&#128196;', label: 'Document',           cls: 'euler-perm-artifact' },
+    };
+    const cfg = cardConfig[actionType] || cardConfig.tutor;
+    const icon = cfg.icon;
+    const typeLabel = cfg.label;
+    const typeCls = cfg.cls;
+
     msg.innerHTML = `
       <div class="euler-msg-row">
         <div class="euler-msg-avatar">E</div>
-        <div class="euler-permission-card" data-permission-id="${p.permissionId || ''}">
+        <div class="euler-permission-card ${typeCls}" data-permission-id="${p.permissionId || ''}">
+          <div class="euler-perm-header">
+            <span class="euler-perm-icon">${icon}</span>
+            <span class="euler-perm-type">${typeLabel}</span>
+          </div>
           <div class="euler-perm-question">${_escHtml(p.question || '')}</div>
           <div class="euler-perm-actions">
-            <button class="euler-perm-btn euler-perm-yes" data-action="yes">${_escHtml(p.actionLabel || 'Yes')}</button>
+            <button class="euler-perm-btn euler-perm-yes" data-action="yes">${_escHtml(p.actionLabel || "Let's go!")}</button>
             <button class="euler-perm-btn euler-perm-no" data-action="no">${_escHtml(p.denyLabel || 'Not now')}</button>
           </div>
         </div>
@@ -7773,7 +8170,18 @@ function _eulerAddMessage(role, content, extra) {
             const courseId = ctx.course_id;
             document.body.style.overflow = 'auto';
             document.body.style.height = 'auto';
-            if (courseId) {
+
+            // BYO video watch-along
+            if ((ctx.mode === 'watch_along' || ctx.skill === 'watch_along') && ctx.resource_id) {
+              state.sessionId = ctx.session_id || generateId();
+              state.studentName = AuthManager.getUser()?.name || 'Student';
+              fetch(`${state.apiUrl}/api/v1/byo/resources/${ctx.resource_id}/info`, { headers: AuthManager.authHeaders() })
+                .then(r => r.ok ? r.json() : null)
+                .then(info => {
+                  vmStartBYOVideo(ctx.resource_id, ctx.collection_id || info?.collection_id || '', info?.original_name || 'Video', info?.source_url || '');
+                })
+                .catch(() => vmStartBYOVideo(ctx.resource_id, ctx.collection_id || '', 'Video', ''));
+            } else if (courseId) {
               const courseIdEl = document.getElementById('course-id');
               if (courseIdEl) courseIdEl.value = courseId;
               const user = AuthManager.getUser();
@@ -7872,8 +8280,12 @@ async function _eulerStreamResponse(text) {
   _eulerAddMessage('thinking');
 
   _eulerCurrentResponse = '';  // reset accumulator
+  _eulerActions = [];           // reset actions tracker
   _eulerSeenToolsSinceText = false;
   _eulerSuppressText = false;  // new message, allow text again
+
+  // Show processing indicator above input
+  _eulerShowProcessing('Euler is thinking...');
 
   try {
     // Include attachments as multimodal content
@@ -7928,7 +8340,96 @@ async function _eulerStreamResponse(text) {
   } finally {
     _eulerBusy = false;
     if (sendBtn) sendBtn.disabled = false;
+    // Always clean up streaming cursors — prevents orphaned blinking cursors
+    // if stream ends without a DONE event (network error, early close, etc.)
+    _eulerRemoveStreamingCursors();
   }
+}
+
+/** Find or create the current assistant message's content column for inline inserts. */
+function _getOrCreateCurrentContentCol() {
+  const allMsgs = document.querySelectorAll('#euler-messages .euler-msg-euler');
+  let parentMsg = allMsgs.length ? allMsgs[allMsgs.length - 1] : null;
+  if (parentMsg) {
+    let sibling = parentMsg.nextElementSibling;
+    while (sibling) {
+      if (sibling.classList.contains('euler-msg-user')) { parentMsg = null; break; }
+      sibling = sibling.nextElementSibling;
+    }
+  }
+  let contentCol = parentMsg?.querySelector('.euler-msg-content');
+  if (!contentCol) {
+    _eulerAddMessage('euler', '');
+    const freshMsgs = document.querySelectorAll('#euler-messages .euler-msg-euler');
+    parentMsg = freshMsgs.length ? freshMsgs[freshMsgs.length - 1] : null;
+    contentCol = parentMsg?.querySelector('.euler-msg-content');
+    const emptyBubble = contentCol?.querySelector('.euler-euler-bubble');
+    if (emptyBubble && !emptyBubble._rawText) emptyBubble.style.display = 'none';
+  }
+  return contentCol;
+}
+
+/** Insert an element inline within the current assistant message's content column. */
+function _insertInlineInCurrentMsg(el) {
+  const contentCol = _getOrCreateCurrentContentCol();
+  if (contentCol) {
+    // Collapse any active tool indicator row
+    const activeToolRow = document.getElementById('euler-tool-active');
+    if (activeToolRow) {
+      activeToolRow.classList.add('euler-tools-collapsed');
+      activeToolRow.removeAttribute('id');
+    }
+    contentCol.appendChild(el);
+    el.scrollIntoView({ behavior: 'smooth', block: 'end' });
+  }
+}
+
+/** Build an artifact card DOM element (not a full message). */
+function _buildArtifactCardEl(a) {
+  const card = document.createElement('div');
+  card.className = 'euler-artifact-card euler-inline-card';
+  card.style.cursor = 'pointer';
+  card.dataset.artifactType = a.artifactType || 'artifact';
+  card.dataset.artifactTitle = a.title || 'Untitled';
+  card.innerHTML = `
+    <div class="euler-artifact-header">
+      <span class="euler-artifact-type">${_escHtml(a.artifactType || 'artifact')}</span>
+      <span class="euler-artifact-title">${_escHtml(a.title || 'Untitled')}</span>
+      <span class="euler-artifact-saved">Saved</span>
+    </div>
+    <div class="euler-artifact-preview">${_renderArtifactPreview(a)}</div>`;
+  card._artifactContent = a.content || {};
+  card.addEventListener('click', () => {
+    _openPreviewPanel(a.artifactType || 'artifact', a.title || 'Untitled', card._artifactContent);
+  });
+  return card;
+}
+
+/** Build a document card DOM element (not a full message). */
+function _buildDocumentCardEl(d) {
+  const card = document.createElement('div');
+  card.className = 'euler-document-card euler-inline-card';
+  const docUrl = d.downloadUrl || '#';
+  card.innerHTML = `
+    <div class="euler-doc-icon">&#128196;</div>
+    <div class="euler-doc-info">
+      <div class="euler-doc-title">${_escHtml(d.title || 'Document')}</div>
+      <div class="euler-doc-format">${(d.format || 'html').toUpperCase()}</div>
+    </div>
+    <button class="euler-doc-download">Open</button>
+    <a href="${_escHtml(docUrl)}" target="_blank" class="euler-doc-external" title="Open in new tab">&#8599;</a>`;
+  const btn = card.querySelector('.euler-doc-download');
+  if (btn) btn.addEventListener('click', () => {
+    const fmt = (d.format || 'html').toLowerCase();
+    if (fmt === 'pdf') {
+      openArtifactViewer('document', d.title || 'Document', { pdf_url: docUrl });
+    } else {
+      fetch(docUrl).then(r => r.text()).then(html => {
+        openArtifactViewer('document', d.title || 'Document', { html });
+      }).catch(() => window.open(docUrl, '_blank'));
+    }
+  });
+  return card;
 }
 
 function _handleEulerEvent(evt) {
@@ -7939,6 +8440,7 @@ function _handleEulerEvent(evt) {
     case 'TEXT_DELTA': {
       if (!evt.text) break;
       _eulerRemoveThinking();
+      _eulerHideProcessing();
       _eulerCurrentResponse += evt.text;
 
       // Suppress text after permission/session cards
@@ -7951,23 +8453,52 @@ function _handleEulerEvent(evt) {
         activeToolRow.removeAttribute('id'); // detach so next tool batch gets a fresh row
       }
 
-      // If tools ran since last text, start a NEW bubble (avoids run-on paragraphs)
-      let last = null;
-      if (!_eulerSeenToolsSinceText) {
-        last = document.querySelector('#euler-messages .euler-msg-euler:last-of-type .euler-euler-bubble');
+      // Find the current assistant message for this turn.
+      // Look for the last euler message with a .euler-msg-content, and only
+      // reuse it if no user message appeared after it (same-turn check).
+      const allMsgs = document.querySelectorAll('#euler-messages .euler-msg-euler');
+      let currentMsg = allMsgs.length ? allMsgs[allMsgs.length - 1] : null;
+      if (currentMsg) {
+        let sibling = currentMsg.nextElementSibling;
+        while (sibling) {
+          if (sibling.classList.contains('euler-msg-user')) { currentMsg = null; break; }
+          sibling = sibling.nextElementSibling;
+        }
       }
-      if (!last) {
-        _eulerSeenToolsSinceText = false;
-        // Remove streaming class from ALL previous bubbles to prevent multiple cursors
-        document.querySelectorAll('#euler-messages .euler-euler-bubble.streaming').forEach(b => b.classList.remove('streaming'));
+      let contentCol = currentMsg?.querySelector('.euler-msg-content');
+
+      // No current assistant message for this turn — create one
+      if (!contentCol) {
+        _eulerRemoveStreamingCursors();
         _eulerAddMessage('euler', '');
-        last = document.querySelector('#euler-messages .euler-msg-euler:last-of-type .euler-euler-bubble');
+        const freshMsgs = document.querySelectorAll('#euler-messages .euler-msg-euler');
+        currentMsg = freshMsgs.length ? freshMsgs[freshMsgs.length - 1] : null;
+        contentCol = currentMsg?.querySelector('.euler-msg-content');
       }
+
+      // After tool calls, create a new bubble segment so text appears BELOW the tool indicators
+      let last;
+      if (_eulerSeenToolsSinceText && contentCol) {
+        _eulerRemoveStreamingCursors();
+        const newBubble = document.createElement('div');
+        newBubble.className = 'euler-msg-bubble euler-euler-bubble';
+        contentCol.appendChild(newBubble);
+        last = newBubble;
+      } else {
+        // Reuse the last bubble in the content column
+        const bubbles = contentCol?.querySelectorAll('.euler-euler-bubble');
+        last = bubbles?.length ? bubbles[bubbles.length - 1] : null;
+      }
+
+      // Unhide bubble if it was hidden (created empty by TOOL_START)
+      if (last && last.style.display === 'none') last.style.display = '';
+
+      _eulerSeenToolsSinceText = false;
       if (last) {
         last._rawText = (last._rawText || '') + evt.text;
         last.innerHTML = _renderMarkdown(last._rawText);
         last.classList.add('streaming');
-        last.closest('.euler-msg')?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        currentMsg?.scrollIntoView({ behavior: 'smooth', block: 'end' });
       }
       break;
     }
@@ -7975,6 +8506,14 @@ function _handleEulerEvent(evt) {
     case 'TOOL_START': {
       _eulerRemoveThinking();
       _eulerSeenToolsSinceText = true;
+      // Update processing bar with tool label
+      const _procLabels = { search_courses:'Searching courses...', create_artifact:'Creating...', generate_document:'Generating document...', spawn_agents:'Researching...', background_generate:'Generating...' };
+      _eulerShowProcessing(_procLabels[evt.tool] || 'Working on it...');
+      // Track tool usage for history (so backend knows what was already done)
+      const toolQuery = evt.input?.query || evt.input?.title || evt.input?.question || '';
+      if (evt.tool === 'search_courses') _eulerActions.push(`[Searched courses: "${toolQuery}"]`);
+      else if (evt.tool === 'search_sessions') _eulerActions.push(`[Searched past sessions]`);
+      else if (evt.tool === 'process_video_url') _eulerActions.push(`[Processed video URL]`);
       const toolLabels = {
         search_courses: 'Searching courses',
         search_materials: 'Searching your materials',
@@ -7995,16 +8534,37 @@ function _handleEulerEvent(evt) {
 
       let toolRow = document.getElementById('euler-tool-active');
       if (!toolRow) {
-        const container = document.getElementById('euler-messages');
-        if (container) {
+        // Find the current assistant message's content column to insert tools inline
+        const allMsgs = document.querySelectorAll('#euler-messages .euler-msg-euler');
+        let parentMsg = allMsgs.length ? allMsgs[allMsgs.length - 1] : null;
+        // Only reuse if no user message came after it (same turn check)
+        if (parentMsg) {
+          let sibling = parentMsg.nextElementSibling;
+          while (sibling) {
+            if (sibling.classList.contains('euler-msg-user')) { parentMsg = null; break; }
+            sibling = sibling.nextElementSibling;
+          }
+        }
+        let contentCol = parentMsg?.querySelector('.euler-msg-content');
+        // If no current assistant message exists, create one
+        if (!contentCol) {
+          const container = document.getElementById('euler-messages');
+          if (container) {
+            _eulerAddMessage('euler', '');
+            const freshMsgs = document.querySelectorAll('#euler-messages .euler-msg-euler');
+            parentMsg = freshMsgs.length ? freshMsgs[freshMsgs.length - 1] : null;
+            contentCol = parentMsg?.querySelector('.euler-msg-content');
+            // Hide the empty bubble since there's no text yet
+            const emptyBubble = contentCol?.querySelector('.euler-euler-bubble');
+            if (emptyBubble && !emptyBubble._rawText) emptyBubble.style.display = 'none';
+          }
+        }
+        if (contentCol) {
           toolRow = document.createElement('div');
           toolRow.id = 'euler-tool-active';
-          toolRow.className = 'euler-msg euler-msg-euler';
-          toolRow.innerHTML = `<div class="euler-msg-row">
-            <div class="euler-msg-avatar" style="visibility:hidden">E</div>
-            <div class="euler-tool-calls"></div>
-          </div>`;
-          container.appendChild(toolRow);
+          toolRow.className = 'euler-tool-row-inline';
+          toolRow.innerHTML = `<div class="euler-tool-calls"></div>`;
+          contentCol.appendChild(toolRow);
         }
       }
       if (toolRow) {
@@ -8026,9 +8586,8 @@ function _handleEulerEvent(evt) {
           tc.scrollIntoView({ behavior: 'smooth', block: 'end' });
         }
       }
-      // Add streaming cursor to current text bubble
-      const currentBubble = document.querySelector('#euler-messages .euler-euler-bubble:last-of-type');
-      if (currentBubble) currentBubble.classList.remove('streaming');
+      // Remove streaming cursor while tools are running
+      _eulerRemoveStreamingCursors();
       break;
     }
 
@@ -8048,43 +8607,73 @@ function _handleEulerEvent(evt) {
       }
       // Course cards are NOT auto-rendered from search results — they're internal context.
       // The orchestrator shows courses via navigate_ui or text links when appropriate.
+
+      // Show thinking indicator after tool completes — model is processing results
+      _eulerShowThinkingInline();
       break;
     }
 
     case 'ARTIFACT': {
       _eulerRemoveThinking();
+      _eulerRemoveStreamingCursors();
       const artContent = evt.content || evt.preview || {};
-      _eulerAddMessage('artifact', '', {
+      const artCard = _buildArtifactCardEl({
         artifactId: evt.artifactId,
         artifactType: evt.artifactType,
         title: evt.title,
         content: artContent,
       });
+      _insertInlineInCurrentMsg(artCard);
+      _eulerSeenToolsSinceText = true;
+      _eulerActions.push(`[Created ${evt.artifactType || 'artifact'}: "${evt.title || 'Untitled'}"]`);
       // Auto-open preview panel
       _openPreviewPanel(evt.artifactType || 'artifact', evt.title || 'Untitled', artContent);
       break;
     }
 
-    case 'DOCUMENT':
+    case 'DOCUMENT': {
       _eulerRemoveThinking();
-      _eulerAddMessage('document', '', {
+      _eulerRemoveStreamingCursors();
+      const docCard = _buildDocumentCardEl({
         title: evt.title,
         format: evt.format,
         downloadUrl: evt.downloadUrl,
       });
+      _insertInlineInCurrentMsg(docCard);
+      _eulerSeenToolsSinceText = true;
+      _eulerActions.push(`[Generated document: "${evt.title || 'Document'}"]`);
       break;
+    }
 
     case 'SESSION_START': {
       _eulerRemoveThinking();
       _eulerRemoveToolIndicator();
+      _eulerRemoveStreamingCursors();
       _eulerSuppressText = true;  // No more text — session is starting
+      _eulerActions.push(`[Started teaching session]`);
       const ctx = evt.context || {};
-      // Auto-navigate to session immediately
       const intent = ctx.enriched_intent || '';
       const courseId = ctx.course_id;
       document.body.style.overflow = 'auto';
       document.body.style.height = 'auto';
-      if (courseId) {
+
+      // BYO video watch-along — launch video player
+      if (ctx.mode === 'watch_along' && ctx.resource_id) {
+        state.sessionId = ctx.session_id || generateId();
+        state.studentName = AuthManager.getUser()?.name || 'Student';
+        // Fetch resource info to get source_url + title
+        fetch(`${state.apiUrl}/api/v1/byo/resources/${ctx.resource_id}/info`, { headers: AuthManager.authHeaders() })
+          .then(r => r.ok ? r.json() : null)
+          .then(info => {
+            const title = info?.original_name || 'Video';
+            const srcUrl = info?.source_url || '';
+            vmStartBYOVideo(ctx.resource_id, ctx.collection_id || info?.collection_id || '', title, srcUrl);
+          })
+          .catch(() => {
+            // Fallback — start with what we have
+            vmStartBYOVideo(ctx.resource_id, ctx.collection_id || '', 'Video', '');
+          });
+      } else if (courseId) {
         const courseIdEl = document.getElementById('course-id');
         if (courseIdEl) courseIdEl.value = courseId;
         const user = AuthManager.getUser();
@@ -8098,7 +8687,9 @@ function _handleEulerEvent(evt) {
     case 'NAVIGATE':
       _eulerRemoveThinking();
       _eulerRemoveToolIndicator();
+      _eulerRemoveStreamingCursors();
       _eulerSuppressText = true;
+      _eulerActions.push(`[Navigated to ${evt.target || 'page'}]`);
       _eulerAddMessage('navigate', '', {
         target: evt.target,
         label: evt.label,
@@ -8107,7 +8698,9 @@ function _handleEulerEvent(evt) {
 
     case 'PERMISSION':
       _eulerRemoveThinking();
+      _eulerRemoveStreamingCursors();
       _eulerSuppressText = true;  // Card IS the message
+      _eulerActions.push(`[Asked permission: "${evt.question || ''}"]`);
       _eulerAddMessage('permission', '', {
         permissionId: evt.permissionId,
         question: evt.question,
@@ -8120,19 +8713,45 @@ function _handleEulerEvent(evt) {
     case 'DONE':
       _eulerRemoveThinking();
       _eulerRemoveToolIndicator();
-      // Remove streaming cursor from all bubbles
-      document.querySelectorAll('.euler-euler-bubble.streaming').forEach(b => b.classList.remove('streaming'));
-      if (_eulerCurrentResponse.trim()) {
-        _eulerHistory.push({ role: 'assistant', content: _eulerCurrentResponse });
+      _eulerRemoveStreamingCursors();
+      _eulerHideProcessing();
+      {
+        // Build history entry with text + action summaries so the backend
+        // knows what tools were called and what was created this turn
+        let historyContent = _eulerCurrentResponse.trim();
+        if (_eulerActions.length) {
+          const actionSummary = '\n' + _eulerActions.join('\n');
+          historyContent = historyContent ? historyContent + actionSummary : actionSummary;
+        }
+        if (historyContent) {
+          _eulerHistory.push({ role: 'assistant', content: historyContent });
+        }
       }
       break;
 
     case 'ERROR':
       _eulerRemoveThinking();
       _eulerRemoveToolIndicator();
+      _eulerRemoveStreamingCursors();
+      _eulerHideProcessing();
       _eulerAddMessage('euler', `Error: ${evt.message || 'Something went wrong.'}`);
       break;
   }
+}
+
+function _eulerShowThinkingInline() {
+  // Show a thinking animation inside the current message content
+  _eulerRemoveThinking(); // remove any existing
+  const container = document.querySelector('#euler-messages .euler-msg-euler:last-child .euler-msg-content');
+  if (!container) return;
+  const indicator = document.createElement('div');
+  indicator.id = 'euler-thinking-indicator';
+  indicator.className = 'euler-thinking';
+  indicator.innerHTML = '<span></span><span></span><span></span>';
+  container.appendChild(indicator);
+  // Auto-scroll
+  const msgs = document.getElementById('euler-messages');
+  if (msgs) msgs.scrollTop = msgs.scrollHeight;
 }
 
 function _eulerRemoveThinking() {
@@ -8145,14 +8764,33 @@ function _eulerRemoveToolIndicator() {
   if (el) el.remove();
 }
 
+function _eulerRemoveStreamingCursors() {
+  document.querySelectorAll('#euler-messages .euler-euler-bubble.streaming').forEach(b => b.classList.remove('streaming'));
+}
+
+function _eulerShowProcessing(label) {
+  const bar = document.getElementById('euler-processing-bar');
+  const lbl = document.getElementById('euler-processing-label');
+  if (bar) bar.classList.add('active');
+  if (lbl && label) lbl.textContent = label;
+}
+
+function _eulerHideProcessing() {
+  const bar = document.getElementById('euler-processing-bar');
+  if (bar) bar.classList.remove('active');
+}
+
 // ═══════════════════════════════════════════════════════════════
 //   BYO — Student materials upload
 // ═══════════════════════════════════════════════════════════════
 
 let _byoPollTimer = null;
+let _byoPollCount = 0;
+const _BYO_POLL_MAX = 30; // max 30 attempts = ~2 minutes, then stop
 
 async function _loadByoMaterials() {
   const grid = document.getElementById('byo-grid');
+  const uploadsSection = document.getElementById('mat-uploads-section');
   if (!grid) return;
 
   try {
@@ -8162,64 +8800,87 @@ async function _loadByoMaterials() {
     if (!res.ok) return;
     const collections = await res.json();
 
-    // Keep the upload zone, add material cards before it
-    const uploadZone = document.getElementById('byo-upload-zone');
-    // Remove old material cards
-    grid.querySelectorAll('.byo-material-card').forEach(c => c.remove());
-
+    grid.innerHTML = '';
     let hasProcessing = false;
 
+    if (!collections.length) {
+      if (uploadsSection) uploadsSection.style.display = 'none';
+      return;
+    }
+    if (uploadsSection) uploadsSection.style.display = '';
+
+    // Classify collections by type
+    const groups = { videos: [], documents: [], other: [] };
     for (const col of collections) {
-      const card = document.createElement('div');
-      card.className = 'byo-material-card';
-      const isReady = col.status === 'ready';
-      const isError = col.status === 'error';
-      if (!isReady && !isError) hasProcessing = true;
-
-      const fileCount = col.stats?.resources || 0;
-      const chunkCount = col.stats?.chunks || 0;
-      const topics = (col.stats?.topics || []).slice(0, 3);
-      const tags = (col.tags || []).slice(0, 3);
-
-      // Status badge
-      const statusBadge = isReady
-        ? '<span class="byo-badge byo-badge-ready">Ready</span>'
-        : isError
-        ? '<span class="byo-badge byo-badge-error">Error</span>'
-        : '<span class="byo-badge byo-badge-processing">Processing</span>';
-
-      // File type indicators based on title/content
+      const tags = col.tags || [];
       const t = (col.title || '').toLowerCase();
-      const typeIcon = t.includes('.pdf') || t.includes('pdf') ? '&#128196;'
-        : t.includes('video') || t.includes('.mp4') || t.includes('youtube') ? '&#127909;'
-        : t.includes('.docx') || t.includes('doc') ? '&#128221;'
-        : t.includes('note') ? '&#128221;'
-        : '&#128218;';
-
-      card.innerHTML = `
-        <div class="byo-card-header">
-          <span class="byo-card-icon">${typeIcon}</span>
-          ${statusBadge}
-        </div>
-        <div class="byo-card-body">
-          <div class="byo-card-title">${_escHtml(col.title || 'Untitled')}</div>
-          ${col.description ? `<div class="byo-card-desc">${_escHtml(col.description)}</div>` : ''}
-          <div class="byo-card-meta">${fileCount} file${fileCount !== 1 ? 's' : ''}${chunkCount ? ` · ${chunkCount} chunks` : ''}</div>
-          ${tags.length ? `<div class="byo-card-tags">${tags.map(t => `<span class="byo-tag">${_escHtml(t)}</span>`).join('')}</div>` : ''}
-          ${topics.length ? `<div class="byo-card-topics">${topics.map(t => `<span class="byo-topic">${_escHtml(t)}</span>`).join('')}</div>` : ''}
-        </div>`;
-      card.addEventListener('click', () => _openByoCollection(col));
-      grid.insertBefore(card, uploadZone);
+      if (tags.includes('video') || tags.includes('youtube') || t.includes('video') || t.includes('youtube')) {
+        groups.videos.push(col);
+      } else if (t.endsWith('.pdf') || t.includes('pdf') || t.endsWith('.docx') || t.includes('.txt') || t.includes('.md')) {
+        groups.documents.push(col);
+      } else {
+        groups.other.push(col);
+      }
     }
 
-    // Auto-poll while any collection is still processing
+    // Render each group
+    const typeConfig = [
+      { key: 'videos', label: 'Videos', icon: '&#127916;', color: '#a78bfa', items: groups.videos },
+      { key: 'documents', label: 'Documents', icon: '&#128196;', color: '#60a5fa', items: groups.documents },
+      { key: 'other', label: 'Other', icon: '&#128218;', color: 'var(--text-dim)', items: groups.other },
+    ];
+
+    for (const group of typeConfig) {
+      if (!group.items.length) continue;
+
+      const header = document.createElement('div');
+      header.className = 'byo-group-header';
+      header.innerHTML = `<span style="color:${group.color}">${group.icon}</span> ${group.label} <span class="byo-group-count">${group.items.length}</span>`;
+      grid.appendChild(header);
+
+      for (const col of group.items) {
+        const isReady = col.status === 'ready';
+        const isError = col.status === 'error';
+        if (!isReady && !isError) hasProcessing = true;
+
+        const fileCount = col.stats?.resources || 0;
+        const chunkCount = col.stats?.chunks || 0;
+
+        const statusHtml = isReady
+          ? '<span class="byo-status-label byo-status-ready">Ready</span>'
+          : isError
+          ? '<span class="byo-status-label byo-status-error">Error</span>'
+          : '<span class="byo-status-label byo-status-processing">Processing</span>';
+
+        const row = document.createElement('div');
+        row.className = 'byo-list-item' + (isError ? ' byo-list-error' : '');
+        row.innerHTML = `
+          <div class="byo-list-info">
+            <span class="byo-list-title">${_escHtml(col.title || 'Untitled')}</span>
+            <span class="byo-list-meta">${fileCount} file${fileCount !== 1 ? 's' : ''}${chunkCount ? ` · ${chunkCount} segments` : ''}</span>
+          </div>
+          ${statusHtml}`;
+        row.addEventListener('click', () => _openByoCollection(col));
+        grid.appendChild(row);
+      }
+    }
+
+    // Auto-poll while any collection is still processing (capped)
     if (hasProcessing && !_byoPollTimer) {
+      _byoPollCount = 0;
       _byoPollTimer = setInterval(() => {
+        _byoPollCount++;
+        if (_byoPollCount > _BYO_POLL_MAX) {
+          console.warn('[BYO] Max poll attempts reached, stopping');
+          clearInterval(_byoPollTimer); _byoPollTimer = null;
+          return;
+        }
         _loadByoMaterials();
-      }, 4000); // refresh every 4 seconds
+      }, 4000);
     } else if (!hasProcessing && _byoPollTimer) {
       clearInterval(_byoPollTimer);
       _byoPollTimer = null;
+      _byoPollCount = 0;
     }
   } catch (e) {
     console.warn('Failed to load BYO materials:', e);
@@ -8548,19 +9209,28 @@ function _openPreviewPanel(type, title, content) {
         <div class="ep-step-n">${i + 1}</div>
         <div>
           <div class="ep-step-title">${_escHtml(s.title || '')}</div>
-          <div class="ep-step-desc">${_escHtml(s.description || '')}</div>
+          <div class="ep-step-desc">${_renderMarkdownFull(s.description || '')}</div>
         </div>
       </div>
     `).join('');
+    _renderKatexIn(body);
   } else if (content.problems) {
     body.innerHTML = content.problems.map((p, i) => `
       <div class="ep-problem">
-        <div class="ep-problem-q"><strong>Q${i + 1}.</strong> ${_renderKatexStr(p.question || '')}</div>
-        <details class="ep-problem-sol"><summary>Show solution</summary>${_renderKatexStr(p.solution || '')}</details>
+        <div class="ep-problem-q"><strong>Q${i + 1}.</strong> ${_renderMarkdownFull(p.question || '')}</div>
+        <details class="ep-problem-sol"><summary>Show solution</summary>${_renderMarkdownFull(p.solution || '')}</details>
       </div>
     `).join('');
+    _renderKatexIn(body);
   } else {
-    body.innerHTML = `<pre class="av-generic">${_escHtml(JSON.stringify(content, null, 2))}</pre>`;
+    // Try to render as markdown for any content with a text-like field
+    const textish = content.text || content.body || content.summary || content.description || '';
+    if (textish) {
+      body.innerHTML = `<div class="av-markdown">${_renderMarkdownFull(textish)}</div>`;
+      _renderKatexIn(body);
+    } else {
+      body.innerHTML = `<pre class="av-generic">${_escHtml(JSON.stringify(content, null, 2))}</pre>`;
+    }
   }
 
   panel.style.display = 'flex';
@@ -8593,37 +9263,113 @@ function openArtifactViewer(artifactType, title, content, artifactId) {
   titleEl.textContent = title;
 
   // Hide all modes
-  document.getElementById('av-flashcards').classList.add('hidden');
-  document.getElementById('av-markdown').classList.add('hidden');
-  document.getElementById('av-generic').classList.add('hidden');
+  ['av-flashcards', 'av-markdown', 'av-pdf', 'av-html', 'av-image', 'av-generic'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) { el.classList.add('hidden'); if (el.tagName === 'IFRAME') el.src = ''; }
+  });
 
+  // Route to the right renderer based on content type
   if (artifactType === 'flashcards' && content.cards) {
     _avCards = content.cards;
     _avIndex = 0;
     document.getElementById('av-flashcards').classList.remove('hidden');
     _renderAVCard();
-  } else if (content.markdown) {
+
+  } else if (content.pdf_url || content.pdf_base64) {
+    // PDF — render in iframe
+    const pdf = document.getElementById('av-pdf');
+    pdf.classList.remove('hidden');
+    pdf.src = content.pdf_url || `data:application/pdf;base64,${content.pdf_base64}`;
+
+  } else if (content.html) {
+    // HTML — render in sandboxed iframe
+    const html = document.getElementById('av-html');
+    html.classList.remove('hidden');
+    html.srcdoc = content.html;
+
+  } else if (content.image_url || content.image_base64) {
+    // Image — render in container
+    const img = document.getElementById('av-image');
+    img.classList.remove('hidden');
+    const src = content.image_url || `data:image/png;base64,${content.image_base64}`;
+    img.innerHTML = `<img src="${_escHtml(src)}" style="max-width:100%;max-height:100%;object-fit:contain;border-radius:8px" alt="${_escHtml(title)}">`;
+
+  } else if (content.audio_url) {
+    // Audio — inline player
     const md = document.getElementById('av-markdown');
     md.classList.remove('hidden');
-    md.innerHTML = _renderMarkdownFull(content.markdown);
-    _renderKatexIn(md);
+    md.innerHTML = `<div style="text-align:center;padding:40px 20px">
+      <div style="font-size:48px;margin-bottom:16px">&#127911;</div>
+      <div style="font-size:16px;font-weight:600;margin-bottom:16px">${_escHtml(title)}</div>
+      <audio controls style="width:100%;max-width:400px" src="${_escHtml(content.audio_url)}" preload="auto"></audio>
+    </div>`;
+
+  } else if (content.code) {
+    // Code file — syntax highlighted
+    const lang = content.language || content.lang || _guessLangFromTitle(title) || '';
+    const md = document.getElementById('av-markdown');
+    md.classList.remove('hidden');
+    md.innerHTML = `<div class="av-code-viewer">
+      <div class="av-code-header">
+        <span class="av-code-lang">${_escHtml(lang.toUpperCase() || 'CODE')}</span>
+        <button class="av-code-copy" onclick="navigator.clipboard.writeText(this.closest('.av-code-viewer').querySelector('code').textContent)">Copy</button>
+      </div>
+      <pre class="av-code-block"><code class="language-${_escHtml(lang)}">${_escHtml(content.code)}</code></pre>
+    </div>`;
+
+  } else if (content.markdown) {
+    _avShowMarkdown(content.markdown);
+
   } else if (content.steps || content.problems) {
     const items = content.steps || content.problems || [];
-    const md = document.getElementById('av-markdown');
-    md.classList.remove('hidden');
-    md.innerHTML = items.map((s, i) => {
-      const title = s.title || s.question || `Item ${i + 1}`;
+    const html = items.map((s, i) => {
+      const t = s.title || s.question || `Item ${i + 1}`;
       const body = s.description || s.solution || s.content || '';
-      return `<h3>${i + 1}. ${_escHtml(title)}</h3><p>${_escHtml(body)}</p>`;
+      return `<h3>${i + 1}. ${_escHtml(t)}</h3>${_renderMarkdownFull(body)}`;
     }).join('');
-    _renderKatexIn(md);
+    _avShowMarkdown(html, true);
+
+  } else if (content.content_markdown) {
+    // Alternative markdown field name
+    _avShowMarkdown(content.content_markdown);
+
   } else {
-    const gen = document.getElementById('av-generic');
-    gen.classList.remove('hidden');
-    gen.textContent = JSON.stringify(content, null, 2);
+    // Auto-detect: try text-like fields as markdown, fall back to JSON
+    const textish = content.text || content.body || content.summary || content.description || '';
+    if (textish) {
+      _avShowMarkdown(textish);
+    } else {
+      const gen = document.getElementById('av-generic');
+      gen.classList.remove('hidden');
+      gen.textContent = JSON.stringify(content, null, 2);
+    }
   }
 
   overlay.classList.remove('hidden');
+}
+
+function _guessLangFromTitle(title) {
+  if (!title) return '';
+  const t = title.toLowerCase();
+  if (t.endsWith('.py') || t.includes('python')) return 'python';
+  if (t.endsWith('.js') || t.includes('javascript')) return 'javascript';
+  if (t.endsWith('.ts') || t.includes('typescript')) return 'typescript';
+  if (t.endsWith('.html')) return 'html';
+  if (t.endsWith('.css')) return 'css';
+  if (t.endsWith('.java')) return 'java';
+  if (t.endsWith('.cpp') || t.endsWith('.c')) return 'cpp';
+  if (t.endsWith('.go')) return 'go';
+  if (t.endsWith('.rs')) return 'rust';
+  if (t.endsWith('.sql')) return 'sql';
+  if (t.endsWith('.json')) return 'json';
+  return '';
+}
+
+function _avShowMarkdown(text, isPreRendered) {
+  const md = document.getElementById('av-markdown');
+  md.classList.remove('hidden');
+  md.innerHTML = isPreRendered ? text : _renderMarkdownFull(text);
+  _renderKatexIn(md);
 }
 
 window.closeArtifactViewer = function() {
@@ -9297,6 +10043,7 @@ async function _startOnDemandSession(intentText) {
 // ─── Plan sidebar ─────────────────────────────────────────
 
 function showPlanSidebar() {
+  if (state._videoWatchAlong) return; // No plan in video watch-along mode
   const sb = document.getElementById('plan-sidebar');
   if (sb) sb.classList.remove('hidden');
 }
@@ -9328,13 +10075,12 @@ function updatePlanSidebar(plan) {
   const genEl = document.getElementById('psb-generating');
   if (genEl) genEl.style.display = 'none';
 
-  // Count done/active
-  const currentIndex = state.currentTopicIndex >= 0 ? state.currentTopicIndex : 0;
+  // Determine done/active from the status field on each section and topic
   let doneCount = 0;
 
   body.innerHTML = sections.map((sec, i) => {
-    const isDone = i < currentIndex;
-    const isActive = i === currentIndex;
+    const isDone = sec.status === 'done';
+    const isActive = sec.status === 'active';
     if (isDone) doneCount++;
     const cls = isDone ? 'psb-section done' : isActive ? 'psb-section active open' : 'psb-section';
     const title = sec.title || sec.topic || `Section ${i + 1}`;
@@ -9343,10 +10089,10 @@ function updatePlanSidebar(plan) {
     let topicsHtml = '';
     if (topics.length) {
       topicsHtml = `<div class="psb-topics">${topics.map((t, j) => {
-        const tDone = isDone ? 'done' : '';
-        const tActive = isActive && j === 0 ? 'active' : '';
-        return `<div class="psb-topic ${tDone} ${tActive}" data-section="${i}" data-topic="${j}">
-          <span class="psb-topic-icon">${isDone ? '&#10003;' : isActive ? '&#9654;' : '&#9675;'}</span>
+        const tIsDone = isDone || t.status === 'done';
+        const tIsActive = isActive && t.status === 'active';
+        return `<div class="psb-topic ${tIsDone ? 'done' : ''} ${tIsActive ? 'active' : ''}" data-section="${i}" data-topic="${j}">
+          <span class="psb-topic-icon">${tIsDone ? '&#10003;' : tIsActive ? '&#9654;' : '&#9675;'}</span>
           <span>${t.title || t.concept || t}</span>
           <span class="psb-jump">Jump &rarr;</span>
         </div>`;
@@ -9363,21 +10109,38 @@ function updatePlanSidebar(plan) {
     </div>`;
   }).join('');
 
-  // Update progress
-  const pct = sections.length > 0 ? Math.round((doneCount / sections.length) * 100) : 0;
+  // Update progress — count at topic level for accuracy
+  let totalTopics = 0, doneTopics = 0;
+  for (const sec of sections) {
+    const topics = sec.topics || sec.steps || [];
+    if (topics.length > 0) {
+      totalTopics += topics.length;
+      doneTopics += topics.filter(t => t.status === 'done').length;
+    } else {
+      totalTopics += 1;
+      if (sec.status === 'done') doneTopics += 1;
+    }
+  }
+  const pct = totalTopics > 0 ? Math.round((doneTopics / totalTopics) * 100) : 0;
   if (progressFill) progressFill.style.width = pct + '%';
-  if (progressText) progressText.innerHTML = `<span>${doneCount} of ${sections.length}</span><span>${pct}%</span>`;
+  if (progressText) progressText.innerHTML = `<span>${doneTopics} of ${totalTopics}</span><span>${pct}%</span>`;
 
-  // Wire jump clicks
+  // Wire jump clicks with debounce guard
+  let _lastJumpAt = 0;
   body.querySelectorAll('.psb-topic').forEach(el => {
     el.addEventListener('click', () => {
+      // Guard: skip if streaming or recently jumped
+      if (state.isStreaming) return;
+      const now = Date.now();
+      if (now - _lastJumpAt < 2000) return;
+      _lastJumpAt = now;
+
       const secIdx = parseInt(el.dataset.section);
       const topIdx = parseInt(el.dataset.topic);
       const sec = sections[secIdx];
       const topic = sec?.topics?.[topIdx] || sec?.steps?.[topIdx];
       const title = topic?.title || topic?.concept || sec?.title || '';
       if (title) {
-        // Send a message to jump to this topic
         streamADK(`I want to jump to: ${title}. Skip ahead to this topic in the plan.`);
       }
     });
@@ -9733,6 +10496,9 @@ async function startNewSession(name, courseId, intent, scenario) {
   if (state._startingSession) return;
   state._startingSession = true;
 
+  // Clean up any active session (board, agents, streaming)
+  if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
+
   // Show loading state on button
   const startBtn = $('#btn-start-session');
   const dashInput = $('#student-intent-first');
@@ -10039,36 +10805,85 @@ window.continueSession = async function(sessionId) {
       const rawTitle = sessionData.headline || courseMap?.title || 'Session';
       const lastTitle = rawTitle.length > 40 ? rawTitle.slice(0, 40) + '...' : rawTitle;
       openBoardDrawSpotlight(lastTitle, null, { clear: true, skipReference: true });
-      // Wait for BoardEngine.init — needs 2 frames for DOM creation + init
-      await new Promise(r => setTimeout(r, 100));
+      // Wait for BoardEngine.init — requestAnimationFrame + DOM layout + init
+      // Poll until liveScene exists (max 500ms) instead of fixed timeout
+      await new Promise(resolve => {
+        let tries = 0;
+        const check = () => {
+          tries++;
+          if ((typeof BoardEngine !== 'undefined' && BoardEngine.state?.liveScene) || tries > 25) {
+            resolve();
+          } else {
+            setTimeout(check, 20);
+          }
+        };
+        check();
+      });
     }
 
-    // Restore voice mode state
+    // Restore voice/video mode state
     if (sessionData.teachingMode) {
       state.teachingMode = sessionData.teachingMode;
     }
     if (sessionData.voiceSpeed) {
       state.voiceSpeed = sessionData.voiceSpeed;
     }
+    // Video follow-along: hide plan sidebar
+    if (state.teachingMode === 'video_follow') {
+      state._videoWatchAlong = true;
+      hidePlanSidebar();
+    }
 
     // Save active spotlight info for restoration after canvas rebuild
     const savedSpotlight = sessionData.activeSpotlight || null;
 
-    // Restore plan from session data
+    // Restore plan from session data — reuse handlePlanFromAgent logic
     if (sessionData.plan && sessionData.plan.raw) {
       const rawPlan = sessionData.plan.raw;
-      state.plan = (rawPlan.sections || rawPlan.steps || []).map((sec, i) => ({
-        n: i + 1,
-        title: sec.title || sec.student_label || `Section ${i + 1}`,
-        modality: sec.modality || sec.type || '',
-        covers: sec.covers || sec.concept || '',
-        learningOutcome: sec.learning_outcome || sec.objective || '',
-        activity: sec.activity || sec.do || '',
-        studentLabel: sec.title || '',
-        description: sec.activity || sec.covers || '',
-        status: 'pending',
-        performance: null,
-      }));
+      state.currentPlan = rawPlan;
+
+      // Build sections with nested topics (same structure as PLAN_UPDATE handler)
+      if (rawPlan.sections && rawPlan.sections.length > 0) {
+        state.plan = rawPlan.sections.map((sec, i) => ({
+          n: sec.n || i + 1,
+          title: sec.title || `Section ${i + 1}`,
+          modality: sec.modality || '',
+          covers: sec.covers || '',
+          learningOutcome: sec.learning_outcome || '',
+          studentLabel: sec.title || '',
+          description: sec.activity || sec.covers || '',
+          status: 'pending',
+          performance: null,
+          topics: (sec.topics || []).map((t, j) => ({
+            t: t.t || j + 1,
+            title: t.title || '',
+            concept: t.concept || '',
+            status: 'pending',
+          })),
+        }));
+      } else {
+        // Flat topics (older plan format)
+        const topics = rawPlan._topics || rawPlan.topics || rawPlan.steps || [];
+        if (topics.length > 0) {
+          state.plan = [{
+            n: 1,
+            title: rawPlan.section_title || rawPlan.session_objective || 'Section',
+            modality: '',
+            covers: '',
+            learningOutcome: rawPlan.learning_outcome || '',
+            studentLabel: rawPlan.section_title || 'Section',
+            description: rawPlan.learning_outcome || '',
+            status: 'pending',
+            performance: null,
+            topics: topics.map((t, i) => ({
+              t: i + 1,
+              title: t.title || '',
+              concept: t.concept || '',
+              status: 'pending',
+            })),
+          }];
+        }
+      }
 
       // Mark sections as done/active based on session sections
       const sessionSections = sessionData.sections || [];
@@ -10084,6 +10899,7 @@ window.continueSession = async function(sessionId) {
       state.planActiveStep = active ? active.n : null;
 
       updateHeadingBar();
+      updatePlanSidebar({ sections: state.plan });
     }
 
     // Rebuild historical canvas content from transcript
@@ -10155,8 +10971,11 @@ function rebuildCanvasFromTranscript(transcript) {
 
   // Prevent spotlights from opening during replay (only render ref cards)
   state.replayMode = true;
-  // Tell board engine to skip animation delays during replay
-  if (typeof BoardEngine !== 'undefined' && BoardEngine.state) BoardEngine.state.replayMode = true;
+  // Tell board engine to skip animation delays during replay and clear cancel flag
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+    BoardEngine.state.replayMode = true;
+    BoardEngine.state.cancelFlag = false;
+  }
   const savedHistory = state.spotlightHistory || [];
   state.spotlightHistory = [];
 
@@ -10256,26 +11075,61 @@ function renderHistoricalTag(tag) {
 }
 
 function _replayVoiceSceneBoardOnly(tag) {
-  // Extract board-draw commands from voice scene content — render them instantly, skip audio
+  // Extract board-draw commands AND spoken text from voice scene — render instantly, skip audio
   const content = tag.content || tag.attrs?.content || '';
   if (!content) return;
 
-  // Parse <vb draw='{"cmd":"..."}' /> tags from the voice scene
-  const vbRegex = /<vb\s+draw='([^']+)'/g;
+  // Parse <vb> tags and extract draw + say attributes
+  const vbRegex = /<vb\s+([\s\S]*?)\/>/g;
   let match;
+  const commands = [];
+  const spokenParts = [];
   while ((match = vbRegex.exec(content)) !== null) {
-    try {
-      const cmd = JSON.parse(match[1]);
-      // Open board spotlight if not already open
-      if (!state.boardDraw.active) {
-        const title = tag.attrs?.title || 'Board';
-        openBoardDrawSpotlight(title, null, { clear: true, skipReference: true });
-      }
-      if (typeof BoardEngine !== 'undefined') {
-        BoardEngine.queueCommand(cmd);
-      }
-    } catch (e) {
-      // skip unparseable commands
+    const attrs = match[1];
+    // Extract draw attribute
+    const drawMatch = attrs.match(/draw='([^']+)'/) || attrs.match(/draw="([^"]+)"/);
+    if (drawMatch) {
+      try { commands.push(JSON.parse(drawMatch[1])); } catch (e) {}
+    }
+    // Extract spoken text (for rendering as board text on restore)
+    const sayMatch = attrs.match(/say="([^"]*)"/) || attrs.match(/say='([^']*)'/);
+    if (sayMatch && sayMatch[1].trim()) {
+      spokenParts.push(sayMatch[1].trim());
+    }
+  }
+
+  if (commands.length === 0 && spokenParts.length === 0) return;
+
+  // Ensure board is open and snapshot previous scene if needed
+  if (!state.boardDraw.active) {
+    const title = tag.attrs?.title || 'Board';
+    openBoardDrawSpotlight(title, null, { clear: true, skipReference: true });
+  } else if (typeof BoardEngine !== 'undefined' && BoardEngine.snapshotScene) {
+    BoardEngine.snapshotScene();
+  }
+
+  // Hide the empty state placeholder
+  const emptyState = document.getElementById('board-empty-state');
+  if (emptyState) emptyState.style.display = 'none';
+
+  // Queue draw commands
+  if (typeof BoardEngine !== 'undefined') {
+    for (const cmd of commands) {
+      BoardEngine.queueCommand(cmd);
+    }
+  }
+
+  // Render spoken text as board text (since TTS won't replay on restore)
+  if (spokenParts.length > 0) {
+    const combined = spokenParts.join(' ');
+    // Show as a condensed transcript below the board drawings
+    const stream = document.getElementById('canvas-stream');
+    if (stream) {
+      const block = document.createElement('div');
+      block.className = 'canvas-block board-text-block fade-in';
+      block.dataset.type = 'ai';
+      block.innerHTML = `<div class="board-text board-voice-transcript">${escapeHtml(combined)}</div>`;
+      stream.appendChild(block);
     }
   }
 }
@@ -14780,14 +15634,16 @@ async function voiceSpeakMSE(resp) {
   let started = false;
 
   const append = (chunk) => new Promise((res, rej) => {
+    const timeout = setTimeout(() => res(), 5000); // 5s append timeout
+    const done = () => { clearTimeout(timeout); res(); };
     if (sb.updating) {
       sb.addEventListener('updateend', () => {
-        try { sb.appendBuffer(chunk); } catch (e) { rej(e); return; }
-        sb.addEventListener('updateend', res, { once: true });
+        try { sb.appendBuffer(chunk); } catch (e) { clearTimeout(timeout); rej(e); return; }
+        sb.addEventListener('updateend', done, { once: true });
       }, { once: true });
     } else {
-      try { sb.appendBuffer(chunk); } catch (e) { rej(e); return; }
-      sb.addEventListener('updateend', res, { once: true });
+      try { sb.appendBuffer(chunk); } catch (e) { clearTimeout(timeout); rej(e); return; }
+      sb.addEventListener('updateend', done, { once: true });
     }
   });
 
@@ -14808,11 +15664,14 @@ async function voiceSpeakMSE(resp) {
 
     if (!started) return; // no data
 
-    // Wait for playback to finish
+    // Wait for playback to finish — cap timeout based on actual duration or 10s max
     if (!audio.ended) {
       await new Promise(r => {
         audio.addEventListener('ended', r, { once: true });
-        const safeMs = ((audio.duration || 30) / state.voiceSpeed) * 1000 + 500;
+        const dur = audio.duration;
+        const safeMs = (isFinite(dur) && dur > 0)
+          ? (dur / state.voiceSpeed) * 1000 + 500
+          : 10000; // 10s fallback when duration unknown
         setTimeout(r, safeMs);
       });
     }
@@ -14973,12 +15832,15 @@ function voiceShowBoardQuestion(questionText) {
     voiceShowSubtitle(rendered);
   }
 
-  // Focus the unified input bar
+  // Focus the unified input bar — but NEVER clear text the student is typing
   const field = $('#voice-bar-input');
   if (field) {
     field.placeholder = isGeneric ? 'Type your response...' : 'Your answer...';
-    field.value = '';
-    field.focus();
+    // Only clear and focus if the student hasn't typed anything
+    if (!field.value.trim()) {
+      field.value = '';
+      if (document.activeElement !== field) field.focus();
+    }
   }
 }
 
@@ -14986,8 +15848,10 @@ function voiceHideBoardQuestion() {
   const field = $('#voice-bar-input');
   if (field) {
     field.placeholder = 'Type your response...';
-    field.value = '';
-    field.blur();
+    // Don't clear if student has typed something
+    if (!field.value.trim()) {
+      field.value = '';
+    }
   }
 }
 
@@ -15089,6 +15953,9 @@ function _eagerBeatWatcher(text) {
     const title = titleMatch ? titleMatch[1] : 'Teaching';
     _eagerInitBoard(title);
 
+    // Mark matching topic as active in the plan sidebar (fuzzy match on title)
+    _markTopicActiveByTitle(title);
+
     // Prefetch first beat's TTS immediately
     if (_eager.queue[0]?.say?.trim()) {
       _eager.ttsPrefetch = voiceFetchTTS(_eager.queue[0].say);
@@ -15099,6 +15966,35 @@ function _eagerBeatWatcher(text) {
   if (!_eager.running && _eager.queue.length > 0) {
     _eager.running = true;
     _eagerExecutorLoop();
+  }
+}
+
+function _markTopicActiveByTitle(sceneTitle) {
+  // When a voice scene starts, mark the matching topic as active in the plan
+  // This gives immediate visual feedback without waiting for advance_topic
+  if (!state.plan.length || !sceneTitle) return;
+  const lower = sceneTitle.toLowerCase();
+
+  for (const sec of state.plan) {
+    if (!sec.topics) continue;
+    for (const t of sec.topics) {
+      if (t.status === 'done') continue;
+      const tLower = (t.title || '').toLowerCase();
+      // Fuzzy match: scene title contains topic title or vice versa
+      if (tLower && (lower.includes(tLower) || tLower.includes(lower) ||
+          // Also match on key words (3+ chars)
+          tLower.split(/\s+/).filter(w => w.length > 3).some(w => lower.includes(w)))) {
+        // Mark previous active topics in this section as done
+        for (const prev of sec.topics) {
+          if (prev.status === 'active' && prev !== t) prev.status = 'done';
+        }
+        t.status = 'active';
+        if (sec.status !== 'active') sec.status = 'active';
+        updatePlanSidebar({ sections: state.plan });
+        updateHeadingBar();
+        return;
+      }
+    }
   }
 }
 
@@ -15144,9 +16040,17 @@ function _eagerInitBoard(title) {
 }
 
 async function _eagerExecutorLoop() {
+  const _loopStart = Date.now();
+  const LOOP_TIMEOUT = 120000; // 2 min max per scene execution
+
   while (!_eager.done) {
-    // Check if stopped
+    // Check if stopped or timed out
     if (state._stopRequested) { _eager.done = true; break; }
+    if (Date.now() - _loopStart > LOOP_TIMEOUT) {
+      console.warn('[EagerBeat] Executor loop timed out after 2min — breaking');
+      _eager.done = true;
+      break;
+    }
 
     if (_eager.queue.length > 0) {
       const beat = _eager.queue.shift();
@@ -15245,10 +16149,14 @@ async function _eagerExecBeat(beat, prefetchedTTS) {
     return;
   }
 
-  // Draw + say in parallel
-  await Promise.all([
-    executeDraw(beat.draw),
-    executeSay(beat.say, prefetchedTTS),
+  // Draw + say in parallel — with timeout to prevent hangs
+  const beatTimeout = 15000; // 15s max per beat
+  await Promise.race([
+    Promise.all([
+      executeDraw(beat.draw),
+      executeSay(beat.say, prefetchedTTS),
+    ]),
+    new Promise(r => setTimeout(r, beatTimeout)),
   ]);
 
   // Inter-beat gap
@@ -16872,6 +17780,198 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   });
 }
 
+
+// ── BYO Video Watch-Along ──────────────────────────────────
+// Like vmStartVideoForLesson but for student's own uploaded/linked videos.
+// Orchestrator calls this via SESSION_START with mode=watch_along + resource_id.
+
+async function vmStartBYOVideo(resourceId, collectionId, title, sourceUrl) {
+  state.video.active = true;
+  state.video.byoResourceId = resourceId;
+  state.video.byoCollectionId = collectionId;
+  state.video.lessonTitle = title || 'Video';
+  state.video.sections = [];
+
+  // Show teaching layout — video mode (no plan sidebar)
+  document.body.classList.add('video-mode');
+  _hideAllScreens();
+  document.getElementById('teaching-layout').classList.remove('hidden');
+  hidePlanSidebar();
+  state._videoWatchAlong = true; // Prevent plan sidebar from showing
+  state.teachingMode = 'video_follow'; // Persisted to session for restore
+  document.getElementById('teaching-layout').style.display = 'flex';
+
+  // Session should already be created by the orchestrator
+  if (!state.sessionId) state.sessionId = generateId();
+  state.sessionStartTime = Date.now();
+  state.messages = [];
+  state.studentIntent = `Video watch-along: ${title}`;
+
+  Router.navigate(`/session/${state.sessionId}`, { replace: true, skipHandler: true });
+
+  // Init board
+  setTimeout(() => {
+    const spotlightTitle = document.getElementById('spotlight-title');
+    if (spotlightTitle) spotlightTitle.textContent = title;
+    const badge = document.getElementById('spotlight-type-badge');
+    if (badge) badge.textContent = 'VIDEO';
+
+    state.boardDraw.active = false;
+    state.boardDraw.dismissed = false;
+    state.boardDraw.complete = false;
+    state.boardDraw.processedLines = 0;
+
+    const cmds = [
+      `{"cmd":"h1","text":"${(title || 'Video').replace(/"/g, '\\"')}"}`,
+      `{"cmd":"gap","height":20}`,
+      `{"cmd":"text","text":"Watching with your tutor — pause anytime to ask questions.","color":"#52525b"}`,
+    ];
+    const fakeTag = `<teaching-board-draw title="${(title || 'Video').replace(/"/g, '&quot;')}">\n${cmds.join('\n')}\n</teaching-board-draw>`;
+    bdProcessStreaming(fakeTag);
+  }, 600);
+
+  // Set up video player
+  const overlay = document.getElementById('vm-video-overlay');
+  overlay.classList.remove('hidden');
+  document.getElementById('vm-vid-wrap').classList.remove('vm-mini');
+
+  const box = overlay.querySelector('.vm-vid-box');
+  box.innerHTML = '<video id="vm-video-el" playsinline></video>';
+  const video = document.getElementById('vm-video-el');
+  video.style.cssText = 'width:100%;display:block;background:#000';
+
+  // Initialize Plyr
+  if (typeof Plyr !== 'undefined') {
+    new Plyr(video, {
+      controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+      settings: ['speed'],
+      speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+    });
+  }
+
+  // Determine video source — YouTube uses IFrame API, uploads use <video>
+  const ytId = sourceUrl ? _extractYTVideoId(sourceUrl) : null;
+  if (ytId) {
+    // YouTube — use IFrame API for pause/play event detection
+    state.video.isYouTube = true;
+    box.innerHTML = '<div id="vm-yt-player-target"></div>';
+
+    // Load YouTube IFrame API if not already loaded
+    if (!window.YT || !window.YT.Player) {
+      const tag = document.createElement('script');
+      tag.src = 'https://www.youtube.com/iframe_api';
+      document.head.appendChild(tag);
+    }
+
+    const initYTPlayer = () => {
+      state.video._ytPlayer = new YT.Player('vm-yt-player-target', {
+        videoId: ytId,
+        width: '100%',
+        playerVars: { autoplay: 0, rel: 0, modestbranding: 1, enablejsapi: 1 },
+        events: {
+          onStateChange: (e) => {
+            // YT.PlayerState: PAUSED=2, PLAYING=1, BUFFERING=3
+            if (e.data === YT.PlayerState.PAUSED && state.video.active) {
+              state.video.currentTimestamp = state.video._ytPlayer.getCurrentTime();
+              setTimeout(() => {
+                // Check still paused (not just seeking)
+                if (state.video._ytPlayer.getPlayerState() === YT.PlayerState.PAUSED && state.video.active) {
+                  _vmOnPause();
+                }
+              }, 300);
+            } else if (e.data === YT.PlayerState.PLAYING && state.video.isPaused) {
+              _vmOnResume();
+            }
+          },
+          onReady: () => {
+            // Style the iframe
+            const iframe = document.querySelector('#vm-yt-player-target iframe');
+            if (iframe) {
+              iframe.style.borderRadius = '8px';
+              iframe.style.width = '100%';
+              iframe.style.aspectRatio = '16/9';
+            }
+          },
+        },
+      });
+    };
+
+    // Init when API is ready
+    if (window.YT && window.YT.Player) {
+      initYTPlayer();
+    } else {
+      window.onYouTubeIframeAPIReady = initYTPlayer;
+    }
+
+    // Poll timestamp (YT API doesn't have timeupdate event)
+    state.video._ytTimerInterval = setInterval(() => {
+      if (state.video._ytPlayer && typeof state.video._ytPlayer.getCurrentTime === 'function') {
+        state.video.currentTimestamp = state.video._ytPlayer.getCurrentTime();
+      }
+    }, 1000);
+
+    state.video.player = null;
+  } else if (sourceUrl) {
+    video.src = sourceUrl;
+    state.video.player = video;
+  } else if (resourceId) {
+    video.src = `${state.apiUrl}/api/v1/byo/resources/${resourceId}/file`;
+    state.video.player = video;
+  } else {
+    box.innerHTML = '<div style="width:100%;aspect-ratio:16/9;background:#111;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:14px;border-radius:8px">No video source available</div>';
+    state.video.player = null;
+  }
+
+  // Event listeners — only for <video> element (not YouTube iframe)
+  if (state.video.player) {
+    let _isSeeking = false;
+    video.addEventListener('seeking', () => { _isSeeking = true; });
+    video.addEventListener('seeked', () => { setTimeout(() => { _isSeeking = false; }, 300); });
+    video.addEventListener('pause', () => {
+      if (!state.video.active || _isSeeking) return;
+      setTimeout(() => {
+        if (video.paused && !_isSeeking && state.video.active) _vmOnPause();
+      }, 200);
+    });
+    video.addEventListener('playing', () => { if (state.video.active && state.video.isPaused) _vmOnResume(); });
+    video.addEventListener('timeupdate', () => {
+      if (state.video.active && video.currentTime) {
+        state.video.currentTimestamp = video.currentTime;
+      }
+    });
+  }
+
+  // Trigger first chat message to start the tutor follow-along
+  const trigger = `[SYSTEM] Student is watching "${title}" — a BYO video watch-along session. ` +
+    `BYO resource_id: ${resourceId}, collection_id: ${collectionId || ''}. ` +
+    `Use byo_transcript_context(resource_id, timestamp) when the student pauses to understand what they just watched. ` +
+    `Greet them briefly and let them know you're following along.`;
+  setTimeout(() => streamADK(trigger, true, true), 1000);
+}
+window.vmStartBYOVideo = vmStartBYOVideo;
+
+window.vmExitVideoSession = function() {
+  // Stop video playback
+  const video = document.getElementById('vm-video-el');
+  if (video) { try { video.pause(); video.src = ''; } catch(e) {} }
+  // Clear iframe (YouTube embed)
+  const iframe = document.getElementById('vm-yt-iframe');
+  if (iframe) iframe.src = '';
+
+  state.video.active = false;
+  state.video.player = null;
+
+  // Hide overlay
+  const overlay = document.getElementById('vm-video-overlay');
+  if (overlay) overlay.classList.add('hidden');
+  document.getElementById('vm-vid-wrap')?.classList.remove('vm-mini');
+
+  // Clean up session
+  document.body.classList.remove('video-mode');
+  cleanupActiveSession();
+  Router.navigate('/home');
+};
+
 function _vmOnPause() {
   if (state.video.isPaused) return;
   state.video.isPaused = true;
@@ -16896,14 +17996,22 @@ function _vmOnResume() {
 }
 
 function vmResumeVideo() {
-  const el = document.getElementById('vm-video-el');
-  if (el?.play) el.play();
+  if (state.video._ytPlayer && typeof state.video._ytPlayer.playVideo === 'function') {
+    state.video._ytPlayer.playVideo();
+  } else {
+    const el = document.getElementById('vm-video-el');
+    if (el?.play) el.play();
+  }
   _vmOnResume();
 }
 
 function vmSeekVideo(timestamp) {
-  const el = document.getElementById('vm-video-el');
-  if (el) el.currentTime = timestamp;
+  if (state.video._ytPlayer && typeof state.video._ytPlayer.seekTo === 'function') {
+    state.video._ytPlayer.seekTo(timestamp, true);
+  } else {
+    const el = document.getElementById('vm-video-el');
+    if (el) el.currentTime = timestamp;
+  }
   state.video.currentTimestamp = timestamp;
 }
 

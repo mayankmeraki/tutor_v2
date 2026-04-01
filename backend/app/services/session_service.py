@@ -147,7 +147,7 @@ async def generate_section_summary(
     try:
         from app.core.llm import LLMCallMetadata
         response = await llm_call(
-            model=settings.SUMMARIZATION_MODEL,
+            model=settings.summarization_model,
             system="",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=1024,
@@ -252,7 +252,7 @@ async def generate_session_headline(session: dict) -> dict:
 
     try:
         response = await llm_call(
-            model=settings.SUMMARIZATION_MODEL,
+            model=settings.summarization_model,
             system="",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=256,
@@ -297,19 +297,27 @@ async def _enrich_sessions_with_headlines(sessions: list[dict]) -> list[dict]:
         if existing and not is_stale:
             continue  # Good headline cached
 
+        # Build a clean fallback title — prefer plan objective or section titles over raw intent
+        objective = (s.get("plan") or {}).get("sessionObjective", "")
+        sec_titles = [sec.get("title", "") for sec in (s.get("sections") or []) if sec.get("title")]
+        intent_raw = (s.get("intent", {}) or {}).get("raw", "")
+        # Pick the cleanest, shortest option
+        fallback = (
+            objective[:80]
+            or (sec_titles[0] if sec_titles else "")
+            or (intent_raw[:60] if len(intent_raw) < 80 else "")
+            or f"Session {s.get('number', '?')}"
+        )
+
         if not _has_enough_data_for_headline(s):
             if not existing:
-                # Use intent as fallback title
-                intent = (s.get("intent", {}) or {}).get("raw", "")
-                s["headline"] = intent or f"Session {s.get('number', '?')}"
+                s["headline"] = fallback
                 s["headlineDescription"] = ""
             continue
 
         # Needs generation — use fallback now, generate in background
         if not existing or is_stale:
-            intent = (s.get("intent", {}) or {}).get("raw", "")
-            sec = (s.get("sections") or [{}])[0] if s.get("sections") else {}
-            s["headline"] = intent or sec.get("title", "") or f"Session {s.get('number', '?')}"
+            s["headline"] = fallback
             needs_generation.append(s)
 
     # Fire background tasks for headline generation (non-blocking)
@@ -465,6 +473,7 @@ async def sync_backend_state(session_id: str, session) -> None:
         "sessionStatus": session.session_status,
         "completionReason": session.completion_reason,
         "teachingMode": session.teaching_mode,
+        "phase": session.phase.value if hasattr(session.phase, 'value') else str(session.phase),
         "currentPlan": session.current_plan,
         "currentTopics": session.current_topics,
         "currentTopicIndex": session.current_topic_index,

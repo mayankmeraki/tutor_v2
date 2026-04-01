@@ -38,21 +38,60 @@ async def create(request: Request, user: dict = Depends(get_optional_user)):
 
 @router.get("/me/all")
 async def all_my_sessions(user: dict = Depends(get_optional_user)):
-    """Get all sessions for the authenticated user across all courses, newest first."""
+    """Get all sessions for the authenticated user across all courses, newest first.
+
+    Returns sessions enriched with headlines and course names, separated into
+    course sessions and free/on-demand sessions for frontend grouping.
+    """
     from app.core.mongodb import get_tutor_db
+    from app.services.session_service import _enrich_sessions_with_headlines
     db = get_tutor_db()
     cursor = db["sessions"].find(
         {"userEmail": user["email"]},
         {f: 1 for f in [
             "sessionId", "courseId", "studentName", "startedAt", "status",
             "headline", "headlineDescription", "intent", "durationSec",
-            "metrics", "sections", "plan.sessionObjective",
+            "metrics", "sections", "plan.sessionObjective", "transcript",
         ]},
     ).sort("startedAt", -1).limit(20)
     docs = []
     async for doc in cursor:
         doc.pop("_id", None)
         docs.append(doc)
+
+    # Enrich with AI-generated headlines (non-blocking — uses fallbacks)
+    docs = await _enrich_sessions_with_headlines(docs)
+    # Strip transcript (was only needed for headline gen)
+    for d in docs:
+        d.pop("transcript", None)
+
+    # Attach course names from content service (cached, no Postgres dependency)
+    course_ids = list({d["courseId"] for d in docs if d.get("courseId")})
+    course_names = {}
+    if course_ids:
+        try:
+            from app.services.content_service import get_course_with_hierarchy
+            from app.core.database import get_db
+            db_gen = get_db()
+            db_session = await db_gen.__anext__()
+            try:
+                for cid in course_ids[:10]:  # cap at 10 to avoid slow queries
+                    try:
+                        course = await get_course_with_hierarchy(db_session, cid)
+                        if course and course.get("title"):
+                            course_names[cid] = course["title"]
+                    except Exception:
+                        pass
+            finally:
+                await db_gen.aclose()
+        except Exception as e:
+            log.warning("Failed to fetch course names: %s", e)
+
+    for d in docs:
+        cid = d.get("courseId")
+        if cid and cid in course_names:
+            d["courseName"] = course_names[cid]
+
     return docs
 
 

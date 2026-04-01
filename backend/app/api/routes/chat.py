@@ -190,6 +190,10 @@ def _should_skip_triage(session, context_data: dict) -> bool:
     if session.triage_result:
         return True
 
+    # Skip if session already has a plan (restored from DB or orchestrator-provided)
+    if session.current_plan:
+        return True
+
     # Skip if continuing from a recent assessment with decent score
     if session.last_assessment_summary:
         score_pct = session.last_assessment_summary.get("score", {}).get("pct", 0)
@@ -340,10 +344,13 @@ def _serialize_content(content) -> str | list[dict]:
                 result.append(block)
             else:
                 result.append({"type": "text", "text": str(block)})
-        # If all blocks are text, join into a single string
+        # If all blocks are text, join into a single string (skip empty)
         if all(b.get("type") == "text" for b in result):
-            return "\n".join(b.get("text", "") for b in result)
-        return result
+            joined = "\n".join(b.get("text", "") for b in result if b.get("text"))
+            return joined or "(no text)"
+        # Filter out empty text blocks from mixed content
+        result = [b for b in result if not (b.get("type") == "text" and not b.get("text", "").strip())]
+        return result or [{"type": "text", "text": "(no text)"}]
     return str(content)
 
 
@@ -534,7 +541,7 @@ async def _maybe_generate_summary(session, messages: list[dict]) -> None:
     try:
         from app.core.llm import llm_call
         response = await llm_call(
-            model=settings.SUMMARIZATION_MODEL,
+            model=settings.summarization_model,
             system="You are a concise tutoring session summarizer.",
             messages=[{"role": "user", "content": prompt}],
             max_tokens=500,
@@ -544,7 +551,7 @@ async def _maybe_generate_summary(session, messages: list[dict]) -> None:
         # Track internal LLM cost on the session
         if response.usage:
             session.track_llm_usage(
-                settings.SUMMARIZATION_MODEL,
+                settings.summarization_model,
                 response.usage.input_tokens,
                 response.usage.output_tokens,
             )
@@ -718,13 +725,31 @@ def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
         if session.delegation_result and session.delegation_result.get("summary"):
             triage_summary = f"\n\n[TRIAGE SUMMARY]\n{session.delegation_result['summary']}"
 
+        # Extract BYO / orchestrator context if available
+        byo_context = ""
+        session_ctx_str = context_data.get("sessionContext", "")
+        if session_ctx_str:
+            try:
+                ctx = json.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
+                col_id = ctx.get("collection_id")
+                if col_id:
+                    byo_context = f"\n\n[BYO Collection: {col_id}]\nStudent uploaded their own content. The tutor has byo_read/byo_list tools to access it."
+                enriched = ctx.get("enriched_intent")
+                if enriched and enriched != intent:
+                    byo_context += f"\n\n[Enriched Intent]\n{enriched[:500]}"
+                teaching_notes = ctx.get("teaching_notes")
+                if teaching_notes:
+                    byo_context += f"\n\n[Teaching Notes]\n{teaching_notes[:300]}"
+            except (json.JSONDecodeError, TypeError, AttributeError):
+                pass
+
         has_course = bool(spawn_context.get("courseMap"))
         if has_course:
             plan_instructions = (
                 f"The student wants to study: {intent}\n"
                 "Create a teaching plan based on the course content and student knowledge state.\n"
                 "Use get_section_content to inspect relevant sections (max 2 calls), then output JSONL."
-                f"{triage_info}{content_brief_str}{triage_summary}"
+                f"{triage_info}{content_brief_str}{triage_summary}{byo_context}"
             )
         else:
             plan_instructions = (
@@ -733,7 +758,7 @@ def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
                 "DO NOT call get_section_content — there are no sections to fetch.\n"
                 "Instead, output a logical topic structure directly as JSONL based on what a good curriculum would look like.\n"
                 "Keep it focused: 3-5 topics max for a single session."
-                f"{triage_info}{triage_summary}"
+                f"{triage_info}{triage_summary}{byo_context}"
             )
 
         runtime.spawn(
@@ -1031,7 +1056,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
         for attempt in range(MAX_RETRIES):
             try:
                 async with await llm_stream(
-                    model=settings.TUTOR_MODEL,
+                    model=settings.tutor_model,
                     max_tokens=4096,
                     system=delegation.system_prompt,
                     messages=valid_messages,
@@ -1242,7 +1267,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
         for attempt in range(MAX_RETRIES):
             try:
                 async with await llm_stream(
-                    model=settings.TUTOR_MODEL,
+                    model=settings.tutor_model,
                     max_tokens=4096,
                     system=assessment.system_prompt,
                     messages=valid_messages,
@@ -1531,6 +1556,77 @@ async def get_session_plan(session_id: str, request: Request, user: dict = Depen
     return {"status": "pending"}
 
 
+@router.post("/api/session/{session_id}/plan/repair")
+async def repair_session_plan(session_id: str, request: Request, user: dict = Depends(get_optional_user)):
+    """Emergency plan repair — generates a lightweight plan via fast model when the
+    planning agent fails or times out. Called automatically by the frontend."""
+    import httpx
+    from app.core.config import settings
+    from app.agents.session import _sessions
+
+    body = await request.json()
+    intent = body.get("intent", "")
+
+    session = _sessions.get(session_id)
+    # If plan already exists, return it
+    if session and session.current_plan:
+        return {"plan": session.current_plan, "sessionObjective": session.session_objective or ""}
+
+    api_key = settings.OPENROUTER_API_KEY
+    if not api_key or not intent:
+        return {"error": "Cannot repair plan"}, 400
+
+    prompt = f"""Generate a concise teaching plan for: {intent}
+
+Output ONLY a JSON object with this exact structure (no markdown, no explanation):
+{{
+  "session_objective": "one-line objective",
+  "sections": [
+    {{
+      "n": 1,
+      "title": "Section Title",
+      "covers": "what it covers",
+      "activity": "what tutor does",
+      "topics": [
+        {{"t": 1, "title": "Topic Name", "concept": "key concept"}}
+      ]
+    }}
+  ]
+}}
+
+Keep it focused: 2-4 sections, 2-3 topics each. This is a single tutoring session, not a full course."""
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.post(
+                "https://openrouter.ai/api/v1/chat/completions",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json={
+                    "model": settings.planning_model,
+                    "max_tokens": 1500,
+                    "messages": [{"role": "user", "content": prompt}],
+                    "temperature": 0.3,
+                },
+            )
+            if resp.status_code == 200:
+                data = resp.json()
+                text = data["choices"][0]["message"]["content"]
+                # Extract JSON from response
+                import re
+                json_match = re.search(r'\{[\s\S]*\}', text)
+                if json_match:
+                    plan = json.loads(json_match.group())
+                    # Promote to session if available
+                    if session:
+                        session.current_plan = plan
+                        session.session_objective = plan.get("session_objective", intent)
+                    return {"plan": plan, "sessionObjective": plan.get("session_objective", intent)}
+    except Exception as e:
+        log.warning("Plan repair failed: %s", e)
+
+    return {"error": "Plan repair failed"}
+
+
 # ── Chat Route ───────────────────────────────────────────────────────────────
 
 @router.post("/api/chat", dependencies=[Depends(_check_rate_limit)])
@@ -1653,21 +1749,31 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             if is_session_start and not is_video_mode:
                 _init_session_phase(session, context_data, slog)
 
-            # Plan setup — prefer orchestrator's pre-built plan, fall back to auto-planner
-            if is_session_start and not session.current_plan and not is_video_mode:
-                orchestrator_plan = _extract_orchestrator_plan(context_data)
-                if orchestrator_plan:
-                    # Orchestrator already built a plan — use it immediately (0ms latency)
-                    slog.info("Using orchestrator-provided plan (skipping planner agent)")
-                    _promote_plan(session, orchestrator_plan)
+            # Plan setup — reuse existing plan, orchestrator plan, or spawn planner
+            if is_session_start and not is_video_mode:
+                if session.current_plan:
+                    # Restored session already has a plan — re-emit for frontend sidebar
+                    slog.info("Session already has plan — re-emitting for frontend")
                     yield _sse({
                         "type": "PLAN_UPDATE",
-                        "plan": orchestrator_plan,
-                        "sessionObjective": orchestrator_plan.get("session_objective", ""),
+                        "plan": session.current_plan,
+                        "sessionObjective": session.session_objective or "",
+                        "currentTopicIndex": session.current_topic_index,
                     })
-                elif context_data.get("courseMap") and session.phase != SessionPhase.TRIAGE:
-                    # No pre-built plan — spawn background planner
-                    _auto_spawn_planner(session, runtime, context_data, slog)
+                else:
+                    orchestrator_plan = _extract_orchestrator_plan(context_data)
+                    if orchestrator_plan:
+                        # Orchestrator already built a plan — use it immediately (0ms latency)
+                        slog.info("Using orchestrator-provided plan (skipping planner agent)")
+                        _promote_plan(session, orchestrator_plan)
+                        yield _sse({
+                            "type": "PLAN_UPDATE",
+                            "plan": orchestrator_plan,
+                            "sessionObjective": orchestrator_plan.get("session_objective", ""),
+                        })
+                    elif session.phase != SessionPhase.TRIAGE:
+                        # No pre-built plan — spawn background planner (course or BYO)
+                        _auto_spawn_planner(session, runtime, context_data, slog)
 
             # ── Step 3a: Check assessment → route to assessment agent ──
             if session.assessment:
@@ -1909,16 +2015,17 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             _section_content_calls = 0
             MAX_SECTION_CONTENT_CALLS = 3
 
-            # Periodic student model update (every 5 turns)
+            # Periodic student model update (every 5 turns) — injected as prompt nudge
+            # instead of tool_choice to avoid burning a full Opus round on bookkeeping
             session.assistant_turn_count += 1
-            force_student_update = (
+            _nudge_student_update = (
                 session.assistant_turn_count >= 5
                 and session.assistant_turn_count % 5 == 0
             )
 
             while rounds < MAX_ROUNDS:
                 rounds += 1
-                slog.info("Tutor LLM call", extra={"round": rounds, "model": settings.TUTOR_MODEL})
+                slog.info("Tutor LLM call", extra={"round": rounds, "model": settings.tutor_model})
 
                 if await request.is_disconnected():
                     slog.info("Client disconnected")
@@ -1931,20 +2038,32 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 # Validate messages before API call
                 valid_messages = _validate_messages(claude_messages)
 
-                # Build API kwargs — force student model update on schedule
+                # Build API kwargs
                 api_kwargs: dict = {
-                    "model": settings.TUTOR_MODEL,
+                    "model": settings.tutor_model,
                     "max_tokens": 4096,
                     "system": tutor_prompt,
                     "messages": valid_messages,
                     "tools": active_tools,
                 }
-                suppress_text = False
-                if force_student_update and rounds == 1:
-                    api_kwargs["tool_choice"] = {"type": "tool", "name": "update_student_model"}
-                    force_student_update = False
-                    suppress_text = True
-                    slog.info("Forcing update_student_model — suppressing preamble text")
+
+                # Nudge student model update — append to dynamic part of system prompt
+                # instead of tool_choice, so the model does it IN the same round as
+                # teaching (avoids burning a full Opus round on bookkeeping)
+                if _nudge_student_update and rounds == 1:
+                    _nudge_student_update = False
+                    nudge = (
+                        "\n\n[SYSTEM — Student model update due. Include an update_student_model "
+                        "call alongside your teaching response this turn. Do NOT call it alone — "
+                        "teach AND update in the same response.]"
+                    )
+                    sys = api_kwargs["system"]
+                    if isinstance(sys, tuple):
+                        # (static, dynamic) — append to dynamic to preserve cache
+                        api_kwargs["system"] = (sys[0], sys[1] + nudge)
+                    elif isinstance(sys, str):
+                        api_kwargs["system"] = sys + nudge
+                    slog.info("Nudging update_student_model via prompt (no extra round)")
 
                 # Retry loop for transient errors
                 message = None
@@ -1954,8 +2073,8 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                             async for text in stream.text_stream:
                                 if await request.is_disconnected():
                                     return
-                                if suppress_text:
-                                    continue
+                                # (suppress_text removed — student model update
+                                # is now nudged via prompt, not tool_choice)
                                 if not text_started:
                                     message_id = str(uuid.uuid4())
                                     yield _sse({"type": "TEXT_MESSAGE_START", "messageId": message_id})
@@ -2016,7 +2135,7 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 slog.info(
                     "Tutor LLM response",
                     extra={
-                        "model": settings.TUTOR_MODEL,
+                        "model": settings.tutor_model,
                         "tokens_in": message.usage.input_tokens,
                         "tokens_out": message.usage.output_tokens,
                         "stop_reason": message.stop_reason,

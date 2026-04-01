@@ -288,6 +288,7 @@ class AgentRuntime:
             task.error = "Cancelled"
             task.error_type = "permanent"
             task.completed_at = time.time()
+            self.completed_queue.append(task)  # Must add so plan endpoint sees the error
             log.info("%s cancelled", task.agent_id)
             self._push_event({
                 "type": "AGENT_ERROR",
@@ -323,145 +324,66 @@ class AgentRuntime:
     # ── Planning agent ────────────────────────────────────────────────────
 
     async def _run_planning_agent(self, task: AgentTask, context: dict) -> dict:
-        """Run a planning agent with a fast single-pass approach.
+        """Run planning agent — structure first, grounding second.
 
-        Round 1: LLM call with tools → gather all tool results in parallel.
-        Round 2: LLM call without tools → parse JSONL output.
-        If parse fails, one retry with assistant prefill, then raise.
-        Total: 2-3 LLM calls max (down from 5).
+        Phase 1 (fast, ~3-5s): Generate plan structure with NO tools.
+          → Emit immediately so tutor can start teaching topic 1.
+        Phase 2 (background): Ground topics with content tools if course exists.
+          → Enrich topics with content refs, but tutor is already teaching.
         """
         from app.agents.prompts import build_planning_prompt
 
         planning_prompt = build_planning_prompt(context)
-        planning_tools = _get_planning_tools()
-
-        # Check if there's a course to ground from — skip tools if not
         has_course = "courseMap" in context and context.get("courseMap")
-        skip_tools = "DO NOT call get_section_content" in task.instructions
 
-        if skip_tools or not has_course:
-            wrapped_instructions = (
-                f"<task>\n{task.instructions}\n</task>\n\n"
-                "Output the complete JSONL plan directly from your knowledge.\n"
-                "Do NOT call any tools. Just output JSONL."
-            )
-        else:
-            wrapped_instructions = (
-                f"<task>\n{task.instructions}\n</task>\n\n"
-                "Step 1: Call get_section_content for relevant sections (max 2 calls).\n"
-                "Step 2: Output the complete JSONL plan.\n"
-                "Do NOT output narrative text — only tool calls, then JSONL."
-            )
+        # ── Phase 1: Structure only (no tools, fast) ──
+        wrapped_instructions = (
+            f"<task>\n{task.instructions}\n</task>\n\n"
+            "Output the complete JSONL plan. Do NOT call any tools.\n"
+            "Focus on topic STRUCTURE — titles, concepts, step types.\n"
+            "Content grounding will happen separately."
+        )
 
         messages: list[dict] = [{"role": "user", "content": wrapped_instructions}]
 
-        # ── Round 1: Tool gathering (single round) — skip if no course ──
         request_params: dict[str, Any] = {
             "model": settings.planning_model,
             "max_tokens": 4096,
             "system": planning_prompt,
             "messages": messages,
-            "tools": planning_tools if (has_course and not skip_tools) else [],
+            "tools": [],  # No tools in Phase 1 — structure only
             "metadata": self._meta("planning", task.agent_id),
         }
 
-        async def _call_r1(params=request_params):
+        async def _call(params=request_params):
             return await llm_call(**params)
 
         response = await _retry_api_call(
-            _call_r1, label=f"Planning[{task.agent_id}] R1"
+            _call, label=f"Planning[{task.agent_id}]"
         )
         task.retries_used = 0
         task.track_usage(response)
 
         log.info(
-            "Planning R1 — stop: %s, %din/%dout",
+            "Planning done — stop: %s, %din/%dout",
             response.stop_reason,
             response.usage.input_tokens, response.usage.output_tokens,
         )
 
-        # Check if model produced JSONL directly (no tools needed)
-        for block in response.content:
-            if block.type == "text" and block.text and block.text.strip():
-                try:
-                    return _parse_planning_jsonl(block.text)
-                except (ValueError, json.JSONDecodeError):
-                    pass
-
-        # Handle tool calls — run ALL in parallel
-        if response.stop_reason == "tool_use":
-            tool_blocks = [b for b in response.content if b.type == "tool_use"]
-
-            async def _exec_tool(block):
-                log.info("Planning tool: %s(%s)", block.name, json.dumps(block.input)[:80])
-                try:
-                    result = await execute_tutor_tool(block.name, block.input)
-                except Exception as e:
-                    log.warning("Planning tool %s failed: %s", block.name, e)
-                    result = f"Tool error: {type(e).__name__}: {str(e)[:200]}"
-                return {
-                    "type": "tool_result",
-                    "tool_use_id": block.id,
-                    "content": result if isinstance(result, str) else json.dumps(result),
-                }
-
-            # Parallel execution
-            tool_results = await asyncio.gather(*(_exec_tool(b) for b in tool_blocks))
-            tool_results = list(tool_results)
-
-            # Strip narrative — keep only tool_use blocks
-            tool_only_content = [b for b in response.content if b.type == "tool_use"]
-            messages.append({"role": "assistant", "content": tool_only_content})
-            messages.append({"role": "user", "content": tool_results})
-
-        # ── Round 2: Output JSONL (no tools) ─────────────────────────────
-        # Add nudge if no tools were called; otherwise tool results already prompt output
-        if response.stop_reason != "tool_use":
-            messages.append({
-                "role": "user",
-                "content": (
-                    "You have gathered the content. Now output the complete JSONL plan. "
-                    'Output ONLY valid JSONL — no prose. Start with {"type":"plan",...}.'
-                ),
-            })
-
-        request_params_r2: dict[str, Any] = {
-            "model": settings.planning_model,
-            "max_tokens": 4096,
-            "system": planning_prompt,
-            "messages": messages,
-            "metadata": self._meta("planning", task.agent_id),
-        }
-
-        async def _call_r2(params=request_params_r2):
-            return await llm_call(**params)
-
-        response = await _retry_api_call(
-            _call_r2, label=f"Planning[{task.agent_id}] R2"
-        )
-        task.retries_used = 0
-        task.track_usage(response)
-
-        log.info(
-            "Planning R2 — stop: %s, %din/%dout",
-            response.stop_reason,
-            response.usage.input_tokens, response.usage.output_tokens,
-        )
-
-        # Try parsing JSONL
+        # Parse JSONL from response
         for block in response.content:
             if block.type == "text" and block.text and block.text.strip():
                 try:
                     return _parse_planning_jsonl(block.text)
                 except (ValueError, json.JSONDecodeError) as e:
-                    log.warning("Planning JSONL parse failed (R2): %s — raw: %s", e, block.text[:200])
+                    log.warning("Planning JSONL parse failed: %s — raw: %s", e, block.text[:200])
 
-        # ── Retry with prefill ───────────────────────────────────────────
-        log.warning("Planning R2 failed, retrying with prefill")
+        # Retry with prefill if first attempt failed
+        log.warning("Planning output not JSONL, retrying with prefill")
         messages.append({"role": "assistant", "content": response.content})
         messages.append({
             "role": "user",
-            "content": "Output ONLY valid JSONL lines. No markdown, no prose.",
+            "content": "Output ONLY valid JSONL. No markdown, no prose.",
         })
         prefill = '{"type":"plan"'
         messages.append({
@@ -469,11 +391,9 @@ class AgentRuntime:
             "content": [{"type": "text", "text": prefill}],
         })
 
-        async def _call_r3(params={**request_params_r2, "messages": messages}):
-            return await llm_call(**params)
-
         response = await _retry_api_call(
-            _call_r3, label=f"Planning[{task.agent_id}] R3-retry"
+            lambda: llm_call(**{**request_params, "messages": messages}),
+            label=f"Planning[{task.agent_id}] retry",
         )
         task.track_usage(response)
 
@@ -496,22 +416,34 @@ class AgentRuntime:
         """
         # Build a context-aware system prompt
         system_parts = [
-            f"You are a background assistant for a physics tutoring system.",
+            f"You are a background assistant for an AI tutoring system.",
             f"Task type: {task.type}",
             f"Your output will be delivered to the Tutor in [AGENT RESULTS].",
             f"Be concise and structured. Output what the Tutor needs, nothing more.",
         ]
 
-        # Include relevant course context
+        # Include relevant course/content context
         for key in ("courseMap", "concepts", "simulations"):
             val = context.get(key)
             if val:
                 system_parts.append(f"\n[{key}]\n{val}")
 
+        # Include session context (enriched intent, BYO info)
+        session_ctx_str = context.get("sessionContext", "")
+        if session_ctx_str:
+            try:
+                import json as _j
+                ctx = _j.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
+                enriched = ctx.get("enriched_intent", "")
+                if enriched:
+                    system_parts.append(f"\n[Session Intent]\n{enriched[:500]}")
+            except (ValueError, TypeError, AttributeError):
+                pass
+
         system_prompt = "\n".join(system_parts)
 
         # Choose model based on type — heavier tasks can use Sonnet
-        model = settings.RESEARCH_MODEL  # Haiku default
+        model = settings.research_model  # Haiku default
         if task.type in ("content", "problem_gen", "analysis"):
             model = settings.planning_model  # Sonnet for heavier work
 
@@ -763,7 +695,23 @@ def _parse_planning_jsonl(text: str, prefill: str = "") -> dict:
         try:
             plan = json.loads(text.strip())
         except json.JSONDecodeError:
-            raise ValueError(f"Planning agent did not produce valid plan. Raw output: {text[:300]}")
+            # Last resort: extract any JSON object from the text
+            m = re.search(r'\{[\s\S]*\}', text)
+            if m:
+                try:
+                    plan = json.loads(m.group(0))
+                except json.JSONDecodeError:
+                    raise ValueError(f"Planning agent did not produce valid plan. Raw output: {text[:300]}")
+            else:
+                raise ValueError(f"Planning agent did not produce valid plan. Raw output: {text[:300]}")
+
+    # If we parsed a single JSON with sections but no JSONL topics, extract them
+    if not topics and plan.get("sections"):
+        for sec in plan["sections"]:
+            for t in sec.get("topics", []):
+                if isinstance(t, dict):
+                    t.setdefault("type", "topic")
+                    topics.append(t)
 
     plan["_topics"] = topics
     return plan

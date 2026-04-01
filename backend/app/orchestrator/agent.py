@@ -213,12 +213,14 @@ ORCHESTRATOR_TOOLS = [
                 "content": {
                     "type": "object",
                     "description": (
-                        "Artifact content — structure depends on type. "
-                        "Flashcards: {cards: [{front, back}]}. "
-                        "Notes/summary/cheat_sheet: {markdown: '...'}. "
-                        "Plan: {steps: [{title, description, duration}]}. "
-                        "Practice problems: {problems: [{question, solution, difficulty}]}. "
-                        "Or any custom structure that fits."
+                        "Artifact content — structure depends on type. Always prefer 'markdown' for rich text.\n"
+                        "Flashcards: {cards: [{front, back}]}.\n"
+                        "Notes/summary/cheat_sheet/formula_sheet: {markdown: '# Title\\n## Section\\n...'}.\n"
+                        "Plan: {steps: [{title, description, duration}]}.\n"
+                        "Practice problems: {problems: [{question, solution, difficulty}]}.\n"
+                        "HTML interactive: {html: '<html>...</html>'}.\n"
+                        "For ALL text-heavy artifacts, use {markdown: '...'} with full markdown formatting "
+                        "(headers, bold, lists, tables, code blocks, LaTeX $...$). This renders beautifully."
                     ),
                 },
                 "source": {
@@ -374,12 +376,37 @@ ORCHESTRATOR_TOOLS = [
                 },
                 "course_id": {"type": "integer", "description": "Course ID if following a course"},
                 "collection_id": {"type": "string", "description": "Collection ID if using BYO materials"},
+                "resource_id": {"type": "string", "description": "BYO resource ID for video watch-along"},
                 "teaching_notes": {
                     "type": "string",
                     "description": "Notes for the Tutor about this student (weak areas, preferences, what to address)",
                 },
             },
             "required": ["skill", "enriched_intent"],
+        },
+    },
+    {
+        "name": "process_video_url",
+        "description": (
+            "Process a YouTube URL or video link for watch-along. Creates a BYO resource, "
+            "extracts the transcript, and returns the resource_id + collection_id. "
+            "Use this when a student pastes a video link and wants to watch it with you. "
+            "After processing, use start_tutor_session with mode='watch_along' and the "
+            "returned collection_id + resource_id."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "url": {
+                    "type": "string",
+                    "description": "YouTube or video URL",
+                },
+                "title": {
+                    "type": "string",
+                    "description": "Title for the video (optional — will auto-detect)",
+                },
+            },
+            "required": ["url"],
         },
     },
     {
@@ -424,9 +451,10 @@ ORCHESTRATOR_TOOLS = [
     {
         "name": "ask_permission",
         "description": (
-            "Ask the student for permission before taking a significant action. "
-            "Shows a yes/no card. Wait for their response before proceeding. "
-            "Use before: starting sessions, creating large artifacts, navigating away."
+            "Ask the student for permission before starting a teaching session. "
+            "Shows a yes/no card. The student clicks to approve or decline. "
+            "IMPORTANT: Include the FULL session config in action_data so the session "
+            "can start directly when the student clicks yes — no round-trip needed."
         ),
         "input_schema": {
             "type": "object",
@@ -437,7 +465,7 @@ ORCHESTRATOR_TOOLS = [
                 },
                 "action_label": {
                     "type": "string",
-                    "description": "Label for the 'yes' button. Example: 'Start session', 'Create flashcards'",
+                    "description": "Label for the 'yes' button. Example: 'Start session', 'Start watch-along'",
                 },
                 "deny_label": {
                     "type": "string",
@@ -445,10 +473,18 @@ ORCHESTRATOR_TOOLS = [
                 },
                 "action_data": {
                     "type": "object",
-                    "description": "Data to pass back if the student approves. Used by the follow-up action.",
+                    "description": (
+                        "Session config — MUST include all fields needed to start the session: "
+                        "skill (course_follow/exam_prep/free/watch_along), "
+                        "mode (teaching/watch_along), "
+                        "enriched_intent (what to teach), "
+                        "course_id (if following a course), "
+                        "collection_id (if using BYO materials), "
+                        "resource_id (REQUIRED for watch-along — the BYO resource to play)."
+                    ),
                 },
             },
-            "required": ["question", "action_label"],
+            "required": ["question", "action_label", "action_data"],
         },
     },
     {
@@ -1102,15 +1138,7 @@ document.getElementById('content').innerHTML = marked.parse(document.getElementB
 </script>
 </body></html>"""
 
-    # Save to rendered directory
-    rendered_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "backend", "rendered")
-    os.makedirs(rendered_dir, exist_ok=True)
-    filepath = os.path.join(rendered_dir, f"doc-{doc_id}.html")
-
-    with open(filepath, "w") as f:
-        f.write(html)
-
-    # Store metadata in MongoDB
+    # Store HTML content in MongoDB (no filesystem dependency)
     try:
         from app.core.mongodb import get_mongo_db
         db = get_mongo_db()
@@ -1120,17 +1148,18 @@ document.getElementById('content').innerHTML = marked.parse(document.getElementB
             "user_id": user_id,
             "title": title,
             "format": "html",
-            "filepath": filepath,
+            "html_content": html,
+            "markdown_source": content_markdown,
             "created_at": datetime.utcnow(),
         })
     except Exception as e:
-        log.warning("Failed to save document metadata: %s", e)
+        log.warning("Failed to save document: %s", e)
 
     return {
         "document_id": doc_id,
         "title": title,
         "format": "html",
-        "download_url": f"/rendered/doc-{doc_id}.html",
+        "download_url": f"/api/v1/documents/{doc_id}",
     }
 
 
@@ -1254,6 +1283,18 @@ async def _execute_tool(name: str, input_data: dict, user_context: dict) -> str:
         ).limit(8)
         chunks = [doc async for doc in cursor]
 
+        # Fetch resources for video collections (needed for watch-along)
+        col_resources = {}
+        for col in collections:
+            tags = col.get("tags", [])
+            title_lower = (col.get("title", "") or "").lower()
+            if any(t in tags for t in ("video", "youtube", "watch_along")) or "video" in title_lower or "youtube" in title_lower:
+                res_cursor = db.byo_resources.find(
+                    {"collection_id": col["collection_id"]},
+                    {"_id": 0, "resource_id": 1, "source_url": 1, "mime_type": 1},
+                ).limit(3)
+                col_resources[col["collection_id"]] = [r async for r in res_cursor]
+
         # Build response
         lines = [f"Student has {len(collections)} uploaded material(s):"]
         for col in collections:
@@ -1271,7 +1312,14 @@ async def _execute_tool(name: str, input_data: dict, user_context: dict) -> str:
                 readiness = "processing failed"
             else:
                 readiness = status
-            lines.append(f"  - {col.get('title', '?')} (collection_id:{col['collection_id']}, {readiness})")
+
+            # Include resource_id for video collections (needed for watch-along)
+            resources = col_resources.get(col["collection_id"], [])
+            resource_info = ""
+            if resources:
+                rid = resources[0].get("resource_id", "")
+                resource_info = f", resource_id:{rid}"
+            lines.append(f"  - {col.get('title', '?')} (collection_id:{col['collection_id']}{resource_info}, {readiness})")
 
         if chunks:
             lines.append(f"\nContent matches ({len(chunks)} chunks):")
@@ -1389,6 +1437,84 @@ async def _execute_tool(name: str, input_data: dict, user_context: dict) -> str:
         )
         return json.dumps(result)
 
+    elif name == "process_video_url":
+        # Create a BYO collection + resource for the video, kick off processing
+        url = input_data["url"]
+        title = input_data.get("title", "")
+        user_email = user_context.get("email", "")
+
+        db = _get_db()
+        collection_id = str(uuid.uuid4())[:12]
+        resource_id = str(uuid.uuid4())
+
+        # Auto-detect title from YouTube
+        if not title and ("youtube.com" in url or "youtu.be" in url):
+            try:
+                import re as _re
+                # Try to get title from yt-dlp (fast metadata only)
+                import yt_dlp
+                with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "extract_flat": True}) as ydl:
+                    info = ydl.extract_info(url, download=False)
+                    title = info.get("title", "")
+            except Exception:
+                title = "YouTube Video"
+
+        title = title or "Video"
+
+        # Create collection
+        await db.collections.insert_one({
+            "collection_id": collection_id,
+            "user_id": user_email,
+            "title": title,
+            "description": f"Video: {url}",
+            "intent": "watch_along",
+            "status": "processing",
+            "stats": {"resources": 1, "chunks": 0, "topics": []},
+            "tags": ["video", "watch_along"],
+            "created_at": datetime.utcnow(),
+            "updated_at": datetime.utcnow(),
+        })
+
+        # Create resource
+        mime = "application/x-youtube" if ("youtube" in url or "youtu.be" in url) else "video/mp4"
+        await db.byo_resources.insert_one({
+            "resource_id": resource_id,
+            "collection_id": collection_id,
+            "user_id": user_email,
+            "source_type": "url",
+            "mime_type": mime,
+            "original_name": title,
+            "source_url": url,
+            "storage_path": None,
+            "file_size": 0,
+            "status": "queued",
+            "progress": 0.0,
+            "meta": {},
+            "chunk_count": 0,
+            "created_at": datetime.utcnow(),
+        })
+
+        # Submit processing job
+        try:
+            from byo.pipeline.orchestrator import submit_processing_job
+            job_id = await submit_processing_job(
+                resource_id, collection_id, user_email,
+                {"mime_type": mime, "source_url": url},
+            )
+            log.info("Video processing started: %s → job %s", url[:60], job_id[:8] if job_id else "?")
+        except Exception as e:
+            log.warning("Video processing submit failed: %s", e)
+
+        return json.dumps({
+            "collection_id": collection_id,
+            "resource_id": resource_id,
+            "title": title,
+            "source_url": url,
+            "status": "processing",
+            "message": f"Processing '{title}' — transcript will be ready in 1-2 minutes. "
+                       f"You can start a watch-along session now; the transcript will load as it processes.",
+        })
+
     elif name == "start_tutor_session":
         session_id = str(uuid.uuid4())
         context = {
@@ -1399,6 +1525,7 @@ async def _execute_tool(name: str, input_data: dict, user_context: dict) -> str:
             "plan": input_data.get("plan", []),
             "course_id": input_data.get("course_id"),
             "collection_id": input_data.get("collection_id"),
+            "resource_id": input_data.get("resource_id"),
             "teaching_notes": input_data.get("teaching_notes", ""),
         }
         return json.dumps({"action": "start_session", "session_id": session_id, "context": context})

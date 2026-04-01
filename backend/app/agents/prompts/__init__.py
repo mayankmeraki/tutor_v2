@@ -518,6 +518,21 @@ def build_planning_prompt(context_data: dict) -> str:
     else:
         parts.append("\n[No course available — plan from your own knowledge of this subject. Do NOT try to call any tools.]")
 
+    # BYO / session context (enriched intent, collection info)
+    session_ctx_str = context_data.get("sessionContext", "")
+    if session_ctx_str:
+        try:
+            import json as _j
+            ctx = _j.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
+            enriched = ctx.get("enriched_intent", "")
+            if enriched:
+                parts.append(f"\n[Enriched Intent]\n{enriched[:500]}")
+            teaching_notes = ctx.get("teaching_notes", "")
+            if teaching_notes:
+                parts.append(f"\n[Teaching Notes]\n{teaching_notes[:500]}")
+        except (ValueError, TypeError, AttributeError):
+            pass
+
     # Student context (works for all modes)
     profile = context_data.get("studentProfile")
     if profile:

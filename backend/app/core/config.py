@@ -33,7 +33,7 @@ class Settings(BaseSettings):
     PLANNING_MODEL: str = Field(default="")     # defaults to MODEL_FAST
     RESEARCH_MODEL: str = Field(default="")     # defaults to MODEL_FAST
     SUMMARIZATION_MODEL: str = Field(default="")  # defaults to MODEL_FAST
-    EULER_MODEL: str = Field(default="")        # defaults to MODEL_FAST
+    EULER_MODEL: str = Field(default="")        # defaults to MODEL_HEAVY (orchestrator needs top intelligence)
 
     @computed_field
     @property
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def euler_model(self) -> str:
-        return self.EULER_MODEL or self.MODEL_MID
+        return self.EULER_MODEL or self.MODEL_HEAVY
 
     # ElevenLabs TTS
     ELEVENLABS_API_KEY: str = Field(default="")
