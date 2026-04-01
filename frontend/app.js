@@ -7499,6 +7499,16 @@ function _initEuler() {
   });
   document.getElementById('byo-file-input')?.addEventListener('change', _handleByoUpload);
 
+  // Materials search
+  const byoSearchInput = document.getElementById('byo-search-input');
+  if (byoSearchInput) {
+    let _bTimer = null;
+    byoSearchInput.addEventListener('input', () => {
+      clearTimeout(_bTimer);
+      _bTimer = setTimeout(() => _searchByoMaterials(byoSearchInput.value), 300);
+    });
+  }
+
   // Drag & drop on the drop area
   const dropArea = document.getElementById('byo-drop-area');
   if (dropArea) {
@@ -8162,23 +8172,41 @@ async function _loadByoMaterials() {
     for (const col of collections) {
       const card = document.createElement('div');
       card.className = 'byo-material-card';
-      const icon = _byoIcon(col);
       const isReady = col.status === 'ready';
       const isError = col.status === 'error';
-      const status = isReady
-        ? '<span class="byo-material-status byo-status-ready">Ready</span>'
-        : isError
-        ? '<span class="byo-material-status byo-status-error">Error</span>'
-        : '<span class="byo-material-status byo-status-processing">Processing...</span>';
       if (!isReady && !isError) hasProcessing = true;
 
       const fileCount = col.stats?.resources || 0;
+      const chunkCount = col.stats?.chunks || 0;
+      const topics = (col.stats?.topics || []).slice(0, 3);
+      const tags = (col.tags || []).slice(0, 3);
+
+      // Status badge
+      const statusBadge = isReady
+        ? '<span class="byo-badge byo-badge-ready">Ready</span>'
+        : isError
+        ? '<span class="byo-badge byo-badge-error">Error</span>'
+        : '<span class="byo-badge byo-badge-processing">Processing</span>';
+
+      // File type indicators based on title/content
+      const t = (col.title || '').toLowerCase();
+      const typeIcon = t.includes('.pdf') || t.includes('pdf') ? '&#128196;'
+        : t.includes('video') || t.includes('.mp4') || t.includes('youtube') ? '&#127909;'
+        : t.includes('.docx') || t.includes('doc') ? '&#128221;'
+        : t.includes('note') ? '&#128221;'
+        : '&#128218;';
+
       card.innerHTML = `
-        <div class="byo-material-icon">${icon}</div>
-        <div class="byo-material-body">
-          <div class="byo-material-title">${_escHtml(col.title || col.collection_id)}</div>
-          <div class="byo-material-meta">${fileCount} file${fileCount !== 1 ? 's' : ''}</div>
-          ${status}
+        <div class="byo-card-header">
+          <span class="byo-card-icon">${typeIcon}</span>
+          ${statusBadge}
+        </div>
+        <div class="byo-card-body">
+          <div class="byo-card-title">${_escHtml(col.title || 'Untitled')}</div>
+          ${col.description ? `<div class="byo-card-desc">${_escHtml(col.description)}</div>` : ''}
+          <div class="byo-card-meta">${fileCount} file${fileCount !== 1 ? 's' : ''}${chunkCount ? ` · ${chunkCount} chunks` : ''}</div>
+          ${tags.length ? `<div class="byo-card-tags">${tags.map(t => `<span class="byo-tag">${_escHtml(t)}</span>`).join('')}</div>` : ''}
+          ${topics.length ? `<div class="byo-card-topics">${topics.map(t => `<span class="byo-topic">${_escHtml(t)}</span>`).join('')}</div>` : ''}
         </div>`;
       card.addEventListener('click', () => _openByoCollection(col));
       grid.insertBefore(card, uploadZone);
@@ -8196,6 +8224,50 @@ async function _loadByoMaterials() {
   } catch (e) {
     console.warn('Failed to load BYO materials:', e);
   }
+}
+
+async function _searchByoMaterials(query) {
+  if (!query.trim()) { _loadByoMaterials(); return; }
+  try {
+    const res = await fetch(
+      `${state.apiUrl || ''}/api/v1/byo/collections/search?q=${encodeURIComponent(query)}`,
+      { headers: AuthManager.authHeaders() },
+    );
+    if (!res.ok) return;
+    const collections = await res.json();
+
+    const grid = document.getElementById('byo-grid');
+    const uploadZone = document.getElementById('byo-upload-zone');
+    if (!grid) return;
+    grid.querySelectorAll('.byo-material-card').forEach(c => c.remove());
+
+    if (!collections.length) {
+      const empty = document.createElement('div');
+      empty.className = 'byo-material-card';
+      empty.innerHTML = '<div class="byo-card-body"><div class="byo-card-title">No matches</div><div class="byo-card-meta">Try a different search term</div></div>';
+      grid.insertBefore(empty, uploadZone);
+      return;
+    }
+
+    // Reuse the same card rendering as _loadByoMaterials
+    for (const col of collections) {
+      const card = document.createElement('div');
+      card.className = 'byo-material-card';
+      const fileCount = col.stats?.resources || 0;
+      const tags = (col.tags || []).slice(0, 3);
+      const t = (col.title || '').toLowerCase();
+      const typeIcon = t.includes('.pdf') ? '&#128196;' : t.includes('video') ? '&#127909;' : '&#128218;';
+      card.innerHTML = `
+        <div class="byo-card-header"><span class="byo-card-icon">${typeIcon}</span></div>
+        <div class="byo-card-body">
+          <div class="byo-card-title">${_escHtml(col.title || 'Untitled')}</div>
+          <div class="byo-card-meta">${fileCount} file${fileCount !== 1 ? 's' : ''}</div>
+          ${tags.length ? `<div class="byo-card-tags">${tags.map(t => `<span class="byo-tag">${_escHtml(t)}</span>`).join('')}</div>` : ''}
+        </div>`;
+      card.addEventListener('click', () => _openByoCollection(col));
+      grid.insertBefore(card, uploadZone);
+    }
+  } catch (e) { console.warn('BYO search failed:', e); }
 }
 
 async function _openByoCollection(col) {

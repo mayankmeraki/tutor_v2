@@ -117,6 +117,120 @@ async def get_collection(collection_id: str, request: Request, user: dict = Depe
     return col
 
 
+@router.patch("/collections/{collection_id}")
+async def update_collection(collection_id: str, request: Request, user: dict = Depends(_get_user)):
+    """Update collection metadata — title, description, tags."""
+    db = _get_db()
+    body = await request.json()
+
+    update = {"updated_at": datetime.utcnow()}
+    if "title" in body:
+        update["title"] = body["title"]
+    if "description" in body:
+        update["description"] = body["description"]
+    if "tags" in body:
+        update["tags"] = body["tags"]
+
+    result = await db.collections.update_one(
+        {"collection_id": collection_id, "user_id": user["email"]},
+        {"$set": update},
+    )
+    if result.matched_count == 0:
+        raise HTTPException(status_code=404, detail="Collection not found")
+    return {"ok": True}
+
+
+@router.post("/collections/{collection_id}/move-resource")
+async def move_resource_to_collection(collection_id: str, request: Request, user: dict = Depends(_get_user)):
+    """Move a resource from one collection to another."""
+    db = _get_db()
+    body = await request.json()
+    resource_id = body.get("resource_id")
+    if not resource_id:
+        raise HTTPException(status_code=400, detail="resource_id required")
+
+    # Verify target collection exists and belongs to user
+    target = await db.collections.find_one({"collection_id": collection_id, "user_id": user["email"]})
+    if not target:
+        raise HTTPException(status_code=404, detail="Target collection not found")
+
+    # Verify resource belongs to user
+    resource = await db.byo_resources.find_one({"resource_id": resource_id, "user_id": user["email"]})
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    old_collection_id = resource.get("collection_id")
+
+    # Move resource + its chunks
+    await db.byo_resources.update_one(
+        {"resource_id": resource_id},
+        {"$set": {"collection_id": collection_id}},
+    )
+    await db.byo_chunks.update_many(
+        {"resource_id": resource_id},
+        {"$set": {"collection_id": collection_id}},
+    )
+
+    # Update stats on both collections
+    from byo.pipeline.orchestrator import _update_collection_stats
+    await _update_collection_stats(db, old_collection_id)
+    await _update_collection_stats(db, collection_id)
+
+    return {"ok": True, "moved_to": collection_id}
+
+
+@router.get("/collections/search")
+async def search_collections(q: str = "", request: Request = None, user: dict = Depends(_get_user)):
+    """Search across all collections — by title, tags, description, and chunk content."""
+    import re as _re
+    db = _get_db()
+    if not q or len(q.strip()) < 2:
+        return []
+
+    safe_q = _re.escape(q.strip())
+
+    # Search collection metadata
+    col_cursor = db.collections.find(
+        {
+            "user_id": user["email"],
+            "$or": [
+                {"title": {"$regex": safe_q, "$options": "i"}},
+                {"description": {"$regex": safe_q, "$options": "i"}},
+                {"tags": {"$regex": safe_q, "$options": "i"}},
+            ],
+        },
+        {"_id": 0},
+    ).sort("updated_at", -1).limit(10)
+    collections = [doc async for doc in col_cursor]
+
+    # Also search chunk content across user's collections
+    user_col_ids = [c["collection_id"] async for c in db.collections.find(
+        {"user_id": user["email"]}, {"collection_id": 1}
+    )]
+    if user_col_ids:
+        chunk_cursor = db.byo_chunks.find(
+            {
+                "collection_id": {"$in": user_col_ids},
+                "content": {"$regex": safe_q, "$options": "i"},
+            },
+            {"_id": 0, "collection_id": 1, "content": 1, "topics": 1},
+        ).limit(5)
+        chunk_matches = [doc async for doc in chunk_cursor]
+
+        # Add matched collections from chunk search (if not already in results)
+        existing_ids = {c["collection_id"] for c in collections}
+        for chunk in chunk_matches:
+            cid = chunk["collection_id"]
+            if cid not in existing_ids:
+                col = await db.collections.find_one({"collection_id": cid}, {"_id": 0})
+                if col:
+                    col["_match_type"] = "content"
+                    collections.append(col)
+                    existing_ids.add(cid)
+
+    return collections
+
+
 @router.delete("/collections/{collection_id}")
 async def delete_collection(collection_id: str, request: Request, user: dict = Depends(_get_user)):
     """Delete a collection and all its resources/chunks."""
