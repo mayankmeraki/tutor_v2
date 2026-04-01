@@ -6992,6 +6992,11 @@ body.assessment-mode #board-panel { flex: 1 !important; }
 .fb-card-icon { font-size:28px; margin-bottom:10px }
 .fb-card h3 { font-size:14px; font-weight:600; margin-bottom:6px }
 .fb-card p { font-size:12px; color:var(--text-muted); line-height:1.5 }
+.fb-direct-contact { margin-top:20px; font-size:14px; display:flex; align-items:center;
+  justify-content:center; gap:10px }
+.fb-direct-contact a { color:var(--accent); text-decoration:none }
+.fb-direct-contact a:hover { text-decoration:underline }
+.fb-direct-sep { color:var(--text-dim) }
 @media (max-width:600px) { .fb-contact-cards { grid-template-columns:1fr } }
 
 /* Feedback modal overlay */
