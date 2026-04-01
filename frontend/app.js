@@ -8172,15 +8172,30 @@ function _eulerAddMessage(role, content, extra) {
             document.body.style.height = 'auto';
 
             // BYO video watch-along
-            if ((ctx.mode === 'watch_along' || ctx.skill === 'watch_along') && ctx.resource_id) {
+            if ((ctx.mode === 'watch_along' || ctx.skill === 'watch_along') && (ctx.resource_id || ctx.collection_id)) {
               state.sessionId = ctx.session_id || generateId();
               state.studentName = AuthManager.getUser()?.name || 'Student';
-              fetch(`${state.apiUrl}/api/v1/byo/resources/${ctx.resource_id}/info`, { headers: AuthManager.authHeaders() })
-                .then(r => r.ok ? r.json() : null)
-                .then(info => {
-                  vmStartBYOVideo(ctx.resource_id, ctx.collection_id || info?.collection_id || '', info?.original_name || 'Video', info?.source_url || '');
-                })
-                .catch(() => vmStartBYOVideo(ctx.resource_id, ctx.collection_id || '', 'Video', ''));
+
+              // If source_url is already in action_data (YouTube URL), use it directly
+              if (ctx.source_url) {
+                vmStartBYOVideo(ctx.resource_id || '', ctx.collection_id || '', ctx.title || 'Video', ctx.source_url);
+              } else if (ctx.resource_id) {
+                // Try to fetch resource info for the source_url
+                fetch(`${state.apiUrl}/api/v1/byo/resources/${ctx.resource_id}/info`, { headers: AuthManager.authHeaders() })
+                  .then(r => r.ok ? r.json() : null)
+                  .then(info => {
+                    if (info) {
+                      vmStartBYOVideo(ctx.resource_id, ctx.collection_id || info.collection_id || '', info.original_name || 'Video', info.source_url || '');
+                    } else {
+                      // Info failed — try getting resources from collection
+                      _fetchVideoFromCollection(ctx.collection_id, ctx.resource_id);
+                    }
+                  })
+                  .catch(() => _fetchVideoFromCollection(ctx.collection_id, ctx.resource_id));
+              } else if (ctx.collection_id) {
+                // No resource_id — look up from collection
+                _fetchVideoFromCollection(ctx.collection_id, '');
+              }
             } else if (courseId) {
               const courseIdEl = document.getElementById('course-id');
               if (courseIdEl) courseIdEl.value = courseId;
@@ -10011,6 +10026,27 @@ function _advanceVideoPlaylist() {
   const next = (state._videoPlaylistIndex || 0) + 1;
   if (next < state._videoPlaylist.length) {
     _showVideoPlaylist(state._videoPlaylist, next);
+  }
+}
+
+/** Fallback: fetch video resource from collection when resource_id is missing/invalid */
+async function _fetchVideoFromCollection(collectionId, fallbackResourceId) {
+  if (!collectionId) {
+    vmStartBYOVideo(fallbackResourceId || '', '', 'Video', '');
+    return;
+  }
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${collectionId}/resources`, { headers: AuthManager.authHeaders() });
+    if (!res.ok) { vmStartBYOVideo(fallbackResourceId || '', collectionId, 'Video', ''); return; }
+    const resources = await res.json();
+    const videoRes = resources.find(r => r.mime_type?.includes('youtube') || r.mime_type?.includes('video') || r.source_url);
+    if (videoRes) {
+      vmStartBYOVideo(videoRes.resource_id, collectionId, videoRes.original_name || 'Video', videoRes.source_url || '');
+    } else {
+      vmStartBYOVideo(fallbackResourceId || '', collectionId, 'Video', '');
+    }
+  } catch (e) {
+    vmStartBYOVideo(fallbackResourceId || '', collectionId, 'Video', '');
   }
 }
 

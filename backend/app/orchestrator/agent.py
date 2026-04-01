@@ -1313,12 +1313,15 @@ async def _execute_tool(name: str, input_data: dict, user_context: dict) -> str:
             else:
                 readiness = status
 
-            # Include resource_id for video collections (needed for watch-along)
+            # Include resource_id + source_url for video collections (needed for watch-along)
             resources = col_resources.get(col["collection_id"], [])
             resource_info = ""
             if resources:
                 rid = resources[0].get("resource_id", "")
+                src = resources[0].get("source_url", "")
                 resource_info = f", resource_id:{rid}"
+                if src:
+                    resource_info += f", source_url:{src}"
             lines.append(f"  - {col.get('title', '?')} (collection_id:{col['collection_id']}{resource_info}, {readiness})")
 
         if chunks:
