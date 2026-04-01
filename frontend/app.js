@@ -7060,7 +7060,7 @@ function deriveCheckpointFromSession(session) {
 
 // ─── Init & Screen Management ─────────────────────────────
 
-const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen'];
+const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen', 'business-screen'];
 
 function _hideAllScreens() {
   ALL_SCREENS.forEach(id => {
@@ -7116,6 +7116,12 @@ function showScreen(screenName, param) {
       document.body.style.overflow = 'auto';
       document.body.style.height = 'auto';
       _loadLandingCourses();
+      break;
+
+    case 'business':
+      document.getElementById('business-screen').style.display = 'block';
+      document.body.style.overflow = 'auto';
+      document.body.style.height = 'auto';
       break;
 
     case 'browse':

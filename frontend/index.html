@@ -19,6 +19,7 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
+          <a class="sc-btn sc-btn-ghost" href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Business</a>
           <button class="sc-btn sc-btn-ghost" id="lp-signin">Sign in</button>
           <button class="sc-btn sc-btn-accent" id="lp-getstarted">Get started</button>
         </div>
@@ -266,8 +267,176 @@
         </section>
 
         <footer class="lp-footer">
-          <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
-          <span>AI that teaches, not chats.</span>
+          <div class="lp-footer-top">
+            <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
+            <div class="lp-footer-links">
+              <a href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Institutions</a>
+              <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')">Contact Us</a>
+              <a href="#" onclick="event.preventDefault();openFeedbackModal('feedback')">Feedback</a>
+            </div>
+          </div>
+          <div class="lp-footer-bottom">
+            <span>AI that teaches, not chats.</span>
+            <span class="lp-footer-contact">mayank@seekcapacity.ai</span>
+          </div>
+        </footer>
+      </div>
+    </div>
+
+    <!-- ═══ FOR BUSINESS / INSTITUTIONS SCREEN ═══ -->
+    <div id="business-screen" class="app-screen" style="display:none">
+      <nav class="sc-nav">
+        <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
+        <div class="sc-nav-r">
+          <a class="sc-btn sc-btn-ghost" href="/" onclick="event.preventDefault();Router.navigate('/')">Home</a>
+          <button class="sc-btn sc-btn-accent" onclick="openFeedbackModal('contact')">Get in touch</button>
+        </div>
+      </nav>
+
+      <div class="biz-page">
+        <!-- Hero -->
+        <section class="biz-hero">
+          <div class="biz-hero-label">For Educational Institutions</div>
+          <h1>Transform your curriculum<br>with AI that <em>actually teaches</em></h1>
+          <p class="biz-hero-sub">Not another chatbot. Euler is a live teaching engine that draws on a board, speaks, adapts to each student, and follows YOUR curriculum. Integrate it into your institution and give every student a private tutor.</p>
+          <div class="biz-hero-cta">
+            <button class="sc-btn sc-btn-accent sc-btn-lg" onclick="openFeedbackModal('contact')">Schedule a Demo</button>
+            <button class="sc-btn sc-btn-ghost sc-btn-lg" onclick="document.getElementById('biz-how').scrollIntoView({behavior:'smooth'})">See How It Works</button>
+          </div>
+        </section>
+
+        <!-- Why not a chatbot -->
+        <section class="biz-section" id="biz-how">
+          <h2>Why Euler is different from chatbots</h2>
+          <p class="biz-section-sub">ChatGPT, Gemini, and other chatbots answer questions. Euler <strong>teaches</strong>. Here's the difference:</p>
+          <div class="biz-compare">
+            <div class="biz-compare-col biz-compare-bad">
+              <div class="biz-compare-header">
+                <span class="biz-compare-icon">&#128172;</span>
+                <h3>Typical AI Chatbot</h3>
+              </div>
+              <ul>
+                <li>Gives text answers to text questions</li>
+                <li>No visual explanations</li>
+                <li>Student reads walls of text</li>
+                <li>No assessment or progress tracking</li>
+                <li>No curriculum structure</li>
+                <li>Can't adapt pacing to student level</li>
+                <li>Students copy-paste answers</li>
+              </ul>
+            </div>
+            <div class="biz-compare-col biz-compare-good">
+              <div class="biz-compare-header">
+                <span class="biz-compare-icon">&#9998;</span>
+                <h3>Euler Teaching Engine</h3>
+              </div>
+              <ul>
+                <li><strong>Draws diagrams live</strong> on an interactive board</li>
+                <li><strong>Speaks and explains</strong> with voice narration</li>
+                <li><strong>Follows your curriculum</strong> lesson by lesson</li>
+                <li><strong>Assesses understanding</strong> with inline questions</li>
+                <li><strong>Tracks mastery</strong> per concept, per student</li>
+                <li><strong>Adapts pace</strong> — slows down or speeds up per student</li>
+                <li>Students <strong>learn by doing</strong>, not copying</li>
+              </ul>
+            </div>
+          </div>
+        </section>
+
+        <!-- Experiences -->
+        <section class="biz-section">
+          <h2>Multiple learning experiences, one platform</h2>
+          <p class="biz-section-sub">Euler adapts to how each student learns best</p>
+          <div class="biz-experiences">
+            <div class="biz-exp-card">
+              <div class="biz-exp-icon">&#9998;</div>
+              <h3>Live Board Teaching</h3>
+              <p>Euler draws diagrams, writes equations, and explains step by step on an interactive board — like a private tutor at a whiteboard. Students hear, see, and interact in real time.</p>
+            </div>
+            <div class="biz-exp-card">
+              <div class="biz-exp-icon">&#127916;</div>
+              <h3>Video Follow-Along</h3>
+              <p>Students watch your lecture videos while Euler follows along. When they pause, Euler answers questions using the lecture transcript, draws supplementary diagrams, and fills in gaps.</p>
+            </div>
+            <div class="biz-exp-card">
+              <div class="biz-exp-icon">&#128203;</div>
+              <h3>Exam Preparation</h3>
+              <p>Focused, fast-paced review sessions. Euler diagnoses weak areas, drills key concepts, and runs timed practice — adapting to the student's actual exam date and syllabus.</p>
+            </div>
+            <div class="biz-exp-card">
+              <div class="biz-exp-icon">&#128218;</div>
+              <h3>Your Content, AI-Powered</h3>
+              <p>Upload PDFs, notes, textbooks, or videos. Euler processes them and teaches FROM your materials — ensuring your curriculum, your voice, your pedagogy.</p>
+            </div>
+            <div class="biz-exp-card">
+              <div class="biz-exp-icon">&#128202;</div>
+              <h3>Student Analytics</h3>
+              <p>Track mastery per concept, engagement patterns, time-on-task, and assessment performance. Know which students need help before they fall behind.</p>
+            </div>
+            <div class="biz-exp-card">
+              <div class="biz-exp-icon">&#127891;</div>
+              <h3>Study Material Generation</h3>
+              <p>Euler creates flashcards, study plans, revision notes, formula sheets, and practice problems — all grounded in your curriculum content.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- Integration -->
+        <section class="biz-section biz-integration">
+          <h2>Easy to integrate</h2>
+          <p class="biz-section-sub">Bring your curriculum. We handle the rest.</p>
+          <div class="biz-steps">
+            <div class="biz-step">
+              <div class="biz-step-num">1</div>
+              <h3>Upload your courses</h3>
+              <p>Upload lecture videos, PDFs, syllabi, or textbook content. Euler processes and indexes everything automatically.</p>
+            </div>
+            <div class="biz-step-arrow">&rarr;</div>
+            <div class="biz-step">
+              <div class="biz-step-num">2</div>
+              <h3>We build the teaching layer</h3>
+              <p>Euler learns your curriculum structure, creates teaching plans, and prepares assessment checkpoints aligned with your learning outcomes.</p>
+            </div>
+            <div class="biz-step-arrow">&rarr;</div>
+            <div class="biz-step">
+              <div class="biz-step-num">3</div>
+              <h3>Students start learning</h3>
+              <p>Every student gets a private tutor that teaches YOUR content, tracks their progress, and reports back to you.</p>
+            </div>
+          </div>
+        </section>
+
+        <!-- CTA -->
+        <section class="biz-section biz-cta-section">
+          <h2>Ready to give every student a private tutor?</h2>
+          <p class="biz-section-sub">We work with universities, coaching institutes, and ed-tech companies.</p>
+          <div class="biz-cta-actions">
+            <button class="sc-btn sc-btn-accent sc-btn-lg" onclick="openFeedbackModal('contact')">Schedule a Demo</button>
+          </div>
+          <div class="biz-contact-info">
+            <div class="biz-contact-item">
+              <strong>Email</strong>
+              <a href="mailto:mayank@seekcapacity.ai">mayank@seekcapacity.ai</a>
+            </div>
+            <div class="biz-contact-item">
+              <strong>Call</strong>
+              <a href="tel:+919876543210">+91 98765 43210</a>
+            </div>
+          </div>
+        </section>
+
+        <footer class="lp-footer">
+          <div class="lp-footer-top">
+            <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
+            <div class="lp-footer-links">
+              <a href="/" onclick="event.preventDefault();Router.navigate('/')">Home</a>
+              <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')">Contact</a>
+            </div>
+          </div>
+          <div class="lp-footer-bottom">
+            <span>AI that teaches, not chats.</span>
+            <span class="lp-footer-contact">mayank@seekcapacity.ai</span>
+          </div>
         </footer>
       </div>
     </div>

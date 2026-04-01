@@ -22,6 +22,7 @@ const Router = (() => {
     { path: '/courses',       title: 'Home — Capacity',        auth: true,  handler: handleHome },
     { path: '/session/:id',   title: 'Session — Capacity',     auth: true,  handler: handleSession },
     { path: '/session',       title: 'Home — Capacity',        auth: true,  handler: () => navigate('/home', { replace: true }) },
+    { path: '/for-business',  title: 'For Institutions — Euler', auth: false, handler: handleBusiness },
   ];
 
   function matchPath(pattern, pathname) {
@@ -84,6 +85,8 @@ const Router = (() => {
   function handleSession(params) {
     if (typeof continueSession === 'function') continueSession(params.id);
   }
+
+  function handleBusiness() { showScreen('business'); }
 
   // ─── Popstate ─────────────────────────────────────────────
 

@@ -389,8 +389,13 @@ body {
 .lp-final-cta p { font-size:15px; color:var(--text-muted); margin-bottom:24px }
 
 /* ── Footer ── */
-.lp-footer { display:flex; align-items:center; justify-content:space-between;
-  padding:24px 0 40px; border-top:1px solid var(--border); font-size:12px; color:var(--text-dim) }
+.lp-footer { padding:32px 0 40px; border-top:1px solid var(--border); font-size:12px; color:var(--text-dim) }
+.lp-footer-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:12px }
+.lp-footer-links { display:flex; gap:20px }
+.lp-footer-links a { color:var(--text-muted); text-decoration:none; transition:color .15s }
+.lp-footer-links a:hover { color:var(--accent) }
+.lp-footer-bottom { display:flex; align-items:center; justify-content:space-between }
+.lp-footer-contact { color:var(--text-muted) }
 
 @media (max-width:768px) {
   .lp-hero { grid-template-columns:1fr; gap:32px }
@@ -7021,6 +7026,75 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 .fb-status { text-align:center; font-size:13px; margin-top:10px; min-height:20px }
 .fb-status.success { color:var(--accent) }
 .fb-status.error { color:#ef4444 }
+
+/* ═══ For Business / Institutions Page ═══ */
+.biz-page { max-width:960px; margin:0 auto; padding:0 24px }
+
+.biz-hero { text-align:center; padding:80px 0 60px }
+.biz-hero-label { font-size:12px; font-weight:600; color:var(--accent); text-transform:uppercase;
+  letter-spacing:1.5px; margin-bottom:16px }
+.biz-hero h1 { font-size:40px; font-weight:800; line-height:1.2; margin-bottom:20px; letter-spacing:-.5px }
+.biz-hero h1 em { color:var(--accent); font-style:normal }
+.biz-hero-sub { font-size:16px; color:var(--text-muted); line-height:1.7; max-width:640px; margin:0 auto 32px }
+.biz-hero-cta { display:flex; gap:12px; justify-content:center; flex-wrap:wrap }
+.sc-btn-lg { padding:12px 28px; font-size:15px; border-radius:12px }
+
+.biz-section { padding:60px 0; border-top:1px solid var(--border) }
+.biz-section h2 { font-size:28px; font-weight:700; text-align:center; margin-bottom:8px }
+.biz-section-sub { font-size:15px; color:var(--text-muted); text-align:center; margin-bottom:36px; line-height:1.6 }
+
+/* Comparison */
+.biz-compare { display:grid; grid-template-columns:1fr 1fr; gap:20px }
+.biz-compare-col { border-radius:16px; padding:28px; border:1px solid var(--border) }
+.biz-compare-bad { background:rgba(255,107,107,.03); border-color:rgba(255,107,107,.2) }
+.biz-compare-good { background:rgba(52,211,153,.03); border-color:rgba(52,211,153,.2) }
+.biz-compare-header { display:flex; align-items:center; gap:10px; margin-bottom:16px }
+.biz-compare-icon { font-size:24px }
+.biz-compare-header h3 { font-size:16px; font-weight:600 }
+.biz-compare-col ul { list-style:none; padding:0 }
+.biz-compare-col li { padding:8px 0; font-size:14px; color:var(--text-muted); line-height:1.5;
+  border-bottom:1px solid rgba(255,255,255,.04) }
+.biz-compare-col li:last-child { border-bottom:none }
+.biz-compare-bad li::before { content:'✕ '; color:#ff6b6b }
+.biz-compare-good li::before { content:'✓ '; color:var(--accent) }
+
+/* Experiences grid */
+.biz-experiences { display:grid; grid-template-columns:repeat(3,1fr); gap:16px }
+.biz-exp-card { padding:24px; border-radius:14px; background:var(--bg-surface);
+  border:1px solid var(--border); transition:all .2s }
+.biz-exp-card:hover { border-color:var(--accent); transform:translateY(-2px) }
+.biz-exp-icon { font-size:28px; margin-bottom:12px }
+.biz-exp-card h3 { font-size:15px; font-weight:600; margin-bottom:8px }
+.biz-exp-card p { font-size:13px; color:var(--text-muted); line-height:1.6 }
+
+/* Integration steps */
+.biz-steps { display:flex; align-items:flex-start; gap:12px; justify-content:center }
+.biz-step { flex:1; text-align:center; padding:24px; border-radius:14px;
+  background:var(--bg-surface); border:1px solid var(--border) }
+.biz-step-num { width:36px; height:36px; border-radius:50%; background:var(--accent); color:#000;
+  font-size:16px; font-weight:700; display:grid; place-items:center; margin:0 auto 12px }
+.biz-step h3 { font-size:14px; font-weight:600; margin-bottom:8px }
+.biz-step p { font-size:13px; color:var(--text-muted); line-height:1.5 }
+.biz-step-arrow { font-size:24px; color:var(--text-dim); align-self:center; margin-top:20px }
+
+/* CTA section */
+.biz-cta-section { text-align:center; background:var(--bg-surface); border-radius:20px;
+  padding:60px 40px; margin-bottom:40px; border:1px solid var(--border) }
+.biz-cta-actions { margin-bottom:24px }
+.biz-contact-info { display:flex; gap:40px; justify-content:center }
+.biz-contact-item { font-size:14px; color:var(--text-muted) }
+.biz-contact-item strong { display:block; font-size:11px; text-transform:uppercase;
+  letter-spacing:1px; color:var(--text-dim); margin-bottom:4px }
+.biz-contact-item a { color:var(--accent); text-decoration:none }
+.biz-contact-item a:hover { text-decoration:underline }
+
+@media (max-width:768px) {
+  .biz-hero h1 { font-size:28px }
+  .biz-compare { grid-template-columns:1fr }
+  .biz-experiences { grid-template-columns:1fr }
+  .biz-steps { flex-direction:column }
+  .biz-step-arrow { transform:rotate(90deg); align-self:center }
+}
 
 /* ─── Generic Hidden ────────────────────────────────────── */
 .hidden { display: none !important; }
