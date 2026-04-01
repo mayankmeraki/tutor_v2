@@ -18192,3 +18192,113 @@ document.addEventListener('DOMContentLoaded', () => {
   if (sendBtn) sendBtn.addEventListener('click', _vmSendMessage);
   if (chatInput) chatInput.addEventListener('keydown', e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); _vmSendMessage(); } });
 });
+
+// ═══════════════════════════════════════════════════════════════
+//   Feedback / Bug Report / Contact Form
+// ═══════════════════════════════════════════════════════════════
+
+let _fbAttachments = []; // [{filename, content (base64)}]
+
+function openFeedbackModal(type) {
+  const overlay = document.getElementById('fb-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  document.getElementById('fb-type').value = type || 'feedback';
+
+  const titles = { bug: 'Report a Bug', feedback: 'Send Feedback', contact: 'Contact Us' };
+  document.getElementById('fb-title').textContent = titles[type] || 'Send Feedback';
+
+  const placeholders = {
+    bug: 'Describe the bug: what happened, what you expected, and steps to reproduce...',
+    feedback: 'Tell us what\'s on your mind — ideas, suggestions, or what\'s working well...',
+    contact: 'How can we help?',
+  };
+  document.getElementById('fb-message').placeholder = placeholders[type] || placeholders.feedback;
+
+  // Pre-fill user info if logged in
+  const user = typeof AuthManager !== 'undefined' ? AuthManager.getUser() : null;
+  if (user) {
+    document.getElementById('fb-name').value = user.name || '';
+    document.getElementById('fb-email').value = user.email || '';
+  }
+
+  // Reset state
+  _fbAttachments = [];
+  document.getElementById('fb-file-list').innerHTML = '';
+  document.getElementById('fb-status').textContent = '';
+  document.getElementById('fb-submit').disabled = false;
+}
+window.openFeedbackModal = openFeedbackModal;
+
+function closeFeedbackModal() {
+  const overlay = document.getElementById('fb-overlay');
+  if (overlay) overlay.style.display = 'none';
+  _fbAttachments = [];
+}
+window.closeFeedbackModal = closeFeedbackModal;
+
+function handleFeedbackFiles(input) {
+  const files = Array.from(input.files || []);
+  const list = document.getElementById('fb-file-list');
+
+  for (const file of files.slice(0, 5 - _fbAttachments.length)) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const base64 = reader.result.split(',')[1]; // strip data:...;base64,
+      _fbAttachments.push({ filename: file.name, content: base64 });
+
+      const tag = document.createElement('span');
+      tag.className = 'fb-file-tag';
+      tag.innerHTML = `${file.name} <span class="fb-file-remove" onclick="this.parentElement.remove();_fbAttachments=_fbAttachments.filter(a=>a.filename!=='${file.name.replace(/'/g, "\\'")}')">&times;</span>`;
+      list.appendChild(tag);
+    };
+    reader.readAsDataURL(file);
+  }
+  input.value = ''; // reset so same file can be re-selected
+}
+window.handleFeedbackFiles = handleFeedbackFiles;
+
+async function submitFeedback(e) {
+  e.preventDefault();
+  const btn = document.getElementById('fb-submit');
+  const status = document.getElementById('fb-status');
+  btn.disabled = true;
+  btn.textContent = 'Sending...';
+  status.textContent = '';
+  status.className = 'fb-status';
+
+  const payload = {
+    type: document.getElementById('fb-type').value,
+    name: document.getElementById('fb-name').value.trim(),
+    email: document.getElementById('fb-email').value.trim(),
+    message: document.getElementById('fb-message').value.trim(),
+    page: window.location.pathname,
+    attachments: _fbAttachments,
+  };
+
+  try {
+    const apiUrl = typeof state !== 'undefined' ? (state.apiUrl || '') : '';
+    const headers = { 'Content-Type': 'application/json' };
+    if (typeof AuthManager !== 'undefined') Object.assign(headers, AuthManager.authHeaders());
+
+    const res = await fetch(`${apiUrl}/api/v1/feedback`, {
+      method: 'POST', headers, body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+
+    if (data.status === 'sent' || data.status === 'received') {
+      status.textContent = 'Thank you! Your message has been sent.';
+      status.className = 'fb-status success';
+      btn.textContent = 'Sent!';
+      setTimeout(() => closeFeedbackModal(), 2000);
+    } else {
+      throw new Error(data.error || 'Failed to send');
+    }
+  } catch (err) {
+    status.textContent = 'Failed to send. Please try again.';
+    status.className = 'fb-status error';
+    btn.disabled = false;
+    btn.textContent = 'Send';
+  }
+}
+window.submitFeedback = submitFeedback;

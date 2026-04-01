@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     SUMMARIZATION_MODEL: str = Field(default="")  # defaults to MODEL_FAST
     EULER_MODEL: str = Field(default="")        # defaults to MODEL_HEAVY (orchestrator needs top intelligence)
 
+    # ── Feedback / Contact ──
+    RESEND_API_KEY: str = Field(default="")
+    FEEDBACK_EMAIL: str = Field(default="mayank@seekcapacity.ai")
+
     @computed_field
     @property
     def tutor_model(self) -> str:

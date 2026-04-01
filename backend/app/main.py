@@ -366,6 +366,76 @@ except Exception as e:
     log.warning("BYO routes not loaded: %s", e)
 
 
+# ─── Feedback / Contact / Bug Report ──────────────────────────────
+@app.post("/api/v1/feedback")
+async def submit_feedback(request: Request):
+    """Send feedback/bug report/contact form via Resend email."""
+    import httpx
+    body = await request.json()
+    feedback_type = body.get("type", "feedback")  # feedback, bug, contact
+    name = body.get("name", "Anonymous")
+    email = body.get("email", "")
+    message = body.get("message", "")
+    page = body.get("page", "")
+    user_agent = request.headers.get("user-agent", "")
+    attachments = body.get("attachments", [])  # [{filename, content (base64)}]
+
+    if not message.strip():
+        return {"error": "Message is required"}, 400
+
+    api_key = settings.RESEND_API_KEY
+    to_email = settings.FEEDBACK_EMAIL
+    if not api_key:
+        log.warning("Feedback received but RESEND_API_KEY not set")
+        return {"status": "received", "note": "Email not configured"}
+
+    type_labels = {"bug": "Bug Report", "feedback": "Feedback", "contact": "Contact"}
+    subject = f"[Euler {type_labels.get(feedback_type, 'Feedback')}] from {name}"
+
+    html_body = f"""
+    <h2>{type_labels.get(feedback_type, 'Feedback')}</h2>
+    <p><strong>From:</strong> {name} ({email or 'no email'})</p>
+    <p><strong>Page:</strong> {page or 'N/A'}</p>
+    <p><strong>Browser:</strong> {user_agent[:120]}</p>
+    <hr>
+    <div style="white-space:pre-wrap;font-family:sans-serif;line-height:1.6">{message}</div>
+    """
+
+    # Build Resend payload
+    payload = {
+        "from": "Euler Feedback <feedback@seekcapacity.ai>",
+        "to": [to_email],
+        "subject": subject,
+        "html": html_body,
+    }
+    if email:
+        payload["reply_to"] = email
+
+    # Attachments (base64 encoded)
+    if attachments:
+        payload["attachments"] = [
+            {"filename": a.get("filename", "attachment"), "content": a.get("content", "")}
+            for a in attachments[:5]  # max 5 attachments
+        ]
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            resp = await client.post(
+                "https://api.resend.com/emails",
+                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                json=payload,
+            )
+            if resp.status_code in (200, 201):
+                log.info("Feedback email sent: %s from %s", feedback_type, name)
+                return {"status": "sent"}
+            else:
+                log.error("Resend API error %d: %s", resp.status_code, resp.text[:200])
+                return {"status": "received", "note": "Email delivery pending"}
+    except Exception as e:
+        log.error("Feedback email failed: %s", e)
+        return {"status": "received", "note": "Email delivery pending"}
+
+
 # ─── Document serving ──────────────────────────────────────────────
 
 @app.get("/api/v1/documents/{document_id}")

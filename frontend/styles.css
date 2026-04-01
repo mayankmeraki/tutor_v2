@@ -6962,5 +6962,65 @@ body.assessment-mode #board-panel { flex: 1 !important; }
   min-height: 0 !important;
 }
 
+/* ═══ Feedback / Contact / Bug Report ═══ */
+
+/* Bug report button in nav */
+.fb-bug-btn { width:32px; height:32px; border-radius:8px; border:1px solid var(--border);
+  background:none; color:var(--text-dim); display:grid; place-items:center; cursor:pointer;
+  transition:all .15s }
+.fb-bug-btn:hover { color:var(--accent); border-color:var(--accent) }
+
+/* Contact section on homepage */
+.fb-contact-section { width:100%; max-width:900px; margin:48px auto 40px; padding:0 24px; text-align:center }
+.fb-contact-inner h2 { font-size:20px; font-weight:700; margin-bottom:6px }
+.fb-contact-inner > p { font-size:14px; color:var(--text-muted); margin-bottom:24px }
+.fb-contact-cards { display:grid; grid-template-columns:repeat(3,1fr); gap:14px }
+.fb-card { padding:24px 16px; border-radius:14px; background:var(--bg-surface);
+  border:1px solid var(--border); cursor:pointer; transition:all .2s; text-align:center }
+.fb-card:hover { border-color:var(--accent); transform:translateY(-2px);
+  box-shadow:0 4px 20px rgba(52,211,153,.08) }
+.fb-card-icon { font-size:28px; margin-bottom:10px }
+.fb-card h3 { font-size:14px; font-weight:600; margin-bottom:6px }
+.fb-card p { font-size:12px; color:var(--text-muted); line-height:1.5 }
+@media (max-width:600px) { .fb-contact-cards { grid-template-columns:1fr } }
+
+/* Feedback modal overlay */
+.fb-overlay { position:fixed; inset:0; background:rgba(0,0,0,.6); z-index:9999;
+  display:flex; align-items:center; justify-content:center; backdrop-filter:blur(4px);
+  animation:fbFadeIn .2s ease }
+@keyframes fbFadeIn { from{opacity:0} to{opacity:1} }
+.fb-modal { background:var(--bg-surface); border:1px solid var(--border); border-radius:16px;
+  padding:28px; width:90%; max-width:480px; position:relative; animation:fbSlideIn .25s ease }
+@keyframes fbSlideIn { from{opacity:0;transform:translateY(16px)} to{opacity:1;transform:none} }
+.fb-close { position:absolute; top:12px; right:14px; background:none; border:none;
+  color:var(--text-dim); font-size:22px; cursor:pointer; width:30px; height:30px; border-radius:8px;
+  display:grid; place-items:center; transition:all .15s }
+.fb-close:hover { color:var(--text); background:var(--bg-elevated) }
+.fb-modal h2 { font-size:18px; font-weight:700; margin-bottom:18px }
+.fb-row { display:flex; gap:10px; margin-bottom:10px }
+.fb-input { width:100%; padding:10px 14px; border-radius:10px; border:1px solid var(--border);
+  background:var(--bg); color:var(--text); font-size:14px; font-family:inherit;
+  transition:border-color .2s; outline:none; resize:vertical }
+.fb-input:focus { border-color:var(--accent) }
+.fb-input::placeholder { color:var(--text-dim) }
+textarea.fb-input { margin-bottom:10px; min-height:100px }
+.fb-attach-row { display:flex; align-items:center; gap:10px; margin-bottom:14px; flex-wrap:wrap }
+.fb-attach-btn { display:flex; align-items:center; gap:5px; padding:6px 12px; border-radius:8px;
+  border:1px solid var(--border); background:none; color:var(--text-muted); font-size:12px;
+  cursor:pointer; transition:all .15s; white-space:nowrap }
+.fb-attach-btn:hover { border-color:var(--accent); color:var(--accent) }
+.fb-file-list { display:flex; gap:6px; flex-wrap:wrap }
+.fb-file-tag { display:flex; align-items:center; gap:4px; padding:3px 8px; border-radius:6px;
+  background:var(--bg-elevated); font-size:11px; color:var(--text-muted) }
+.fb-file-remove { cursor:pointer; color:var(--text-dim); font-size:14px }
+.fb-file-remove:hover { color:#ef4444 }
+.fb-submit { width:100%; padding:10px; border-radius:10px; border:none; background:var(--accent);
+  color:#000; font-size:14px; font-weight:600; cursor:pointer; transition:opacity .15s }
+.fb-submit:hover { opacity:.9 }
+.fb-submit:disabled { opacity:.5; cursor:not-allowed }
+.fb-status { text-align:center; font-size:13px; margin-top:10px; min-height:20px }
+.fb-status.success { color:var(--accent) }
+.fb-status.error { color:#ef4444 }
+
 /* ─── Generic Hidden ────────────────────────────────────── */
 .hidden { display: none !important; }
