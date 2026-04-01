@@ -14,52 +14,72 @@ from app.services.content_service import (
 router = APIRouter(prefix="/api/v1/content", tags=["content"])
 
 
+_courses_cache: dict = {"data": None, "ts": 0}
+_COURSES_TTL = 300  # 5 minutes
+
 @router.get("/courses")
 async def list_courses(db: AsyncSession = Depends(get_db), user: dict = Depends(get_optional_user)):
-    """List all courses with lesson/module counts and metadata."""
+    """List all courses with lesson/module counts and metadata.
+
+    Uses a server-side TTL cache (5 min) — course catalog rarely changes.
+    Single batch query instead of N+1.
+    """
+    import time
+    now = time.time()
+    if _courses_cache["data"] and now - _courses_cache["ts"] < _COURSES_TTL:
+        return _courses_cache["data"]
+
     from sqlalchemy import select, func
     from app.models.course import Course, Module, Lesson
     import re
 
+    # Batch: all courses + aggregated counts in 2 queries total
     courses = (await db.execute(select(Course).order_by(Course.id))).scalars().all()
+
+    # Module counts per course — one query
+    mod_counts = dict((await db.execute(
+        select(Module.course_id, func.count()).group_by(Module.course_id)
+    )).all())
+
+    # Lesson counts + first video URL per course — one query
+    lesson_agg = (await db.execute(
+        select(
+            Module.course_id,
+            func.count(Lesson.id),
+            func.min(Lesson.video_url),
+        )
+        .join(Module)
+        .group_by(Module.course_id)
+    )).all()
+    lesson_counts = {row[0]: row[1] for row in lesson_agg}
+    first_videos = {row[0]: row[2] for row in lesson_agg}
+
     result = []
     for c in courses:
-        modules = (await db.execute(
-            select(func.count()).select_from(Module).where(Module.course_id == c.id)
-        )).scalar()
-        lesson_rows = (await db.execute(
-            select(Lesson.video_url).join(Module).where(Module.course_id == c.id).order_by(Lesson.order).limit(1)
-        )).scalars().all()
-
-        # Derive thumbnail from first lesson's video URL or course img_link
-        thumbnail = c.img_link
-        if not thumbnail and lesson_rows:
-            first_video = lesson_rows[0]
+        # Derive thumbnail (strip whitespace — some DB entries have leading spaces)
+        thumbnail = (c.img_link or "").strip() or None
+        if not thumbnail:
+            first_video = first_videos.get(c.id)
             if first_video:
                 m = re.search(r'(?:embed/|watch\?v=|youtu\.be/)([a-zA-Z0-9_-]{11})', first_video)
                 if m:
                     thumbnail = f"https://img.youtube.com/vi/{m[1]}/hqdefault.jpg"
 
-        # Derive subject from title (tags are topic-level, not subject-level)
-        tags = c.tags or []
-        subject = _guess_subject(c.title)
-
-        total_lessons = (await db.execute(
-            select(func.count()).select_from(Lesson).join(Module).where(Module.course_id == c.id)
-        )).scalar()
-
         result.append({
             "id": c.id,
             "title": c.title,
             "description": c.description,
-            "lesson_count": total_lessons,
-            "module_count": modules,
-            "subject": subject,
+            "lesson_count": lesson_counts.get(c.id, 0),
+            "module_count": mod_counts.get(c.id, 0),
+            "subject": _guess_subject(c.title),
             "difficulty": c.difficulty.value if c.difficulty else None,
             "thumbnail": thumbnail,
-            "tags": tags,
+            "tags": c.tags or [],
             "rating": float(c.rating) if c.rating else None,
         })
+
+    _courses_cache["data"] = result
+    _courses_cache["ts"] = now
     return result
 
 
@@ -95,17 +115,39 @@ async def resolve_course(q: str = Query(""), db: AsyncSession = Depends(get_db),
     }
 
 
+_course_detail_cache: dict = {}  # {course_id: {"data": ..., "ts": ...}}
+_COURSE_DETAIL_TTL = 300  # 5 minutes
+
 @router.get("/courses/{course_id}")
 async def course_map(course_id: int, db: AsyncSession = Depends(get_db), user: dict = Depends(get_optional_user)):
+    import time
+    now = time.time()
+    cached = _course_detail_cache.get(course_id)
+    if cached and now - cached["ts"] < _COURSE_DETAIL_TTL:
+        return cached["data"]
+
     result = await get_course_with_hierarchy(db, course_id)
     if not result:
         raise HTTPException(status_code=404, detail="Course not found")
+
+    _course_detail_cache[course_id] = {"data": result, "ts": now}
     return result
 
 
+_sections_cache: dict = {}     # {lesson_id: {"data": ..., "ts": ...}}
+_concepts_cache: dict = {}     # {course_id: {"data": ..., "ts": ...}}
+_CONTENT_CACHE_TTL = 300       # 5 min
+
 @router.get("/lessons/{lesson_id}/sections")
 async def lesson_sections(lesson_id: int, user: dict = Depends(get_optional_user)):
-    return await get_lesson_sections_lightweight(lesson_id)
+    import time
+    now = time.time()
+    cached = _sections_cache.get(lesson_id)
+    if cached and now - cached["ts"] < _CONTENT_CACHE_TTL:
+        return cached["data"]
+    result = await get_lesson_sections_lightweight(lesson_id)
+    _sections_cache[lesson_id] = {"data": result, "ts": now}
+    return result
 
 
 @router.get("/sections/{lesson_id}/{section_index}")
@@ -118,7 +160,14 @@ async def section_detail(lesson_id: int, section_index: int, user: dict = Depend
 
 @router.get("/courses/{course_id}/concepts")
 async def course_concepts(course_id: int, user: dict = Depends(get_optional_user)):
-    return await get_course_concepts(course_id)
+    import time
+    now = time.time()
+    cached = _concepts_cache.get(course_id)
+    if cached and now - cached["ts"] < _CONTENT_CACHE_TTL:
+        return cached["data"]
+    result = await get_course_concepts(course_id)
+    _concepts_cache[course_id] = {"data": result, "ts": now}
+    return result
 
 
 @router.get("/search")

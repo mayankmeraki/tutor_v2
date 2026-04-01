@@ -15,7 +15,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 
-from app.api.routes import auth, chat, content, events, learning_tools, sessions
+from app.api.routes import artifacts, auth, chat, content, events, learning_tools, sessions
 
 log = logging.getLogger(__name__)
 
@@ -59,10 +59,12 @@ async def lifespan(app: FastAPI):
     from app.core.config import settings
     log.info("Mockup Teaching Agent — Python Backend")
     log.info("Server:         http://0.0.0.0:%s", settings.PORT)
-    log.info("Tutor Model:    %s", settings.TUTOR_MODEL)
-    log.info("Planning Model: %s", settings.PLANNING_MODEL)
-    log.info("Research Model: %s", settings.RESEARCH_MODEL)
-    log.info("API Key:        %s", "set" if settings.ANTHROPIC_API_KEY else "MISSING")
+    log.info("Tutor Model:    %s", settings.tutor_model)
+    log.info("Euler Model:    %s", settings.euler_model)
+    log.info("Fast Model:     %s", settings.MODEL_FAST)
+    log.info("LLM Provider:   %s", settings.LLM_PROVIDER)
+    _key = settings.OPENROUTER_API_KEY if settings.LLM_PROVIDER == "openrouter" else settings.ANTHROPIC_API_KEY
+    log.info("API Key:        %s", "set" if _key else "MISSING")
     yield
 
     # ── Shutdown: close DB connections ──
@@ -307,11 +309,25 @@ async def fix_animation(request: Request):
 
 # API routes
 app.include_router(auth.router)
+app.include_router(artifacts.router)
 app.include_router(content.router)
 app.include_router(learning_tools.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
 app.include_router(chat.router)
+
+# Euler (Orchestrator) — Home screen agent
+from app.orchestrator.api import router as euler_router
+app.include_router(euler_router)
+
+# BYO — Student materials upload
+try:
+    import sys
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    from byo.api.collections import router as byo_router
+    app.include_router(byo_router)
+except Exception as e:
+    log.warning("BYO routes not loaded: %s", e)
 
 
 # ─── Admin / management endpoints ────────────────────────────────

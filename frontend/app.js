@@ -6992,7 +6992,10 @@ function showScreen(screenName, param) {
         const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
         browseGreeting.textContent = `${timeGreeting}, ${firstName}`;
       }
-      _loadBrowseCourses();
+      // Restore Euler state — keeps chat if there's history
+      _eulerResetToIdle();
+      // Pre-fetch courses for explore tab
+      _fetchCourses();
       break;
 
     case 'course':
@@ -7033,15 +7036,31 @@ function updateCourseCardSelection() { /* no-op — old dashboard compat */ }
 // ─── Dynamic course loading ──────────────────────────────
 
 let _cachedCourses = null;
+const _COURSE_CACHE_KEY = 'capacity_courses';
+const _COURSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
 async function _fetchCourses() {
   if (_cachedCourses) return _cachedCourses;
+
+  // Check sessionStorage first — instant on navigation
+  try {
+    const cached = sessionStorage.getItem(_COURSE_CACHE_KEY);
+    if (cached) {
+      const { data, ts } = JSON.parse(cached);
+      if (Date.now() - ts < _COURSE_CACHE_TTL) {
+        _cachedCourses = data;
+        return _cachedCourses;
+      }
+    }
+  } catch (e) { /* ignore */ }
+
   try {
     const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses`, {
       headers: AuthManager.authHeaders(),
     });
     if (res.ok) {
       _cachedCourses = await res.json();
+      try { sessionStorage.setItem(_COURSE_CACHE_KEY, JSON.stringify({ data: _cachedCourses, ts: Date.now() })); } catch (e) { /* quota */ }
       return _cachedCourses;
     }
   } catch (e) { console.warn('Failed to fetch courses:', e); }
@@ -7057,8 +7076,8 @@ async function _fetchCourses() {
 
 function _courseThumbStyle(course) {
   // Returns just the CSS value (no "background:" prefix — callers add that)
-  const thumb = (course.thumbnail || '').trim();
-  if (thumb) {
+  const thumb = (course.thumbnail || '').trim().replace(/^\s+/, '');
+  if (thumb && thumb.startsWith('http')) {
     return `url('${thumb}') center/cover no-repeat, linear-gradient(135deg,#151530,#111113)`;
   }
   const s = (course.subject || course.title || '').toLowerCase();
@@ -7153,6 +7172,1048 @@ async function _loadBrowseCourses() {
 
 let _courseDetailData = null; // raw API data for current course detail
 
+// ═══════════════════════════════════════════════════════════════
+//   Euler — Home screen AI companion
+// ═══════════════════════════════════════════════════════════════
+
+// ═══════════════════════════════════════════════════════════════
+//   Home tabs
+// ═══════════════════════════════════════════════════════════════
+
+function _initHomeTabs() {
+  document.querySelectorAll('.home-tab').forEach(tab => {
+    tab.addEventListener('click', () => {
+      document.querySelectorAll('.home-tab').forEach(t => t.classList.remove('active'));
+      document.querySelectorAll('.home-tab-content').forEach(c => c.classList.remove('active'));
+      tab.classList.add('active');
+      const target = document.getElementById('tab-' + tab.dataset.homeTab);
+      if (target) target.classList.add('active');
+      // Load content for the tab if needed
+      if (tab.dataset.homeTab === 'explore') _loadBrowseCourses();
+      if (tab.dataset.homeTab === 'materials') { _loadByoMaterials(); _loadLearningAids(); }
+    });
+  });
+
+  // Explore tab search
+  const searchInput = document.getElementById('explore-search-input');
+  if (searchInput) {
+    let _timer = null;
+    searchInput.addEventListener('input', () => {
+      clearTimeout(_timer);
+      _timer = setTimeout(() => _filterBrowseCourses(searchInput.value), 200);
+    });
+  }
+}
+
+async function _loadLearningAids() {
+  const grid = document.getElementById('aids-grid');
+  const empty = document.getElementById('aids-empty');
+  if (!grid) return;
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/artifacts`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) return;
+    const artifacts = await res.json();
+
+    if (!artifacts.length) {
+      if (empty) empty.style.display = '';
+      return;
+    }
+    if (empty) empty.style.display = 'none';
+
+    // Remove old aid cards (keep empty state element)
+    grid.querySelectorAll('.aid-card').forEach(c => c.remove());
+
+    for (const a of artifacts) {
+      const card = document.createElement('div');
+      card.className = 'aid-card';
+      card.dataset.artifactId = a.artifact_id;
+
+      const typeIcons = {
+        flashcards: '&#x1F4C7;', revision_notes: '&#x1F4DD;', study_plan: '&#x1F4CB;',
+        summary: '&#x1F4D6;', cheat_sheet: '&#x1F4DC;', practice_problems: '&#x270F;',
+      };
+      const icon = typeIcons[a.type] || '&#x1F4C4;';
+      const preview = a.preview || {};
+      let meta = a.type;
+      if (preview.card_count) meta = `${preview.card_count} cards`;
+      if (preview.step_count) meta = `${preview.step_count} steps`;
+
+      // Spaced repetition badge for flashcards
+      let srBadge = '';
+      if (a.type === 'flashcards' && a.sr_stats) {
+        const due = a.sr_stats.due_now || 0;
+        const mastered = a.sr_stats.mastered || 0;
+        srBadge = due > 0
+          ? `<div class="aid-sr-badge aid-sr-due">${due} due for review</div>`
+          : `<div class="aid-sr-badge aid-sr-ok">${mastered} mastered</div>`;
+      }
+
+      card.innerHTML = `
+        <div class="aid-icon">${icon}</div>
+        <div class="aid-title">${_escHtml(a.title)}</div>
+        <div class="aid-meta">${meta}</div>
+        ${srBadge}`;
+
+      card.addEventListener('click', () => _openAidDetail(a.artifact_id, a.type, a.title));
+      grid.insertBefore(card, empty);
+    }
+  } catch (e) {
+    console.warn('Failed to load learning aids:', e);
+  }
+}
+
+async function _openAidDetail(artifactId, type, title) {
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/artifacts/${artifactId}`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) return;
+    const artifact = await res.json();
+    openArtifactViewer(type, title, artifact.content || {});
+  } catch (e) {
+    console.warn('Failed to load artifact:', e);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+
+let _eulerStream = null;       // current SSE connection
+let _eulerHistory = [];        // conversation history sent to backend [{role, content}]
+let _eulerBusy = false;
+let _eulerStarted = false;     // has conversation started?
+let _eulerCurrentResponse = ''; // accumulates current assistant response for history
+let _eulerSeenToolsSinceText = false; // tracks if tools ran since last text bubble
+let _eulerSuppressText = false; // suppress text after permission/session cards
+
+function _initEuler() {
+  // Wire both idle and active inputs
+  _wireEulerInput('euler-input', 'euler-send-btn');
+  _wireEulerInput('euler-input-active', 'euler-send-btn-active');
+
+  // Preview panel close
+  document.getElementById('ep-close')?.addEventListener('click', _closePreviewPanel);
+
+  // Clear chat button
+  document.getElementById('euler-clear-btn')?.addEventListener('click', () => {
+    _eulerFullReset();
+  });
+
+  // BYO upload wiring
+  document.getElementById('byo-upload-card')?.addEventListener('click', () => {
+    document.getElementById('byo-file-input')?.click();
+  });
+  document.getElementById('byo-file-input')?.addEventListener('change', _handleByoUpload);
+
+  // Back button — return to idle/home
+  document.getElementById('euler-back-btn')?.addEventListener('click', () => {
+    _eulerResetToIdle();
+    document.body.style.overflow = 'auto';
+    document.body.style.height = 'auto';
+  });
+
+  // Chip clicks fill idle input
+  document.querySelectorAll('#euler-chips .euler-chip').forEach(chip => {
+    chip.addEventListener('click', () => {
+      const input = document.getElementById('euler-input');
+      if (input) { input.value = chip.textContent; input.focus(); }
+    });
+  });
+}
+
+function _wireEulerInput(inputId, btnId) {
+  const input = document.getElementById(inputId);
+  const sendBtn = document.getElementById(btnId);
+  if (!input || !sendBtn) return;
+
+  input.addEventListener('input', () => {
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+  });
+
+  input.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      _eulerSend();
+    }
+  });
+
+  sendBtn.addEventListener('click', _eulerSend);
+}
+
+function _eulerSend() {
+  // Read from whichever input is active
+  const idleInput = document.getElementById('euler-input');
+  const chatInput = document.getElementById('euler-input-active');
+  const input = _eulerStarted ? chatInput : idleInput;
+  if (!input) return;
+  const text = input.value.trim();
+  if (!text || _eulerBusy) return;
+
+  // Switch from idle → chat on first message
+  if (!_eulerStarted) {
+    _eulerStarted = true;
+    const idle = document.getElementById('euler-idle');
+    const chat = document.getElementById('euler-chat');
+    if (idle) idle.style.display = 'none';
+    if (chat) chat.style.display = 'flex';
+  }
+
+  // Add user message to UI + history
+  _eulerAddMessage('user', text);
+  _eulerHistory.push({ role: 'user', content: text });
+
+  // Clear input
+  input.value = '';
+  input.style.height = 'auto';
+
+  // Stream response from Euler
+  _eulerStreamResponse(text);
+}
+
+function _eulerAddMessage(role, content, extra) {
+  const container = document.getElementById('euler-messages');
+  if (!container) return;
+
+  const msg = document.createElement('div');
+  msg.className = `euler-msg euler-msg-${role}`;
+
+  if (role === 'user') {
+    msg.innerHTML = `<div class="euler-msg-bubble euler-user-bubble">${_escHtml(content)}</div>`;
+  } else if (role === 'euler') {
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-msg-bubble euler-euler-bubble">${content}</div>
+      </div>`;
+  } else if (role === 'thinking') {
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-thinking"><span></span><span></span><span></span></div>
+      </div>`;
+    msg.id = 'euler-thinking-indicator';
+  } else if (role === 'artifact') {
+    const a = extra || {};
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-artifact-card" style="cursor:pointer" data-artifact-type="${_escHtml(a.artifactType || 'artifact')}" data-artifact-title="${_escHtml(a.title || 'Untitled')}">
+          <div class="euler-artifact-header">
+            <span class="euler-artifact-type">${_escHtml(a.artifactType || 'artifact')}</span>
+            <span class="euler-artifact-title">${_escHtml(a.title || 'Untitled')}</span>
+            <span class="euler-artifact-saved">Saved</span>
+          </div>
+          <div class="euler-artifact-preview">${_renderArtifactPreview(a)}</div>
+        </div>
+      </div>`;
+    // Store content for viewer and wire click
+    const card = msg.querySelector('.euler-artifact-card');
+    if (card) {
+      card._artifactContent = a.content || {};
+      card.addEventListener('click', () => {
+        _openPreviewPanel(a.artifactType || 'artifact', a.title || 'Untitled', card._artifactContent);
+      });
+    }
+  } else if (role === 'document') {
+    const d = extra || {};
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-document-card">
+          <div class="euler-doc-icon">&#128196;</div>
+          <div class="euler-doc-info">
+            <div class="euler-doc-title">${_escHtml(d.title || 'Document')}</div>
+            <div class="euler-doc-format">${(d.format || 'html').toUpperCase()}</div>
+          </div>
+          <a href="${d.downloadUrl || '#'}" target="_blank" class="euler-doc-download">Open</a>
+        </div>
+      </div>`;
+  } else if (role === 'permission') {
+    const p = extra || {};
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-permission-card" data-permission-id="${p.permissionId || ''}">
+          <div class="euler-perm-question">${_escHtml(p.question || '')}</div>
+          <div class="euler-perm-actions">
+            <button class="euler-perm-btn euler-perm-yes" data-action="yes">${_escHtml(p.actionLabel || 'Yes')}</button>
+            <button class="euler-perm-btn euler-perm-no" data-action="no">${_escHtml(p.denyLabel || 'Not now')}</button>
+          </div>
+        </div>
+      </div>`;
+    // Store permission context on the card element
+    const permCard = msg.querySelector('.euler-permission-card');
+    if (permCard) permCard._permContext = p.context || {};
+
+    // Wire permission buttons — "yes" starts session directly, "no" sends decline to Euler
+    setTimeout(() => {
+      msg.querySelectorAll('.euler-perm-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          const card = btn.closest('.euler-permission-card');
+          card.classList.add('euler-perm-answered');
+          card.querySelectorAll('.euler-perm-btn').forEach(b => b.disabled = true);
+          btn.classList.add('euler-perm-selected');
+          const approved = btn.dataset.action === 'yes';
+
+          if (approved) {
+            // Directly start the session — no round-trip to Euler
+            const ctx = card._permContext || {};
+            const intent = ctx.enriched_intent || _eulerCurrentResponse || '';
+            const courseId = ctx.course_id;
+            document.body.style.overflow = 'auto';
+            document.body.style.height = 'auto';
+            if (courseId) {
+              const courseIdEl = document.getElementById('course-id');
+              if (courseIdEl) courseIdEl.value = courseId;
+              const user = AuthManager.getUser();
+              if (user) startNewSession(user.name, courseId, intent, ctx.skill || 'free');
+            } else {
+              _startOnDemandSession(intent);
+            }
+          } else {
+            // Decline — tell Euler
+            _eulerHistory.push({ role: 'user', content: 'No, skip that.' });
+            _eulerAddMessage('user', 'Not now');
+            _eulerStreamResponse('No, skip that for now.');
+          }
+        });
+      });
+    }, 0);
+  } else if (role === 'navigate') {
+    const n = extra || {};
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-navigate-card" onclick="_eulerNavigateTo('${n.target || '/home'}')">
+          <span>${_escHtml(n.label || 'Go')}</span>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </div>
+      </div>`;
+  } else if (role === 'session_start') {
+    const s = extra || {};
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar">E</div>
+        <div class="euler-session-card" onclick="_startOnDemandSession('${_escHtml(s.context?.enriched_intent || '')}')">
+          <div class="euler-session-label">Starting teaching session</div>
+          <div class="euler-session-intent">${_escHtml(s.context?.enriched_intent || 'Teaching session')}</div>
+          <span class="euler-session-go">Enter session &rarr;</span>
+        </div>
+      </div>`;
+  } else if (role === 'actions') {
+    const actions = extra || [];
+    msg.innerHTML = `
+      <div class="euler-msg-row">
+        <div class="euler-msg-avatar" style="visibility:hidden">E</div>
+        <div class="euler-actions">
+          ${actions.map(a => `<button class="euler-action-btn" data-action="${_escHtml(a.action || '')}" data-data='${JSON.stringify(a.data || {})}'>${_escHtml(a.label || '')}</button>`).join('')}
+        </div>
+      </div>`;
+    setTimeout(() => {
+      msg.querySelectorAll('.euler-action-btn').forEach(btn => {
+        btn.addEventListener('click', () => _handleEulerAction(btn.dataset.action, JSON.parse(btn.dataset.data || '{}')));
+      });
+    }, 0);
+  }
+
+  container.appendChild(msg);
+  msg.scrollIntoView({ behavior: 'smooth', block: 'end' });
+
+  return msg;
+}
+
+function _renderArtifactPreview(artifact) {
+  const content = artifact.content || {};
+  const type = artifact.artifactType || '';
+
+  if (type === 'flashcards' && content.cards) {
+    const cards = content.cards.slice(0, 3);
+    return cards.map(c => `<div class="euler-fc"><div class="euler-fc-q">${_escHtml(c.front || '')}</div><div class="euler-fc-a">${_escHtml(c.back || '')}</div></div>`).join('') +
+      (content.cards.length > 3 ? `<div class="euler-fc-more">+${content.cards.length - 3} more cards</div>` : '');
+  }
+  if (content.markdown) {
+    return `<div class="euler-md-preview">${_escHtml(content.markdown.slice(0, 200))}${content.markdown.length > 200 ? '...' : ''}</div>`;
+  }
+  if (content.steps) {
+    return content.steps.slice(0, 3).map((s, i) => `<div class="euler-step-preview">${i + 1}. ${_escHtml(s.title || s.description || '')}</div>`).join('');
+  }
+  return `<div class="euler-md-preview">${_escHtml(JSON.stringify(content).slice(0, 150))}...</div>`;
+}
+
+function _handleEulerAction(action, data) {
+  if (action === 'start_session') {
+    _startOnDemandSession(data.intent || data.enriched_intent || '');
+  } else if (action === 'navigate') {
+    Router.navigate(data.target || '/home');
+  } else if (action === 'create_artifact') {
+    // Re-send to Euler with the create request
+    const input = document.getElementById('euler-input');
+    if (input) { input.value = data.prompt || 'Create it'; _eulerSend(); }
+  }
+}
+
+async function _eulerStreamResponse(text) {
+  _eulerBusy = true;
+  const sendBtn = document.getElementById(_eulerStarted ? 'euler-send-btn-active' : 'euler-send-btn');
+  if (sendBtn) sendBtn.disabled = true;
+
+  // Show thinking indicator
+  _eulerAddMessage('thinking');
+
+  _eulerCurrentResponse = '';  // reset accumulator
+  _eulerSeenToolsSinceText = false;
+  _eulerSuppressText = false;  // new message, allow text again
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/euler`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ message: text, history: _eulerHistory }),
+    });
+
+    if (!res.ok) {
+      _eulerRemoveThinking();
+      _eulerAddMessage('euler', `Sorry, something went wrong (${res.status}).`);
+      return;
+    }
+
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        try {
+          const evt = JSON.parse(line.slice(6));
+          _handleEulerEvent(evt);
+        } catch (e) { /* ignore parse errors */ }
+      }
+    }
+  } catch (e) {
+    _eulerRemoveThinking();
+    _eulerAddMessage('euler', 'Connection error. Please try again.');
+  } finally {
+    _eulerBusy = false;
+    if (sendBtn) sendBtn.disabled = false;
+  }
+}
+
+function _handleEulerEvent(evt) {
+  switch (evt.type) {
+    case 'CONNECTED':
+      break;
+
+    case 'TEXT_DELTA': {
+      _eulerRemoveThinking();
+      _eulerCurrentResponse += evt.text;
+
+      // Suppress text after permission/session cards
+      if (_eulerSuppressText) break;
+
+      // If tools ran since last text, start a NEW bubble (avoids run-on paragraphs)
+      let last = null;
+      if (!_eulerSeenToolsSinceText) {
+        last = document.querySelector('#euler-messages .euler-msg-euler:last-of-type .euler-euler-bubble');
+      }
+      if (!last) {
+        _eulerSeenToolsSinceText = false;
+        _eulerAddMessage('euler', '');
+        last = document.querySelector('#euler-messages .euler-msg-euler:last-of-type .euler-euler-bubble');
+      }
+      if (last) {
+        last._rawText = (last._rawText || '') + evt.text;
+        last.innerHTML = _renderMarkdown(last._rawText);
+        last.classList.add('streaming');
+        last.closest('.euler-msg')?.scrollIntoView({ behavior: 'smooth', block: 'end' });
+      }
+      break;
+    }
+
+    case 'TOOL_START': {
+      _eulerRemoveThinking();
+      _eulerSeenToolsSinceText = true;
+      const toolLabels = {
+        search_courses: 'Searching courses',
+        search_materials: 'Searching your materials',
+        get_student_context: 'Checking learning history',
+        spawn_agent: 'Working on it',
+        create_artifact: 'Creating study aid',
+        generate_document: 'Generating document',
+        start_tutor_session: 'Starting session',
+        navigate_ui: 'Navigating',
+        ask_permission: 'Confirming',
+        respond_inline: 'Preparing',
+      };
+      const label = toolLabels[evt.tool] || evt.tool;
+      const inputPreview = evt.input?.query || evt.input?.title || evt.input?.question || '';
+
+      let toolRow = document.getElementById('euler-tool-active');
+      if (!toolRow) {
+        const container = document.getElementById('euler-messages');
+        if (container) {
+          toolRow = document.createElement('div');
+          toolRow.id = 'euler-tool-active';
+          toolRow.className = 'euler-msg euler-msg-euler';
+          toolRow.innerHTML = `<div class="euler-msg-row">
+            <div class="euler-msg-avatar" style="visibility:hidden">E</div>
+            <div class="euler-tool-calls"></div>
+          </div>`;
+          container.appendChild(toolRow);
+        }
+      }
+      if (toolRow) {
+        const calls = toolRow.querySelector('.euler-tool-calls');
+        if (calls) {
+          const tc = document.createElement('div');
+          tc.className = 'euler-tool-call';
+          tc.dataset.callId = evt.call_id || '';
+          tc.innerHTML = `
+            <div class="euler-tool-header" onclick="this.parentElement.classList.toggle('open')">
+              <div class="euler-tool-spinner">
+                <div class="euler-tool-spinner-anim"><span></span><span></span><span></span></div>
+              </div>
+              <span class="euler-tool-label">${label}${inputPreview ? ' — ' + _escHtml(inputPreview.slice(0, 40)) : ''}...</span>
+              <span class="euler-tool-chevron">&#x203A;</span>
+            </div>
+            <div class="euler-tool-detail"></div>`;
+          calls.appendChild(tc);
+          tc.scrollIntoView({ behavior: 'smooth', block: 'end' });
+        }
+      }
+      // Add streaming cursor to current text bubble
+      const currentBubble = document.querySelector('#euler-messages .euler-euler-bubble:last-of-type');
+      if (currentBubble) currentBubble.classList.remove('streaming');
+      break;
+    }
+
+    case 'TOOL_RESULT': {
+      const toolRow = document.getElementById('euler-tool-active');
+      if (toolRow) {
+        const calls = toolRow.querySelectorAll('.euler-tool-call:not(.euler-tool-done)');
+        if (calls.length) {
+          const tc = calls[0];
+          tc.classList.add('euler-tool-done');
+          // Show result preview in the detail section
+          const detail = tc.querySelector('.euler-tool-detail');
+          if (detail && evt.result) {
+            detail.textContent = evt.result.slice(0, 300) + (evt.result.length > 300 ? '...' : '');
+          }
+        }
+      }
+      // Render course cards from search results
+      if (evt.tool === 'search_courses' && evt.result && evt.result.includes('id=')) {
+        _renderEulerCourseCards(evt.result);
+      }
+      break;
+    }
+
+    case 'ARTIFACT': {
+      _eulerRemoveThinking();
+      const artContent = evt.content || evt.preview || {};
+      _eulerAddMessage('artifact', '', {
+        artifactId: evt.artifactId,
+        artifactType: evt.artifactType,
+        title: evt.title,
+        content: artContent,
+      });
+      // Auto-open preview panel
+      _openPreviewPanel(evt.artifactType || 'artifact', evt.title || 'Untitled', artContent);
+      break;
+    }
+
+    case 'DOCUMENT':
+      _eulerRemoveThinking();
+      _eulerAddMessage('document', '', {
+        title: evt.title,
+        format: evt.format,
+        downloadUrl: evt.downloadUrl,
+      });
+      break;
+
+    case 'SESSION_START': {
+      _eulerRemoveThinking();
+      _eulerRemoveToolIndicator();
+      _eulerSuppressText = true;  // No more text — session is starting
+      const ctx = evt.context || {};
+      // Auto-navigate to session immediately
+      const intent = ctx.enriched_intent || '';
+      const courseId = ctx.course_id;
+      document.body.style.overflow = 'auto';
+      document.body.style.height = 'auto';
+      if (courseId) {
+        const courseIdEl = document.getElementById('course-id');
+        if (courseIdEl) courseIdEl.value = courseId;
+        const user = AuthManager.getUser();
+        if (user) startNewSession(user.name, courseId, intent, ctx.skill || 'free');
+      } else {
+        _startOnDemandSession(intent);
+      }
+      break;
+    }
+
+    case 'NAVIGATE':
+      _eulerRemoveThinking();
+      _eulerRemoveToolIndicator();
+      _eulerSuppressText = true;
+      _eulerAddMessage('navigate', '', {
+        target: evt.target,
+        label: evt.label,
+      });
+      break;
+
+    case 'PERMISSION':
+      _eulerRemoveThinking();
+      _eulerSuppressText = true;  // Card IS the message
+      _eulerAddMessage('permission', '', {
+        permissionId: evt.permissionId,
+        question: evt.question,
+        actionLabel: evt.actionLabel,
+        denyLabel: evt.denyLabel,
+        context: evt.context || {},  // session config for direct start
+      });
+      break;
+
+    case 'DONE':
+      _eulerRemoveThinking();
+      _eulerRemoveToolIndicator();
+      // Remove streaming cursor from all bubbles
+      document.querySelectorAll('.euler-euler-bubble.streaming').forEach(b => b.classList.remove('streaming'));
+      if (_eulerCurrentResponse.trim()) {
+        _eulerHistory.push({ role: 'assistant', content: _eulerCurrentResponse });
+      }
+      break;
+
+    case 'ERROR':
+      _eulerRemoveThinking();
+      _eulerRemoveToolIndicator();
+      _eulerAddMessage('euler', `Error: ${evt.message || 'Something went wrong.'}`);
+      break;
+  }
+}
+
+function _eulerRemoveThinking() {
+  const el = document.getElementById('euler-thinking-indicator');
+  if (el) el.remove();
+}
+
+function _eulerRemoveToolIndicator() {
+  const el = document.getElementById('euler-tool-active');
+  if (el) el.remove();
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   BYO — Student materials upload
+// ═══════════════════════════════════════════════════════════════
+
+async function _loadByoMaterials() {
+  const grid = document.getElementById('byo-grid');
+  if (!grid) return;
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) return;
+    const collections = await res.json();
+
+    // Keep the upload card, add material cards before it
+    const uploadCard = document.getElementById('byo-upload-card');
+    // Remove old material cards
+    grid.querySelectorAll('.byo-material-card').forEach(c => c.remove());
+
+    for (const col of collections) {
+      const card = document.createElement('div');
+      card.className = 'byo-material-card';
+      const icon = _byoIcon(col);
+      const status = col.status === 'ready'
+        ? '<span class="byo-material-status byo-status-ready">Ready</span>'
+        : '<span class="byo-material-status byo-status-processing">Processing...</span>';
+      card.innerHTML = `
+        <div class="byo-material-icon">${icon}</div>
+        <div class="byo-material-body">
+          <div class="byo-material-title">${_escHtml(col.title || col.collection_id)}</div>
+          <div class="byo-material-meta">${col.stats?.resources || 0} files</div>
+          ${status}
+        </div>`;
+      grid.insertBefore(card, uploadCard);
+    }
+  } catch (e) {
+    console.warn('Failed to load BYO materials:', e);
+  }
+}
+
+function _byoIcon(col) {
+  const t = (col.title || '').toLowerCase();
+  if (t.includes('.pdf') || t.includes('pdf')) return '&#128196;';
+  if (t.includes('video') || t.includes('.mp4')) return '&#127909;';
+  if (t.includes('note')) return '&#128221;';
+  return '&#128218;';
+}
+
+async function _handleByoUpload(e) {
+  const files = e.target.files;
+  if (!files || !files.length) return;
+
+  // Create a collection first
+  const title = files.length === 1 ? files[0].name : `Upload (${files.length} files)`;
+  try {
+    const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ title }),
+    });
+    if (!createRes.ok) { alert('Failed to create collection'); return; }
+    const col = await createRes.json();
+    const colId = col.collection_id;
+
+    // Upload each file
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('file', file);
+      await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
+        method: 'POST',
+        headers: AuthManager.authHeaders(),
+        body: formData,
+      });
+    }
+
+    // Refresh the materials grid
+    _loadByoMaterials();
+  } catch (err) {
+    console.error('Upload failed:', err);
+    alert('Upload failed. Please try again.');
+  }
+
+  // Reset file input
+  e.target.value = '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   Preview Panel (split view in chat — like Claude's artifacts)
+// ═══════════════════════════════════════════════════════════════
+
+function _openPreviewPanel(type, title, content) {
+  const panel = document.getElementById('euler-preview');
+  const body = document.getElementById('ep-body');
+  const typeEl = document.getElementById('ep-type');
+  const titleEl = document.getElementById('ep-title');
+  if (!panel || !body) return;
+
+  typeEl.textContent = type;
+  titleEl.textContent = title;
+
+  // Render content based on type
+  if (type === 'flashcards' && content.cards) {
+    body.innerHTML = content.cards.map((c, i) => `
+      <div class="ep-fc" data-index="${i}">
+        <div class="ep-fc-q">${_renderKatexStr(c.front || '')}</div>
+        <div class="ep-fc-a">${_renderKatexStr(c.back || '')}</div>
+      </div>
+    `).join('') + `<div class="ep-fc-count">${content.cards.length} cards</div>`;
+  } else if (content.markdown) {
+    body.innerHTML = `<div class="av-markdown">${_renderMarkdownFull(content.markdown)}</div>`;
+    _renderKatexIn(body);
+  } else if (content.steps) {
+    body.innerHTML = content.steps.map((s, i) => `
+      <div class="ep-step">
+        <div class="ep-step-n">${i + 1}</div>
+        <div>
+          <div class="ep-step-title">${_escHtml(s.title || '')}</div>
+          <div class="ep-step-desc">${_escHtml(s.description || '')}</div>
+        </div>
+      </div>
+    `).join('');
+  } else if (content.problems) {
+    body.innerHTML = content.problems.map((p, i) => `
+      <div class="ep-problem">
+        <div class="ep-problem-q"><strong>Q${i + 1}.</strong> ${_renderKatexStr(p.question || '')}</div>
+        <details class="ep-problem-sol"><summary>Show solution</summary>${_renderKatexStr(p.solution || '')}</details>
+      </div>
+    `).join('');
+  } else {
+    body.innerHTML = `<pre class="av-generic">${_escHtml(JSON.stringify(content, null, 2))}</pre>`;
+  }
+
+  panel.style.display = 'flex';
+}
+
+function _closePreviewPanel() {
+  const panel = document.getElementById('euler-preview');
+  if (panel) panel.style.display = 'none';
+}
+
+// Also open preview when ARTIFACT event fires (auto-open)
+// This is wired in _handleEulerEvent
+
+// ═══════════════════════════════════════════════════════════════
+//   Artifact Viewer
+// ═══════════════════════════════════════════════════════════════
+
+let _avCards = [];    // current flashcard set
+let _avIndex = 0;     // current card index
+let _avData = null;   // full artifact data
+
+function openArtifactViewer(artifactType, title, content) {
+  _avData = { type: artifactType, title, content };
+  const overlay = document.getElementById('artifact-viewer');
+  const typeEl = document.getElementById('av-type');
+  const titleEl = document.getElementById('av-title');
+  if (!overlay) return;
+
+  typeEl.textContent = artifactType;
+  titleEl.textContent = title;
+
+  // Hide all modes
+  document.getElementById('av-flashcards').classList.add('hidden');
+  document.getElementById('av-markdown').classList.add('hidden');
+  document.getElementById('av-generic').classList.add('hidden');
+
+  if (artifactType === 'flashcards' && content.cards) {
+    _avCards = content.cards;
+    _avIndex = 0;
+    document.getElementById('av-flashcards').classList.remove('hidden');
+    _renderAVCard();
+  } else if (content.markdown) {
+    const md = document.getElementById('av-markdown');
+    md.classList.remove('hidden');
+    md.innerHTML = _renderMarkdownFull(content.markdown);
+    _renderKatexIn(md);
+  } else if (content.steps || content.problems) {
+    const items = content.steps || content.problems || [];
+    const md = document.getElementById('av-markdown');
+    md.classList.remove('hidden');
+    md.innerHTML = items.map((s, i) => {
+      const title = s.title || s.question || `Item ${i + 1}`;
+      const body = s.description || s.solution || s.content || '';
+      return `<h3>${i + 1}. ${_escHtml(title)}</h3><p>${_escHtml(body)}</p>`;
+    }).join('');
+    _renderKatexIn(md);
+  } else {
+    const gen = document.getElementById('av-generic');
+    gen.classList.remove('hidden');
+    gen.textContent = JSON.stringify(content, null, 2);
+  }
+
+  overlay.classList.remove('hidden');
+}
+
+window.closeArtifactViewer = function() {
+  document.getElementById('artifact-viewer')?.classList.add('hidden');
+};
+
+// Keyboard: Escape closes, arrows navigate flashcards, space flips
+document.addEventListener('keydown', (e) => {
+  const viewer = document.getElementById('artifact-viewer');
+  if (!viewer || viewer.classList.contains('hidden')) return;
+  if (e.key === 'Escape') closeArtifactViewer();
+  else if (e.key === 'ArrowLeft') navArtifactCard(-1);
+  else if (e.key === 'ArrowRight') navArtifactCard(1);
+  else if (e.key === ' ') { e.preventDefault(); flipArtifactCard(); }
+});
+
+window.flipArtifactCard = function() {
+  document.getElementById('av-fc-inner')?.classList.toggle('flipped');
+};
+
+window.navArtifactCard = function(dir) {
+  _avIndex = Math.max(0, Math.min(_avCards.length - 1, _avIndex + dir));
+  document.getElementById('av-fc-inner')?.classList.remove('flipped');
+  _renderAVCard();
+};
+
+function _renderAVCard() {
+  if (!_avCards.length) return;
+  const card = _avCards[_avIndex];
+  const front = document.getElementById('av-fc-front');
+  const back = document.getElementById('av-fc-back');
+  const counter = document.getElementById('av-fc-counter');
+
+  if (front) { front.innerHTML = _renderKatexStr(card.front || ''); }
+  if (back) { back.innerHTML = _renderKatexStr(card.back || ''); }
+  if (counter) counter.textContent = `${_avIndex + 1} / ${_avCards.length}`;
+
+  // Disable prev/next at bounds
+  const prev = document.querySelector('.av-fc-prev');
+  const next = document.querySelector('.av-fc-next');
+  if (prev) prev.disabled = _avIndex === 0;
+  if (next) next.disabled = _avIndex === _avCards.length - 1;
+}
+
+function _renderKatexStr(text) {
+  // Render $...$ and $$...$$ inline with KaTeX
+  if (typeof katex === 'undefined') return _escHtml(text);
+  return text.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
+    try { return katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false }); }
+    catch { return `<code>${_escHtml(expr)}</code>`; }
+  }).replace(/\$([^$\n]+?)\$/g, (_, expr) => {
+    try { return katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false }); }
+    catch { return `<code>${_escHtml(expr)}</code>`; }
+  });
+}
+
+function _renderKatexIn(el) {
+  // Find text nodes with $...$ and render KaTeX
+  if (typeof katex === 'undefined') return;
+  el.innerHTML = el.innerHTML.replace(/\$\$([\s\S]+?)\$\$/g, (_, expr) => {
+    try { return katex.renderToString(expr.trim(), { displayMode: true, throwOnError: false }); }
+    catch { return `<code>${expr}</code>`; }
+  }).replace(/\$([^$\n]+?)\$/g, (_, expr) => {
+    try { return katex.renderToString(expr.trim(), { displayMode: false, throwOnError: false }); }
+    catch { return `<code>${expr}</code>`; }
+  });
+}
+
+function _renderMarkdownFull(text) {
+  // More complete markdown rendering
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/^### (.+)$/gm, '<h3>$1</h3>')
+    .replace(/^## (.+)$/gm, '<h2>$1</h2>')
+    .replace(/^# (.+)$/gm, '<h1>$1</h1>')
+    .replace(/^\- (.+)$/gm, '<li>$1</li>')
+    .replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\n\n/g, '</p><p>')
+    .replace(/\n/g, '<br>');
+}
+
+// ═══════════════════════════════════════════════════════════════
+
+function _renderEulerCourseCards(toolResult) {
+  // Extract course IDs and their matched lessons from tool result
+  const idMatches = toolResult.match(/id=(\d+)/g);
+  if (!idMatches || !_cachedCourses) return;
+
+  const ids = [...new Set(idMatches.map(m => parseInt(m.split('=')[1])))];
+  const courses = ids.map(id => _cachedCourses.find(c => c.id === id)).filter(Boolean);
+  if (!courses.length) return;
+
+  // Parse matched lessons per course: "Course: ... (id=X)\n  lesson:Y — Title"
+  const lessonsByCoursId = {};
+  const blocks = toolResult.split(/\nCourse[: ]/);
+  for (const block of blocks) {
+    const cidMatch = block.match(/id=(\d+)/);
+    if (!cidMatch) continue;
+    const cid = parseInt(cidMatch[1]);
+    const lessons = [];
+    const lessonMatches = block.matchAll(/lesson:(\d+)\s*[—–-]\s*(.+)/g);
+    for (const m of lessonMatches) {
+      lessons.push({ id: parseInt(m[1]), title: m[2].trim() });
+    }
+    if (lessons.length) lessonsByCoursId[cid] = lessons;
+  }
+
+  const container = document.getElementById('euler-messages');
+  if (!container) return;
+
+  const msg = document.createElement('div');
+  msg.className = 'euler-msg euler-msg-euler';
+  msg.innerHTML = `
+    <div class="euler-msg-row">
+      <div class="euler-msg-avatar" style="visibility:hidden">E</div>
+      <div class="euler-course-cards">
+        ${courses.map(c => {
+          const thumb = _courseThumbStyle(c);
+          const tag = c.subject || _guessSubject(c.title);
+          const matched = lessonsByCoursId[c.id] || [];
+          const lessonsHtml = matched.length
+            ? `<div class="euler-ccard-matches">
+                <div class="euler-ccard-matches-label">Matching lessons:</div>
+                ${matched.slice(0, 4).map(l =>
+                  `<div class="euler-ccard-match">
+                    <span class="euler-ccard-match-dot"></span>
+                    <span>${_escHtml(l.title)}</span>
+                  </div>`
+                ).join('')}
+                ${matched.length > 4 ? `<div class="euler-ccard-match-more">+${matched.length - 4} more</div>` : ''}
+              </div>`
+            : '';
+          return `<div class="euler-ccard" data-course-id="${c.id}" onclick="_eulerNavigateTo('/courses/${c.id}')">
+            <div class="euler-ccard-thumb" style="background:${thumb}">
+              <span class="euler-ccard-tag">${_escHtml(tag)}</span>
+              <span class="euler-ccard-lessons">${c.lesson_count || '?'} lessons</span>
+            </div>
+            <div class="euler-ccard-body">
+              <div class="euler-ccard-title">${_escHtml(c.title)}</div>
+              <div class="euler-ccard-desc">${_escHtml((c.description || '').slice(0, 100))}${(c.description || '').length > 100 ? '...' : ''}</div>
+            </div>
+            ${lessonsHtml}
+            <div class="euler-ccard-action">Explore course &rarr;</div>
+          </div>`;
+        }).join('')}
+      </div>
+    </div>`;
+  container.appendChild(msg);
+  msg.scrollIntoView({ behavior: 'smooth', block: 'end' });
+}
+
+window._eulerNavigateTo = function(target) {
+  Router.navigate(target);
+};
+
+function _eulerResetToIdle() {
+  const idle = document.getElementById('euler-idle');
+  const chat = document.getElementById('euler-chat');
+  const msgs = document.getElementById('euler-messages');
+  const hasHistory = msgs && msgs.children.length > 0;
+
+  if (hasHistory) {
+    if (idle) idle.style.display = 'none';
+    if (chat) chat.style.display = 'flex';
+    _eulerStarted = true;
+  } else {
+    if (idle) idle.style.display = 'flex';
+    if (chat) chat.style.display = 'none';
+    _eulerStarted = false;
+  }
+}
+
+function _eulerFullReset() {
+  const idle = document.getElementById('euler-idle');
+  const chat = document.getElementById('euler-chat');
+  const msgs = document.getElementById('euler-messages');
+  if (idle) idle.style.display = 'flex';
+  if (chat) chat.style.display = 'none';
+  if (msgs) msgs.innerHTML = '';
+  _eulerStarted = false;
+  _eulerHistory = [];
+  _eulerBusy = false;
+  _eulerSuppressText = false;
+}
+
+function _renderMarkdown(text) {
+  // Minimal markdown: bold, italic, code, links, line breaks
+  // Also detect course references like (course 4) or (id=4) and make them clickable
+  return text
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/\*(.+?)\*/g, '<em>$1</em>')
+    .replace(/`(.+?)`/g, '<code>$1</code>')
+    .replace(/\[(.+?)\]\((.+?)\)/g, '<a href="$2" target="_blank">$1</a>')
+    .replace(/\n/g, '<br>');
+}
+
+function _escHtml(s) {
+  const d = document.createElement('div');
+  d.textContent = s || '';
+  return d.innerHTML;
+}
+
+// ═══════════════════════════════════════════════════════════════
+
 function _filterBrowseCourses(query) {
   const grid = document.getElementById('browse-courses-grid');
   if (!grid) return;
@@ -7210,12 +8271,25 @@ async function _loadCourseDetail(courseId) {
   ).join('');
 
   try {
-    // Fetch raw API data (not the reshaped courseMap)
-    const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses/${courseId}`, {
-      headers: AuthManager.authHeaders(),
-    });
-    if (!res.ok) throw new Error(`API ${res.status}`);
-    const data = await res.json();
+    // Check sessionStorage cache first
+    const cacheKey = `capacity_course_${courseId}`;
+    let data = null;
+    try {
+      const cached = sessionStorage.getItem(cacheKey);
+      if (cached) {
+        const { d, ts } = JSON.parse(cached);
+        if (Date.now() - ts < _COURSE_CACHE_TTL) data = d;
+      }
+    } catch (e) { /* ignore */ }
+
+    if (!data) {
+      const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses/${courseId}`, {
+        headers: AuthManager.authHeaders(),
+      });
+      if (!res.ok) throw new Error(`API ${res.status}`);
+      data = await res.json();
+      try { sessionStorage.setItem(cacheKey, JSON.stringify({ d: data, ts: Date.now() })); } catch (e) { /* quota */ }
+    }
     _courseDetailData = data;
 
     const course = data.course || {};
@@ -7285,7 +8359,10 @@ async function _loadCourseDetail(courseId) {
 
   } catch (e) {
     console.error('Failed to load course detail:', e);
-    document.getElementById('cd-title').textContent = 'Failed to load course';
+    document.getElementById('cd-title').textContent = 'Course not found';
+    document.getElementById('cd-description').textContent = 'This course doesn\'t exist or couldn\'t be loaded.';
+    // Auto-redirect after 2s
+    setTimeout(() => Router.navigate('/home'), 2000);
   }
 }
 
@@ -7750,34 +8827,13 @@ async function initSetup() {
   $('#lp-cta-browse')?.addEventListener('click', () => {
     AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
   });
-  $('#lp-cta-ondemand')?.addEventListener('click', () => {
-    AuthManager.isLoggedIn() ? Router.navigate('/tutor') : Router.navigate('/login');
-  });
-  $('#lp-path-courses')?.addEventListener('click', () => {
+  $('#lp-cta-bottom')?.addEventListener('click', () => {
     AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
   });
-  $('#lp-path-ondemand')?.addEventListener('click', () => {
-    AuthManager.isLoggedIn() ? Router.navigate('/tutor') : Router.navigate('/login');
-  });
 
-  // ─── Browse screen wiring ─────────────────────────────
-  $('#browse-ondemand-banner')?.addEventListener('click', () => Router.navigate('/tutor'));
-
-  // Search bar — filters courses + offers on-demand
-  const browseSearchInput = document.getElementById('browse-search-input');
-  if (browseSearchInput) {
-    let _browseSearchTimer = null;
-    browseSearchInput.addEventListener('input', () => {
-      clearTimeout(_browseSearchTimer);
-      _browseSearchTimer = setTimeout(() => _filterBrowseCourses(browseSearchInput.value), 200);
-    });
-    browseSearchInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && browseSearchInput.value.trim()) {
-        // Enter with text → start on-demand session with that intent
-        _startOnDemandSession(browseSearchInput.value.trim());
-      }
-    });
-  }
+  // ─── Home screen tabs + Euler ─────────────────────────────
+  _initHomeTabs();
+  _initEuler();
 
   // ─── Course detail wiring ─────────────────────────────
   $('#cd-back')?.addEventListener('click', () => Router.navigate('/home'));

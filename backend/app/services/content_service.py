@@ -60,7 +60,7 @@ async def get_course_with_hierarchy(db: AsyncSession, course_id: int) -> dict | 
 
     # Derive thumbnail from first lesson video if no img_link
     import re as _re
-    thumbnail = course.img_link
+    thumbnail = (course.img_link or "").strip() or None
     if not thumbnail and lessons:
         for l in lessons:
             if l.video_url:
@@ -267,7 +267,7 @@ Response:"""
                 "https://openrouter.ai/api/v1/chat/completions",
                 headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
                 json={
-                    "model": "openai/gpt-5.4-nano",
+                    "model": settings.MODEL_NANO,
                     "max_tokens": 100,
                     "messages": [{"role": "user", "content": prompt}],
                 },

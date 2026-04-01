@@ -102,7 +102,7 @@ class VideoProcessor(BaseProcessor):
             import httpx
 
             # Use OpenAI Whisper API via OpenRouter
-            from backend.app.core.config import settings
+            from app.core.config import settings
             api_key = settings.OPENROUTER_API_KEY or settings.ANTHROPIC_API_KEY
 
             if not api_key:

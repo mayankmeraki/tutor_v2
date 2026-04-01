@@ -1,8 +1,8 @@
-"""Orchestrator HTTP endpoint — SSE streaming on the Home screen.
+"""Euler HTTP endpoint — SSE streaming on the Home screen.
 
-POST /api/orchestrate
+POST /api/euler
   Body: { message, attachments?, sessionId? }
-  Response: SSE stream of orchestrator messages
+  Response: SSE stream of Euler messages
 
 The frontend renders these inline on the Home screen.
 """
@@ -12,17 +12,17 @@ from __future__ import annotations
 import json
 import logging
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Request
 from fastapi.responses import StreamingResponse
 
 log = logging.getLogger(__name__)
-router = APIRouter(tags=["orchestrator"])
+router = APIRouter(tags=["euler"])
 
 
-@router.post("/api/orchestrate")
-async def orchestrate_endpoint(request: Request):
-    """Orchestrator endpoint — streams responses to the Home screen."""
-    from backend.app.api.routes.auth import get_optional_user
+@router.post("/api/euler")
+async def euler_endpoint(request: Request):
+    """Euler endpoint — streams responses to the Home screen."""
+    from app.api.routes.auth import get_optional_user
 
     user = await get_optional_user(request)
     if not user:
@@ -33,6 +33,7 @@ async def orchestrate_endpoint(request: Request):
 
     body = await request.json()
     message = body.get("message", "")
+    history = body.get("history", [])  # [{role: "user"|"assistant", content: "..."}]
     attachments = body.get("attachments", [])
 
     if not message.strip():
@@ -44,9 +45,9 @@ async def orchestrate_endpoint(request: Request):
     # Build user context
     user_context = await _build_user_context(user)
 
-    # Stream orchestrator messages
+    # Stream Euler messages
     return StreamingResponse(
-        _stream_orchestration(message, user_context, attachments),
+        _stream_euler(message, user_context, attachments, history),
         media_type="text/event-stream",
         headers={
             "Cache-Control": "no-cache",
@@ -56,8 +57,8 @@ async def orchestrate_endpoint(request: Request):
 
 
 async def _build_user_context(user: dict) -> dict:
-    """Build the user context for the Orchestrator."""
-    from backend.app.core.mongodb import get_mongo_db
+    """Build the user context for Euler."""
+    from app.core.mongodb import get_mongo_db
 
     db = get_mongo_db()
     email = user.get("email", "")
@@ -112,17 +113,18 @@ async def _build_user_context(user: dict) -> dict:
     return context
 
 
-async def _stream_orchestration(message: str, user_context: dict, attachments: list):
-    """Generator that streams SSE events from the Orchestrator."""
-    from orchestrator.agent import (
+async def _stream_euler(message: str, user_context: dict, attachments: list, history: list = None):
+    """Generator that streams SSE events from Euler."""
+    from app.orchestrator.agent import (
         orchestrate, TextDelta, ToolCallStart, ToolCallResult,
-        ArtifactCreated, SessionStart, SubAgentSpawned, SubAgentResult, Done,
+        ArtifactCreated, DocumentGenerated, SessionStart,
+        NavigateUI, PermissionRequest, Done,
     )
 
     yield _sse({"type": "CONNECTED"})
 
     try:
-        async for msg in orchestrate(message, user_context, attachments):
+        async for msg in orchestrate(message, user_context, attachments, history=history):
             if isinstance(msg, TextDelta):
                 yield _sse({"type": "TEXT_DELTA", "text": msg.text})
 
@@ -134,11 +136,20 @@ async def _stream_orchestration(message: str, user_context: dict, attachments: l
 
             elif isinstance(msg, ArtifactCreated):
                 yield _sse({
-                    "type": "ARTIFACT_CREATED",
+                    "type": "ARTIFACT",
                     "artifactId": msg.artifact_id,
                     "artifactType": msg.artifact_type,
                     "title": msg.title,
-                    "preview": msg.preview,
+                    "content": msg.content,
+                })
+
+            elif isinstance(msg, DocumentGenerated):
+                yield _sse({
+                    "type": "DOCUMENT",
+                    "documentId": msg.document_id,
+                    "title": msg.title,
+                    "format": msg.format,
+                    "downloadUrl": msg.download_url,
                 })
 
             elif isinstance(msg, SessionStart):
@@ -148,11 +159,28 @@ async def _stream_orchestration(message: str, user_context: dict, attachments: l
                     "context": msg.context,
                 })
 
+            elif isinstance(msg, NavigateUI):
+                yield _sse({
+                    "type": "NAVIGATE",
+                    "target": msg.target,
+                    "label": msg.label,
+                })
+
+            elif isinstance(msg, PermissionRequest):
+                yield _sse({
+                    "type": "PERMISSION",
+                    "permissionId": msg.permission_id,
+                    "question": msg.question,
+                    "actionLabel": msg.action_label,
+                    "denyLabel": msg.deny_label,
+                    "context": msg.context,
+                })
+
             elif isinstance(msg, Done):
                 yield _sse({"type": "DONE", "turnsUsed": msg.turns_used})
 
     except Exception as e:
-        log.error("Orchestration error: %s", e, exc_info=True)
+        log.error("Euler error: %s", e, exc_info=True)
         yield _sse({"type": "ERROR", "message": str(e)[:200]})
 
 

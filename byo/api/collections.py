@@ -27,7 +27,7 @@ router = APIRouter(prefix="/api/v1/byo", tags=["byo"])
 
 
 def _get_db():
-    from backend.app.core.mongodb import get_mongo_db
+    from app.core.mongodb import get_mongo_db
     return get_mongo_db()
 
 
@@ -38,7 +38,7 @@ def _get_storage():
 
 async def _get_user(request: Request) -> dict:
     """Extract authenticated user. Reuses main app's auth."""
-    from backend.app.api.routes.auth import get_optional_user
+    from app.api.routes.auth import get_optional_user
     user = await get_optional_user(request)
     if not user:
         raise HTTPException(status_code=401, detail="Authentication required")

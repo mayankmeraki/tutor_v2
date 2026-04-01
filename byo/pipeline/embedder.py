@@ -43,7 +43,7 @@ async def _generate_embeddings(texts: list[str]) -> list[list[float]]:
     """Generate embeddings for a batch of texts."""
     try:
         import httpx
-        from backend.app.core.config import settings
+        from app.core.config import settings
 
         api_key = settings.OPENROUTER_API_KEY
         if not api_key:

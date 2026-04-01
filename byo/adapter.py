@@ -13,7 +13,7 @@ log = logging.getLogger(__name__)
 
 
 def _get_db():
-    from backend.app.core.mongodb import get_mongo_db
+    from app.core.mongodb import get_mongo_db
     return get_mongo_db()
 
 
@@ -117,7 +117,7 @@ class BYOCollectionAdapter:
         db = _get_db()
 
         try:
-            from backend.app.services.embedding_service import generate_embedding
+            from app.services.embedding_service import generate_embedding
             embedding = await generate_embedding(query)
 
             if embedding:

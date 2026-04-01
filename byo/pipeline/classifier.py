@@ -43,7 +43,7 @@ async def _classify_batch(chunks: list[dict]) -> list[dict]:
     """Classify a batch of chunks with one LLM call."""
     try:
         import httpx
-        from backend.app.core.config import settings
+        from app.core.config import settings
 
         api_key = settings.OPENROUTER_API_KEY
         if not api_key:

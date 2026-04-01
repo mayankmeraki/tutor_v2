@@ -23,41 +23,145 @@
           <button class="sc-btn sc-btn-accent" id="lp-getstarted">Get started</button>
         </div>
       </nav>
-      <div class="sc-wrap">
-        <section class="hero stagger">
-          <div><div class="hero-label"><i class="hero-dot"></i> AI-powered tutoring</div></div>
-          <h1>A private tutor that<br><em>teaches you live</em></h1>
-          <p>Not pre-recorded videos. Your tutor draws on a board, speaks, and adapts to you in real time. Pick a course or just tell it what you need.</p>
-          <div class="hero-actions">
-            <button class="sc-btn sc-btn-lg sc-btn-accent" id="lp-cta-browse">Browse courses <span>&rarr;</span></button>
-            <button class="sc-btn sc-btn-lg sc-btn-ghost" id="lp-cta-ondemand">Just start learning</button>
+      <div class="lp-page">
+        <!-- ── Hero + Board teaser ── -->
+        <section class="lp-hero">
+          <div class="lp-hero-text">
+            <div class="hero-label"><i class="hero-dot"></i> Live AI tutoring</div>
+            <h1>One tutor.<br><em>Every subject.</em><br>Taught live.</h1>
+            <p>An AI that draws on a board, speaks, and adapts to you in real time. Not a chatbot. Not videos. A private tutor that actually <strong>teaches</strong>.</p>
+            <div class="hero-actions">
+              <button class="sc-btn sc-btn-lg sc-btn-accent" id="lp-cta-browse">Start learning free <span>&rarr;</span></button>
+              <span class="lp-hero-note">No credit card required</span>
+            </div>
+          </div>
+          <div class="lp-hero-board">
+            <div class="lp-board-frame">
+              <div class="lp-board-header">
+                <span class="lp-board-dot red"></span><span class="lp-board-dot yel"></span><span class="lp-board-dot grn"></span>
+                <span class="lp-board-title">Live teaching session</span>
+              </div>
+              <div class="lp-board-content" id="lp-board-anim">
+                <!-- Step 1: Title appears -->
+                <div class="lp-step lp-s1"><span class="lp-chalk-write">The Schr&ouml;dinger Equation</span></div>
+                <!-- Step 2: Subtitle -->
+                <div class="lp-step lp-s2"><span class="lp-chalk-write lp-chalk-dim">The equation that governs quantum mechanics</span></div>
+                <!-- Step 3: Equation builds -->
+                <div class="lp-step lp-s3">
+                  <span class="lp-chalk-write lp-eq">i&#x210F; &part;&psi;/&part;t = &Hcirc;&psi;</span>
+                </div>
+                <!-- Step 4: Annotation -->
+                <div class="lp-step lp-s4">
+                  <span class="lp-chalk-write lp-ann">&larr; energy drives how &psi; changes in time</span>
+                </div>
+                <!-- Step 5: Wave drawing -->
+                <div class="lp-step lp-s5">
+                  <svg viewBox="0 0 240 50" class="lp-wave-svg">
+                    <path d="M5 25 Q25 0 45 25 Q65 50 85 25 Q105 0 125 25 Q145 50 165 25 Q185 0 205 25 Q225 50 235 25" stroke="#34d399" stroke-width="2" fill="none" class="lp-wave-path"/>
+                    <path d="M5 25 Q25 8 45 25 Q65 42 85 25 Q105 8 125 25 Q145 42 165 25 Q185 8 205 25 Q225 42 235 25" stroke="#5eead4" stroke-width="1.5" fill="none" class="lp-wave-path lp-wave-2" opacity=".4"/>
+                  </svg>
+                </div>
+                <!-- Step 6: Question -->
+                <div class="lp-step lp-s6">
+                  <span class="lp-chalk-write lp-question">What does &psi; actually tell us about the particle?</span>
+                </div>
+              </div>
+              <div class="lp-board-voice">
+                <div class="lp-voice-bars"><span></span><span></span><span></span><span></span></div>
+                <span class="lp-voice-text">Euler is teaching</span>
+              </div>
+            </div>
           </div>
         </section>
-        <div class="paths stagger">
-          <div class="path" id="lp-path-courses">
-            <h3><span class="path-ico">&#9654;</span> Follow a course</h3>
-            <p>Pick a structured course. Your tutor walks through every lesson with board drawings, quizzes, and worked examples.</p>
-            <span class="path-link">Browse courses &rarr;</span>
+
+        <!-- ── How it's different ── -->
+        <section class="lp-diff">
+          <div class="lp-diff-row">
+            <div class="lp-diff-text">
+              <h2>Not text. Not videos.<br><em>Live teaching.</em></h2>
+              <p>Your tutor builds concepts visually on a board while explaining each step out loud. Pause anytime, ask questions, go deeper. It's the experience of a private lesson &mdash; available whenever you need it.</p>
+            </div>
+            <div class="lp-diff-points">
+              <div class="lp-point"><span class="lp-point-dot"></span>Draws diagrams, equations, and graphs live</div>
+              <div class="lp-point"><span class="lp-point-dot"></span>Speaks naturally &mdash; not text-to-speech</div>
+              <div class="lp-point"><span class="lp-point-dot"></span>Adapts to your pace in real time</div>
+              <div class="lp-point"><span class="lp-point-dot"></span>Quizzes you to make sure you learned it</div>
+            </div>
           </div>
-          <div class="path" id="lp-path-ondemand">
-            <div class="path-badge">New</div>
-            <h3><span class="path-ico">&#9997;</span> Tell your tutor what you need</h3>
-            <p>Exam prep, concept review, problem solving. Your tutor picks the right material and teaches you 1-on-1.</p>
-            <span class="path-link">Start a session &rarr;</span>
+        </section>
+
+        <!-- ── What Euler can do ── -->
+        <section class="lp-capabilities">
+          <h2>Everything you need to learn</h2>
+          <div class="lp-caps-grid">
+            <div class="lp-cap">
+              <div class="lp-cap-label">Courses</div>
+              <p>Structured courses from MIT and universities. Full lesson plans, not random content.</p>
+            </div>
+            <div class="lp-cap">
+              <div class="lp-cap-label">Exam prep</div>
+              <p>Tell Euler your exam topic and timeline. It builds a focused plan and teaches you what matters.</p>
+            </div>
+            <div class="lp-cap">
+              <div class="lp-cap-label">Flashcards</div>
+              <p>Auto-generated from course material. Formula sheets, revision cards, study guides &mdash; on demand.</p>
+            </div>
+            <div class="lp-cap">
+              <div class="lp-cap-label">Your materials</div>
+              <p>Upload your own PDFs, notes, or textbook chapters. Euler teaches from what you're actually studying.</p>
+            </div>
+            <div class="lp-cap">
+              <div class="lp-cap-label">Video follow-along</div>
+              <p>Watch original lecture videos with your AI tutor alongside. Pause to ask questions anytime.</p>
+            </div>
+            <div class="lp-cap">
+              <div class="lp-cap-label">Any topic</div>
+              <p>No course for your topic? Euler teaches it from scratch on the board &mdash; no content needed.</p>
+            </div>
           </div>
-        </div>
-        <div class="steps stagger">
-          <p class="steps-label">How it works</p>
-          <div class="step" data-n="01"><h4>Choose your path</h4><p>Follow a course lesson by lesson, or just describe what you need help with.</p></div>
-          <div class="step" data-n="02"><h4>Your tutor teaches live</h4><p>Draws diagrams, speaks naturally, builds concepts step by step on a board. Not a chatbot.</p></div>
-          <div class="step" data-n="03"><h4>Interrupt anytime</h4><p>Ask questions, request more examples, or skip ahead. Your tutor adapts to you.</p></div>
-        </div>
-        <div class="previews stagger">
-          <p class="previews-label">Available courses</p>
-          <div class="previews-grid" id="lp-courses-grid">
-            <!-- Populated dynamically from API, or static fallback -->
+        </section>
+
+        <!-- ── Social proof ── -->
+        <section class="lp-social">
+          <div class="lp-stats">
+            <div class="lp-stat"><div class="lp-stat-n">10,000+</div><div class="lp-stat-l">Teaching sessions</div></div>
+            <div class="lp-stat"><div class="lp-stat-n">94%</div><div class="lp-stat-l">Say it's better than videos</div></div>
+            <div class="lp-stat"><div class="lp-stat-n">4.8/5</div><div class="lp-stat-l">Average rating</div></div>
           </div>
-        </div>
+          <div class="lp-testimonials">
+            <div class="lp-testimonial">
+              <p>"I've never had anything explain wave functions this clearly. It literally drew the probability distributions for me and asked me to predict what happens next."</p>
+              <div class="lp-testimonial-author"><strong>Sarah M.</strong> &mdash; Physics undergrad, MIT</div>
+            </div>
+            <div class="lp-testimonial">
+              <p>"Went from failing calculus to actually understanding derivatives in two sessions. The way it builds up each concept on the board just clicks differently."</p>
+              <div class="lp-testimonial-author"><strong>James R.</strong> &mdash; Engineering student, Stanford</div>
+            </div>
+            <div class="lp-testimonial">
+              <p>"It's like having office hours whenever you want. I asked it to prep me for my quantum exam and it created a custom study plan on the spot."</p>
+              <div class="lp-testimonial-author"><strong>Priya K.</strong> &mdash; Graduate student, IIT Bombay</div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ── Courses ── -->
+        <section class="lp-courses">
+          <h2>Available courses</h2>
+          <p class="lp-courses-sub">University-level courses with structured lesson plans. More added regularly.</p>
+          <div class="previews-grid" id="lp-courses-grid"></div>
+        </section>
+
+        <!-- ── Final CTA ── -->
+        <section class="lp-final-cta">
+          <h2>Your tutor is ready</h2>
+          <p>Start with any topic. No setup. No credit card.</p>
+          <button class="sc-btn sc-btn-lg sc-btn-accent" id="lp-cta-bottom">Start learning <span>&rarr;</span></button>
+        </section>
+
+        <footer class="lp-footer">
+          <div class="sc-logo"><em>C</em>apacity</div>
+          <span>Built with AI that teaches, not chats.</span>
+        </footer>
       </div>
     </div>
 
@@ -92,12 +196,11 @@
     <canvas id="dash-bg-canvas"></canvas>
     <div class="dash-bg-mask"></div>
 
-    <!-- ═══ BROWSE SCREEN (logged in home) ═══ -->
+    <!-- ═══ HOME SCREEN (logged in) ═══ -->
     <div id="browse-screen" class="app-screen" style="display:none">
       <nav class="sc-nav">
         <div class="sc-logo"><em>C</em>apacity</div>
         <div class="sc-nav-r">
-          <a href="#" class="sc-nav-link active" data-nav="courses">Courses</a>
           <div class="sc-pill" id="btn-logout">
             <div class="sc-pill-avatar" id="dash-avatar">?</div>
             <span id="dash-user-name">User</span>
@@ -105,33 +208,120 @@
           </div>
         </div>
       </nav>
-      <div class="sc-wrap stagger">
-        <div class="browse-welcome">
-          <h1 id="browse-greeting">Welcome back</h1>
-          <p class="browse-sub">What do you want to learn today?</p>
-          <div class="browse-search-bar">
-            <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
-            <input placeholder="Search courses or describe what you need..." id="browse-search-input">
+
+      <!-- ── Tab bar ── -->
+      <div class="home-tabs">
+        <button class="home-tab active" data-home-tab="chat">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 01-2 2H7l-4 4V5a2 2 0 012-2h14a2 2 0 012 2z"/></svg>
+          Euler
+        </button>
+        <button class="home-tab" data-home-tab="explore">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="M21 21l-4.35-4.35"/></svg>
+          Explore
+        </button>
+        <button class="home-tab" data-home-tab="materials">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><path d="M14 2v6h6"/></svg>
+          Materials
+        </button>
+      </div>
+
+      <!-- ═══ TAB: Euler Chat ═══ -->
+      <div class="home-tab-content active" id="tab-chat">
+        <div class="euler-panel" id="euler-panel">
+          <!-- Idle state -->
+          <div class="euler-idle" id="euler-idle">
+            <div class="euler-idle-center">
+              <h1 id="browse-greeting">Welcome back</h1>
+              <p class="browse-sub">What do you want to learn today?</p>
+              <div class="euler-input-bar">
+                <div class="euler-avatar">E</div>
+                <textarea class="euler-input" id="euler-input" rows="1" placeholder="Ask Euler anything — exam prep, concept review, study plans..." autocomplete="off"></textarea>
+                <button class="euler-send" id="euler-send-btn" title="Send">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                </button>
+              </div>
+              <div class="euler-chips" id="euler-chips">
+                <span class="euler-chip">I want to learn calculus from scratch</span>
+                <span class="euler-chip">Teach me quantum mechanics</span>
+                <span class="euler-chip">I have a physics exam on Friday</span>
+                <span class="euler-chip">What courses do you have?</span>
+              </div>
+            </div>
+          </div>
+          <!-- Active chat — split layout: conversation + artifact preview -->
+          <div class="euler-chat" id="euler-chat" style="display:none">
+            <div class="euler-chat-main">
+              <div class="euler-chat-header">
+                <span class="euler-chat-title">Euler</span>
+                <button class="euler-clear-btn" id="euler-clear-btn" title="New conversation">New chat</button>
+              </div>
+              <div class="euler-messages" id="euler-messages"></div>
+              <div class="euler-chat-input">
+                <div class="euler-input-bar">
+                  <div class="euler-avatar">E</div>
+                  <textarea class="euler-input" id="euler-input-active" rows="1" placeholder="Reply to Euler..." autocomplete="off"></textarea>
+                  <button class="euler-send" id="euler-send-btn-active" title="Send">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+            <!-- Artifact preview panel (hidden until artifact created) -->
+            <div class="euler-preview" id="euler-preview" style="display:none">
+              <div class="ep-header">
+                <div class="ep-header-left">
+                  <span class="ep-type" id="ep-type"></span>
+                  <span class="ep-title" id="ep-title"></span>
+                </div>
+                <div class="ep-actions">
+                  <button class="ep-btn ep-save" id="ep-save" title="Saved to learning aids">Saved</button>
+                  <button class="ep-btn ep-close" id="ep-close" title="Close preview">&times;</button>
+                </div>
+              </div>
+              <div class="ep-body" id="ep-body"></div>
+            </div>
           </div>
         </div>
+      </div>
 
-        <div class="banner" id="browse-ondemand-banner">
-          <div class="banner-ico">&#9997;</div>
-          <div class="banner-text">
-            <h3>Need help with something specific?</h3>
-            <p>Tell your tutor what you need &mdash; exam prep, concept review, problem solving. No course needed.</p>
+      <!-- ═══ TAB: Explore Courses ═══ -->
+      <div class="home-tab-content" id="tab-explore">
+        <div class="sc-wrap">
+          <div class="explore-header">
+            <h2>Explore courses</h2>
+            <div class="explore-search">
+              <svg viewBox="0 0 20 20" fill="currentColor" width="14" height="14"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
+              <input placeholder="Search courses..." id="explore-search-input">
+            </div>
           </div>
-          <span class="sc-btn sc-btn-sm sc-btn-accent" style="flex-shrink:0">Start session</span>
+          <div id="browse-continue-section" style="display:none">
+            <div class="sec-head"><h2>Continue learning</h2></div>
+            <div class="cont-row" id="browse-continue-row"></div>
+          </div>
+          <div class="sec-head"><h2>All courses</h2><span id="browse-course-count"></span></div>
+          <div class="c-grid" id="browse-courses-grid"></div>
         </div>
+      </div>
 
-        <div id="browse-continue-section" style="display:none">
-          <div class="sec-head"><h2>Continue learning</h2></div>
-          <div class="cont-row" id="browse-continue-row"></div>
-        </div>
+      <!-- ═══ TAB: Materials ═══ -->
+      <div class="home-tab-content" id="tab-materials">
+        <div class="sc-wrap">
+          <div class="explore-header">
+            <h2>Your study materials</h2>
+          </div>
+          <div class="byo-grid" id="byo-grid">
+            <div class="byo-upload-card" id="byo-upload-card">
+              <div class="byo-upload-icon">+</div>
+              <div class="byo-upload-label">Add study material</div>
+              <div class="byo-upload-sub">PDFs, notes, videos, links</div>
+            </div>
+          </div>
+          <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm">
 
-        <div class="sec-head"><h2>All courses</h2><span id="browse-course-count"></span></div>
-        <div class="c-grid" id="browse-courses-grid">
-          <!-- Populated dynamically -->
+          <div class="sec-head" style="margin-top:32px"><h2>Learning aids</h2><span class="sec-sub">Flashcards, notes, and study plans created by Euler</span></div>
+          <div class="aids-grid" id="aids-grid">
+            <div class="aids-empty" id="aids-empty">No learning aids yet. Ask Euler to create flashcards or study plans.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -448,6 +638,53 @@
       <button class="icon-btn" id="sim-fullscreen-close">&#10005; Close</button>
     </div>
     <iframe id="sim-fullscreen-iframe" allow="accelerometer; autoplay; encrypted-media; gyroscope" allowfullscreen></iframe>
+  </div>
+
+  <!-- ═══ Artifact Viewer Modal ═══ -->
+  <div id="artifact-viewer" class="av-overlay hidden">
+    <div class="av-backdrop" onclick="closeArtifactViewer()"></div>
+    <div class="av-modal">
+      <div class="av-header">
+        <span class="av-type-badge" id="av-type"></span>
+        <span class="av-title" id="av-title"></span>
+        <div class="av-actions">
+          <button class="av-btn" id="av-edit-btn" title="Edit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.83 2.83 0 114 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
+          </button>
+          <button class="av-btn av-close" onclick="closeArtifactViewer()">&times;</button>
+        </div>
+      </div>
+      <div class="av-body" id="av-body">
+        <!-- Flashcard mode -->
+        <div class="av-flashcards hidden" id="av-flashcards">
+          <div class="av-fc-card" id="av-fc-card" onclick="flipArtifactCard()">
+            <div class="av-fc-inner" id="av-fc-inner">
+              <div class="av-fc-front" id="av-fc-front"></div>
+              <div class="av-fc-back" id="av-fc-back"></div>
+            </div>
+          </div>
+          <div class="av-fc-nav">
+            <button class="av-fc-prev" onclick="navArtifactCard(-1)">&larr; Prev</button>
+            <span class="av-fc-counter" id="av-fc-counter">1 / 15</span>
+            <button class="av-fc-next" onclick="navArtifactCard(1)">Next &rarr;</button>
+          </div>
+          <div class="av-fc-sr" id="av-fc-sr" style="display:none">
+            <div class="av-fc-sr-label">How well did you know this?</div>
+            <div class="av-fc-sr-btns">
+              <button class="av-sr-btn av-sr-again" onclick="rateFlashcard('again')">Again</button>
+              <button class="av-sr-btn av-sr-hard" onclick="rateFlashcard('hard')">Hard</button>
+              <button class="av-sr-btn av-sr-good" onclick="rateFlashcard('good')">Good</button>
+              <button class="av-sr-btn av-sr-easy" onclick="rateFlashcard('easy')">Easy</button>
+            </div>
+          </div>
+          <div class="av-fc-hint">Click card to flip &middot; Rate to track progress</div>
+        </div>
+        <!-- Generic markdown mode -->
+        <div class="av-markdown hidden" id="av-markdown"></div>
+        <!-- Generic JSON mode -->
+        <div class="av-generic hidden" id="av-generic"></div>
+      </div>
+    </div>
   </div>
 
   <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>

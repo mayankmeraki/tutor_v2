@@ -78,7 +78,7 @@ def _new_job(resource_id: str, collection_id: str, user_id: str, meta: dict | No
 
 def _get_db():
     """Get MongoDB database. Import here to avoid circular deps."""
-    from backend.app.core.mongodb import get_mongo_db
+    from app.core.mongodb import get_mongo_db
     return get_mongo_db()
 
 

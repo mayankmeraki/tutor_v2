@@ -15,10 +15,50 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(default="openrouter")  # "anthropic" or "openrouter"
     ANTHROPIC_API_KEY: str = Field(default="")
     OPENROUTER_API_KEY: str = Field(default="")
-    TUTOR_MODEL: str = Field(default="claude-sonnet-4-6")
-    PLANNING_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
-    RESEARCH_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
-    SUMMARIZATION_MODEL: str = Field(default="anthropic/claude-haiku-4.5")
+
+    # ── Model tiers (all OpenRouter IDs by default) ──
+    # Heavy: best quality, used for teaching (Tutor)
+    MODEL_HEAVY: str = Field(default="anthropic/claude-opus-4-6")
+    # Mid: good balance, used for planning, orchestrator, enrichment
+    MODEL_MID: str = Field(default="anthropic/claude-sonnet-4-6")
+    # Fast: cheap & quick, used for reranking, classification, sub-agents
+    MODEL_FAST: str = Field(default="anthropic/claude-haiku-4.5")
+    # Nano: cheapest, used for simple extraction, token counting
+    MODEL_NANO: str = Field(default="openai/gpt-4.1-nano")
+    # Embedding model
+    MODEL_EMBEDDING: str = Field(default="openai/text-embedding-3-small")
+
+    # ── Role-specific overrides (fall back to tier if empty) ──
+    TUTOR_MODEL: str = Field(default="")       # defaults to MODEL_HEAVY
+    PLANNING_MODEL: str = Field(default="")     # defaults to MODEL_FAST
+    RESEARCH_MODEL: str = Field(default="")     # defaults to MODEL_FAST
+    SUMMARIZATION_MODEL: str = Field(default="")  # defaults to MODEL_FAST
+    EULER_MODEL: str = Field(default="")        # defaults to MODEL_FAST
+
+    @computed_field
+    @property
+    def tutor_model(self) -> str:
+        return self.TUTOR_MODEL or self.MODEL_HEAVY
+
+    @computed_field
+    @property
+    def planning_model(self) -> str:
+        return self.PLANNING_MODEL or self.MODEL_FAST
+
+    @computed_field
+    @property
+    def research_model(self) -> str:
+        return self.RESEARCH_MODEL or self.MODEL_FAST
+
+    @computed_field
+    @property
+    def summarization_model(self) -> str:
+        return self.SUMMARIZATION_MODEL or self.MODEL_FAST
+
+    @computed_field
+    @property
+    def euler_model(self) -> str:
+        return self.EULER_MODEL or self.MODEL_MID
 
     # ElevenLabs TTS
     ELEVENLABS_API_KEY: str = Field(default="")

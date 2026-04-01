@@ -79,7 +79,7 @@ const Router = (() => {
 
   function handleCourse(params) { showScreen('course', params.id); }
 
-  function handleTutor() { showScreen('ondemand'); }
+  function handleTutor() { showScreen('browse'); }
 
   function handleSession(params) {
     if (typeof continueSession === 'function') continueSession(params.id);
