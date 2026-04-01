@@ -498,29 +498,34 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
 
 def build_planning_prompt(context_data: dict) -> str:
-    """Build planning agent system prompt with course context."""
+    """Build planning agent system prompt — works for course, BYO, and on-demand sessions."""
+    from .planning import PLANNING_PROMPT
     parts = [PLANNING_PROMPT]
 
-    parts.append("\n═══════════════════════════════════════════════════")
-    parts.append(" COURSE CONTEXT")
-    parts.append("═══════════════════════════════════════════════════\n")
+    # Determine grounding mode
+    has_course = bool(context_data.get("courseMap"))
 
-    field_labels = [
-        ("studentProfile", "Student Profile"),
-        ("courseMap", "Course Map"),
-        ("concepts", "Course Concepts"),
-        ("simulations", "Available Simulations"),
-        ("knowledgeState", "Student Knowledge State"),
-    ]
-    for key, label in field_labels:
-        val = context_data.get(key)
-        if val:
-            parts.append(f"[{label}]\n{val}\n")
+    if has_course:
+        parts.append("\n[Course Map]\n" + str(context_data["courseMap"])[:3000])
 
-    # Student model — tutor's evolving notes on this student
+        concepts = context_data.get("concepts")
+        if concepts:
+            parts.append(f"\n[Course Concepts]\n{concepts[:1000]}")
+
+        sims = context_data.get("simulations")
+        if sims:
+            parts.append(f"\n[Available Simulations]\n{sims[:500]}")
+    else:
+        parts.append("\n[No course available — plan from your own knowledge of this subject. Do NOT try to call any tools.]")
+
+    # Student context (works for all modes)
+    profile = context_data.get("studentProfile")
+    if profile:
+        parts.append(f"\n[Student Profile]\n{profile[:500]}")
+
     student_model = context_data.get("studentModel")
     if student_model:
-        parts.append(f"[Student Model — Tutor's Notes on This Student]\n{student_model}\n")
+        parts.append(f"\n[Student Model]\n{student_model[:500]}")
 
     # Tutor's recent notes — observations from teaching
     tutor_notes = context_data.get("tutorNotes")
