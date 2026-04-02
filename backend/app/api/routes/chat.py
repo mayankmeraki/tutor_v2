@@ -127,47 +127,7 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
             # ContentBlock objects from SDK — pass through
             validated.append(msg)
 
-    # Final pass: detect orphaned tool_result blocks.
-    # Each tool_result's tool_use_id must match a tool_use block in the
-    # preceding assistant message. If not, strip the tool_result block.
-    cleaned = []
-    for i, msg in enumerate(validated):
-        content = msg.get("content")
-        if msg.get("role") == "user" and isinstance(content, list):
-            # Collect tool_use_ids from the preceding assistant message
-            prev_tool_ids = set()
-            if i > 0 and cleaned:
-                prev = cleaned[-1]
-                prev_content = prev.get("content")
-                if isinstance(prev_content, list):
-                    for b in prev_content:
-                        if isinstance(b, dict) and b.get("type") == "tool_use":
-                            prev_tool_ids.add(b.get("id", ""))
-                elif isinstance(prev_content, str):
-                    pass  # String content — no tool_use blocks
-
-            # Filter out orphaned tool_result blocks
-            has_orphans = False
-            fixed = []
-            for block in content:
-                if isinstance(block, dict) and block.get("type") == "tool_result":
-                    if block.get("tool_use_id") not in prev_tool_ids:
-                        has_orphans = True
-                        log.warning("Stripping orphaned tool_result: %s", block.get("tool_use_id"))
-                        continue
-                fixed.append(block)
-
-            if has_orphans:
-                if fixed:
-                    cleaned.append({**msg, "content": fixed})
-                else:
-                    # All tool_results were orphaned — drop the entire message
-                    log.warning("Dropping user message with all orphaned tool_results")
-                continue
-
-        cleaned.append(msg)
-
-    return cleaned
+    return validated
 
 
 def _clean_partial_content(text: str) -> str:
@@ -3825,25 +3785,9 @@ async def _generate_for_turn(
                     session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
                     break
 
-                # Tool execution
+                # Tool execution — every tool ALWAYS returns a result (even errors)
+                # so there are never orphaned tool_result blocks.
                 tool_names = {b.name for b in tool_blocks}
-                available_tool_names = {t["name"] for t in active_tools}
-
-                # If model called tools we stripped, just save text and end turn.
-                # Don't try to execute or send tool_result — the API would reject
-                # orphaned tool_result blocks without matching tool_use in context.
-                if not tool_names.issubset(available_tool_names):
-                    slog.warning("Model called stripped tools: %s — saving text only", tool_names - available_tool_names)
-                    # Save only text blocks from the assistant message
-                    text_content = "\n".join(
-                        b.text for b in message.content if hasattr(b, 'text') and b.type == 'text'
-                    ) or _serialize_content(message.content)
-                    if isinstance(text_content, list):
-                        text_content = "\n".join(b.get("text", "") for b in text_content if b.get("type") == "text")
-                    session.messages.append({"role": "assistant", "content": text_content or "(continued teaching)"})
-                    break
-
-                # Check if terminal tool (no more LLM rounds needed)
                 is_terminal = tool_names <= {"session_signal", "update_student_model"}
 
                 tool_results = []
@@ -3852,13 +3796,22 @@ async def _generate_for_turn(
                         return
                     yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
 
-                    result = await _execute_tool_block(
-                        block=block, session=session, session_id=sid,
-                        context_data=context_data, runtime=runtime,
-                        request=request, slog=slog,
-                    )
+                    # EVERY tool call MUST produce a result — never leave orphaned
+                    try:
+                        result = await _execute_tool_block(
+                            block=block, session=session, session_id=sid,
+                            context_data=context_data, runtime=runtime,
+                            request=request, slog=slog,
+                        )
+                        if not result:
+                            result = "(tool returned empty)"
+                    except Exception as tool_err:
+                        import traceback
+                        tb = traceback.format_exc()[-500:]
+                        slog.error("Tool %s crashed: %s", block.name, tool_err)
+                        result = f"Tool error ({block.name}): {str(tool_err)[:200]}\n{tb}"
 
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result or "(no result)"})
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(result)})
                     yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
 
                 # Save assistant message with tool_use blocks intact
