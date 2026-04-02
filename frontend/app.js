@@ -17300,9 +17300,7 @@ function _startSafetyTimeout() {
   // No-op — removed to prevent killing slow-starting sessions
 }
 function _resetSafetyTimeout() {
-  // No-op
   if (_safetyTimeout) { clearTimeout(_safetyTimeout); _safetyTimeout = null; }
-  }, 45000);
 }
 
 function _clearSafetyTimeout() {
