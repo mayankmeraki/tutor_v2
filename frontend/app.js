@@ -1602,7 +1602,12 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     };
     audio.onended = () => done('ended');
     audio.onerror = () => done('error');
-    audio.play().then(() => console.log(`[WS Audio] Beat #${beatNum} started playing`)).catch(() => done('autoplay-blocked'));
+    audio.play().then(() => console.log(`[WS Audio] Beat #${beatNum} started playing`)).catch(() => {
+      // Retry once after short delay — autoplay may have been unlocked by now
+      setTimeout(() => {
+        audio.play().then(() => console.log(`[WS Audio] Beat #${beatNum} started playing (retry)`)).catch(() => done('autoplay-blocked'));
+      }, 200);
+    });
   });
 
   if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
@@ -10546,6 +10551,9 @@ async function _startOnDemandSession(intentText) {
   if (!user) return Router.navigate('/login');
   if (!intentText.trim()) return;
 
+  // ── Unlock audio on user gesture (browsers block autoplay until first interaction) ──
+  _unlockAudio();
+
   // Backend resolves the best matching course for this intent
   let courseId = 2; // fallback
   try {
@@ -11724,6 +11732,7 @@ function hideSessionPrep() {
 }
 
 function showTeachingLayout(courseMap, opts) {
+  _unlockAudio(); // Ensure audio is unlocked before first beat plays
   const skipBoardInit = opts?.skipBoardInit || false;
   document.title = courseMap.title + ' — Capacity';
   $('#course-title').textContent = courseMap.title;
@@ -16037,9 +16046,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Module 23: Voice Mode — TTS, Hand Cursor, Board Interaction
 // ═══════════════════════════════════════════════════════════
 
-// const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
-// const ELEVENLABS_VOICE_ID = 'zGjIP4SZlMnY9m93k97r';
-const ELEVENLABS_VOICE_ID = '3nDq4c7a9Pk3q5rxbMJH';
+const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
 const ELEVENLABS_MODEL_DIALOGUE = 'eleven_v3'; // Text to Dialogue — natural emotion tags
 const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 
@@ -16101,6 +16108,32 @@ async function voiceFetchTTS(text) {
     });
     return resp.ok ? resp : null;
   } catch { return null; }
+}
+
+/**
+ * Unlock browser audio playback — must be called during a user gesture (click/keydown).
+ * Creates/resumes AudioContext and plays a silent buffer to satisfy autoplay policy.
+ */
+function _unlockAudio() {
+  try {
+    // Create or resume AudioContext
+    if (!state.voiceAudioCtx) state.voiceAudioCtx = new AudioContext({ sampleRate: 44100 });
+    if (state.voiceAudioCtx.state === 'suspended') state.voiceAudioCtx.resume();
+
+    // Play a silent buffer — this "unlocks" audio for future programmatic play() calls
+    const buf = state.voiceAudioCtx.createBuffer(1, 1, 22050);
+    const src = state.voiceAudioCtx.createBufferSource();
+    src.buffer = buf;
+    src.connect(state.voiceAudioCtx.destination);
+    src.start(0);
+
+    // Also create and play a silent Audio element to unlock HTMLAudioElement.play()
+    if (!state._audioUnlocked) {
+      const silence = new Audio('data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=');
+      silence.volume = 0;
+      silence.play().then(() => { state._audioUnlocked = true; silence.pause(); }).catch(() => {});
+    }
+  } catch (e) { /* ignore — best effort */ }
 }
 
 async function voiceSpeak(text, prefetchedResp) {
