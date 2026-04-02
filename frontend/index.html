@@ -19,15 +19,18 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
+          <button class="fb-bug-btn" onclick="openFeedbackModal('bug')" title="Report a bug" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          </button>
           <a class="sc-btn sc-btn-ghost" href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Institutions</a>
           <button class="sc-btn sc-btn-ghost" id="lp-signin">Sign in</button>
           <button class="sc-btn sc-btn-accent" id="lp-getstarted">Get started</button>
         </div>
       </nav>
-      <div class="lp-page" style="max-width:960px;margin:0 auto;padding:80px 24px 0;text-align:center">
+      <div class="lp-page" style="max-width:960px;margin:0 auto;padding:48px 24px 0;text-align:center">
 
         <!-- ── Hero (centered, simple) ── -->
-        <section class="lp-hero" style="max-width:620px;margin:0 auto 72px;display:block">
+        <section class="lp-hero" style="max-width:620px;margin:0 auto 48px;display:block">
           <h1 style="font-size:42px;font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:16px;color:#fff">One tutor. Every subject.<br>Taught <em>live</em>.</h1>
           <p style="font-size:16px;color:var(--text-muted);line-height:1.6;max-width:480px;margin:0 auto 32px">An AI tutor that draws on a board, speaks, and adapts to you in real time. Upload your notes, follow any video, or just ask.</p>
           <div class="lp-hero-input-wrap" style="max-width:500px;margin:0 auto;border-radius:14px">
@@ -135,18 +138,10 @@
 
         </div>
 
-        <!-- ── Footer ── -->
-        <footer class="lp-footer" style="text-align:center;padding:40px 24px;border-top:1px solid var(--border);margin-top:40px">
-          <div style="display:inline-block;background:rgba(251,191,36,.08);color:#fbbf24;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">Beta</div>
-          <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px"><em style="font-style:normal;color:var(--accent)">E</em>uler</div>
-          <p style="max-width:320px;margin:0 auto 16px;line-height:1.6;font-size:11px;color:var(--text-dim)">AI tutoring with live board, voice, and animations. Currently in beta &mdash; we'd love your feedback.</p>
-          <div style="display:flex;gap:16px;justify-content:center;margin-bottom:16px;font-size:11px">
-            <a href="#" onclick="event.preventDefault();openFeedbackModal('bug')" style="color:var(--text-muted)">Report a bug</a>
-            <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')" style="color:var(--text-muted)">Contact us</a>
-            <a href="#" style="color:var(--text-muted)">Privacy</a>
-            <a href="#" style="color:var(--text-muted)">Terms</a>
-          </div>
-          <div style="color:var(--text-dim);font-size:10px">mayank@seekcapacity.ai &middot; Made with care, shipped fast.</div>
+        <footer style="text-align:center;padding:24px;border-top:1px solid var(--border);margin-top:48px;font-size:10px;color:var(--text-dim)">
+          <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-dim)">mayank@seekcapacity.ai</a>
+          <span style="margin:0 6px">&middot;</span>
+          <a href="tel:+919772187848" style="color:var(--text-dim)">+91 97721 87848</a>
         </footer>
       </div>
     </div>
@@ -155,12 +150,15 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')" style="font-size:22px;font-weight:800"><em>E</em>uler</a>
         <div class="sc-nav-r">
+          <button class="fb-bug-btn" onclick="openFeedbackModal('bug')" title="Report a bug" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+          </button>
           <a class="sc-btn sc-btn-ghost" href="/" onclick="event.preventDefault();Router.navigate('/')">Home</a>
           <button class="sc-btn sc-btn-accent" onclick="openFeedbackModal('contact')">Get in touch</button>
         </div>
       </nav>
 
-      <div style="max-width:860px;margin:0 auto;padding:60px 24px 0;text-align:center">
+      <div style="max-width:860px;margin:0 auto;padding:48px 24px 0;text-align:center">
 
         <!-- ── Hero ── -->
         <div style="margin-bottom:64px">
@@ -282,15 +280,10 @@
           </div>
         </div>
 
-        <!-- ── Footer ── -->
-        <footer style="text-align:center;padding:28px 24px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim)">
-          <div style="display:inline-block;background:rgba(251,191,36,.08);color:#fbbf24;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">Beta</div>
-          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px"><em style="font-style:normal;color:var(--accent)">E</em>uler &mdash; AI tutoring with live board, voice, and animations.</div>
-          <div style="display:flex;gap:14px;justify-content:center;font-size:11px">
-            <a href="/" onclick="event.preventDefault();Router.navigate('/')" style="color:var(--text-muted)">Home</a>
-            <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')" style="color:var(--text-muted)">Contact</a>
-            <a href="#" onclick="event.preventDefault();openFeedbackModal('bug')" style="color:var(--text-muted)">Report a bug</a>
-          </div>
+        <footer style="text-align:center;padding:24px;border-top:1px solid var(--border);margin-top:48px;font-size:10px;color:var(--text-dim)">
+          <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-dim)">mayank@seekcapacity.ai</a>
+          <span style="margin:0 6px">&middot;</span>
+          <a href="tel:+919772187848" style="color:var(--text-dim)">+91 97721 87848</a>
         </footer>
 
       </div>
