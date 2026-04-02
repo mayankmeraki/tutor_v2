@@ -732,6 +732,9 @@ const state = {
 
   // Streaming
   isStreaming: false,
+  _stopRequested: false,
+  _voiceSceneActive: false,
+  paused: false,
   _lastSSETimestamp: 0,
   _streamingTimeout: null,
   currentMessageId: null,
@@ -1230,28 +1233,28 @@ function generateId() {
 let _streamGeneration = 0;  // Increments on each new stream — prevents old cleanup from interfering
 
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
+  // NEVER silently drop — if streaming, force stop first
   if (state.isStreaming) {
-    // Visual feedback — don't silently swallow
-    if (!isSystemTrigger) {
-      const bar = document.getElementById('voice-bar-main');
-      if (bar) { bar.style.borderColor = 'rgba(251,191,36,0.4)'; setTimeout(() => { bar.style.borderColor = ''; }, 400); }
-    }
-    return;
+    if (isSystemTrigger) return; // only system triggers are dropped during streaming
+    console.log('[streamADK] Forcing stopAll before new message');
+    stopAll();
+    // stopAll is synchronous — safe to continue
   }
   const _now = Date.now();
-  if (!isSystemTrigger && state._lastChatRequestAt && _now - state._lastChatRequestAt < 1000) {
-    // Throttled — brief amber flash so user knows something happened
-    const bar = document.getElementById('voice-bar-main');
-    if (bar) { bar.style.borderColor = 'rgba(251,191,36,0.4)'; setTimeout(() => { bar.style.borderColor = ''; }, 400); }
-    return;
+  if (!isSystemTrigger && state._lastChatRequestAt && _now - state._lastChatRequestAt < 800) {
+    return; // basic throttle
   }
   state._lastChatRequestAt = _now;
   state.isStreaming = true;
   state._stopRequested = false;
+  state.paused = false;
   state._streamReader = null;
   state._lastSSETimestamp = Date.now();
-  const thisGen = ++_streamGeneration;  // Track this stream's generation
-  _showStopButton(true);
+  const thisGen = ++_streamGeneration;
+
+  // Set voice bar to thinking state
+  setVoiceBarState('thinking');
+  _startSafetyTimeout();
 
   // Voice mode: restore full-screen board if we were in interactive mode
   if (state.teachingMode === 'voice') {
@@ -1389,39 +1392,41 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state.isStreaming = false;
   state._streamReader = null;
   state._stopRequested = false;
+  _clearSafetyTimeout();
   hideSessionPrep();
-  if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
-  _showStopButton(false);
   // Re-enable quick actions
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = false);
 
   // Voice mode: reset thinking state and show input
   if (state.teachingMode === 'voice') {
-    voiceBarSetThinking(false);
-
     if (wasStopped) {
       // Stop requested: discard the streaming message, remove from history
       removeStreamingIndicator();
       removeAssessmentTransition();
       const streamMsg = document.getElementById('ai-stream-msg');
       if (streamMsg) streamMsg.remove();
-      // Remove the last assistant message from state if partially accumulated
       if (state.messages.length && state.messages[state.messages.length - 1].role === 'assistant') {
         state.messages.pop();
       }
-      voiceShowBoardQuestion('Type your response...');
+      setVoiceBarState('idle');
     } else {
+      // Natural completion — transition to idle after voice finishes
       setTimeout(() => {
         const voiceInput = $('#voice-bar-input');
         const isTyping = voiceInput && voiceInput === document.activeElement && voiceInput.value.trim();
         if (!isTyping) {
           try { voiceHandleRunFinished(); } catch (e) {
             console.warn('voiceHandleRunFinished failed:', e);
-            voiceShowBoardQuestion('Type your response...');
           }
+        }
+        // Set idle after voice scene finishes (eager executor may still be running)
+        if (!state.isStreaming && !_eager.running) {
+          setVoiceBarState('idle');
         }
       }, 500);
     }
+  } else {
+    setVoiceBarState('idle');
   }
 
   SessionManager.saveSession();
@@ -15630,6 +15635,9 @@ async function voiceSpeak(text, prefetchedResp) {
       return;
     }
 
+    // Transition to speaking state on first TTS playback
+    if (_vbState === 'thinking') setVoiceBarState('speaking');
+
     // Streaming playback via MediaSource (start playing from first chunk)
     // Falls back to buffered AudioContext decode if MSE unsupported
     const canStreamMSE = typeof MediaSource !== 'undefined'
@@ -16085,6 +16093,7 @@ async function _eagerExecutorLoop() {
   const _loopStart = Date.now();
   const LOOP_TIMEOUT = 120000; // 2 min max per scene execution
 
+  try {
   while (!_eager.done) {
     // Check if stopped or timed out
     if (state._stopRequested) { _eager.done = true; break; }
@@ -16093,6 +16102,12 @@ async function _eagerExecutorLoop() {
       _eager.done = true;
       break;
     }
+
+    // PAUSE: wait while paused (check every 100ms)
+    while (state.paused && !state._stopRequested && !_eager.done) {
+      await new Promise(r => setTimeout(r, 100));
+    }
+    if (state._stopRequested) { _eager.done = true; break; }
 
     if (_eager.queue.length > 0) {
       const beat = _eager.queue.shift();
@@ -16110,8 +16125,12 @@ async function _eagerExecutorLoop() {
         _eager.ttsPrefetch = voiceFetchTTS(nextBeat.say);
       }
 
-      // Execute the beat — reuse exact same logic as executeVoiceScene
-      await _eagerExecBeat(beat, myPrefetch);
+      // Execute the beat — catch errors so executor doesn't crash
+      try {
+        await _eagerExecBeat(beat, myPrefetch);
+      } catch (beatErr) {
+        console.warn('[EagerBeat] Beat execution error (continuing):', beatErr.message);
+      }
 
       // If this was a question beat, stop
       if (beat.question) {
@@ -16128,8 +16147,10 @@ async function _eagerExecutorLoop() {
 
     if (state._stopRequested) { _eager.done = true; break; }
   }
-
-  _eager.running = false;
+  } finally {
+    // ALWAYS reset running flag — even if loop crashes
+    _eager.running = false;
+  }
 
   // If not stopped by question, hide hand and subtitle
   if (!_eager.done) {
@@ -17039,39 +17060,49 @@ function voiceBarSetThinking(isThinking) {
   }
 }
 
-function stopGeneration() {
-  if (!state.isStreaming) return;
+// ═══════════════════════════════════════════════════════════════
+//   INTERRUPTION SYSTEM — stopAll + pause + voice bar states
+// ═══════════════════════════════════════════════════════════════
 
-  console.log('[Stop] Stopping tutor...');
+// Voice bar state: 'idle' | 'thinking' | 'speaking' | 'paused'
+let _vbState = 'idle';
+let _safetyTimeout = null; // auto-recovery timer
 
-  // Set stop flag FIRST — stream loop and all async handlers check this
+/**
+ * stopAll() — Nuclear stop. Kills everything synchronously.
+ * Called when: student sends a message, clicks stop, holds mic.
+ * After this returns, state.isStreaming is false and new messages can be sent.
+ */
+function stopAll() {
+  console.log('[StopAll] Killing everything...');
+
+  // 1. Set stop flag FIRST — all async handlers check this
   state._stopRequested = true;
-  // NOTE: Do NOT reset _stopRequested here — the stream loop's catch block
-  // needs to see it as true to suppress the error toast. The stream loop's
-  // cleanup code resets it after the catch block runs.
+  state.paused = false;
 
-  // 1. Cancel the HTTP stream (stops data flow from backend)
+  // 2. Cancel HTTP stream reader
   if (state._streamReader) {
     try { state._streamReader.cancel(); } catch (e) {}
     state._streamReader = null;
   }
 
-  // 2. Stop ALL audio immediately
+  // 3. Nuclear audio kill — close and recreate AudioContext
   [state._currentTTSAudio, state.voiceCurrentAudio].forEach(audio => {
-    if (audio) { try { audio.pause(); audio.src = ''; } catch(e) {} }
+    if (audio) { try { audio.pause(); audio.currentTime = 0; audio.src = ''; audio.load(); } catch(e) {} }
   });
   state._currentTTSAudio = null;
   state.voiceCurrentAudio = null;
   if (state.voiceCurrentSrc) {
+    try { state.voiceCurrentSrc.disconnect(); } catch(e) {}
     try { state.voiceCurrentSrc.stop(); } catch(e) {}
     state.voiceCurrentSrc = null;
   }
-  // Suspend (not close!) AudioContext — stops buffered audio but allows reuse
-  if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'running') {
-    try { state.voiceAudioCtx.suspend(); } catch(e) {}
+  if (state.voiceAudioCtx) {
+    try { state.voiceAudioCtx.close(); } catch(e) {}
+    state.voiceAudioCtx = null; // will be recreated on next TTS
   }
 
-  // 3. Kill voice scene — prevent ANY further beat execution
+  // 4. Kill voice scene — prevent ANY further beat execution
   state._voiceSceneActive = false;
   if (typeof _eagerReset === 'function') _eagerReset();
   if (typeof _eager !== 'undefined') {
@@ -17081,25 +17112,25 @@ function stopGeneration() {
     _eager.parsedCount = 999999;
   }
 
-  // 4. Stop board queue but preserve what's drawn
+  // 5. Stop board drawing but preserve what's drawn
   if (typeof BoardEngine !== 'undefined') {
     BoardEngine.cancel();
-    setTimeout(() => {
-      if (BoardEngine.state) {
-        BoardEngine.state.cancelFlag = false;
-        BoardEngine.state.isProcessing = false;
-      }
-    }, 50);
+    // Immediately reset flags (don't wait 50ms)
+    if (BoardEngine.state) {
+      BoardEngine.state.cancelFlag = false;
+      BoardEngine.state.isProcessing = false;
+    }
   }
   state.boardDraw.commandQueue = [];
   state.boardDraw.isProcessing = false;
   state.boardDraw.cancelFlag = false;
 
-  // 5. Clear pending timers
+  // 6. Clear ALL pending timers
   if (state._streamUpdateTimer) { clearTimeout(state._streamUpdateTimer); state._streamUpdateTimer = null; }
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+  if (_safetyTimeout) { clearTimeout(_safetyTimeout); _safetyTimeout = null; }
 
-  // 6. Save partial message — this becomes part of the conversation context
+  // 7. Save partial message for context
   if (state.accumulatedText) {
     const partialText = state.accumulatedText;
     updateAIMessageStream(partialText);
@@ -17115,51 +17146,155 @@ function stopGeneration() {
     state.accumulatedText = '';
   }
 
-  // 7. Mark streaming as done (but keep _stopRequested TRUE for catch block)
+  // 8. Mark streaming as done
   state.isStreaming = false;
 
-  // 8. Restore UI
-  voiceBarSetThinking(false);
-  removeStreamingIndicator();
-  voiceHideSubtitle();
-  _showStopButton(false);
-  hideSessionPrep();
+  // 9. Set voice bar to idle
+  setVoiceBarState('idle');
 
-  const field = document.getElementById('voice-bar-input');
-  if (field) {
-    field.disabled = false;
-    field.style.opacity = '';
-    field.style.pointerEvents = '';
-    field.placeholder = 'Type your response...';
-  }
-
-  console.log('[Stop] Tutor stopped — board preserved, audio suspended, beats cleared');
+  console.log('[StopAll] Complete — system idle');
 }
+// Keep old name as alias for backward compat
+function stopGeneration() { stopAll(); }
+window.stopAll = stopAll;
+window.stopGeneration = stopAll;
 
-function _showStopButton(show) {
-  const voiceStop = document.getElementById('voice-bar-stop');
-  const voiceSend = document.getElementById('voice-bar-send');
-  const voiceMic = document.getElementById('voice-mic-btn');
+/**
+ * setVoiceBarState(newState) — Single function that controls ALL voice bar UI.
+ * States: 'idle', 'thinking', 'speaking', 'paused'
+ */
+function setVoiceBarState(newState) {
+  _vbState = newState;
+  const field = document.getElementById('voice-bar-input');
+  const sendBtn = document.getElementById('voice-bar-send');
+  const micBtn = document.getElementById('voice-mic-btn');
+  const stopBtn = document.getElementById('voice-bar-stop');
+  const pauseBtn = document.getElementById('voice-bar-pause');
+  const resumeBtn = document.getElementById('voice-bar-resume');
+  const progress = document.getElementById('vb-progress');
+  const status = document.getElementById('vb-status');
   const vmStop = document.getElementById('vm-stop-btn');
   const vmSend = document.getElementById('vm-send-btn');
 
-  if (show) {
-    // Show stop, hide send/mic (only if not recording)
-    if (voiceStop) voiceStop.classList.remove('hidden');
-    if (!_pttActive) {
-      if (voiceSend) voiceSend.classList.add('hidden');
-      if (voiceMic) voiceMic.classList.add('hidden');
-    }
-    if (vmStop) vmStop.classList.remove('hidden');
-    if (vmSend) vmSend.classList.add('hidden');
-  } else {
-    // Restore normal state
-    if (voiceStop) voiceStop.classList.add('hidden');
-    if (voiceSend) voiceSend.classList.remove('hidden');
-    if (voiceMic) voiceMic.classList.remove('hidden');
-    if (vmStop) vmStop.classList.add('hidden');
-    if (vmSend) vmSend.classList.remove('hidden');
+  // Reset all
+  [stopBtn, pauseBtn, resumeBtn].forEach(b => { if (b) b.classList.add('hidden'); });
+  if (sendBtn) sendBtn.classList.remove('hidden');
+  if (micBtn) micBtn.classList.remove('hidden');
+  if (progress) { progress.className = 'vb-progress'; }
+  if (status) { status.className = 'vb-status'; status.textContent = ''; }
+  if (field) { field.disabled = false; field.style.opacity = ''; }
+
+  // Remove old indicator
+  voiceBarSetThinking(false);
+  removeStreamingIndicator();
+  hideSessionPrep();
+
+  switch (newState) {
+    case 'idle':
+      if (field) field.placeholder = 'Your answer...';
+      if (vmStop) vmStop.classList.add('hidden');
+      if (vmSend) vmSend.classList.remove('hidden');
+      voiceHideSubtitle();
+      break;
+
+    case 'thinking':
+      if (field) field.placeholder = 'Euler is thinking...';
+      if (sendBtn) sendBtn.classList.add('hidden');
+      if (micBtn) micBtn.classList.add('hidden');
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (progress) { progress.className = 'vb-progress active thinking'; }
+      if (status) { status.className = 'vb-status active thinking'; status.textContent = 'Euler is thinking...'; }
+      if (vmStop) vmStop.classList.remove('hidden');
+      if (vmSend) vmSend.classList.add('hidden');
+      break;
+
+    case 'speaking':
+      if (field) field.placeholder = 'Type to interrupt...';
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (progress) { progress.className = 'vb-progress active speaking'; }
+      if (status) { status.className = 'vb-status active speaking'; status.textContent = 'Euler is speaking'; }
+      if (vmStop) vmStop.classList.remove('hidden');
+      if (vmSend) vmSend.classList.add('hidden');
+      break;
+
+    case 'paused':
+      if (field) { field.placeholder = 'Paused — type or resume'; field.focus(); }
+      if (resumeBtn) resumeBtn.classList.remove('hidden');
+      if (progress) { progress.className = 'vb-progress active paused'; }
+      if (status) { status.className = 'vb-status active paused'; status.textContent = 'Paused'; }
+      if (vmStop) vmStop.classList.add('hidden');
+      if (vmSend) vmSend.classList.remove('hidden');
+      break;
   }
+}
+
+/**
+ * togglePause() — Pause/resume the tutor mid-speech.
+ * Pauses: audio, board drawing, eager executor.
+ * Does NOT cancel the HTTP stream — buffered content resumes on unpause.
+ */
+function togglePause() {
+  if (_vbState === 'paused') {
+    // RESUME
+    state.paused = false;
+    // Resume AudioContext
+    if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'suspended') {
+      try { state.voiceAudioCtx.resume(); } catch(e) {}
+    }
+    // Resume HTML audio
+    if (state.voiceCurrentAudio && state.voiceCurrentAudio.paused) {
+      try { state.voiceCurrentAudio.play(); } catch(e) {}
+    }
+    // Resume board
+    if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+      BoardEngine.state.pauseFlag = false;
+    }
+    setVoiceBarState('speaking');
+    console.log('[Pause] Resumed');
+  } else if (_vbState === 'speaking') {
+    // PAUSE
+    state.paused = true;
+    // Pause AudioContext (freezes at exact sample)
+    if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'running') {
+      try { state.voiceAudioCtx.suspend(); } catch(e) {}
+    }
+    // Pause HTML audio
+    if (state.voiceCurrentAudio && !state.voiceCurrentAudio.paused) {
+      try { state.voiceCurrentAudio.pause(); } catch(e) {}
+    }
+    // Pause board
+    if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+      BoardEngine.state.pauseFlag = true;
+    }
+    setVoiceBarState('paused');
+    console.log('[Pause] Paused');
+  }
+}
+window.togglePause = togglePause;
+
+/**
+ * Safety timeout — auto-recover if system gets stuck.
+ * Called at the start of each streamADK.
+ */
+function _startSafetyTimeout() {
+  if (_safetyTimeout) clearTimeout(_safetyTimeout);
+  _safetyTimeout = setTimeout(() => {
+    if (state.isStreaming) {
+      console.warn('[Safety] Auto-recovery — stream stuck for 45s');
+      stopAll();
+    }
+  }, 45000);
+}
+
+function _clearSafetyTimeout() {
+  if (_safetyTimeout) { clearTimeout(_safetyTimeout); _safetyTimeout = null; }
+}
+
+// Legacy compat
+function _showStopButton(show) {
+  // Now handled by setVoiceBarState — this is a no-op for backward compat
+  if (show && _vbState === 'idle') setVoiceBarState('thinking');
 }
 
 // ── Unified voice bar submit ────────────────────────────────
@@ -17168,14 +17303,17 @@ function submitVoiceBarInput() {
   const field = $('#voice-bar-input');
   if (!field || !field.value.trim()) return;
 
-  // If tutor is streaming, stop it first — student input is an interrupt
-  if (state.isStreaming) {
-    stopGeneration();
-    // Wait for stream loop cleanup to fully complete before sending new message
-    // The async cleanup (catch block + cleanup code) needs ~200ms
+  // If paused, treat send as interrupt (not resume)
+  if (state.paused) state.paused = false;
+
+  // If tutor is streaming/speaking, stop EVERYTHING first — then send
+  if (state.isStreaming || _vbState !== 'idle') {
+    stopAll();
+    // stopAll is synchronous — isStreaming is already false
+    // Small delay for DOM cleanup, then send
     setTimeout(() => {
-      if (field.value.trim() && !state.isStreaming) _doSubmitVoiceBar(field);
-    }, 300);
+      if (field.value.trim()) _doSubmitVoiceBar(field);
+    }, 50);
     return;
   }
   _doSubmitVoiceBar(field);

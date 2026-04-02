@@ -1062,18 +1062,26 @@
         <span class="voice-indicator-label" id="voice-indicator-label">Euler is speaking</span>
       </div>
       <div id="voice-mic-float" class="voice-bar-wrap hidden">
+        <div class="vb-progress" id="vb-progress"></div>
+        <div class="vb-status" id="vb-status"></div>
         <div class="voice-bar" id="voice-bar-main">
-          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Type your response..." autocomplete="off"></textarea>
-          <button class="voice-bar-send" id="voice-bar-send" onclick="submitVoiceBarInput()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
+          <button class="voice-bar-pause hidden" id="voice-bar-pause" onclick="togglePause()" title="Pause">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
           </button>
-          <button class="voice-bar-stop hidden" id="voice-bar-stop" onclick="stopGeneration()" title="Stop tutor">
+          <button class="voice-bar-resume hidden" id="voice-bar-resume" onclick="togglePause()" title="Resume">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+          </button>
+          <button class="voice-bar-stop hidden" id="voice-bar-stop" onclick="stopAll()" title="Stop tutor">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
           </button>
           <button class="voice-bar-mic" id="voice-mic-btn" title="Hold to talk">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
               <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
             </svg>
+          </button>
+          <button class="voice-bar-send" id="voice-bar-send" onclick="submitVoiceBarInput()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
           </button>
         </div>
       </div>

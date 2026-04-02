@@ -19,6 +19,7 @@ const board = {
   currentRow: null,
   currentColumns: null,
   cancelFlag: false,
+  pauseFlag: false,
   commandQueue: [],
   isProcessing: false,
   elements: new Map(),
@@ -861,6 +862,11 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
 // ═══════════════════════════════════════════════════════════════
 
 async function runCommand(cmd) {
+  if (board.cancelFlag) return;
+  // Pause: wait while pauseFlag is set (check every 100ms)
+  while (board.pauseFlag && !board.cancelFlag) {
+    await new Promise(r => setTimeout(r, 100));
+  }
   if (board.cancelFlag) return;
   if (!board.liveScene) return;
 
