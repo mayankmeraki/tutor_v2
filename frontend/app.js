@@ -17086,7 +17086,8 @@ function stopAll() {
     state._streamReader = null;
   }
 
-  // 3. Nuclear audio kill — close and recreate AudioContext
+  // 3. Nuclear audio kill — destroy EVERYTHING audio-related
+  // Kill known references
   [state._currentTTSAudio, state.voiceCurrentAudio].forEach(audio => {
     if (audio) { try { audio.pause(); audio.currentTime = 0; audio.src = ''; audio.load(); } catch(e) {} }
   });
@@ -17097,6 +17098,11 @@ function stopAll() {
     try { state.voiceCurrentSrc.stop(); } catch(e) {}
     state.voiceCurrentSrc = null;
   }
+  // Kill ALL orphaned <audio> elements in the page (catches paused leftovers)
+  document.querySelectorAll('audio').forEach(a => {
+    try { a.pause(); a.src = ''; a.load(); a.remove(); } catch(e) {}
+  });
+  // Close AudioContext — forces all buffered audio to stop
   if (state.voiceAudioCtx) {
     try { state.voiceAudioCtx.close(); } catch(e) {}
     state.voiceAudioCtx = null; // will be recreated on next TTS
@@ -17166,7 +17172,9 @@ window.stopGeneration = stopAll;
  */
 function setVoiceBarState(newState) {
   _vbState = newState;
+  // Only apply to teaching session voice bar — not Euler chat
   const field = document.getElementById('voice-bar-input');
+  if (!field) return; // voice bar doesn't exist in this context
   const sendBtn = document.getElementById('voice-bar-send');
   const micBtn = document.getElementById('voice-mic-btn');
   const stopBtn = document.getElementById('voice-bar-stop');
@@ -17232,20 +17240,29 @@ function setVoiceBarState(newState) {
 
 /**
  * togglePause() — Pause/resume the tutor mid-speech.
- * Pauses: audio, board drawing, eager executor.
- * Does NOT cancel the HTTP stream — buffered content resumes on unpause.
+ * Debounced to 200ms to prevent rapid toggle issues with AudioContext.
  */
+let _pauseDebounce = 0;
 function togglePause() {
+  const now = Date.now();
+  if (now - _pauseDebounce < 200) return; // debounce rapid clicks
+  _pauseDebounce = now;
+
   if (_vbState === 'paused') {
     // RESUME
     state.paused = false;
-    // Resume AudioContext
-    if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'suspended') {
-      try { state.voiceAudioCtx.resume(); } catch(e) {}
+    // Resume AudioContext — if stuck, recreate it
+    if (state.voiceAudioCtx) {
+      if (state.voiceAudioCtx.state === 'suspended') {
+        state.voiceAudioCtx.resume().catch(() => {
+          console.warn('[Pause] AudioContext.resume failed — recreating');
+          state.voiceAudioCtx = null; // will be recreated on next TTS
+        });
+      }
     }
     // Resume HTML audio
     if (state.voiceCurrentAudio && state.voiceCurrentAudio.paused) {
-      try { state.voiceCurrentAudio.play(); } catch(e) {}
+      state.voiceCurrentAudio.play().catch(() => {});
     }
     // Resume board
     if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
@@ -17256,9 +17273,9 @@ function togglePause() {
   } else if (_vbState === 'speaking') {
     // PAUSE
     state.paused = true;
-    // Pause AudioContext (freezes at exact sample)
+    // Pause AudioContext
     if (state.voiceAudioCtx && state.voiceAudioCtx.state === 'running') {
-      try { state.voiceAudioCtx.suspend(); } catch(e) {}
+      state.voiceAudioCtx.suspend().catch(() => {});
     }
     // Pause HTML audio
     if (state.voiceCurrentAudio && !state.voiceCurrentAudio.paused) {
