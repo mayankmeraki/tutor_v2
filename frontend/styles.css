@@ -288,6 +288,32 @@ body {
   padding:2px 6px; border-radius:3px; background:rgba(239,68,68,.9); color:#fff }
 
 /* ── Study aids section ── */
+/* ── BYO section ── */
+.lp-byo-section { padding:60px 0; border-top:1px solid var(--border) }
+.lp-byo-inner { display:grid; grid-template-columns:1fr 1fr; gap:48px; align-items:center }
+.lp-byo-text h2 { font-size:28px; font-weight:700; line-height:1.3; margin-bottom:16px }
+.lp-byo-text h2 em { color:var(--accent); font-style:normal }
+.lp-byo-text > p { font-size:15px; color:var(--text-muted); line-height:1.7; margin-bottom:20px }
+.lp-byo-list { list-style:none; padding:0; margin-bottom:24px }
+.lp-byo-list li { padding:8px 0; font-size:14px; color:var(--text-muted); line-height:1.5;
+  border-bottom:1px solid rgba(255,255,255,.04) }
+.lp-byo-list li:last-child { border-bottom:none }
+.lp-byo-list li strong { color:var(--text) }
+.lp-byo-visual { display:flex; flex-direction:column; gap:10px }
+.lp-byo-card { display:flex; align-items:center; gap:10px; padding:14px 16px; border-radius:12px;
+  background:var(--bg-surface); border:1px solid var(--border); font-size:13px }
+.lp-byo-card-icon { font-size:20px }
+.lp-byo-card span:first-of-type { flex:1 }
+.lp-byo-status { font-size:11px; font-weight:600; color:var(--accent); padding:2px 8px;
+  border-radius:6px; background:rgba(52,211,153,.1) }
+.lp-byo-processing { color:var(--text-dim); background:rgba(255,255,255,.05) }
+.lp-byo-arrow { text-align:center; font-size:20px; color:var(--text-dim) }
+.lp-byo-result { display:flex; align-items:center; gap:10px; padding:16px; border-radius:12px;
+  background:rgba(52,211,153,.06); border:1px solid rgba(52,211,153,.2); font-size:14px;
+  color:var(--accent); font-weight:500 }
+.lp-byo-result-icon { font-size:20px }
+@media (max-width:768px) { .lp-byo-inner { grid-template-columns:1fr; gap:32px } }
+
 .lp-aids { padding:0 0 80px }
 .lp-aids h2 { font-size:24px; font-weight:700; text-align:center; margin-bottom:10px }
 .lp-aids-sub { text-align:center; font-size:14px; color:var(--text-muted); max-width:540px;
