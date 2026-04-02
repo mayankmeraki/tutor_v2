@@ -10506,7 +10506,12 @@ function _showLessonDetail(lesson, num, thumb, mod) {
     watchBtn.onclick = () => {
       _unlockAudio();
       const cid = state._coursePlaylistCourseId || _courseDetailData?.course?.id;
-      if (cid) vmStartVideoForLesson(cid, lesson.id);
+      if (cid) {
+        const allLessons = (_courseDetailData?.lessons || []).filter(l => l.video_url).sort((a, b) => (a.order || 0) - (b.order || 0));
+        const activeIdx = allLessons.findIndex(l => l.id === lesson.id);
+        if (allLessons.length > 0) setTimeout(() => _showVideoPlaylist(allLessons, activeIdx >= 0 ? activeIdx : 0), 800);
+        vmStartVideoForLesson(cid, lesson.id);
+      }
     };
   }
 }
@@ -10514,9 +10519,24 @@ function _showLessonDetail(lesson, num, thumb, mod) {
 async function _startVideoFollowAlong(courseId, firstLesson, lessonIds) {
   const user = AuthManager.getUser();
   if (!user) return Router.navigate('/login');
-  // Start video follow-along for the first lesson — the playlist is passed for the right panel
   state._coursePlaylist = lessonIds;
   state._coursePlaylistCourseId = courseId;
+
+  // Build playlist from course detail data for the sidebar
+  if (_courseDetailData) {
+    const allLessons = (_courseDetailData.lessons || [])
+      .filter(l => l.video_url)
+      .sort((a, b) => (a.order || 0) - (b.order || 0));
+    const selectedSet = new Set(lessonIds);
+    const playlistLessons = selectedSet.size > 0 && selectedSet.size < allLessons.length
+      ? allLessons.filter(l => selectedSet.has(l.id))
+      : allLessons;
+    const activeIdx = playlistLessons.findIndex(l => l.id === firstLesson.id);
+    if (playlistLessons.length > 0) {
+      setTimeout(() => _showVideoPlaylist(playlistLessons, activeIdx >= 0 ? activeIdx : 0), 800);
+    }
+  }
+
   vmStartVideoForLesson(courseId, firstLesson.id);
 }
 
@@ -10635,6 +10655,20 @@ function _showVideoPlaylist(lessons, activeIndex) {
       list.insertAdjacentHTML('beforeend', batch);
       state._vplRendered = Math.min(state._vplRendered + VPL_PAGE_SIZE, lessons.length);
     }
+  };
+
+  // Click to switch lesson
+  list.onclick = (e) => {
+    const item = e.target.closest('.vpl-item');
+    if (!item) return;
+    const lessonId = parseInt(item.dataset.lessonId);
+    const idx = parseInt(item.dataset.vplIdx);
+    if (!lessonId || isNaN(idx)) return;
+    _unlockAudio();
+    state._videoPlaylistIndex = idx;
+    _showVideoPlaylist(lessons, idx);
+    const cid = state._coursePlaylistCourseId || state.video?.courseId || state.courseId;
+    if (cid) vmStartVideoForLesson(cid, lessonId);
   };
 }
 
