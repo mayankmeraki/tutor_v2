@@ -7519,7 +7519,6 @@ function showScreen(screenName, param) {
       document.getElementById('landing-screen').style.display = 'block';
       document.body.style.overflow = 'auto';
       document.body.style.height = 'auto';
-      _loadLandingCourses();
       break;
 
     case 'business':
@@ -7649,34 +7648,6 @@ function _guessSubject(title) {
   return 'Course';
 }
 
-async function _loadLandingCourses() {
-  const grid = document.getElementById('lp-courses-grid');
-  if (!grid || grid.dataset.loaded) return;
-  // Show skeleton immediately
-  grid.innerHTML = Array.from({ length: 3 }, () =>
-    `<div class="pcard"><div class="pcard-thumb skeleton-pulse"></div><div class="pcard-body"><div class="skeleton-line w60"></div><div class="skeleton-line w40"></div></div></div>`
-  ).join('');
-  const courses = await _fetchCourses();
-  grid.dataset.loaded = '1';
-  grid.innerHTML = courses.slice(0, 3).map(c => `
-    <div class="pcard" data-course-id="${c.id}">
-      <div class="pcard-thumb" style="background:${_courseThumbStyle(c)}">
-
-        <span class="count">${c.lesson_count || '?'} lessons</span>
-      </div>
-      <div class="pcard-body">
-        <h4>${c.title}</h4>
-        <span>${c.subject || ''} &middot; ~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span>
-      </div>
-    </div>
-  `).join('');
-  grid.querySelectorAll('.pcard').forEach(card => {
-    card.addEventListener('click', () => {
-      if (AuthManager.isLoggedIn()) Router.navigate('/courses/' + card.dataset.courseId);
-      else Router.navigate('/login');
-    });
-  });
-}
 
 function _skeletonCards(n, container) {
   container.innerHTML = Array.from({ length: n }, () =>
@@ -8226,30 +8197,6 @@ function _initEuler() {
   _wireAttachments('euler-attach-btn', 'euler-file-input', 'euler-attach-preview');
   _wireAttachments('euler-attach-btn-active', 'euler-file-input-active', 'euler-attach-preview-active');
 
-  // Drag & drop on the chat messages area
-  const msgArea = document.getElementById('euler-messages');
-  if (msgArea) {
-    msgArea.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'copy'; });
-    msgArea.addEventListener('drop', (e) => {
-      e.preventDefault();
-      if (e.dataTransfer.files?.length) _handleEulerAttachFiles(e.dataTransfer.files, 'euler-attach-preview-active');
-    });
-  }
-
-  // Preview panel close
-  document.getElementById('ep-close')?.addEventListener('click', _closePreviewPanel);
-
-  // Home button — back to browse
-  document.getElementById('euler-home-btn')?.addEventListener('click', () => {
-    _eulerFullReset();
-    Router.navigate('/home');
-  });
-
-  // Clear chat button
-  document.getElementById('euler-clear-btn')?.addEventListener('click', () => {
-    _eulerFullReset();
-  });
-
   // BYO upload wiring — browse button + drag & drop + link input
   document.getElementById('byo-browse-link')?.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -8307,17 +8254,6 @@ function _initEuler() {
     });
   });
 
-  // Capability card clicks — fill input and send
-  document.querySelectorAll('.cap-card').forEach(card => {
-    card.addEventListener('click', () => {
-      const prompt = card.dataset.prompt;
-      if (prompt) {
-        const input = document.getElementById('euler-input');
-        if (input) { input.value = prompt; }
-        _eulerSend();
-      }
-    });
-  });
 }
 
 // ── Euler attachment handling ──
@@ -8409,14 +8345,15 @@ function _eulerSend() {
   const text = input.value.trim();
   if (!text || _eulerBusy) return;
 
-  // Switch from idle → chat on first message
+  // ── NEW: Start on-demand session directly (no orchestrator) ──
   if (!_eulerStarted) {
-    _eulerStarted = true;
-    const idle = document.getElementById('euler-idle');
-    const chat = document.getElementById('euler-chat');
-    if (idle) idle.style.display = 'none';
-    if (chat) chat.style.display = 'flex';
+    input.value = '';
+    input.style.height = 'auto';
+    _startOnDemandSession(text);
+    return;
   }
+
+  // Legacy orchestrator flow below — dead code, kept for compat
 
   // Build attachment thumbnails for the message bubble
   let attachHtml = '';
@@ -8856,6 +8793,7 @@ function _buildDocumentCardEl(d) {
   return card;
 }
 
+// NOTE: Dead code — orchestrator removed. Kept temporarily for reference.
 function _handleEulerEvent(evt) {
   switch (evt.type) {
     case 'CONNECTED':
@@ -10186,35 +10124,8 @@ window._eulerNavigateTo = function(target) {
   Router.navigate(target);
 };
 
-function _eulerResetToIdle() {
-  const idle = document.getElementById('euler-idle');
-  const chat = document.getElementById('euler-chat');
-  const msgs = document.getElementById('euler-messages');
-  const hasHistory = msgs && msgs.children.length > 0;
-
-  if (hasHistory) {
-    if (idle) idle.style.display = 'none';
-    if (chat) chat.style.display = 'flex';
-    _eulerStarted = true;
-  } else {
-    if (idle) idle.style.display = 'flex';
-    if (chat) chat.style.display = 'none';
-    _eulerStarted = false;
-  }
-}
-
-function _eulerFullReset() {
-  const idle = document.getElementById('euler-idle');
-  const chat = document.getElementById('euler-chat');
-  const msgs = document.getElementById('euler-messages');
-  if (idle) idle.style.display = 'flex';
-  if (chat) chat.style.display = 'none';
-  if (msgs) msgs.innerHTML = '';
-  _eulerStarted = false;
-  _eulerHistory = [];
-  _eulerBusy = false;
-  _eulerSuppressText = false;
-}
+function _eulerResetToIdle() { /* removed — orchestrator gone */ }
+function _eulerFullReset() { /* removed — orchestrator gone */ }
 
 function _renderMarkdown(text) {
   // Minimal markdown: bold, italic, code, links, line breaks
@@ -16127,7 +16038,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // ═══════════════════════════════════════════════════════════
 
 // const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
-const ELEVENLABS_VOICE_ID = 'zGjIP4SZlMnY9m93k97r';
+// const ELEVENLABS_VOICE_ID = 'zGjIP4SZlMnY9m93k97r';
+const ELEVENLABS_VOICE_ID = '3nDq4c7a9Pk3q5rxbMJH';
 const ELEVENLABS_MODEL_DIALOGUE = 'eleven_v3'; // Text to Dialogue — natural emotion tags
 const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 
