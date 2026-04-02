@@ -163,6 +163,8 @@ class AgentRuntime:
         # Pick the right runner — open-ended, not restricted
         if agent_type == "planning":
             coro = self._run_planning_agent(task, context)
+        elif agent_type == "enrichment":
+            coro = self._run_enrichment_agent(task, context)
         elif agent_type == "visual_gen":
             coro = self._run_visual_gen_agent(task, context)
         else:
@@ -472,6 +474,116 @@ class AgentRuntime:
             if block.text:
                 text += block.text
         return text
+
+    # ── Shadow enrichment agent ───────────────────────────────────────────
+
+    async def _run_enrichment_agent(self, task: AgentTask, context: dict) -> str:
+        """Background enrichment agent — runs every ~5 turns to pre-fetch resources.
+
+        Uses Haiku with tools (web_search, content_search, get_section_content,
+        query_knowledge). Encourages parallel tool calls for speed.
+        Output is injected into tutor's context as [ENRICHMENT CONTEXT].
+        """
+        system_prompt = (
+            "You are a fast background enrichment agent for an AI physics tutor.\n"
+            "Your job: pre-fetch supplementary resources the tutor might need.\n\n"
+            "INSTRUCTIONS:\n"
+            "1. Read the recent conversation and current teaching topic\n"
+            "2. Identify what supplementary content would help the tutor\n"
+            "3. Call tools IN PARALLEL to fetch resources efficiently\n"
+            "4. Compile a concise enrichment pack\n\n"
+            "OUTPUT FORMAT:\n"
+            "[Web References]\n- URL: description (if web_search found useful results)\n\n"
+            "[Course Content]\n- Section: key points (if content_search/get_section_content found relevant material)\n\n"
+            "[Student Knowledge Gaps]\n- Concept: gap description (if query_knowledge revealed gaps)\n\n"
+            "BE FAST. Call multiple tools at once. Keep output under 500 words.\n"
+            "If no enrichment is needed, output: (no enrichment needed)"
+        )
+
+        # Add course context
+        for key in ("courseMap", "concepts"):
+            val = context.get(key)
+            if val:
+                system_prompt += f"\n\n[{key}]\n{val[:2000]}"
+
+        # Enrichment tools — subset tutor can't call directly anymore
+        enrichment_tools = []
+        from app.tools import TUTOR_TOOLS
+        for t in TUTOR_TOOLS:
+            if t["name"] in ("web_search", "content_search", "get_section_content", "query_knowledge"):
+                enrichment_tools.append(t)
+
+        # Build the enrichment request from task instructions (contains recent conversation + topic)
+        messages = [{"role": "user", "content": task.instructions}]
+
+        # Agentic loop — max 2 rounds (initial + tool results)
+        model = settings.research_model  # Haiku — fast and cheap
+        rounds = 0
+        max_rounds = 3
+        result_text = ""
+
+        while rounds < max_rounds:
+            rounds += 1
+
+            async def _call():
+                kwargs = {
+                    "model": model,
+                    "max_tokens": 2048,
+                    "system": system_prompt,
+                    "messages": messages,
+                    "metadata": self._meta("enrichment", task.agent_id),
+                }
+                if enrichment_tools and rounds <= 2:
+                    kwargs["tools"] = enrichment_tools
+                return await llm_call(**kwargs)
+
+            response = await _retry_api_call(
+                _call, label=f"Enrichment[{task.agent_id}]"
+            )
+            task.track_usage(response)
+
+            # Collect text output
+            for block in response.content:
+                if hasattr(block, 'text') and block.text:
+                    result_text += block.text
+
+            # Check for tool calls
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            if not tool_blocks:
+                break  # No tools called — done
+
+            # Execute tools in parallel
+            import asyncio as _aio
+            from app.tools import execute_tutor_tool
+
+            async def _exec_tool(block):
+                try:
+                    return block.id, await execute_tutor_tool(block.name, block.input)
+                except Exception as e:
+                    log.warning("Enrichment tool %s failed: %s", block.name, e)
+                    return block.id, f"Error: {e}"
+
+            tool_tasks = [_exec_tool(b) for b in tool_blocks]
+            tool_outputs = await _aio.gather(*tool_tasks)
+
+            # Build tool results for next round
+            tool_results = []
+            for tool_id, output in tool_outputs:
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": str(output)[:3000] if output else "(no result)",
+                })
+
+            # Append assistant + tool results for next round
+            messages.append({"role": "assistant", "content": [b.to_dict() if hasattr(b, 'to_dict') else b for b in response.content]})
+            messages.append({"role": "user", "content": tool_results})
+
+        log.info(
+            "Enrichment agent %s done — %d rounds, %d chars",
+            task.agent_id, rounds, len(result_text),
+        )
+        return result_text.strip() or "(no enrichment needed)"
 
     # ── Visual generation agent ──────────────────────────────────────────
 

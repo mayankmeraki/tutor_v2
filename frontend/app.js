@@ -1232,6 +1232,359 @@ function generateId() {
 
 let _streamGeneration = 0;  // Increments on each new stream — prevents old cleanup from interfering
 
+// ══════════════════════════════════════════════════════════════
+//   WebSocket Streaming (Server-Side TTS)
+//
+//   State machine:
+//     IDLE → STREAMING → (EXECUTING beats) → IDLE
+//     Any state → STOPPING → IDLE (on interrupt/cancel)
+//
+//   Key invariant: ONE executor per generation. The generation counter
+//   is the single source of truth for "which turn is current."
+//   All state is scoped to a generation — when generation increments,
+//   everything from the old generation is dead.
+// ══════════════════════════════════════════════════════════════
+
+const _ws = {
+  conn: null,           // WebSocket connection
+  enabled: true,        // feature flag — set to false to fall back to SSE
+  generation: 0,        // increments ONCE per turn — single source of truth
+  accumulatedText: '',  // full text for message history
+  reconnectTimer: null,
+  retryCount: 0,
+};
+
+// Per-turn state — completely replaced on each new turn.
+// Scoped by generation: if generation doesn't match, everything here is stale.
+let _wsTurn = null;  // null when idle
+
+function _wsNewTurn() {
+  const gen = _ws.generation;
+  return {
+    gen,                   // which generation this turn belongs to
+    beats: {},             // beatNum → { text, audio (ArrayBuffer), skip, _resolver, _timeout, _blobUrl }
+    executorRunning: false, // is the executor loop active for THIS turn
+    executorExited: false,  // has the executor finished (prevents restart)
+    audioEl: null,         // current Audio element
+  };
+}
+
+function wsConnect() {
+  if (!_ws.enabled) return;
+  const token = AuthManager?.getToken?.() || '';
+  const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
+  const url = `${proto}//${location.host}/ws/chat?token=${token}`;
+  try {
+    _ws.conn = new WebSocket(url);
+    _ws.conn.binaryType = 'arraybuffer';
+    _ws.conn.onopen = () => { console.log('[WS] Connected'); _ws.retryCount = 0; };
+    _ws.conn.onmessage = _wsOnMessage;
+    _ws.conn.onclose = () => {
+      _wsKillTurn('disconnect');
+      const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 30000);
+      _ws.retryCount++;
+      _ws.reconnectTimer = setTimeout(wsConnect, delay);
+    };
+    _ws.conn.onerror = () => {};
+  } catch (e) { console.warn('[WS] Connect failed:', e); }
+}
+
+// ── Turn lifecycle ──────────────────────────────────────────
+
+function wsSendMessage(text, context, sessionId, isSessionStart, messages) {
+  if (!_ws.conn || _ws.conn.readyState !== WebSocket.OPEN) return false;
+
+  _wsKillTurn('new_message');
+  _ws.generation++;
+  _ws.accumulatedText = '';
+  _wsTurn = _wsNewTurn();
+
+  _eagerReset();
+  state._voiceSceneActive = false;
+  state.isStreaming = true;
+  state._stopRequested = false;
+  state.paused = false;
+  setVoiceBarState('thinking');
+
+  console.log(`[WS] New turn gen=${_ws.generation}`);
+  _ws.conn.send(JSON.stringify({ type: 'MESSAGE', text, context, sessionId, isSessionStart, messages }));
+  return true;
+}
+
+function _wsKillTurn(reason) {
+  const turn = _wsTurn;
+  if (!turn) return;
+  console.log(`[WS] Kill turn gen=${turn.gen} reason=${reason}`);
+
+  if (turn.audioEl) {
+    if (turn.audioEl._blobUrl) try { URL.revokeObjectURL(turn.audioEl._blobUrl); } catch (e) {}
+    try { turn.audioEl.pause(); turn.audioEl.src = ''; } catch (e) {}
+    turn.audioEl = null;
+  }
+  state.voiceCurrentAudio = null;
+
+  for (const b of Object.values(turn.beats)) {
+    if (b._timeout) clearTimeout(b._timeout);
+    if (b._resolver) { b._resolver('killed'); b._resolver = null; }
+    delete b.audio;
+  }
+  turn.beats = {};
+  turn.executorExited = true;
+  _wsTurn = null;
+  _eager.running = false;
+}
+
+function wsCancel() {
+  _wsKillTurn('cancel');
+  state.isStreaming = false;
+  setVoiceBarState('idle');
+  if (_ws.conn?.readyState === WebSocket.OPEN) _ws.conn.send(JSON.stringify({ type: 'CANCEL' }));
+}
+
+// ── Message handler ─────────────────────────────────────────
+
+function _wsOnMessage(msg) {
+  const turn = _wsTurn;
+
+  if (msg.data instanceof ArrayBuffer) {
+    const view = new DataView(msg.data);
+    const gen = view.getUint32(2);
+    if (!turn || gen !== turn.gen) return;
+    const beatNum = view.getUint16(0);
+    const entry = turn.beats[beatNum];
+    if (!entry || entry.audio || entry.skip) return;
+    entry.audio = msg.data.slice(6);
+    if (entry._resolver) { entry._resolver('audio'); entry._resolver = null; }
+    return;
+  }
+
+  let evt;
+  try { evt = JSON.parse(msg.data); } catch { return; }
+
+  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED') {
+    if (!turn || (evt.gen !== undefined && evt.gen !== turn.gen)) return;
+  }
+
+  switch (evt.type) {
+    case 'VOICE_SCENE_START':
+      console.log(`[WS] Scene: "${evt.title}"`);
+      _eagerReset();
+      _eagerInitBoard(evt.title || 'Teaching');
+      state._voiceSceneActive = true;
+      if (_vbState === 'thinking') setVoiceBarState('speaking');
+      break;
+
+    case 'VOICE_BEAT': {
+      if (!turn) break;
+      const beat = evt.data || {};
+      beat._beatNum = evt.beat;
+      console.log(`[WS] Beat #${evt.beat} "${(beat.say||'').slice(0,40)}"`);
+      turn.beats[evt.beat] = turn.beats[evt.beat] || {};
+      turn.beats[evt.beat].data = beat;
+      turn.beats[evt.beat].text = beat.say || '';
+      _eager.parsedCount = evt.beat;
+      _eager.queue.push(beat);
+      _wsEnsureExecutor(turn);
+      break;
+    }
+
+    case 'AUDIO_SKIP': {
+      if (!turn) break;
+      const entry = turn.beats[evt.beat] = turn.beats[evt.beat] || {};
+      entry.skip = true;
+      if (entry._resolver) { entry._resolver('skip'); entry._resolver = null; }
+      break;
+    }
+
+    case 'VOICE_SCENE_END':
+      state._voiceSceneActive = false;
+      break;
+
+    case 'TEXT_DELTA':
+      _ws.accumulatedText += (evt.delta || '');
+      break;
+
+    case 'PLAN_UPDATE':
+      if (typeof updatePlanSidebar === 'function') updatePlanSidebar(evt);
+      break;
+
+    case 'COST_UPDATE':
+      if (typeof updateCostDisplay === 'function') updateCostDisplay(evt);
+      break;
+
+    case 'DONE':
+      console.log(`[WS] DONE gen=${evt.gen}`);
+      state.isStreaming = false;
+      _ws.accumulatedText = evt.fullText || _ws.accumulatedText;
+      if (_ws.accumulatedText) {
+        state.messages.push({ id: state.currentMessageId || generateId(), role: 'assistant', content: _ws.accumulatedText, timestamp: Date.now() });
+        state.totalAssistantTurns++;
+        if (typeof SessionManager !== 'undefined') SessionManager.saveSession();
+      }
+      if (!turn?.executorRunning) setVoiceBarState('idle');
+      break;
+
+    case 'INTERRUPTED':
+    case 'CANCELLED':
+      console.log(`[WS] ${evt.type} gen=${evt.gen} current_gen=${_ws.generation}`);
+      // Only reset streaming state if this is for the CURRENT generation.
+      // Stale INTERRUPTED from old turn must NOT clobber new turn's state.
+      if (!_wsTurn || (evt.gen !== undefined && evt.gen >= _ws.generation)) {
+        state.isStreaming = false;
+        setVoiceBarState('idle');
+        voiceHideSubtitle();
+      }
+      break;
+
+    case 'RUN_ERROR':
+      console.error('[WS] Error:', evt.message);
+      // Only affect state if this is for the current turn
+      if (!_wsTurn || (evt.gen !== undefined && evt.gen >= _ws.generation)) {
+        state.isStreaming = false;
+        setVoiceBarState('idle');
+      }
+      break;
+
+    default:
+      if (typeof handleSSEEvent === 'function') try { handleSSEEvent(evt); } catch (e) {}
+  }
+}
+
+// ── Executor ────────────────────────────────────────────────
+
+function _wsEnsureExecutor(turn) {
+  if (turn.executorRunning || turn.executorExited) return;
+  turn.executorRunning = true;
+  _eager.running = true;
+  _wsRunExecutor(turn);
+}
+
+async function _wsRunExecutor(turn) {
+  const TIMEOUT = 120000;
+  const t0 = Date.now();
+  console.log(`[WS Exec] Start gen=${turn.gen} q=${_eager.queue.length}`);
+
+  try {
+    while (true) {
+      if (turn.executorExited || state._stopRequested || _wsTurn !== turn) break;
+      if (Date.now() - t0 > TIMEOUT) break;
+
+      while (state.paused && !state._stopRequested && !turn.executorExited) {
+        await new Promise(r => setTimeout(r, 100));
+      }
+      if (state._stopRequested || turn.executorExited) break;
+
+      if (_eager.queue.length > 0) {
+        const beat = _eager.queue.shift();
+        if (_vbState === 'thinking') setVoiceBarState('speaking');
+        try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
+        if (beat.question) break;
+      } else if (state.isStreaming) {
+        await new Promise(r => setTimeout(r, 80));
+      } else {
+        break;
+      }
+    }
+  } finally {
+    console.log(`[WS Exec] Exit gen=${turn.gen}`);
+    turn.executorRunning = false;
+    turn.executorExited = true;
+    if (_wsTurn === turn || _wsTurn === null) {
+      _eager.running = false;
+      setTimeout(() => {
+        if (!_eager.running && !(_wsTurn?.audioEl)) {
+          if (typeof safeTransitionToIdle === 'function') safeTransitionToIdle();
+          else setVoiceBarState('idle');
+        }
+      }, 300);
+    }
+  }
+}
+
+// ── Beat execution ──────────────────────────────────────────
+
+async function _wsExecBeat(beat, beatNum, turn) {
+  if (turn.executorExited) return;
+  if (beat.scrollTo) { BoardEngine.scrollToElement(beat.scrollTo.replace(/^id:/, '')); await new Promise(r => setTimeout(r, 300)); }
+  if (typeof executeCursor === 'function') executeCursor(beat.cursor, beat.draw);
+  if (beat.animControl && typeof bdControlAnimation === 'function') bdControlAnimation(beat.animControl);
+  if (beat.annotate && typeof voiceAnnotate === 'function') {
+    const p = beat.annotate.split(':');
+    if (p.length >= 3 && p[1] === 'id') voiceAnnotate(p[0], p.slice(2).join(':'), { color: beat.annotateColor || '#34d399', duration: beat.annotateDuration || 2000 });
+  }
+
+  if (beat.videoLesson) { renderTeachingTag({ name: 'teaching-video', attrs: { lesson: beat.videoLesson, start: beat.videoStart || '0', end: beat.videoEnd || '' }, content: '' }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
+  if (beat.simulation) { renderTeachingTag({ name: 'teaching-simulation', attrs: { id: beat.simulation }, content: '' }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
+  if (beat.widgetTitle && beat.widgetCode) { renderTeachingTag({ name: 'teaching-widget', attrs: { title: beat.widgetTitle }, content: beat.widgetCode }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
+
+  await Promise.race([
+    Promise.all([ executeDraw(beat.draw), beat.say ? _wsPlayAudio(beat, beatNum, turn) : Promise.resolve() ]),
+    new Promise(r => setTimeout(r, 15000)),
+  ]);
+
+  if (!beat.question) await voiceBeatGap(beat.pause);
+  if (beat.question) { voiceHideHand(); voiceShowBoardQuestion(typeof renderLatex === 'function' ? renderLatex(beat.say || 'What do you think?') : (beat.say || 'What do you think?')); }
+}
+
+// ── Audio playback ──────────────────────────────────────────
+
+async function _wsPlayAudio(beat, beatNum, turn) {
+  if (!beat.say?.trim() || turn.executorExited) return;
+
+  const refs = [];
+  const cleanText = beat.say.replace(/\{ref:([^}]+)\}/g, (_, id) => { refs.push(id.trim()); return ''; }).trim();
+  voiceShowSubtitle(cleanText);
+  if (typeof voiceShowIndicator === 'function') voiceShowIndicator('speaking');
+
+  if (refs.length > 0) {
+    const dur = (cleanText.split(/\s+/).length / 2.8 + 0.2) * 1000;
+    const gap = dur / (refs.length + 1);
+    refs.forEach((id, i) => setTimeout(() => { if (BoardEngine?.state?.elements?.has(id)) BoardEngine.zoomPulse(id); }, gap * (i + 1)));
+  }
+
+  const entry = turn.beats[beatNum] || {};
+  if (!entry.audio && !entry.skip) {
+    await new Promise(resolve => {
+      entry._resolver = resolve;
+      entry._timeout = setTimeout(() => { entry.skip = true; resolve('timeout'); }, 4000);
+    });
+    if (entry._timeout) { clearTimeout(entry._timeout); entry._timeout = null; }
+  }
+
+  if (turn.executorExited) { if (typeof voiceHideIndicator === 'function') voiceHideIndicator(); return; }
+
+  if (entry.skip || !entry.audio) {
+    await new Promise(r => setTimeout(r, (cleanText.split(/\s+/).length / 2.8 + 0.2) * 1000));
+    if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
+    await new Promise(r => setTimeout(r, 300));
+    return;
+  }
+
+  const blob = new Blob([entry.audio], { type: 'audio/mpeg' });
+  delete entry.audio;
+  const url = URL.createObjectURL(blob);
+  const audio = new Audio(url);
+  audio.playbackRate = state.voiceSpeed || 1;
+  audio._blobUrl = url;
+  turn.audioEl = audio;
+  state.voiceCurrentAudio = audio;
+
+  await new Promise(resolve => {
+    const done = () => { URL.revokeObjectURL(url); if (turn.audioEl === audio) turn.audioEl = null; if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null; resolve(); };
+    audio.onended = done;
+    audio.onerror = done;
+    audio.play().catch(done);
+  });
+
+  if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
+  await new Promise(r => setTimeout(r, 300));
+}
+
+
+// ══════════════════════════════════════════════════════════════
+//   End WebSocket Streaming
+// ══════════════════════════════════════════════════════════════
+
 async function streamADK(userMessageContent, isSystemTrigger = false, isSessionStart = false) {
   // NEVER silently drop — if streaming, force stop first
   if (state.isStreaming) {
@@ -1318,6 +1671,22 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   };
 
   showStreamingIndicator();
+
+  // ── WebSocket path (voice mode with server-side TTS) ──
+  if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN && state.teachingMode === 'voice') {
+    console.log('[streamADK] Using WebSocket path');
+    _eagerReset();
+    const sent = wsSendMessage(
+      typeof userMessageContent === 'string' ? userMessageContent : '',
+      context,
+      state.sessionId,
+      isSessionStart,
+      windowedMessages,
+    );
+    if (sent) return; // WebSocket handles everything
+    // If WS send failed, fall through to SSE
+    console.warn('[streamADK] WS send failed — falling back to SSE');
+  }
 
   try {
     const res = await fetch(`${state.apiUrl}/api/chat`, {
@@ -14006,7 +14375,8 @@ async function bdRunAnimation(cmd) {
       const userSetup = p.setup;
       p.setup = function() {
         if (userSetup) userSetup.call(p);
-        try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch(e) {}
+        // Use default sans-serif font for animations (not Caveat cursive)
+        try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch(e) {}
       };
     }, canvasWrap);
   } catch (e) {
@@ -14257,7 +14627,7 @@ function bdShowAnimSkeleton(layer, x, y, w, h, s, cmd, origCode, errorMsg, contr
       const userSetup = p.setup;
       p.setup = function() {
         if (userSetup) userSetup.call(p);
-        try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch(e) {}
+        try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch(e) {}
       };
     }, canvasWrap);
     container._p5Instance = inst;
@@ -14283,7 +14653,7 @@ function bdShowAnimSkeleton(layer, x, y, w, h, s, cmd, origCode, errorMsg, contr
     console.warn('[Animation] Haiku fix failed:', err.message);
     container.innerHTML = `
       <div style="width:100%;height:100%;background:#0f1410;display:flex;align-items:center;justify-content:center">
-        <div style="color:rgba(255,255,255,0.25);font-size:${12*s}px;font-family:'Caveat',cursive">animation unavailable</div>
+        <div style="color:rgba(255,255,255,0.25);font-size:${12*s}px;font-family:var(--font-sans)">animation unavailable</div>
       </div>`;
   });
 }
@@ -15963,6 +16333,8 @@ function _eagerReset() {
 
 function _eagerBeatWatcher(text) {
   if (_eager.done || state._stopRequested) return;
+  // Skip FE parsing when WebSocket is sending pre-parsed beats
+  if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN && _ws.generation > 0) return;
 
   // Only parse <vb> tags from the LAST voice scene (not previous scenes in same stream)
   const lastSceneIdx = text.lastIndexOf('<teaching-voice-scene');
@@ -17081,6 +17453,15 @@ function stopAll() {
   state._stopRequested = true;
   state.paused = false;
 
+  // 1b. WebSocket: kill turn and send interrupt
+  if (_ws.enabled) {
+    if (_ws.accumulatedText) state.accumulatedText = _ws.accumulatedText;
+    _wsKillTurn('stopAll');
+    if (_ws.conn?.readyState === WebSocket.OPEN) {
+      try { _ws.conn.send(JSON.stringify({ type: 'INTERRUPT' })); } catch (e) {}
+    }
+  }
+
   // 2. Cancel HTTP stream reader
   if (state._streamReader) {
     try { state._streamReader.cancel(); } catch (e) {}
@@ -17528,6 +17909,17 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     });
   }
+});
+
+// ── WebSocket connection (voice mode server-side TTS) ──
+document.addEventListener('DOMContentLoaded', () => {
+  // Connect after a short delay to let auth initialize
+  setTimeout(() => {
+    if (_ws.enabled) {
+      console.log('[WS] Initializing connection...');
+      wsConnect();
+    }
+  }, 1000);
 });
 
 // Floating mic button — toggle click (not hold)

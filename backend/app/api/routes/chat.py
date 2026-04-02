@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
+import re as _re
 import time
 import traceback
 import uuid
@@ -72,9 +73,12 @@ RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
 # ── Message validation ────────────────────────────────────────────────────────
 
 def _validate_messages(messages: list[dict]) -> list[dict]:
-    """Ensure all messages have non-empty content before sending to API.
+    """Ensure all messages have valid content before sending to API.
 
-    Fixes the 'user messages must have non-empty content' 400 error.
+    Fixes:
+    - 'user messages must have non-empty content' 400 error
+    - Partial/interrupted assistant messages with broken XML
+    - Tool result blocks with empty content
     """
     validated = []
     for msg in messages:
@@ -89,7 +93,12 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
             if not content.strip():
                 log.warning("Dropping %s message with empty string content", msg.get("role"))
                 continue
-            validated.append(msg)
+
+            # Clean interrupted assistant messages — close broken XML tags
+            if msg.get("role") == "assistant":
+                content = _clean_partial_content(content)
+
+            validated.append({**msg, "content": content})
 
         # List content (tool results, multi-part): must be non-empty list
         elif isinstance(content, list):
@@ -104,6 +113,12 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
                     if not block_content:
                         block = {**block, "content": "(no output)"}
                     fixed_blocks.append(block)
+                elif isinstance(block, dict) and block.get("type") == "text":
+                    text = block.get("text", "")
+                    if text:
+                        fixed_blocks.append({**block, "text": _clean_partial_content(text)})
+                    else:
+                        fixed_blocks.append(block)
                 else:
                     fixed_blocks.append(block)
             validated.append({**msg, "content": fixed_blocks})
@@ -113,6 +128,280 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
             validated.append(msg)
 
     return validated
+
+
+def _clean_partial_content(text: str) -> str:
+    """Clean partial/interrupted content to prevent broken XML from corrupting the API call.
+
+    When a student interrupts mid-response, the assistant message may contain:
+    - Unclosed <teaching-voice-scene> tags
+    - Partial <vb say="incomplete...
+    - Unclosed <teaching-board-draw> tags
+    - Half-written tool call blocks
+
+    This function closes or strips broken tags to make the content valid.
+    """
+    import re as _re_clean
+
+    # Strip the "[Student interrupted — tutor stopped here]" marker
+    text = text.replace('\n\n[Student interrupted — tutor stopped here]', '')
+    text = text.replace('[Student interrupted — tutor stopped here]', '')
+
+    # Close any unclosed teaching-voice-scene tags
+    open_vs = text.count('<teaching-voice-scene')
+    close_vs = text.count('</teaching-voice-scene>')
+    if open_vs > close_vs:
+        # Remove the partial/unclosed voice scene — the model doesn't need to see it
+        # Find the last unclosed opening tag and truncate
+        last_open = text.rfind('<teaching-voice-scene')
+        last_close = text.rfind('</teaching-voice-scene>')
+        if last_open > last_close:
+            # Truncate at the unclosed tag, add a note
+            text = text[:last_open].rstrip() + '\n[interrupted mid-voice-scene]'
+
+    # Close any unclosed teaching-board-draw tags
+    open_bd = text.count('<teaching-board-draw')
+    close_bd = text.count('</teaching-board-draw>')
+    if open_bd > close_bd:
+        last_open = text.rfind('<teaching-board-draw')
+        last_close = text.rfind('</teaching-board-draw>')
+        if last_open > last_close:
+            text = text[:last_open].rstrip() + '\n[interrupted mid-board-draw]'
+
+    # Strip any incomplete <vb tags (partial self-closing tags without />)
+    # e.g. <vb say="Hello wor  → remove it
+    text = _re_clean.sub(r'<vb\s+[^/]*$', '', text)
+
+    return text.strip() or "(interrupted)"
+
+
+# Regex for housekeeping tag
+_HOUSEKEEPING_RE = _re.compile(
+    r'<teaching-housekeeping>([\s\S]*?)</teaching-housekeeping>',
+    _re.DOTALL,
+)
+_SIGNAL_RE = _re.compile(
+    r'<signal\s+progress=["\']([^"\']*)["\'](?:\s+student=["\']([^"\']*)["\'])?(?:\s+[^/]*)?\s*/?>',
+)
+_NOTES_RE = _re.compile(
+    r'<notes>([\s\S]*?)</notes>',
+)
+_PLAN_MODIFY_RE = _re.compile(
+    r'<plan-modify\s+action=["\'](\w+)["\']'
+    r'(?:\s+title=["\']([^"\']*)["\'])?'
+    r'(?:\s+concept=["\']([^"\']*)["\'])?'
+    r'(?:\s+reason=["\']([^"\']*)["\'])?'
+    r'\s*/?>',
+)
+_HANDOFF_RE = _re.compile(
+    r'<handoff\s+type=["\'](\w+)["\']'
+    r'(?:\s+section=["\']([^"\']*)["\'])?'
+    r'(?:\s+concepts=["\']([^"\']*)["\'])?'
+    r'(?:\s+topic=["\']([^"\']*)["\'])?'
+    r'(?:\s+instructions=["\']([^"\']*)["\'])?'
+    r'\s*/?>',
+)
+
+
+def _strip_housekeeping_tag(text: str) -> str:
+    """Strip <teaching-housekeeping> from message text before saving to history."""
+    return _HOUSEKEEPING_RE.sub('', text).rstrip()
+
+
+def _process_housekeeping_tags(session, full_text: str, context_data: dict, session_id: str, slog):
+    """Parse housekeeping tags from response, update session state, strip from history.
+
+    Called after the LLM response is complete. Extracts:
+    - <signal progress="..." student="..." /> → session.last_signals + auto-advance + auto-assessment
+    - <notes>[...]</notes> → session.student_model (fire-and-forget DB upsert)
+    - <plan-modify .../> → session.current_topics modification
+    - <handoff .../> → session.assessment or session.delegation
+
+    Robust: all parsing is wrapped in try/except. Malformed tags are logged and skipped.
+    """
+    try:
+        _process_housekeeping_inner(session, full_text, context_data, session_id, slog)
+    except Exception as e:
+        slog.error("Housekeeping processing failed (non-fatal): %s", e, exc_info=True)
+
+    # Always strip the tag from history, even if parsing failed
+    if session.messages:
+        last_msg = session.messages[-1]
+        if last_msg.get("role") == "assistant":
+            content = last_msg.get("content", "")
+            if isinstance(content, str):
+                last_msg["content"] = _strip_housekeeping_tag(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and block.get("type") == "text":
+                        block["text"] = _strip_housekeeping_tag(block.get("text", ""))
+
+
+def _process_housekeeping_inner(session, full_text: str, context_data: dict, session_id: str, slog):
+    """Inner housekeeping parser — called within try/except wrapper."""
+    match = _HOUSEKEEPING_RE.search(full_text)
+    if not match:
+        return
+
+    hk_content = match.group(1)
+
+    # Parse signal
+    sig_match = _SIGNAL_RE.search(hk_content)
+    if sig_match:
+        progress = sig_match.group(1) or "in_progress"
+        student_state = sig_match.group(2) or "engaged"
+        session.last_signals = {
+            "section_progress": progress,
+            "student_state": student_state,
+        }
+        slog.info("Housekeeping signal", extra={"progress": progress, "student": student_state})
+
+        # Auto-advance topic when section is complete
+        if progress == "complete":
+            completed_topic_title = ""
+            completed_concepts = []
+            if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
+                completed_topic = session.current_topics[session.current_topic_index]
+                completed_topic_title = completed_topic.get("title", "Unknown")
+                completed_concepts = [completed_topic.get("concept", "")] if completed_topic.get("concept") else []
+                session.completed_topics.append(completed_topic_title)
+                session.current_topic_index += 1
+                slog.info("Auto-advanced topic via housekeeping signal",
+                          extra={"completed": completed_topic_title, "next_index": session.current_topic_index})
+            session.pre_assessment_note = None
+
+            # Auto-create assessment state so next turn routes to assessment agent
+            if completed_topic_title and not session.assessment:
+                from app.agents.agent_runtime import AssessmentState
+                # Build assessment prompt and state
+                assessment_brief = {
+                    "section": {"title": completed_topic_title},
+                    "conceptsTested": completed_concepts,
+                    "plan": {"questionCount": {"min": 3, "max": 5}},
+                }
+                assessment_prompt = build_assessment_prompt({
+                    **context_data,
+                    "assessmentBrief": assessment_brief,
+                    "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                })
+                session.assessment = AssessmentState(
+                    system_prompt=assessment_prompt,
+                    tools=ASSESSMENT_TOOLS,
+                    brief=assessment_brief,
+                    section_title=completed_topic_title,
+                    concepts_tested=completed_concepts,
+                )
+                session.pre_assessment_note = {
+                    "section": completed_topic_title,
+                    "concepts": completed_concepts,
+                }
+                slog.info("Auto-created assessment for completed topic",
+                          extra={"section": completed_topic_title, "concepts": completed_concepts})
+
+        # Check phase transition
+        new_phase = _check_phase_transition(session, {})
+        if new_phase and new_phase != session.phase:
+            session.phase = new_phase
+            slog.info("Phase transition from housekeeping", extra={"to": new_phase})
+
+    # Parse notes (only present when housekeeping was due)
+    notes_match = _NOTES_RE.search(hk_content)
+    if notes_match:
+        notes_raw = notes_match.group(1).strip()
+        try:
+            notes = json.loads(notes_raw)
+            if isinstance(notes, list):
+                # Update in-memory student model
+                if not session.student_model:
+                    session.student_model = {"notes": {}}
+                model_notes = session.student_model.setdefault("notes", {})
+                for entry in notes:
+                    concepts = entry.get("concepts", [])
+                    primary = concepts[0] if concepts else "_uncategorized"
+                    model_notes[primary] = {
+                        "concepts": concepts,
+                        "note": entry.get("note", ""),
+                    }
+                slog.info("Housekeeping notes updated", extra={"count": len(notes)})
+
+                # Fire-and-forget DB upsert
+                _sm_course_id, _ = _extract_student_info(context_data)
+                _sm_email = _extract_user_email(context_data)
+                if _sm_course_id and _sm_email:
+                    import asyncio as _aio
+                    from app.services.knowledge_state import upsert_concept_note
+
+                    async def _upsert_notes():
+                        for entry in notes:
+                            try:
+                                await upsert_concept_note(
+                                    _sm_course_id, _sm_email, session_id,
+                                    concepts=entry.get("concepts", ["_uncategorized"]),
+                                    note_text=entry.get("note", ""),
+                                    lesson=entry.get("lesson"),
+                                )
+                            except Exception as e:
+                                slog.warning("Failed to upsert note: %s", e)
+
+                    _aio.ensure_future(_upsert_notes())
+        except (json.JSONDecodeError, TypeError) as e:
+            slog.warning("Failed to parse housekeeping notes: %s", e)
+
+    # Parse plan modifications
+    for pm in _PLAN_MODIFY_RE.finditer(hk_content):
+        action = pm.group(1)
+        title = pm.group(2) or ""
+        concept = pm.group(3) or ""
+        reason = pm.group(4) or ""
+
+        if action == "append" and title:
+            # Add topic to end of plan
+            new_topic = {"title": title, "concept": concept, "steps": [], "status": "pending", "_source": "tutor"}
+            session.current_topics.append(new_topic)
+            slog.info("Plan: appended topic", extra={"title": title, "reason": reason})
+
+        elif action == "skip":
+            # Skip current topic
+            if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
+                skipped = session.current_topics[session.current_topic_index]
+                session.current_topic_index += 1
+                slog.info("Plan: skipped topic", extra={"title": skipped.get("title"), "reason": reason})
+
+        elif action == "insert" and title:
+            # Insert topic right after current
+            new_topic = {"title": title, "concept": concept, "steps": [], "status": "pending", "_source": "tutor"}
+            idx = session.current_topic_index + 1
+            session.current_topics.insert(idx, new_topic)
+            slog.info("Plan: inserted topic", extra={"title": title, "at": idx, "reason": reason})
+
+    # Parse handoff tags (assessment or delegation)
+    handoff_match = _HANDOFF_RE.search(hk_content)
+    if handoff_match:
+        handoff_type = handoff_match.group(1)
+        if handoff_type == "assessment":
+            from app.agents.agent_runtime import AssessmentState
+            section_title = handoff_match.group(2) or ""
+            concepts = [c.strip() for c in (handoff_match.group(3) or "").split(",") if c.strip()]
+            session.assessment = AssessmentState(
+                section_title=section_title,
+                concepts_tested=concepts,
+            )
+            session.pre_assessment_note = {
+                "section": section_title,
+                "concepts": concepts,
+            }
+            slog.info("Handoff: assessment", extra={"section": section_title, "concepts": concepts})
+
+        elif handoff_type == "delegate":
+            from app.agents.agent_runtime import DelegationState
+            topic = handoff_match.group(4) or ""
+            instructions = handoff_match.group(5) or ""
+            session.delegation = DelegationState(
+                topic=topic,
+                instructions=instructions,
+            )
+            slog.info("Handoff: delegation", extra={"topic": topic})
+
 
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
@@ -355,8 +644,6 @@ def _serialize_content(content) -> str | list[dict]:
 
 
 # ── Context management — conversation windowing + Haiku summarization ───────
-
-import re as _re
 
 try:
     import tiktoken
@@ -773,6 +1060,89 @@ def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
                    extra={"intent": intent[:80]})
     except Exception as e:
         slog.warning("Failed to auto-spawn planner: %s", e)
+
+
+def _auto_spawn_enrichment(session, runtime, context_data: dict, slog):
+    """Auto-spawn shadow enrichment agent on turn 1.
+
+    Runs in background with Haiku + tools (web_search, content_search,
+    get_section_content, query_knowledge). Results injected on turn 2+.
+    """
+    _spawn_enrichment_agent(session, runtime, context_data, slog, is_initial=True)
+
+
+def _spawn_enrichment_agent(session, runtime, context_data: dict, slog, is_initial=False):
+    """Spawn the shadow enrichment agent with recent conversation context.
+
+    Called on turn 1 (initial) and every ~5 turns (periodic).
+    The agent uses Haiku with tools to pre-fetch resources the tutor might need.
+    """
+    if not runtime:
+        return
+
+    intent = session.student_intent or ""
+    current_topic = None
+    if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
+        current_topic = session.current_topics[session.current_topic_index]
+
+    topic_title = current_topic.get("title", "") if current_topic else intent
+
+    # Build enrichment request with conversation context
+    parts = []
+    parts.append(f"[Student Intent] {intent}")
+
+    if current_topic:
+        parts.append(f"[Current Topic] {json.dumps(current_topic, indent=2)}")
+
+    if session.current_plan:
+        # Include plan summary (not full plan — keep it concise)
+        plan_topics = [t.get("title", "?") for t in (session.current_topics or [])[:10]]
+        parts.append(f"[Plan Topics] {', '.join(plan_topics)}")
+        parts.append(f"[Progress] Topic {session.current_topic_index + 1} of {len(session.current_topics or [])}")
+
+    # Recent conversation (last 3 turns)
+    recent = session.messages[-6:] if session.messages else []
+    if recent:
+        conv_parts = []
+        for m in recent:
+            role = m.get("role", "?")
+            content = m.get("content", "")
+            if isinstance(content, str):
+                conv_parts.append(f"{role}: {content[:300]}")
+            elif isinstance(content, list):
+                text_blocks = [b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text"]
+                conv_parts.append(f"{role}: {' '.join(text_blocks)[:300]}")
+        parts.append(f"[Recent Conversation]\n" + "\n".join(conv_parts))
+
+    instructions = "\n\n".join(parts)
+
+    if is_initial:
+        instructions += (
+            "\n\nThis is the START of the session. Focus on:\n"
+            f"1. Fetch course content for '{topic_title}' (use content_search + get_section_content)\n"
+            "2. Web search for supplementary examples/references\n"
+            "3. Check student's knowledge gaps (use query_knowledge)\n"
+            "Call tools IN PARALLEL for speed."
+        )
+    else:
+        instructions += (
+            "\n\nThis is a PERIODIC enrichment check. Focus on:\n"
+            "1. Any topics the student asked about that need external references\n"
+            "2. Upcoming topics from the plan that need content pre-fetch\n"
+            "3. Gaps or misconceptions that need supplementary explanation\n"
+            "Call tools IN PARALLEL. Be fast."
+        )
+
+    try:
+        runtime.spawn(
+            "enrichment",
+            f"Enrichment: {topic_title[:50]}",
+            instructions,
+            context_data,
+        )
+        slog.info("Spawned enrichment agent", extra={"topic": topic_title[:60], "initial": is_initial})
+    except Exception as e:
+        slog.warning("Failed to spawn enrichment agent: %s", e)
 
 
 # ── Plan promotion helpers ──────────────────────────────────────────────────
@@ -2905,3 +3275,576 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             "X-Accel-Buffering": "no",
         },
     )
+
+
+# ── Tool execution helper (shared by SSE and WebSocket paths) ──
+
+
+async def _execute_tool_block(*, block, session, session_id, context_data, runtime, request, slog):
+    """Execute a single tool call block and return the result string.
+
+    Handles the most common tutor tools.  For tools that need SSE events
+    (like spawn_agent, handoff_to_assessment), those are handled inline
+    in generate() — this function handles the simpler content tools.
+    """
+    name = block.name
+    inp = block.input or {}
+
+    try:
+        if name == "get_section_content":
+            section_id = inp.get("section_id", "")
+            result = await get_section_content(section_id, context_data=context_data)
+            return result or f"No content found for section: {section_id}"
+
+        elif name == "search_images":
+            query = inp.get("query", "")
+            limit = int(inp.get("limit", 3))
+            results = await search_images(query, limit=limit)
+            return json.dumps(results) if results else "No images found"
+
+        elif name == "get_simulation_details":
+            sim_id = inp.get("simulation_id", "")
+            result = await get_simulation_details(sim_id)
+            return result or f"No simulation found: {sim_id}"
+
+        elif name == "update_student_model":
+            notes = inp.get("notes", [])
+            # Model sometimes sends notes as a JSON string — parse it
+            if isinstance(notes, str):
+                try:
+                    notes = json.loads(notes)
+                except (json.JSONDecodeError, TypeError):
+                    notes = [{"concepts": ["_general"], "note": notes}]
+            # Backward compat: observations field
+            if not notes and inp.get("observations"):
+                notes = [{"concepts": ["_profile"], "note": inp["observations"]}]
+            # Update in-memory session model
+            if not session.student_model:
+                session.student_model = {"notes": {}}
+            model_notes = session.student_model.setdefault("notes", {})
+            for entry in notes:
+                concepts = entry.get("concepts", [])
+                primary = concepts[0] if concepts else "_uncategorized"
+                model_notes[primary] = {
+                    "concepts": concepts,
+                    "note": entry.get("note", ""),
+                }
+            # Persist notes
+            _sm_course_id, _ = _extract_student_info(context_data)
+            _sm_email = _extract_user_email(context_data)
+            if _sm_course_id and _sm_email:
+                from app.services.knowledge_state import upsert_concept_note
+                for entry in notes:
+                    try:
+                        await upsert_concept_note(
+                            _sm_course_id, _sm_email, session_id,
+                            concepts=entry.get("concepts", ["_uncategorized"]),
+                            note_text=entry.get("note", ""),
+                            lesson=entry.get("lesson"),
+                        )
+                    except Exception as e:
+                        slog.warning("Failed to upsert student note: %s", e)
+            return "Student model updated. Continue teaching — do not mention this update to the student."
+
+        elif name == "advance_topic":
+            # Mark current topic complete, move to next
+            if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
+                current = session.current_topics[session.current_topic_index]
+                session.completed_topics.append(current.get("title", "Unknown"))
+                session.current_topic_index += 1
+            session.pre_assessment_note = None
+            return "Advanced to next topic"
+
+        elif name == "handoff_to_assessment":
+            from app.agents.agent_runtime import AssessmentState
+            section_title = inp.get("section_title", "")
+            concepts = inp.get("concepts", [])
+            session.assessment = AssessmentState(
+                section_title=section_title,
+                concepts_tested=concepts,
+            )
+            session.pre_assessment_note = {
+                "section": section_title,
+                "concepts": concepts,
+                "tutorNote": inp.get("tutor_note", ""),
+            }
+            return f"Assessment checkpoint started for: {section_title}"
+
+        elif name == "delegate_teaching":
+            from app.agents.agent_runtime import DelegationState
+            topic = inp.get("topic", "")
+            instructions = inp.get("instructions", "")
+            session.delegation = DelegationState(
+                topic=topic,
+                instructions=instructions,
+            )
+            return f"Teaching delegated for topic: {topic}"
+
+        elif name == "modify_plan":
+            action = inp.get("action")
+            if action == "insert_topic" and inp.get("topic"):
+                idx = session.current_topic_index + 1
+                session.current_topics.insert(idx, inp["topic"])
+                return f"Inserted topic at position {idx}"
+            elif action == "skip_topic":
+                if session.current_topics and session.current_topic_index < len(session.current_topics):
+                    skipped = session.current_topics[session.current_topic_index]
+                    session.current_topic_index += 1
+                    return f"Skipped topic: {skipped.get('title', '?')}"
+            return "Plan modified"
+
+        elif name == "reset_plan":
+            session.current_plan = None
+            session.current_topics = []
+            session.current_topic_index = 0
+            if runtime:
+                _auto_spawn_planner(session, runtime, context_data, slog)
+            return "Plan reset — new planner spawned"
+
+        elif name == "spawn_agent":
+            agent_type = inp.get("type", "research")
+            task_desc = inp.get("task", "")
+            # Skip duplicate planning spawn
+            if agent_type == "planning" and getattr(session, '_planner_auto_spawned', False):
+                session._planner_auto_spawned = False
+                return "Planning agent already running in background."
+            agent_id = runtime.spawn(agent_type=agent_type, task=task_desc, context=context_data)
+            return f"Agent spawned: {agent_id} (type={agent_type})"
+
+        elif name == "check_agents":
+            completed = runtime.pop_completed() if runtime else []
+            return json.dumps([{"type": a.get("type"), "status": a.get("status")} for a in completed]) if completed else "No completed agents."
+
+        elif name == "request_board_image":
+            return "Board image requested — student's board state will be included on next turn."
+
+        elif name == "session_signal":
+            session.last_signals = inp or {}
+            slog.info("Session signal", extra=inp or {})
+            new_phase = _check_phase_transition(session, {})
+            if new_phase and new_phase != session.phase:
+                session.phase = new_phase
+            return "Signal received. (terminal — no further rounds needed)"
+
+        elif name == "control_simulation":
+            return json.dumps({"status": "ok", "action": inp.get("action", "unknown")})
+
+        elif name == "web_search":
+            from app.tools.web_search import web_search as _web_search
+            query = inp.get("query", "")
+            results = await _web_search(query) if query else None
+            return json.dumps(results) if results else "No results found"
+
+        else:
+            slog.warning("Unknown tool: %s", name)
+            return f"Tool '{name}' executed (no specific handler)"
+
+    except Exception as e:
+        slog.warning("Tool %s failed: %s", name, e)
+        return f"Tool error: {e}"
+
+
+# ── WebSocket-compatible entry point ─────────────────────────
+# SessionRouter calls this to reuse the existing chat pipeline.
+# Yields the same SSE-formatted strings as generate(), but without
+# needing a real HTTP Request object.
+
+
+class _FakeRequest:
+    """Minimal stand-in for starlette.requests.Request.
+
+    Provides .is_disconnected() and .state.db — the only things
+    the generate() pipeline needs from the request object.
+    """
+    def __init__(self, is_disconnected_fn):
+        self._is_disconnected = is_disconnected_fn
+        self.state = type("State", (), {"db": None})()
+        self.query_params = {}
+        self.headers = {}
+
+    async def is_disconnected(self) -> bool:
+        result = self._is_disconnected()
+        if asyncio.iscoroutine(result):
+            return await result
+        return bool(result)
+
+    async def json(self):
+        return self._body
+
+    def _set_body(self, body: dict):
+        self._body = body
+
+
+async def _generate_for_turn(
+    *,
+    session_id: str,
+    messages: list | None = None,
+    context: dict | None = None,
+    is_session_start: bool = False,
+    is_disconnected=None,
+):
+    """Yields SSE event strings using the existing chat() pipeline.
+
+    Called by the WebSocket SessionRouter.  Reuses the exact same
+    session setup and generate() logic as the HTTP /api/chat endpoint —
+    no duplication of the 1200-line agentic loop.
+
+    The approach: construct the same environment that chat() creates,
+    then call into the same generate() closure.
+    """
+    # Build a fake request that generate() can use
+    request = _FakeRequest(is_disconnected or (lambda: False))
+
+    context_data = extract_context(context) if context else {}
+    session, sid = await get_or_create_session(session_id)
+
+    # Session lock
+    lock = get_session_lock(sid)
+    if lock.locked():
+        yield _sse({"type": "RUN_ERROR", "message": "Session busy — please wait"})
+        return
+
+    # Message setup (same as chat() handler)
+    frontend_messages = convert_messages(messages) if messages else []
+    if session.messages:
+        if frontend_messages:
+            last_msg = frontend_messages[-1]
+            if last_msg.get("role") == "user":
+                if not session.messages or session.messages[-1].get("content") != last_msg.get("content"):
+                    session.messages.append(last_msg)
+        claude_messages = session.messages
+    else:
+        session.messages = frontend_messages
+        claude_messages = session.messages
+
+    # Context window
+    await _maybe_generate_summary(session, claude_messages)
+    windowed_messages = apply_context_window(session, claude_messages)
+    claude_messages = windowed_messages
+
+    user_email = _extract_user_email(context_data)
+    slog = SessionLogger(log, session_id=sid, user=user_email or "")
+
+    if not claude_messages:
+        yield _sse({"type": "RUN_ERROR", "message": "No messages provided"})
+        return
+
+    # ── The generate() closure — same as in chat() ──
+    # This is the FULL pipeline including assessment routing,
+    # delegation routing, triage, tool execution, etc.
+    # We define it here to capture the same closure variables.
+
+    async def generate():
+        nonlocal claude_messages
+
+        from app.core.config import settings
+
+        yield _sse({"type": "CONNECTED"})
+
+        try:
+            # Step 1: Student intent
+            if is_session_start:
+                first_content = claude_messages[0].get("content", "") if claude_messages else ""
+                if isinstance(first_content, str):
+                    intent_match = _re.search(r'The student said: "([^"]+)"', first_content)
+                    if intent_match:
+                        session.student_intent = intent_match.group(1)
+                if not session.student_intent and context_data.get("studentProfile"):
+                    try:
+                        profile = json.loads(context_data["studentProfile"])
+                        if profile.get("studentIntent"):
+                            session.student_intent = profile["studentIntent"]
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+
+            if is_session_start:
+                await _load_knowledge_context(context_data)
+
+            # Step 2: Agent runtime
+            if not session.agent_runtime:
+                session.agent_runtime = AgentRuntime(session_id=sid)
+            runtime = session.agent_runtime
+
+            is_video_mode = bool(context_data.get("videoState"))
+            if is_video_mode:
+                session.active_scenario = "video_follow"
+
+            if is_session_start and not is_video_mode:
+                _init_session_phase(session, context_data, slog)
+
+            # Plan setup
+            if is_session_start and not is_video_mode:
+                if session.current_plan:
+                    yield _sse({"type": "PLAN_UPDATE", "plan": session.current_plan, "sessionObjective": session.session_objective or "", "currentTopicIndex": session.current_topic_index})
+                else:
+                    orchestrator_plan = _extract_orchestrator_plan(context_data)
+                    if orchestrator_plan:
+                        _promote_plan(session, orchestrator_plan)
+                        yield _sse({"type": "PLAN_UPDATE", "plan": orchestrator_plan, "sessionObjective": orchestrator_plan.get("session_objective", "")})
+                    elif session.phase != SessionPhase.TRIAGE:
+                        _auto_spawn_planner(session, runtime, context_data, slog)
+
+            # Step 3: Assessment / delegation routing
+            if session.assessment:
+                async for chunk in _handle_assessment(session, sid, claude_messages, context_data, request, slog=slog):
+                    yield chunk
+                return
+
+            if session.delegation:
+                async for chunk in _handle_delegated_teaching(session, sid, claude_messages, context_data, request, slog=slog):
+                    yield chunk
+                return
+
+            # Step 4-5: Agent results, prompt building
+            # (Reuse the same logic from the main generate() — this part
+            #  is identical. For brevity, we call the shared helpers.)
+            completed = runtime.pop_completed()
+            for agent in completed:
+                if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
+                    _promote_plan(session, agent["result"])
+                    yield _sse({"type": "PLAN_UPDATE", "plan": agent["result"], "sessionObjective": agent["result"].get("session_objective", "")})
+                elif agent["type"] == "visual_gen" and agent["status"] == "complete" and agent.get("result"):
+                    result = agent["result"]
+                    session.generated_visuals[result.get("visual_id", "")] = {"html": result.get("html", ""), "title": result.get("title", "")}
+                    yield _sse({"type": "VISUAL_READY", "id": result.get("visual_id", ""), "title": result.get("title", ""), "html": result.get("html", "")})
+
+            teaching_mode = _extract_teaching_mode(context_data)
+            session.teaching_mode = teaching_mode
+            agent_results_str = _format_agent_results(completed) if completed else None
+
+            # Housekeeping: full notes due every 5th user turn, signal always
+            _housekeeping_due = (
+                session.assistant_turn_count >= 5
+                and session.assistant_turn_count % 5 == 0
+            )
+
+            tutor_prompt = build_tutor_prompt({
+                **context_data,
+                "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
+                "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
+                "currentTopic": (
+                    json.dumps(session.current_topics[session.current_topic_index], indent=2)
+                    if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
+                    else None
+                ),
+                "completedTopics": _format_completed(session.completed_topics),
+                "sessionScope": _format_session_scope(session),
+                "agentResults": agent_results_str,
+                "teachingMode": teaching_mode,
+                "_housekeepingDue": _housekeeping_due,
+            })
+
+            # ── Tool filtering ──────────────────────────────────
+            # Remove tools that are tag-based, deterministic, or cause unnecessary LLM rounds.
+            # spawn_agent/check_agents: enrichment handled by shadow agent in background
+            # session_signal/update_student_model/advance_topic: tag-based (housekeeping)
+            _removed_tools = {
+                "update_student_model", "advance_topic", "session_signal",
+                "spawn_agent", "check_agents",
+                "modify_plan", "reset_plan",
+                "handoff_to_assessment", "delegate_teaching",
+            }
+            is_first_turn = (session.assistant_turn_count == 0)
+
+            # Turn 1: also remove content-fetching tools — tutor should teach
+            # immediately from plan + course map. Enrichment agent handles
+            # content lookup in background.
+            if is_first_turn:
+                _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek"}
+
+            if is_video_mode:
+                active_tools = [t for t in VIDEO_FOLLOW_TOOLS if t["name"] not in _removed_tools]
+            else:
+                active_tools = [t for t in TUTOR_TOOLS if t["name"] not in _removed_tools]
+
+            # Auto-spawn enrichment agents in background (turn 1 only)
+            # These run in parallel with the tutor's first response.
+            # Results are injected into context on turn 2+ via pop_completed().
+            if is_first_turn and not is_video_mode:
+                _auto_spawn_enrichment(session, runtime, context_data, slog)
+
+            # Step 6: Agentic loop (LLM stream → tool calls → repeat)
+            import time as _time
+            _turn_start = _time.monotonic()
+            _first_text_at = None
+            rounds = 0
+            text_started = False
+            text_length = 0
+            _partial_text_parts = []  # accumulate text for partial save on interrupt
+
+            session.assistant_turn_count += 1
+
+            valid_messages = _validate_messages(claude_messages)
+            api_kwargs = {
+                "system": tutor_prompt,
+                "messages": valid_messages,
+                "model": settings.tutor_model,
+                "max_tokens": 4096,
+                "tools": active_tools,
+            }
+
+            while rounds < MAX_ROUNDS:
+                rounds += 1
+
+                if await request.is_disconnected():
+                    return
+
+                message = None
+                for attempt in range(MAX_RETRIES):
+                    try:
+                        async with await llm_stream(**api_kwargs, metadata=LLMCallMetadata(session_id=sid, caller="tutor")) as stream:
+                            async for text in stream.text_stream:
+                                if await request.is_disconnected():
+                                    return
+                                if not text_started:
+                                    message_id = str(uuid.uuid4())
+                                    yield _sse({"type": "TEXT_MESSAGE_START", "messageId": message_id})
+                                    text_started = True
+                                    if _first_text_at is None:
+                                        _first_text_at = _time.monotonic()
+                                text_length += len(text)
+                                _partial_text_parts.append(text)
+                                yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
+
+                            message = await stream.get_final_message()
+                        break
+                    except asyncio.CancelledError:
+                        # Turn cancelled — save partial message cleanly
+                        partial = "".join(_partial_text_parts)
+                        if partial:
+                            cleaned = _clean_partial_content(partial)
+                            session.messages.append({
+                                "role": "assistant",
+                                "content": cleaned + "\n[interrupted]",
+                            })
+                            await sync_backend_state(sid, session)
+                        return
+                    except Exception as e:
+                        if is_retryable(e) and attempt < MAX_RETRIES - 1:
+                            delay = extract_retry_after(e) or RETRY_BASE_DELAY * (2 ** attempt)
+                            if text_started:
+                                yield _sse({"type": "TEXT_MESSAGE_END"})
+                                text_started = False
+                            await asyncio.sleep(delay)
+                            continue
+                        raise
+
+                if message is None:
+                    yield _sse({"type": "RUN_ERROR", "message": "Failed after retries"})
+                    return
+
+                # Save partial text on disconnect checks
+                if await request.is_disconnected():
+                    partial = "".join(_partial_text_parts)
+                    if partial:
+                        cleaned = _clean_partial_content(partial)
+                        session.messages.append({
+                            "role": "assistant",
+                            "content": cleaned + "\n[interrupted]",
+                        })
+                        await sync_backend_state(sid, session)
+                    return
+
+                tool_blocks = [b for b in message.content if b.type == "tool_use"]
+                has_tool_calls = len(tool_blocks) > 0
+
+                if text_started and not has_tool_calls:
+                    yield _sse({"type": "TEXT_MESSAGE_END"})
+
+                yield _sse({"type": "COST_UPDATE", "costCents": round(session.llm_cost_cents, 2), "callCount": session.llm_call_count})
+
+                if not has_tool_calls:
+                    session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
+                    break
+
+                # Tool execution
+                tool_names = {b.name for b in tool_blocks}
+                available_tool_names = {t["name"] for t in active_tools}
+
+                # If model called tools we stripped, just save text and end turn.
+                # Don't try to execute or send tool_result — the API would reject
+                # orphaned tool_result blocks without matching tool_use in context.
+                if not tool_names.issubset(available_tool_names):
+                    slog.warning("Model called stripped tools: %s — saving text only", tool_names - available_tool_names)
+                    # Save only text blocks from the assistant message
+                    text_content = "\n".join(
+                        b.text for b in message.content if hasattr(b, 'text') and b.type == 'text'
+                    ) or _serialize_content(message.content)
+                    if isinstance(text_content, list):
+                        text_content = "\n".join(b.get("text", "") for b in text_content if b.get("type") == "text")
+                    session.messages.append({"role": "assistant", "content": text_content or "(continued teaching)"})
+                    break
+
+                # Check if terminal tool (no more LLM rounds needed)
+                is_terminal = tool_names <= {"session_signal", "update_student_model"}
+
+                tool_results = []
+                for block in tool_blocks:
+                    if await request.is_disconnected():
+                        return
+                    yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
+
+                    result = await _execute_tool_block(
+                        block=block, session=session, session_id=sid,
+                        context_data=context_data, runtime=runtime,
+                        request=request, slog=slog,
+                    )
+
+                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result or "(no result)"})
+                    yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
+
+                # Save assistant message with tool_use blocks intact
+                assistant_content = _serialize_content(message.content)
+                session.messages.append({"role": "assistant", "content": assistant_content})
+
+                if is_terminal:
+                    slog.info("Terminal tool(s) %s — ending turn", tool_names)
+                    break
+
+                claude_messages.append({"role": "user", "content": tool_results})
+                api_kwargs["messages"] = _validate_messages(apply_context_window(session, claude_messages))
+                slog.info("Tool round %d done — %d results, next round messages: %d",
+                          rounds, len(tool_results), len(api_kwargs["messages"]))
+
+            # Parse and strip housekeeping tags from the final message
+            full_text = "".join(_partial_text_parts)
+            _process_housekeeping_tags(session, full_text, context_data, sid, slog)
+
+            # Periodic shadow enrichment — every 5th turn, fire-and-forget
+            if session.assistant_turn_count >= 5 and session.assistant_turn_count % 5 == 0:
+                _spawn_enrichment_agent(session, runtime, context_data, slog, is_initial=False)
+
+            # Save session
+            await sync_backend_state(sid, session)
+
+            yield _sse({"type": "RUN_FINISHED"})
+
+        except LLMBadRequestError as e:
+            err_body = getattr(e, "body", {}) or {}
+            err_msg = (err_body.get("error", {}).get("message", "") if isinstance(err_body, dict) else str(e))
+            if not err_msg:
+                err_msg = str(e)  # Fallback to full exception string
+            slog.error("LLM BadRequest: %s | body: %s", err_msg, err_body)
+            yield _sse({"type": "RUN_ERROR", "message": f"AI request error: {err_msg}"})
+        except LLMRateLimitError as e:
+            retry_after = extract_retry_after(e)
+            wait_msg = f" Try again in {int(retry_after)}s." if retry_after else ""
+            yield _sse({"type": "RUN_ERROR", "message": f"AI service busy.{wait_msg}"})
+        except LLMConnectionError as e:
+            yield _sse({"type": "RUN_ERROR", "message": "Could not connect to AI service."})
+        except Exception as e:
+            slog.error("Chat error: %s", e, exc_info=True)
+            yield _sse({"type": "RUN_ERROR", "message": "Something went wrong. Please try again."})
+
+    # Session lock: only acquire for SSE path. The WebSocket path uses
+    # TurnQueue for turn isolation and doesn't need the session lock.
+    # Check if this is a WS call (is_disconnected is a lambda, not an HTTP check).
+    _use_lock = is_disconnected is None  # SSE path has is_disconnected=None
+    if _use_lock:
+        await lock.acquire()
+    try:
+        async for chunk in generate():
+            yield chunk
+    finally:
+        if _use_lock:
+            lock.release()

@@ -493,6 +493,14 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         parts.append(pre_assessment_note)
 
 
+    # Housekeeping: signal is always expected, notes only every 5th turn
+    housekeeping_due = context_data.get("_housekeepingDue", False)
+    if housekeeping_due:
+        parts.append(
+            "\n[HOUSEKEEPING DUE — Include <teaching-housekeeping> with BOTH signal AND notes at the end of this message. "
+            "Write your complete current understanding of the student per concept.]\n"
+        )
+
     dynamic_context = "\n".join(parts)
     return (static_prompt, dynamic_context)
 

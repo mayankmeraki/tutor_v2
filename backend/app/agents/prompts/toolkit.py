@@ -67,11 +67,6 @@ fetch_asset(asset_id)
   <teaching-board-draw-resume> or <teaching-widget-update>.
   Asset IDs are shown in [Previous Boards] and [Reusable Widgets] context.
 
-update_student_model(notes)
-  Private notebook. Forced every ~5 turns. UPSERT by concept tag overlap.
-  notes: [{ concepts: [tags], lesson?: "lesson_N", note: "text" }]
-  Use ["_profile"] for student-wide observations. Write COMPLETE picture each time.
-
 ═══ TEACHING TAGS — QUICK REF ═══
 
 (See TEACHING TAGS — EXACT FORMAT REFERENCE for full syntax.)

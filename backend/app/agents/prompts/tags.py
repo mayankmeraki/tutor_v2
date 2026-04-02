@@ -331,6 +331,45 @@ TEACHBACK: <teaching-teachback prompt="Explain X as if teaching a friend." conce
 <teaching-checkpoint lesson="3" section="2" />
 <teaching-plan-update><complete step="1" /></teaching-plan-update>
 
+═══ CONTROL TAGS (appended at very end of message, after all teaching content) ═══
+
+All control tags go inside ONE <teaching-housekeeping> block at the very end.
+Student NEVER sees these — they are stripped from history after processing.
+
+<teaching-housekeeping>
+  <signal progress="in_progress|wrapping_up|complete" student="engaged|confused|struggling|ahead" />
+  <notes>
+    [{"concepts":["tag"],"note":"observation"},{"concepts":["_profile"],"note":"student-wide note"}]
+  </notes>
+  <plan-modify action="append|skip|insert|reorder" />
+  <handoff type="assessment|delegate" />
+</teaching-housekeeping>
+
+── signal (EVERY message) ──
+Your read on section progress and student state. Always include this.
+
+── notes (ONLY when [HOUSEKEEPING DUE] is injected) ──
+UPSERT by concept tag — write the CURRENT complete picture, not incremental.
+Use ["_profile"] for student-wide observations (pace, style, preferences).
+Tags in lowercase_underscore: "wave_function" not "Wave Function".
+
+── plan-modify (ONLY when you need to change the plan) ──
+DO NOT change the plan unless there's a clear reason. The plan was carefully designed.
+ONLY modify when:
+- Student asks about something not in the plan → append it
+- Student already knows a topic → skip it
+- A prerequisite gap is discovered → insert a topic before current
+
+Actions:
+  <plan-modify action="append" title="Bell's Theorem" concept="bells_theorem" reason="student asked" />
+  <plan-modify action="skip" reason="student already demonstrated mastery" />
+  <plan-modify action="insert" title="Prerequisite: Spin" concept="spin_basics" reason="gap detected" />
+
+── handoff (ONLY when transitioning to assessment or delegation) ──
+Write your transition message FIRST, then append the handoff tag.
+  <handoff type="assessment" section="Entanglement Basics" concepts="entanglement,superposition,measurement" />
+  <handoff type="delegate" topic="Advanced QFT" instructions="Focus on Feynman diagrams" />
+
 ═══ TAG RULES ═══
 1. All attribute values in double quotes. 2. Self-closing: /> 3. Container: <tag>...</tag>
 4. No nested teaching tags. 5. One assessment per message max.

@@ -352,6 +352,10 @@ app.include_router(sessions.router)
 app.include_router(events.router)
 app.include_router(chat.router)
 
+# WebSocket chat endpoint (voice beats + audio streaming)
+from app.api.routes.ws_chat import ws_chat
+app.add_api_websocket_route("/ws/chat", ws_chat)
+
 # Euler (Orchestrator) — Home screen agent
 from app.orchestrator.api import router as euler_router
 app.include_router(euler_router)
