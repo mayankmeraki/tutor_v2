@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#090d18;--bg2:rgba(255,255,255,.03);--bg3:rgba(255,255,255,.05);
+  --border:rgba(255,255,255,.06);--border-h:rgba(255,255,255,.12);
+  --text:#d4dae8;--text2:#5a6a82;--text3:#3a4558;
+  --accent:#34d399;--accent-dim:rgba(52,211,153,.08);
+  --purple:#a78bfa;--pink:#f472b6;--blue:#60a5fa;--warm:#fbbf24;
+}
+html{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;font-size:14px}
+body{min-height:100vh}
+::selection{background:rgba(52,211,153,.2)}
+
+/* ── Nav ── */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;position:sticky;top:0;z-index:50;background:rgba(9,13,24,.8);backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--border)}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.3px;color:var(--text)}
+.logo span{color:var(--accent)}
+.avatar{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#34d399,#3b82f6);display:grid;place-items:center;font-size:11px;font-weight:700;color:#000;cursor:pointer}
+
+/* ── Page ── */
+.page{max-width:780px;width:100%;margin:0 auto;padding:52px 24px 100px}
+
+/* ── Hero ── */
+.hero{text-align:center;margin-bottom:52px}
+.hero h1{font-size:24px;font-weight:600;letter-spacing:-.4px;margin-bottom:28px;color:rgba(255,255,255,.88)}
+.input-wrap{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:14px;border:1px solid var(--border);background:var(--bg2);max-width:560px;margin:0 auto;transition:all .3s}
+.input-wrap:focus-within{border-color:rgba(52,211,153,.25);box-shadow:0 0 0 3px rgba(52,211,153,.06),0 8px 32px rgba(0,0,0,.3)}
+.input-wrap svg{color:var(--text3);flex-shrink:0;width:18px;height:18px}
+.input-wrap input{flex:1;background:none;border:none;outline:none;color:var(--text);font-size:14px;font-family:inherit}
+.input-wrap input::placeholder{color:var(--text3)}
+.send{width:30px;height:30px;border-radius:8px;border:none;background:var(--accent);color:#000;cursor:pointer;display:grid;place-items:center;opacity:.4;transition:all .2s}
+.send:hover{opacity:1}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:14px;justify-content:center}
+.chip{padding:5px 12px;border-radius:20px;border:1px solid var(--border);font-size:11px;color:var(--text2);cursor:pointer;transition:all .2s;background:transparent}
+.chip:hover{border-color:rgba(52,211,153,.3);color:var(--text);background:var(--accent-dim)}
+
+/* ── Section ── */
+.section{margin-bottom:40px}
+.sec-head{display:flex;align-items:baseline;justify-content:space-between;margin-bottom:12px}
+.sec-head h2{font-size:13px;font-weight:500;color:var(--text2);text-transform:uppercase;letter-spacing:.8px}
+.sec-link{font-size:11px;color:var(--text3);cursor:pointer;transition:color .2s}
+.sec-link:hover{color:var(--accent)}
+
+/* ── Horizontal scroll ── */
+.hscroll{display:flex;gap:10px;overflow-x:auto;padding-bottom:4px;scrollbar-width:none}
+.hscroll::-webkit-scrollbar{display:none}
+
+/* ── Session cards ── */
+.s{padding:12px 14px;border-radius:10px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;transition:all .2s;flex-shrink:0;min-width:200px;max-width:220px}
+.s:hover{border-color:var(--border-h);transform:translateY(-1px)}
+.s-top{display:flex;align-items:center;gap:6px;margin-bottom:6px}
+.s-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0}
+.s-subj{font-size:10px;color:var(--text2);font-weight:500}
+.s-time{font-size:10px;color:var(--text3);margin-left:auto}
+.s-title{font-size:12px;font-weight:600;line-height:1.4;color:rgba(255,255,255,.8)}
+
+/* ── Course cards ── */
+.c{border-radius:10px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;transition:all .2s;flex-shrink:0;min-width:170px;max-width:190px;overflow:hidden}
+.c:hover{border-color:var(--border-h);transform:translateY(-1px)}
+.c-top{height:72px;position:relative;display:flex;align-items:flex-end;padding:8px 10px}
+.c-tag{font-size:9px;font-weight:600;padding:2px 7px;border-radius:5px;text-transform:uppercase;letter-spacing:.4px}
+.c-meta{position:absolute;top:7px;right:8px;font-size:9px;color:rgba(255,255,255,.35)}
+.c-body{padding:10px 12px}
+.c-body h3{font-size:12px;font-weight:600;line-height:1.35;color:rgba(255,255,255,.8);margin-bottom:2px}
+.c-body p{font-size:10px;color:var(--text2);line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden}
+
+/* ── Video cards ── */
+.v{border-radius:10px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;transition:all .2s;flex-shrink:0;min-width:180px;max-width:200px;overflow:hidden}
+.v:hover{border-color:rgba(167,139,250,.2);transform:translateY(-1px)}
+.v-thumb{height:64px;display:grid;place-items:center;position:relative}
+.v-play{width:28px;height:28px;border-radius:50%;background:rgba(255,255,255,.1);backdrop-filter:blur(6px);display:grid;place-items:center;color:#fff}
+.v-dur{position:absolute;bottom:5px;right:7px;font-size:9px;background:rgba(0,0,0,.6);color:rgba(255,255,255,.7);padding:1px 5px;border-radius:3px}
+.v-body{padding:9px 11px}
+.v-body h3{font-size:11px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.v-body p{font-size:10px;color:var(--text2)}
+
+/* ── My stuff ── */
+.stuff-desc{font-size:11px;color:var(--text3);margin-bottom:12px;line-height:1.5}
+.stuff-list{display:flex;flex-direction:column;gap:1px;border-radius:10px;overflow:hidden}
+.stuff-item{display:flex;align-items:center;gap:10px;padding:10px 14px;background:var(--bg2);cursor:pointer;transition:background .2s}
+.stuff-item:hover{background:var(--bg3)}
+.stuff-dot{width:8px;height:8px;border-radius:2px;flex-shrink:0}
+.stuff-name{font-size:12px;font-weight:500;flex:1;color:rgba(255,255,255,.75)}
+.stuff-meta{font-size:10px;color:var(--text3)}
+.stuff-add{display:flex;align-items:center;justify-content:center;gap:6px;padding:10px 14px;background:var(--bg2);cursor:pointer;transition:all .2s;color:var(--text3);font-size:11px}
+.stuff-add:hover{background:var(--bg3);color:var(--accent)}
+.stuff-add svg{width:14px;height:14px}
+
+/* Gradients */
+.g-indigo{background:linear-gradient(135deg,#1e1b4b,#312e81)}
+.g-emerald{background:linear-gradient(135deg,#042f2e,#064e3b)}
+.g-amber{background:linear-gradient(135deg,#451a03,#78350f)}
+.g-slate{background:linear-gradient(135deg,#0f172a,#1e293b)}
+
+/* Color dots */
+.d-indigo{background:#818cf8}.d-emerald{background:#34d399}.d-amber{background:#fbbf24}.d-sky{background:#38bdf8}.d-pink{background:#f472b6}.d-purple{background:#a78bfa}
+/* Tags */
+.t-phys{background:rgba(129,140,248,.12);color:#a5b4fc}
+.t-bio{background:rgba(52,211,153,.1);color:#6ee7b7}
+.t-math{background:rgba(251,191,36,.1);color:#fcd34d}
+.t-cs{background:rgba(56,189,248,.1);color:#7dd3fc}
+
+/* ── Fade in ── */
+@keyframes up{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.section{animation:up .45s ease-out both}
+.section:nth-child(1){animation-delay:.05s}
+.section:nth-child(2){animation-delay:.1s}
+.section:nth-child(3){animation-delay:.15s}
+.section:nth-child(4){animation-delay:.2s}
+
+@media(max-width:600px){.page{padding:32px 16px 60px}.hero h1{font-size:20px}}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="logo"><span>E</span>uler</div>
+  <div class="avatar">M</div>
+</nav>
+
+<div class="page">
+
+  <div class="hero">
+    <h1>What would you like to learn?</h1>
+    <div class="input-wrap">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input placeholder="Teach me about quantum entanglement..." />
+      <button class="send"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/><path d="m12 5 7 7-7 7"/></svg></button>
+    </div>
+    <div class="chips">
+      <div class="chip">DNA replication</div>
+      <div class="chip">Calculus from scratch</div>
+      <div class="chip">RSA encryption</div>
+      <div class="chip">Newton's laws</div>
+    </div>
+  </div>
+
+  <!-- Sessions -->
+  <div class="section">
+    <div class="sec-head">
+      <h2>Recent</h2>
+      <span class="sec-link">All sessions</span>
+    </div>
+    <div class="hscroll">
+      <div class="s">
+        <div class="s-top"><span class="s-dot d-indigo"></span><span class="s-subj">Physics</span><span class="s-time">2h ago</span></div>
+        <div class="s-title">Quantum Superposition</div>
+      </div>
+      <div class="s">
+        <div class="s-top"><span class="s-dot d-emerald"></span><span class="s-subj">Biology</span><span class="s-time">Yesterday</span></div>
+        <div class="s-title">DNA Replication</div>
+      </div>
+      <div class="s">
+        <div class="s-top"><span class="s-dot d-amber"></span><span class="s-subj">Math</span><span class="s-time">3 days ago</span></div>
+        <div class="s-title">Integration by Parts</div>
+      </div>
+      <div class="s">
+        <div class="s-top"><span class="s-dot d-sky"></span><span class="s-subj">CS</span><span class="s-time">Last week</span></div>
+        <div class="s-title">Graph Algorithms</div>
+      </div>
+      <div class="s">
+        <div class="s-top"><span class="s-dot d-pink"></span><span class="s-subj">Chemistry</span><span class="s-time">Last week</span></div>
+        <div class="s-title">Organic Reactions</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Courses -->
+  <div class="section">
+    <div class="sec-head">
+      <h2>Courses</h2>
+      <span class="sec-link">Browse all</span>
+    </div>
+    <div class="hscroll">
+      <div class="c">
+        <div class="c-top g-indigo"><span class="c-tag t-phys">Physics</span><span class="c-meta">8 lessons</span></div>
+        <div class="c-body"><h3>Quantum Mechanics</h3><p>Wave-particle duality to Schrodinger</p></div>
+      </div>
+      <div class="c">
+        <div class="c-top g-emerald"><span class="c-tag t-bio">Biology</span><span class="c-meta">6 lessons</span></div>
+        <div class="c-body"><h3>Molecular Biology</h3><p>DNA, RNA, and protein synthesis</p></div>
+      </div>
+      <div class="c">
+        <div class="c-top g-amber"><span class="c-tag t-math">Math</span><span class="c-meta">10 lessons</span></div>
+        <div class="c-body"><h3>Calculus I</h3><p>Limits through integration</p></div>
+      </div>
+      <div class="c">
+        <div class="c-top g-slate"><span class="c-tag t-cs">CS</span><span class="c-meta">7 lessons</span></div>
+        <div class="c-body"><h3>Data Structures</h3><p>Arrays to graphs, visual traces</p></div>
+      </div>
+      <div class="c">
+        <div class="c-top g-indigo"><span class="c-tag t-phys">Physics</span><span class="c-meta">5 lessons</span></div>
+        <div class="c-body"><h3>Electromagnetism</h3><p>Fields, forces, Maxwell's equations</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Videos -->
+  <div class="section">
+    <div class="sec-head">
+      <h2>My Videos</h2>
+      <span class="sec-link">Upload</span>
+    </div>
+    <div class="hscroll">
+      <div class="v">
+        <div class="v-thumb g-indigo"><div class="v-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><polygon points="6 3 20 12 6 21"/></svg></div><span class="v-dur">12:34</span></div>
+        <div class="v-body"><h3>MIT 8.04 — Lecture 5</h3><p>Wave function & probability</p></div>
+      </div>
+      <div class="v">
+        <div class="v-thumb g-emerald"><div class="v-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><polygon points="6 3 20 12 6 21"/></svg></div><span class="v-dur">45:12</span></div>
+        <div class="v-body"><h3>3Blue1Brown — Linear Algebra</h3><p>Matrices as transformations</p></div>
+      </div>
+      <div class="v">
+        <div class="v-thumb g-amber"><div class="v-play"><svg width="12" height="12" viewBox="0 0 24 24" fill="#fff"><polygon points="6 3 20 12 6 21"/></svg></div><span class="v-dur">28:07</span></div>
+        <div class="v-body"><h3>Organic Chemistry</h3><p>Reaction mechanisms</p></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- My Stuff -->
+  <div class="section">
+    <div class="sec-head">
+      <h2>My Stuff</h2>
+    </div>
+    <div class="stuff-desc">Upload notes, PDFs, or links — the tutor teaches from your materials.</div>
+    <div class="stuff-list">
+      <div class="stuff-item">
+        <span class="stuff-dot" style="background:var(--blue)"></span>
+        <span class="stuff-name">Griffiths — Quantum Mechanics (Ch 1-4)</span>
+        <span class="stuff-meta">PDF</span>
+      </div>
+      <div class="stuff-item">
+        <span class="stuff-dot" style="background:var(--warm)"></span>
+        <span class="stuff-name">Lecture notes — Bio 201</span>
+        <span class="stuff-meta">Notes</span>
+      </div>
+      <div class="stuff-item">
+        <span class="stuff-dot" style="background:var(--pink)"></span>
+        <span class="stuff-name">MIT OCW 18.06 playlist</span>
+        <span class="stuff-meta">Link</span>
+      </div>
+      <div class="stuff-add">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+        Add files, notes, or links
+      </div>
+    </div>
+  </div>
+
+</div>
+</body>
+</html>

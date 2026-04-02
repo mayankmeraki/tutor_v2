@@ -1,0 +1,326 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — My Stuff</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+:root{
+  --bg:#090d18;--bg2:rgba(255,255,255,.03);--bg3:rgba(255,255,255,.05);--bg4:rgba(255,255,255,.08);
+  --border:rgba(255,255,255,.06);--border-h:rgba(255,255,255,.12);
+  --text:#d4dae8;--text2:#5a6a82;--text3:#3a4558;
+  --accent:#34d399;--accent-dim:rgba(52,211,153,.08);
+  --purple:#a78bfa;--purple-dim:rgba(167,139,250,.08);
+  --blue:#60a5fa;--blue-dim:rgba(96,165,250,.08);
+  --warm:#fbbf24;--warm-dim:rgba(251,191,36,.08);
+  --pink:#f472b6;--danger:#f87171;
+}
+html{background:var(--bg);color:var(--text);font-family:-apple-system,BlinkMacSystemFont,'Inter','Segoe UI',sans-serif;-webkit-font-smoothing:antialiased;font-size:14px}
+body{min-height:100vh}
+::selection{background:rgba(52,211,153,.2)}
+
+/* ── Nav ── */
+.nav{display:flex;align-items:center;justify-content:space-between;padding:14px 28px;position:sticky;top:0;z-index:50;background:rgba(9,13,24,.8);backdrop-filter:blur(20px) saturate(1.4);border-bottom:1px solid var(--border)}
+.logo{font-size:17px;font-weight:700;letter-spacing:-.3px}.logo span{color:var(--accent)}
+.nav-r{display:flex;align-items:center;gap:14px}
+.nav-back{font-size:12px;color:var(--text2);cursor:pointer;display:flex;align-items:center;gap:4px;transition:color .2s}.nav-back:hover{color:var(--text)}
+.avatar{width:28px;height:28px;border-radius:50%;background:linear-gradient(135deg,#34d399,#3b82f6);display:grid;place-items:center;font-size:11px;font-weight:700;color:#000}
+
+/* ── Page ── */
+.page{max-width:720px;width:100%;margin:0 auto;padding:32px 24px 100px}
+
+/* ── Header ── */
+.pg-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px}
+.pg-head h1{font-size:18px;font-weight:600;letter-spacing:-.3px}
+.btn{padding:7px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:12px;font-weight:500;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .2s;font-family:inherit}
+.btn:hover{border-color:var(--border-h);background:var(--bg3)}
+.btn-accent{border-color:rgba(52,211,153,.2);background:var(--accent-dim);color:var(--accent)}
+.btn-accent:hover{border-color:rgba(52,211,153,.35);background:rgba(52,211,153,.12)}
+.btn svg{width:14px;height:14px}
+
+/* ── Collection cards ── */
+.collections{display:flex;flex-direction:column;gap:8px}
+
+.col-card{border-radius:10px;border:1px solid var(--border);background:var(--bg2);cursor:pointer;transition:all .2s;overflow:hidden}
+.col-card:hover{border-color:var(--border-h);background:var(--bg3)}
+.col-card.open{border-color:var(--border-h)}
+.col-head{display:flex;align-items:center;gap:10px;padding:12px 14px}
+.col-icon{width:32px;height:32px;border-radius:8px;display:grid;place-items:center;flex-shrink:0}
+.col-icon svg{width:16px;height:16px}
+.col-info{flex:1;min-width:0}
+.col-title{font-size:13px;font-weight:600;color:rgba(255,255,255,.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.col-meta{font-size:10px;color:var(--text3);margin-top:1px;display:flex;gap:8px;align-items:center}
+.col-meta .dot{width:4px;height:4px;border-radius:50%;background:var(--text3)}
+.col-badge{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:600}
+.col-actions{display:flex;gap:4px;opacity:0;transition:opacity .15s}
+.col-card:hover .col-actions{opacity:1}
+.col-act{width:28px;height:28px;border-radius:6px;border:none;background:transparent;color:var(--text3);cursor:pointer;display:grid;place-items:center;transition:all .15s}
+.col-act:hover{background:var(--bg4);color:var(--text)}
+.col-act svg{width:14px;height:14px}
+.col-arrow{color:var(--text3);transition:transform .2s;flex-shrink:0}
+.col-card.open .col-arrow{transform:rotate(90deg)}
+
+/* ── Collection body (expandable) ── */
+.col-body{display:none;border-top:1px solid var(--border);padding:10px 14px}
+.col-card.open .col-body{display:block}
+
+.res-list{display:flex;flex-direction:column;gap:2px}
+.res-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:6px;transition:background .15s;font-size:12px}
+.res-item:hover{background:var(--bg3)}
+.res-icon{width:16px;height:16px;flex-shrink:0;color:var(--text3)}
+.res-name{flex:1;color:rgba(255,255,255,.7);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.res-status{font-size:9px;padding:2px 6px;border-radius:4px;font-weight:500}
+.res-status.ready{background:var(--accent-dim);color:var(--accent)}
+.res-status.processing{background:var(--warm-dim);color:var(--warm)}
+.res-status.error{background:rgba(248,113,113,.1);color:var(--danger)}
+.res-size{font-size:10px;color:var(--text3)}
+.res-remove{width:20px;height:20px;border:none;background:none;color:var(--text3);cursor:pointer;display:grid;place-items:center;opacity:0;transition:all .15s;border-radius:4px}
+.res-item:hover .res-remove{opacity:1}
+.res-remove:hover{color:var(--danger);background:rgba(248,113,113,.08)}
+
+/* Add to collection */
+.col-add{display:flex;align-items:center;gap:8px;padding:8px;margin-top:6px;border-radius:6px;border:1px dashed var(--border);cursor:pointer;transition:all .2s;color:var(--text3);font-size:11px}
+.col-add:hover{border-color:var(--accent);color:var(--accent);background:var(--accent-dim)}
+.col-add svg{width:14px;height:14px}
+
+/* ── New Collection Modal ── */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,.6);backdrop-filter:blur(6px);display:flex;align-items:center;justify-content:center;z-index:100;animation:fadeIn .15s}
+.modal{width:100%;max-width:420px;border-radius:14px;border:1px solid var(--border-h);background:#111827;padding:24px;animation:slideUp .2s ease-out}
+.modal h2{font-size:16px;font-weight:600;margin-bottom:16px}
+.modal-field{margin-bottom:14px}
+.modal-field label{display:block;font-size:11px;color:var(--text2);margin-bottom:5px;font-weight:500}
+.modal-field input,.modal-field select{width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg2);color:var(--text);font-size:13px;font-family:inherit;outline:none;transition:border-color .2s}
+.modal-field input:focus,.modal-field select:focus{border-color:rgba(52,211,153,.3)}
+.modal-field input::placeholder{color:var(--text3)}
+.modal-field select{appearance:none;background-image:url("data:image/svg+xml,%3Csvg width='10' height='6' viewBox='0 0 10 6' fill='none' xmlns='http://www.w3.org/2000/svg'%3E%3Cpath d='M1 1L5 5L9 1' stroke='%235a6a82' stroke-width='1.5' stroke-linecap='round'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 12px center;padding-right:32px}
+.modal-footer{display:flex;justify-content:flex-end;gap:8px;margin-top:20px}
+
+/* ── Type chips in modal ── */
+.type-chips{display:flex;gap:6px;flex-wrap:wrap}
+.type-chip{padding:6px 12px;border-radius:8px;border:1px solid var(--border);font-size:12px;color:var(--text2);cursor:pointer;transition:all .2s;display:flex;align-items:center;gap:5px}
+.type-chip:hover{border-color:var(--border-h);color:var(--text)}
+.type-chip.active{border-color:rgba(52,211,153,.3);background:var(--accent-dim);color:var(--accent)}
+.type-chip svg{width:14px;height:14px}
+
+/* ── Empty state ── */
+.empty{text-align:center;padding:48px 20px;color:var(--text3)}
+.empty p{font-size:13px;margin-top:8px;line-height:1.5}
+.empty svg{width:40px;height:40px;margin-bottom:8px;opacity:.3}
+
+/* ── Teach button ── */
+.col-teach{padding:6px 12px;border-radius:6px;border:1px solid rgba(52,211,153,.2);background:var(--accent-dim);color:var(--accent);font-size:11px;font-weight:600;cursor:pointer;transition:all .2s;font-family:inherit;white-space:nowrap}
+.col-teach:hover{background:rgba(52,211,153,.15);border-color:rgba(52,211,153,.35)}
+
+@keyframes fadeIn{from{opacity:0}to{opacity:1}}
+@keyframes slideUp{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+</style>
+</head>
+<body>
+
+<nav class="nav">
+  <div class="logo"><span>E</span>uler</div>
+  <div class="nav-r">
+    <span class="nav-back">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="m15 18-6-6 6-6"/></svg>
+      Home
+    </span>
+    <div class="avatar">M</div>
+  </div>
+</nav>
+
+<div class="page">
+
+  <div class="pg-head">
+    <h1>My Stuff</h1>
+    <button class="btn btn-accent" onclick="document.getElementById('modal').style.display='flex'">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+      New Collection
+    </button>
+  </div>
+
+  <div class="collections">
+
+    <!-- ═══ Collection 1: Course ═══ -->
+    <div class="col-card open" onclick="this.classList.toggle('open')">
+      <div class="col-head">
+        <div class="col-icon" style="background:rgba(99,102,241,.1);color:#818cf8">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+        </div>
+        <div class="col-info">
+          <div class="col-title">Quantum Mechanics — Griffiths</div>
+          <div class="col-meta">4 items <span class="dot"></span> Course <span class="dot"></span> Updated 2h ago</div>
+        </div>
+        <button class="col-teach" onclick="event.stopPropagation()">Teach me this</button>
+        <div class="col-actions">
+          <button class="col-act" title="Add file"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+          <button class="col-act" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+        <svg class="col-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="m9 18 6-6-6-6"/></svg>
+      </div>
+      <div class="col-body" onclick="event.stopPropagation()">
+        <div class="res-list">
+          <div class="res-item">
+            <svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="res-name">Griffiths Ch 1-4.pdf</span>
+            <span class="res-status ready">Ready</span>
+            <span class="res-size">12 MB</span>
+            <button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="res-item">
+            <svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+            <span class="res-name">Griffiths Ch 5-8.pdf</span>
+            <span class="res-status ready">Ready</span>
+            <span class="res-size">9 MB</span>
+            <button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="res-item">
+            <svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+            <span class="res-name">My lecture notes — Week 1-3</span>
+            <span class="res-status ready">Ready</span>
+            <span class="res-size">2 KB</span>
+            <button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+          <div class="res-item">
+            <svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+            <span class="res-name">MIT 8.04 Lecture 5 — Wave Functions</span>
+            <span class="res-status processing">Processing</span>
+            <span class="res-size">12:34</span>
+            <button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
+          </div>
+        </div>
+        <div class="col-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          Add files, videos, or links to this collection
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Collection 2: YouTube Playlist ═══ -->
+    <div class="col-card" onclick="this.classList.toggle('open')">
+      <div class="col-head">
+        <div class="col-icon" style="background:rgba(248,113,113,.1);color:#f87171">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+        </div>
+        <div class="col-info">
+          <div class="col-title">3Blue1Brown — Essence of Linear Algebra</div>
+          <div class="col-meta">16 videos <span class="dot"></span> Playlist <span class="dot"></span> All ready</div>
+        </div>
+        <button class="col-teach" onclick="event.stopPropagation()">Follow along</button>
+        <div class="col-actions">
+          <button class="col-act" title="Add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+          <button class="col-act" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+        <svg class="col-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="m9 18 6-6-6-6"/></svg>
+      </div>
+      <div class="col-body" onclick="event.stopPropagation()">
+        <div class="res-list">
+          <div class="res-item"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span class="res-name">Ch 1: Vectors, what even are they?</span><span class="res-status ready">Ready</span><span class="res-size">9:52</span><button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+          <div class="res-item"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span class="res-name">Ch 2: Linear combinations, span, basis</span><span class="res-status ready">Ready</span><span class="res-size">9:59</span><button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+          <div class="res-item"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg><span class="res-name">Ch 3: Linear transformations</span><span class="res-status ready">Ready</span><span class="res-size">10:03</span><button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+        </div>
+        <div class="col-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          Add more videos or links
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Collection 3: Notes ═══ -->
+    <div class="col-card" onclick="this.classList.toggle('open')">
+      <div class="col-head">
+        <div class="col-icon" style="background:var(--warm-dim);color:var(--warm)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+        </div>
+        <div class="col-info">
+          <div class="col-title">Bio 201 — Lecture Notes</div>
+          <div class="col-meta">6 items <span class="dot"></span> Notes <span class="dot"></span> Updated yesterday</div>
+        </div>
+        <button class="col-teach" onclick="event.stopPropagation()">Teach me this</button>
+        <div class="col-actions">
+          <button class="col-act" title="Add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+          <button class="col-act" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+        <svg class="col-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="m9 18 6-6-6-6"/></svg>
+      </div>
+      <div class="col-body" onclick="event.stopPropagation()">
+        <div class="res-list">
+          <div class="res-item"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg><span class="res-name">Week 1 — Cell structure.pdf</span><span class="res-status ready">Ready</span><span class="res-size">3 MB</span><button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+          <div class="res-item"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg><span class="res-name">Week 2 — DNA & RNA.pdf</span><span class="res-status ready">Ready</span><span class="res-size">4 MB</span><button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+        </div>
+        <div class="col-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          Add files or notes
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ Collection 4: Single link ═══ -->
+    <div class="col-card" onclick="this.classList.toggle('open')">
+      <div class="col-head">
+        <div class="col-icon" style="background:var(--purple-dim);color:var(--purple)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+        </div>
+        <div class="col-info">
+          <div class="col-title">MIT OCW 18.06 — Linear Algebra</div>
+          <div class="col-meta">1 link <span class="dot"></span> Added 5 days ago</div>
+        </div>
+        <button class="col-teach" onclick="event.stopPropagation()">Teach me this</button>
+        <div class="col-actions">
+          <button class="col-act" title="Add"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg></button>
+          <button class="col-act" title="Delete"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M3 6h18"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6"/><path d="M8 6V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg></button>
+        </div>
+        <svg class="col-arrow" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="16" height="16"><path d="m9 18 6-6-6-6"/></svg>
+      </div>
+      <div class="col-body" onclick="event.stopPropagation()">
+        <div class="res-list">
+          <div class="res-item"><svg class="res-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg><span class="res-name">https://ocw.mit.edu/courses/18-06sc-linear-algebra/</span><span class="res-status ready">Ready</span><button class="res-remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button></div>
+        </div>
+        <div class="col-add">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+          Add more links or files
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══ New Collection Modal ═══ -->
+<div class="modal-overlay" id="modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+  <div class="modal">
+    <h2>New Collection</h2>
+    <div class="modal-field">
+      <label>Name</label>
+      <input placeholder="e.g. Organic Chemistry, MIT 18.06, My study notes..." autofocus />
+    </div>
+    <div class="modal-field">
+      <label>What's in it?</label>
+      <div class="type-chips">
+        <div class="type-chip active" onclick="document.querySelectorAll('.type-chip').forEach(c=>c.classList.remove('active'));this.classList.add('active')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/></svg>
+          PDFs & Notes
+        </div>
+        <div class="type-chip" onclick="document.querySelectorAll('.type-chip').forEach(c=>c.classList.remove('active'));this.classList.add('active')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          Videos / Playlist
+        </div>
+        <div class="type-chip" onclick="document.querySelectorAll('.type-chip').forEach(c=>c.classList.remove('active'));this.classList.add('active')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/></svg>
+          Links
+        </div>
+        <div class="type-chip" onclick="document.querySelectorAll('.type-chip').forEach(c=>c.classList.remove('active'));this.classList.add('active')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 19.5v-15A2.5 2.5 0 0 1 6.5 2H20v20H6.5a2.5 2.5 0 0 1 0-5H20"/></svg>
+          Course / Textbook
+        </div>
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn" onclick="document.getElementById('modal').style.display='none'">Cancel</button>
+      <button class="btn btn-accent" onclick="document.getElementById('modal').style.display='none'">Create</button>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>
