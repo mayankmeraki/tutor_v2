@@ -153,158 +153,146 @@
     <!-- ═══ FOR BUSINESS / INSTITUTIONS SCREEN ═══ -->
     <div id="business-screen" class="app-screen" style="display:none">
       <nav class="sc-nav">
-        <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
+        <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')" style="font-size:22px;font-weight:800"><em>E</em>uler</a>
         <div class="sc-nav-r">
           <a class="sc-btn sc-btn-ghost" href="/" onclick="event.preventDefault();Router.navigate('/')">Home</a>
           <button class="sc-btn sc-btn-accent" onclick="openFeedbackModal('contact')">Get in touch</button>
         </div>
       </nav>
 
-      <div class="biz-page">
-        <!-- Hero -->
-        <section class="biz-hero">
-          <div class="biz-hero-label">For Educational Institutions</div>
-          <h1>Transform your curriculum<br>with AI that <em>actually teaches</em></h1>
-          <p class="biz-hero-sub">Not another chatbot. Euler is a live teaching engine that draws on a board, speaks, adapts to each student, and follows YOUR curriculum. Integrate it into your institution and give every student a private tutor.</p>
-          <div class="biz-hero-cta">
+      <div style="max-width:860px;margin:0 auto;padding:60px 24px 0;text-align:center">
+
+        <!-- ── Hero ── -->
+        <div style="margin-bottom:64px">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px">For Institutions</div>
+          <h1 style="font-size:38px;font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:16px;color:#fff">Your curriculum.<br>Taught by AI. <em style="font-style:normal;background:linear-gradient(135deg,var(--accent),#60a5fa);-webkit-background-clip:text;-webkit-text-fill-color:transparent">Live.</em></h1>
+          <p style="font-size:16px;color:var(--text-muted);line-height:1.6;max-width:520px;margin:0 auto 28px">Upload your courses and lecture videos. Euler teaches each student 1-on-1 with a live board, voice, and animations &mdash; following your syllabus, not ours.</p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
             <button class="sc-btn sc-btn-accent sc-btn-lg" onclick="openFeedbackModal('contact')">Schedule a Demo</button>
-            <button class="sc-btn sc-btn-ghost sc-btn-lg" onclick="document.getElementById('biz-how').scrollIntoView({behavior:'smooth'})">See How It Works</button>
+            <button class="sc-btn sc-btn-ghost sc-btn-lg" onclick="document.getElementById('biz-demo').scrollIntoView({behavior:'smooth'})">See it in action &darr;</button>
           </div>
-        </section>
+        </div>
 
-        <!-- Why not a chatbot -->
-        <section class="biz-section" id="biz-how">
-          <h2>Why Euler is different from chatbots</h2>
-          <p class="biz-section-sub">ChatGPT, Gemini, and other chatbots answer questions. Euler <strong>teaches</strong>. Here's the difference:</p>
-          <div class="biz-compare">
-            <div class="biz-compare-col biz-compare-bad">
-              <div class="biz-compare-header">
-                <span class="biz-compare-icon">&#128172;</span>
-                <h3>Typical AI Chatbot</h3>
-              </div>
-              <ul>
-                <li>Gives text answers to text questions</li>
-                <li>No visual explanations</li>
-                <li>Student reads walls of text</li>
-                <li>No assessment or progress tracking</li>
-                <li>No curriculum structure</li>
-                <li>Can't adapt pacing to student level</li>
-                <li>Students copy-paste answers</li>
-              </ul>
-            </div>
-            <div class="biz-compare-col biz-compare-good">
-              <div class="biz-compare-header">
-                <span class="biz-compare-icon">&#9998;</span>
-                <h3>Euler Teaching Engine</h3>
-              </div>
-              <ul>
-                <li><strong>Draws diagrams live</strong> on an interactive board</li>
-                <li><strong>Speaks and explains</strong> with voice narration</li>
-                <li><strong>Follows your curriculum</strong> lesson by lesson</li>
-                <li><strong>Assesses understanding</strong> with inline questions</li>
-                <li><strong>Tracks mastery</strong> per concept, per student</li>
-                <li><strong>Adapts pace</strong> — slows down or speeds up per student</li>
-                <li>Students <strong>learn by doing</strong>, not copying</li>
-              </ul>
-            </div>
-          </div>
-        </section>
+        <!-- ── Live demo — board teaching from YOUR curriculum ── -->
+        <div id="biz-demo" style="margin-bottom:64px">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px">See it in action</div>
+          <p style="font-size:14px;color:var(--text-muted);margin-bottom:20px">A student asks about your curriculum. Euler teaches it live.</p>
 
-        <!-- Experiences -->
-        <section class="biz-section">
-          <h2>Multiple learning experiences, one platform</h2>
-          <p class="biz-section-sub">Euler adapts to how each student learns best</p>
-          <div class="biz-experiences">
-            <div class="biz-exp-card">
-              <div class="biz-exp-icon">&#9998;</div>
-              <h3>Live Board Teaching</h3>
-              <p>Euler draws diagrams, writes equations, and explains step by step on an interactive board — like a private tutor at a whiteboard. Students hear, see, and interact in real time.</p>
+          <div style="max-width:640px;margin:0 auto;border-radius:14px;border:1px solid rgba(255,255,255,.06);background:#0a0e14;overflow:hidden;box-shadow:0 24px 80px rgba(0,0,0,.5)">
+            <!-- Board header -->
+            <div style="display:flex;align-items:center;gap:5px;padding:8px 12px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02)">
+              <span style="width:7px;height:7px;border-radius:50%;background:#ff5f56"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#ffbd2e"></span>
+              <span style="width:7px;height:7px;border-radius:50%;background:#27c93f"></span>
+              <span style="margin-left:auto;font-size:9px;color:rgba(255,255,255,.18);letter-spacing:.4px;text-transform:uppercase">Your course &middot; Lesson 3</span>
             </div>
-            <div class="biz-exp-card">
-              <div class="biz-exp-icon">&#127916;</div>
-              <h3>Video Follow-Along</h3>
-              <p>Students watch your lecture videos while Euler follows along. When they pause, Euler answers questions using the lecture transcript, draws supplementary diagrams, and fills in gaps.</p>
+            <!-- Board body with teaching content -->
+            <div class="brd-body" style="min-height:220px;padding:20px 24px">
+              <!-- Curriculum badge -->
+              <div class="chalk ch1" style="display:inline-block;font-size:9px;padding:3px 8px;border-radius:4px;background:rgba(99,102,241,.1);color:#a5b4fc;font-weight:600;margin-bottom:10px">MIT 18.06 &mdash; Linear Algebra &middot; Your Syllabus</div>
+              <div class="chalk chalk-title ch2" style="font-size:18px">Eigenvalues &amp; Eigenvectors</div>
+              <div class="chalk chalk-dim ch3">When Av = &lambda;v &mdash; the vector only scales, never rotates</div>
+              <div class="chalk chalk-eq ch4" style="font-size:17px">det(A &minus; &lambda;I) = 0</div>
+              <div class="chalk chalk-ann ch5" style="margin-bottom:8px">&larr; the characteristic equation to find &lambda;</div>
+              <!-- Animated eigenvector visualization -->
+              <svg class="wave-svg ch5" viewBox="0 0 300 70" style="height:60px;width:90%">
+                <!-- Grid -->
+                <line x1="150" y1="5" x2="150" y2="65" stroke="rgba(255,255,255,.04)" stroke-width="1"/>
+                <line x1="30" y1="35" x2="270" y2="35" stroke="rgba(255,255,255,.04)" stroke-width="1"/>
+                <!-- Original vector -->
+                <line x1="150" y1="35" x2="220" y2="15" stroke="#60a5fa" stroke-width="2" class="wave-path" style="stroke-dasharray:100;stroke-dashoffset:100;animation-delay:3.2s"/>
+                <text x="224" y="14" fill="rgba(96,165,250,.6)" font-size="9" font-family="sans-serif" class="chalk ch6">v</text>
+                <!-- Scaled eigenvector -->
+                <line x1="150" y1="35" x2="240" y2="8" stroke="#34d399" stroke-width="2" class="wave-path" style="stroke-dasharray:120;stroke-dashoffset:120;animation-delay:3.6s"/>
+                <text x="244" y="8" fill="rgba(52,211,153,.6)" font-size="9" font-family="sans-serif" class="chalk ch6">&lambda;v</text>
+                <!-- Non-eigenvector (rotated) -->
+                <line x1="150" y1="35" x2="200" y2="55" stroke="rgba(251,191,36,.3)" stroke-width="1.5" stroke-dasharray="4 3" class="wave-path" style="stroke-dasharray:80;stroke-dashoffset:80;animation-delay:4s"/>
+                <text x="204" y="58" fill="rgba(251,191,36,.35)" font-size="8" font-family="sans-serif" class="chalk ch6">rotated</text>
+              </svg>
+              <div class="chalk chalk-q ch6" style="animation-delay:4.4s">What happens to vectors that <em>aren't</em> eigenvectors?</div>
             </div>
-            <div class="biz-exp-card">
-              <div class="biz-exp-icon">&#128203;</div>
-              <h3>Exam Preparation</h3>
-              <p>Focused, fast-paced review sessions. Euler diagnoses weak areas, drills key concepts, and runs timed practice — adapting to the student's actual exam date and syllabus.</p>
-            </div>
-            <div class="biz-exp-card">
-              <div class="biz-exp-icon">&#128218;</div>
-              <h3>Your Content, AI-Powered</h3>
-              <p>Upload PDFs, notes, textbooks, or videos. Euler processes them and teaches FROM your materials — ensuring your curriculum, your voice, your pedagogy.</p>
-            </div>
-            <div class="biz-exp-card">
-              <div class="biz-exp-icon">&#128202;</div>
-              <h3>Student Analytics</h3>
-              <p>Track mastery per concept, engagement patterns, time-on-task, and assessment performance. Know which students need help before they fall behind.</p>
-            </div>
-            <div class="biz-exp-card">
-              <div class="biz-exp-icon">&#127891;</div>
-              <h3>Study Material Generation</h3>
-              <p>Euler creates flashcards, study plans, revision notes, formula sheets, and practice problems — all grounded in your curriculum content.</p>
+            <!-- Voice bar -->
+            <div style="display:flex;align-items:center;gap:6px;padding:7px 12px;border-top:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
+              <div class="vbars"><span></span><span></span><span></span><span></span></div>
+              <span style="font-size:9px;color:rgba(255,255,255,.2)">Euler is teaching your curriculum</span>
             </div>
           </div>
-        </section>
+        </div>
 
-        <!-- Integration -->
-        <section class="biz-section biz-integration">
-          <h2>Easy to integrate</h2>
-          <p class="biz-section-sub">Bring your curriculum. We handle the rest.</p>
-          <div class="biz-steps">
-            <div class="biz-step">
-              <div class="biz-step-num">1</div>
-              <h3>Upload your courses</h3>
-              <p>Upload lecture videos, PDFs, syllabi, or textbook content. Euler processes and indexes everything automatically.</p>
+        <!-- ── 3 steps: Onboard your curriculum ── -->
+        <div style="margin-bottom:64px">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px">Onboarding</div>
+          <p style="font-size:14px;color:var(--text-muted);margin-bottom:28px">Three steps to give every student a private tutor</p>
+
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;text-align:left">
+            <div style="padding:20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(52,211,153,.08);color:var(--accent);display:grid;place-items:center;font-size:13px;font-weight:700;margin-bottom:12px">1</div>
+              <h3 style="font-size:13px;font-weight:600;margin-bottom:6px;color:rgba(255,255,255,.85)">Upload your curriculum</h3>
+              <p style="font-size:11px;color:var(--text-muted);line-height:1.5">Lecture videos, PDFs, syllabi, question banks &mdash; any format. Euler processes and indexes everything.</p>
             </div>
-            <div class="biz-step-arrow">&rarr;</div>
-            <div class="biz-step">
-              <div class="biz-step-num">2</div>
-              <h3>We build the teaching layer</h3>
-              <p>Euler learns your curriculum structure, creates teaching plans, and prepares assessment checkpoints aligned with your learning outcomes.</p>
+            <div style="padding:20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(96,165,250,.08);color:#60a5fa;display:grid;place-items:center;font-size:13px;font-weight:700;margin-bottom:12px">2</div>
+              <h3 style="font-size:13px;font-weight:600;margin-bottom:6px;color:rgba(255,255,255,.85)">We build the teaching layer</h3>
+              <p style="font-size:11px;color:var(--text-muted);line-height:1.5">Euler maps your curriculum into structured lessons with teaching plans, checkpoints, and assessments.</p>
             </div>
-            <div class="biz-step-arrow">&rarr;</div>
-            <div class="biz-step">
-              <div class="biz-step-num">3</div>
-              <h3>Students start learning</h3>
-              <p>Every student gets a private tutor that teaches YOUR content, tracks their progress, and reports back to you.</p>
+            <div style="padding:20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+              <div style="width:28px;height:28px;border-radius:8px;background:rgba(167,139,250,.08);color:#a78bfa;display:grid;place-items:center;font-size:13px;font-weight:700;margin-bottom:12px">3</div>
+              <h3 style="font-size:13px;font-weight:600;margin-bottom:6px;color:rgba(255,255,255,.85)">Students get a private tutor</h3>
+              <p style="font-size:11px;color:var(--text-muted);line-height:1.5">Each student learns at their own pace. You get analytics on mastery, engagement, and who needs help.</p>
             </div>
           </div>
-        </section>
+        </div>
 
-        <!-- CTA -->
-        <section class="biz-section biz-cta-section">
-          <h2>Ready to give every student a private tutor?</h2>
-          <p class="biz-section-sub">We work with universities, coaching institutes, and ed-tech companies.</p>
-          <div class="biz-cta-actions">
+        <!-- ── What makes this different (compact) ── -->
+        <div style="margin-bottom:64px">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px">Not a chatbot</div>
+          <p style="font-size:14px;color:var(--text-muted);margin-bottom:24px">Other AI tools answer questions. Euler <strong style="color:var(--text)">teaches</strong>.</p>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;text-align:left;max-width:640px;margin:0 auto">
+            <div style="padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:flex;align-items:flex-start;gap:10px">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8)">Live visual board</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">Diagrams, equations, animations &mdash; not walls of text</div></div>
+            </div>
+            <div style="padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:flex;align-items:flex-start;gap:10px">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8)">Follows YOUR syllabus</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">Teaches your curriculum, your way, lesson by lesson</div></div>
+            </div>
+            <div style="padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:flex;align-items:flex-start;gap:10px">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8)">Assesses understanding</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">Inline questions, mastery tracking per concept per student</div></div>
+            </div>
+            <div style="padding:14px 16px;border-radius:10px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:flex;align-items:flex-start;gap:10px">
+              <div style="width:6px;height:6px;border-radius:50%;background:var(--accent);margin-top:5px;flex-shrink:0"></div>
+              <div><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8)">Video follow-along</div><div style="font-size:10px;color:var(--text-muted);margin-top:2px">Your lecture videos + AI tutor side by side</div></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- ── CTA ── -->
+        <div style="margin-bottom:48px;padding:36px 24px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+          <h2 style="font-size:22px;font-weight:700;margin-bottom:8px;color:#fff">Give every student a private tutor</h2>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Universities, coaching institutes, and ed-tech companies. We'll onboard your curriculum in days.</p>
+          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px">
             <button class="sc-btn sc-btn-accent sc-btn-lg" onclick="openFeedbackModal('contact')">Schedule a Demo</button>
           </div>
-          <div class="biz-contact-info">
-            <div class="biz-contact-item">
-              <strong>Email</strong>
-              <a href="mailto:mayank@seekcapacity.ai">mayank@seekcapacity.ai</a>
-            </div>
-            <div class="biz-contact-item">
-              <strong>Call</strong>
-              <a href="tel:+919772187848">+91 97721 87848</a>
-            </div>
+          <div style="font-size:11px;color:var(--text-dim)">
+            <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-muted)">mayank@seekcapacity.ai</a>
+            <span style="margin:0 8px;color:var(--text-dim)">&middot;</span>
+            <a href="tel:+919772187848" style="color:var(--text-muted)">+91 97721 87848</a>
           </div>
-        </section>
+        </div>
 
-        <footer class="lp-footer">
-          <div class="lp-footer-top">
-            <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
-            <div class="lp-footer-links">
-              <a href="/" onclick="event.preventDefault();Router.navigate('/')">Home</a>
-              <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')">Contact</a>
-            </div>
-          </div>
-          <div class="lp-footer-bottom">
-            <span>AI that teaches, not chats.</span>
-            <span class="lp-footer-contact">mayank@seekcapacity.ai</span>
+        <!-- ── Footer ── -->
+        <footer style="text-align:center;padding:28px 24px;border-top:1px solid var(--border);font-size:11px;color:var(--text-dim)">
+          <div style="display:inline-block;background:rgba(251,191,36,.08);color:#fbbf24;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:10px">Beta</div>
+          <div style="font-size:12px;color:var(--text-muted);margin-bottom:12px"><em style="font-style:normal;color:var(--accent)">E</em>uler &mdash; AI tutoring with live board, voice, and animations.</div>
+          <div style="display:flex;gap:14px;justify-content:center;font-size:11px">
+            <a href="/" onclick="event.preventDefault();Router.navigate('/')" style="color:var(--text-muted)">Home</a>
+            <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')" style="color:var(--text-muted)">Contact</a>
+            <a href="#" onclick="event.preventDefault();openFeedbackModal('bug')" style="color:var(--text-muted)">Report a bug</a>
           </div>
         </footer>
+
       </div>
     </div>
 
