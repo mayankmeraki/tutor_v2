@@ -269,33 +269,51 @@ class AnimHelper {
     p.endShape(p.CLOSE);
   }
 
-  /** Draw a legend (top-right) */
+  /** Draw a compact legend (top-right, glass overlay) */
   legend(items, x, y) {
+    if (!items || !items.length) return;
     const p = this.p;
-    const pad = 10;
-    const lineH = 20;
-    const w = 150;
-    const h = items.length * lineH + pad * 2;
+    const sz = Math.max(9, Math.min(11, this.W / 35));
+    const dotR = Math.max(3, sz * 0.4);
+    const lineH = sz + 6;
+    const pad = 6;
 
-    // Background
-    p.fill(10, 14, 26, 230);
-    p.stroke(148, 163, 184, 30);
-    p.strokeWeight(1);
-    p.rect(x || (this.W - w - 12), y || 12, w, h, 8);
+    // Measure max label width
+    p.textSize(sz);
+    p.textAlign(p.LEFT, p.CENTER);
+    let maxLabelW = 0;
+    for (const item of items) {
+      const tw = p.textWidth(item.label || '');
+      if (tw > maxLabelW) maxLabelW = tw;
+    }
+    const w = Math.min(maxLabelW + dotR * 2 + pad * 3 + 8, this.W * 0.35);
+    const h = items.length * lineH + pad * 2;
+    const lx = x != null ? x : this.W - w - 8;
+    const ly = y != null ? y : 8;
+
+    // Glass background
+    p.drawingContext.globalAlpha = 0.85;
+    p.fill(10, 14, 26);
+    p.stroke(148, 163, 184, 25);
+    p.strokeWeight(0.5);
+    p.rect(lx, ly, w, h, 6);
+    p.drawingContext.globalAlpha = 1;
 
     // Items
     items.forEach((item, i) => {
-      const ix = (x || (this.W - w - 12)) + pad;
-      const iy = (y || 12) + pad + i * lineH + lineH / 2;
-      const [cr, cg, cb] = item.color;
+      const ix = lx + pad;
+      const iy = ly + pad + i * lineH + lineH / 2;
+      const c = item.color || [148, 163, 184];
+      const [cr, cg, cb] = Array.isArray(c) ? c : [148, 163, 184];
       p.fill(cr, cg, cb);
       p.noStroke();
-      p.ellipse(ix + 4, iy, 8, 8);
-      p.fill(226, 232, 240, 180);
-      p.textSize(11);
+      p.ellipse(ix + dotR, iy, dotR * 2, dotR * 2);
+      p.fill(226, 232, 240, 170);
+      p.textSize(sz);
       p.textAlign(p.LEFT, p.CENTER);
-      p.text(item.label, ix + 16, iy);
+      p.text(item.label || '', ix + dotR * 2 + 6, iy);
     });
+    p.noStroke();
   }
 
   /** Draw equation box */
