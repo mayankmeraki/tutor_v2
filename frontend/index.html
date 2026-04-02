@@ -463,7 +463,7 @@
         </div>
       </nav>
 
-      <!-- Full-width hero banner -->
+      <!-- Hero banner with Play button -->
       <div class="cd-banner" id="cd-banner">
         <div class="cd-banner-overlay"></div>
         <div class="cd-banner-content">
@@ -473,48 +473,53 @@
           </div>
           <span class="sc-tag" id="cd-tag"></span>
           <h1 id="cd-title"></h1>
-          <p id="cd-description"></p>
+          <p id="cd-description" style="max-width:600px;margin-bottom:16px"></p>
           <div class="cd-stats">
             <div class="cd-stat"><div class="cd-stat-v" id="cd-lessons-count">0</div><div class="cd-stat-l">Lessons</div></div>
             <div class="cd-stat"><div class="cd-stat-v" id="cd-modules-count">0</div><div class="cd-stat-l">Modules</div></div>
             <div class="cd-stat"><div class="cd-stat-v" id="cd-hours">~0</div><div class="cd-stat-l">Hours</div></div>
           </div>
-          <div class="cd-banner-actions">
-            <span class="cd-sub">Your AI tutor teaches each lesson interactively</span>
+          <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
+            <button class="sc-btn sc-btn-accent sc-btn-lg" id="cd-play-btn" style="display:flex;align-items:center;gap:8px;font-size:15px;padding:12px 28px;border-radius:12px">
+              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg>
+              Play Course
+            </button>
+            <span style="font-size:11px;color:var(--text-dim)">Video follow-along with AI tutor</span>
           </div>
         </div>
       </div>
 
-      <!-- Tabs: How to learn | Curriculum -->
-      <div class="cd-body">
-        <div class="cd-tabs">
-          <button class="cd-tab active" data-tab="mode">Choose how to learn</button>
-          <button class="cd-tab" data-tab="curriculum">Curriculum</button>
+      <!-- Lecture filmstrip (horizontal scroll) + selected lesson detail -->
+      <div class="cd-body" style="max-width:1100px;margin:0 auto;padding:24px 24px 60px">
+        <div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
+          <h2 style="font-size:14px;font-weight:600;color:var(--text-muted)">Lectures</h2>
+          <span style="font-size:11px;color:var(--text-dim)" id="cd-selected-count">Select lectures to play</span>
         </div>
-
-        <!-- Tab: Mode selection -->
-        <div class="cd-tab-content active" id="cd-tab-mode">
-          <div class="modes">
-            <div class="mode on" id="mode-tutor" data-mode="tutor">
-              <div class="mode-header">
-                <h3><span class="mode-dot"></span> 1-on-1 board teaching</h3>
-              </div>
-              <p>Your AI tutor draws diagrams, writes equations, and explains each concept step by step on a live board. It adapts to your pace, asks you questions, and checks your understanding as you go.</p>
-              <div class="mode-expand" id="mode-tutor-expand"></div>
+        <!-- Filmstrip -->
+        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
+          <!-- Populated by JS: each card is a lesson thumbnail with checkbox -->
+        </div>
+        <!-- Selected lesson detail -->
+        <div class="cd-lesson-detail" id="cd-lesson-detail" style="margin-top:16px;padding:16px 20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:none">
+          <div style="display:flex;align-items:flex-start;gap:16px">
+            <div id="cd-detail-thumb" style="width:140px;height:80px;border-radius:8px;background:var(--bg-surface);flex-shrink:0;overflow:hidden;display:grid;place-items:center">
+              <img id="cd-detail-img" style="width:100%;height:100%;object-fit:cover;display:none">
+              <span id="cd-detail-num" style="font-size:20px;font-weight:700;color:var(--text-dim)"></span>
             </div>
-            <div class="mode" id="mode-video" data-mode="video">
-              <div class="mode-header">
-                <h3><span class="mode-dot"></span> Watch lectures with AI tutor</h3>
+            <div style="flex:1;min-width:0">
+              <h3 id="cd-detail-title" style="font-size:15px;font-weight:600;margin-bottom:4px"></h3>
+              <p id="cd-detail-desc" style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:8px"></p>
+              <div style="display:flex;gap:12px;font-size:11px;color:var(--text-dim)">
+                <span id="cd-detail-duration"></span>
+                <span id="cd-detail-module"></span>
               </div>
-              <p>Watch the original university lecture videos. Your AI tutor follows along in real time &mdash; pause the video whenever you're confused and it explains what the professor just said on the board.</p>
-              <div class="mode-expand" id="mode-video-expand"></div>
             </div>
           </div>
-          <button class="sc-btn sc-btn-lg sc-btn-accent cd-mode-go" id="cd-mode-start-btn">Start learning <span>&rarr;</span></button>
         </div>
 
-        <!-- Tab: Curriculum -->
-        <div class="cd-tab-content" id="cd-tab-curriculum">
+        <!-- Full curriculum (modules + lessons) below -->
+        <div style="margin-top:28px">
+          <h2 style="font-size:14px;font-weight:600;color:var(--text-muted);margin-bottom:12px">Full Curriculum</h2>
           <div id="cd-curriculum"></div>
         </div>
       </div>

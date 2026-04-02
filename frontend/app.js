@@ -10260,18 +10260,65 @@ async function _loadCourseDetail(courseId) {
     const banner = document.getElementById('cd-banner');
     if (banner) banner.style.background = _courseThumbStyle(course);
 
-    // Reset tabs to first tab
-    document.querySelectorAll('.cd-tab').forEach((t, i) => t.classList.toggle('active', i === 0));
-    document.querySelectorAll('.cd-tab-content').forEach((c, i) => c.classList.toggle('active', i === 0));
+    // ── Filmstrip (horizontal scrollable lesson cards with selection) ──
+    const filmstrip = document.getElementById('cd-filmstrip');
+    const allLessons = lessons.sort((a, b) => (a.order || 0) - (b.order || 0));
+    const selectedLessons = new Set();
 
-    // Curriculum
+    if (filmstrip) {
+      let num = 0;
+      filmstrip.innerHTML = '';
+      allLessons.forEach(l => {
+        num++;
+        const thumb = _ytThumb(l.video_url);
+        const card = document.createElement('div');
+        card.dataset.lessonId = l.id;
+        card.style.cssText = 'flex-shrink:0;width:140px;cursor:pointer;border-radius:10px;border:2px solid var(--border);background:rgba(255,255,255,.02);overflow:hidden;transition:all .2s;position:relative';
+        const mod = modules.find(m => m.id === l.module_id);
+        card.innerHTML = `
+          <div style="height:80px;background:${thumb ? `url(${thumb}) center/cover` : 'linear-gradient(135deg,#1a1d2e,#252a3a)'};position:relative;display:grid;place-items:center">
+            ${!thumb ? `<span style="font-size:18px;font-weight:700;color:var(--text-dim)">${num}</span>` : ''}
+            <span style="position:absolute;bottom:4px;right:6px;font-size:9px;background:rgba(0,0,0,.7);color:#fff;padding:1px 5px;border-radius:3px">${l.duration || '?'}m</span>
+            <div class="fs-check" style="position:absolute;top:4px;left:4px;width:18px;height:18px;border-radius:4px;border:1.5px solid rgba(255,255,255,.2);display:grid;place-items:center;background:rgba(0,0,0,.3);transition:all .15s"></div>
+          </div>
+          <div style="padding:7px 8px">
+            <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.8);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${l.title}</div>
+          </div>`;
+
+        // Click to select/deselect
+        card.addEventListener('click', (e) => {
+          if (e.target.closest('.fs-check') || e.shiftKey) {
+            // Toggle selection
+            if (selectedLessons.has(l.id)) { selectedLessons.delete(l.id); card.style.borderColor = 'var(--border)'; card.querySelector('.fs-check').innerHTML = ''; }
+            else { selectedLessons.add(l.id); card.style.borderColor = 'var(--accent)'; card.querySelector('.fs-check').innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="var(--accent)" stroke="var(--accent)" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>'; card.querySelector('.fs-check').style.borderColor = 'var(--accent)'; }
+            document.getElementById('cd-selected-count').textContent = selectedLessons.size ? `${selectedLessons.size} selected` : 'Select lectures to play';
+          } else {
+            // Show lesson detail
+            _showLessonDetail(l, num, thumb, mod);
+          }
+        });
+
+        filmstrip.appendChild(card);
+      });
+    }
+
+    // ── Play button — starts video follow-along with selected (or all) lessons ──
+    const playBtn = document.getElementById('cd-play-btn');
+    if (playBtn) {
+      playBtn.onclick = () => {
+        _unlockAudio();
+        const lessonIds = selectedLessons.size > 0 ? [...selectedLessons] : allLessons.map(l => l.id);
+        const firstLesson = allLessons.find(l => l.id === lessonIds[0]);
+        if (firstLesson) _startVideoFollowAlong(courseId, firstLesson, lessonIds);
+      };
+    }
+
+    // ── Full curriculum (modules > lessons) ──
     const curEl = document.getElementById('cd-curriculum');
     if (curEl) {
       let lessonNum = 0;
       curEl.innerHTML = modules.map(mod => {
-        const modLessons = lessons
-          .filter(l => l.module_id === mod.id)
-          .sort((a, b) => (a.order || 0) - (b.order || 0));
+        const modLessons = allLessons.filter(l => l.module_id === mod.id);
         return `
           <div class="mod-block">
             <div class="mod-head"><span>${mod.title}</span><span>${modLessons.length} lessons</span></div>
@@ -10289,17 +10336,10 @@ async function _loadCourseDetail(courseId) {
             }).join('')}</div>
           </div>`;
       }).join('');
-
-      // Wire lesson clicks → start session for that lesson
       curEl.querySelectorAll('.les').forEach(row => {
-        row.addEventListener('click', () => {
-          _startFromLesson(courseId, parseInt(row.dataset.lessonId), row.dataset.lessonTitle);
-        });
+        row.addEventListener('click', () => _startFromLesson(courseId, parseInt(row.dataset.lessonId), row.dataset.lessonTitle));
       });
     }
-
-    // Populate mode expansion panels with lesson checkboxes
-    _buildModeExpansions(modules, lessons);
 
   } catch (e) {
     console.error('Failed to load course detail:', e);
@@ -10392,6 +10432,29 @@ async function _startFromLesson(courseId, lessonId, lessonTitle) {
   const courseIdEl = document.getElementById('course-id');
   if (courseIdEl) courseIdEl.value = courseId;
   await startNewSession(user.name, courseId, `Teach me: ${lessonTitle}`, 'course');
+}
+
+function _showLessonDetail(lesson, num, thumb, mod) {
+  const detail = document.getElementById('cd-lesson-detail');
+  if (!detail) return;
+  detail.style.display = 'block';
+  document.getElementById('cd-detail-title').textContent = lesson.title;
+  document.getElementById('cd-detail-desc').textContent = lesson.lesson_summary || lesson.title;
+  document.getElementById('cd-detail-duration').textContent = (lesson.duration || '?') + ' min';
+  document.getElementById('cd-detail-module').textContent = mod ? mod.title : '';
+  const img = document.getElementById('cd-detail-img');
+  const numEl = document.getElementById('cd-detail-num');
+  if (thumb) { img.src = thumb; img.style.display = 'block'; numEl.style.display = 'none'; }
+  else { img.style.display = 'none'; numEl.style.display = 'block'; numEl.textContent = num; }
+}
+
+async function _startVideoFollowAlong(courseId, firstLesson, lessonIds) {
+  const user = AuthManager.getUser();
+  if (!user) return Router.navigate('/login');
+  // Start video follow-along for the first lesson — the playlist is passed for the right panel
+  state._coursePlaylist = lessonIds;
+  state._coursePlaylistCourseId = courseId;
+  vmStartVideoForLesson(courseId, firstLesson.id);
 }
 
 function _startFromMode() {
