@@ -1098,6 +1098,11 @@ def is_retryable(exc: Exception) -> bool:
             return True
         if isinstance(exc, openai.InternalServerError):
             return True
+        # Generic APIError with "Provider returned error" — transient OpenRouter issue
+        if isinstance(exc, openai.APIError):
+            msg = str(exc).lower()
+            if "provider returned error" in msg or "provider" in msg:
+                return True
     except ImportError:
         pass
 
