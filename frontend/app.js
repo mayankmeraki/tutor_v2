@@ -7540,8 +7540,6 @@ function showScreen(screenName, param) {
         const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
         browseGreeting.textContent = `${timeGreeting}, ${firstName}`;
       }
-      // Restore Euler state — keeps chat if there's history
-      _eulerResetToIdle();
       // Load home sections (sessions, courses, videos)
       _loadHomeSections();
       _fetchCourses();
@@ -7745,10 +7743,11 @@ function _initHomeTabs() {
       if (target) target.classList.add('active');
       // Load content for the tab if needed
       if (tab.dataset.homeTab === 'home') { _loadHomeSections(); }
-      if (tab.dataset.homeTab === 'content') { _loadByoMaterials(); _loadLearningAids(); }
+      if (tab.dataset.homeTab === 'stuff') { _loadCollections(); }
       // Legacy compat
-      if (tab.dataset.homeTab === 'explore') { _loadBrowseCourses(); _loadRecentSessions(); _loadMyVideos(); }
-      if (tab.dataset.homeTab === 'materials') { _loadByoMaterials(); _loadLearningAids(); }
+      if (tab.dataset.homeTab === 'content') { _loadByoMaterials(); try { _loadLearningAids(); } catch(e) {} }
+      if (tab.dataset.homeTab === 'explore') { try { _loadBrowseCourses(); _loadRecentSessions(); _loadMyVideos(); } catch(e) {} }
+      if (tab.dataset.homeTab === 'materials') { try { _loadByoMaterials(); _loadLearningAids(); } catch(e) {} }
     });
   });
 
@@ -9212,6 +9211,177 @@ function _eulerHideProcessing() {
 let _byoPollTimer = null;
 let _byoPollCount = 0;
 const _BYO_POLL_MAX = 30; // max 30 attempts = ~2 minutes, then stop
+
+// ═══════════════════════════════════════════════════════════════
+//   Collections (new My Stuff tab — folder-first model)
+// ═══════════════════════════════════════════════════════════════
+
+async function _loadCollections() {
+  const list = document.getElementById('collections-list');
+  if (!list) return;
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) { list.innerHTML = '<p style="color:var(--text-dim);font-size:12px">Failed to load collections.</p>'; return; }
+    const collections = await res.json();
+
+    if (!collections.length) {
+      list.innerHTML = `
+        <div style="text-align:center;padding:48px 20px;color:var(--text-dim)">
+          <p style="font-size:13px;margin-bottom:8px">No collections yet</p>
+          <p style="font-size:11px;color:var(--text-dim)">Create a collection and add your study materials.</p>
+        </div>`;
+      return;
+    }
+
+    list.innerHTML = '';
+    for (const col of collections) {
+      const card = document.createElement('div');
+      card.className = 'col-card';
+      card.style.cssText = 'border-radius:9px;border:1px solid var(--border);background:var(--bg-surface);cursor:pointer;transition:all .2s;overflow:hidden;margin-bottom:6px';
+
+      // Determine icon based on tags/resources
+      const isVideo = (col.tags || []).includes('video') || (col.tags || []).includes('youtube');
+      const iconColor = isVideo ? 'color:#f87171;background:rgba(248,113,113,.1)' : 'color:#818cf8;background:rgba(99,102,241,.1)';
+      const iconSvg = isVideo
+        ? '<polygon points="5 3 19 12 5 21 5 3"/>'
+        : '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>';
+
+      const itemCount = col.stats?.resources || 0;
+      const status = col.status === 'ready' ? 'Ready' : col.status === 'processing' ? 'Processing...' : col.status;
+      const action = isVideo ? 'Follow along' : 'Teach me this';
+
+      card.innerHTML = `
+        <div style="display:flex;align-items:center;gap:9px;padding:10px 12px" class="col-head-row">
+          <div style="width:30px;height:30px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;${iconColor}">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14">${iconSvg}</svg>
+          </div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${col.title || 'Untitled'}</div>
+            <div style="font-size:9px;color:var(--text-dim);margin-top:1px">${itemCount} items &middot; ${status}</div>
+          </div>
+          <button class="sc-btn sc-btn-accent" style="padding:5px 10px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap" onclick="event.stopPropagation();_startFromCollection('${col.collection_id}','${isVideo ? 'follow_along' : 'teach'}')">${action}</button>
+          <svg style="color:var(--text-dim);transition:transform .2s;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="m9 18 6-6-6-6"/></svg>
+        </div>
+        <div class="col-body-content" style="display:none;border-top:1px solid var(--border);padding:8px 12px">
+          <div class="col-resources" data-col-id="${col.collection_id}">
+            <div style="color:var(--text-dim);font-size:10px;padding:4px">Loading...</div>
+          </div>
+          <div style="display:flex;align-items:center;gap:6px;padding:6px;margin-top:4px;border-radius:5px;border:1px dashed var(--border);cursor:pointer;color:var(--text-dim);font-size:10px" onclick="event.stopPropagation();_addToCollection('${col.collection_id}')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+            Add files, videos, or links
+          </div>
+        </div>`;
+
+      // Toggle expand/collapse
+      card.addEventListener('click', async () => {
+        const body = card.querySelector('.col-body-content');
+        const arrow = card.querySelector('svg:last-child');
+        const isOpen = body.style.display !== 'none';
+        body.style.display = isOpen ? 'none' : 'block';
+        if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
+        // Load resources on first open
+        if (!isOpen && !card._loaded) {
+          card._loaded = true;
+          await _loadCollectionResources(col.collection_id, card.querySelector('.col-resources'));
+        }
+      });
+
+      list.appendChild(card);
+    }
+  } catch (err) {
+    console.error('Failed to load collections:', err);
+    list.innerHTML = '<p style="color:var(--text-dim);font-size:12px">Error loading collections.</p>';
+  }
+}
+
+async function _loadCollectionResources(collectionId, container) {
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${collectionId}/resources`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) { container.innerHTML = '<div style="color:var(--text-dim);font-size:10px">Failed to load</div>'; return; }
+    const resources = await res.json();
+
+    if (!resources.length) {
+      container.innerHTML = '<div style="color:var(--text-dim);font-size:10px;padding:4px">No items yet — add files or links above.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    for (const r of resources) {
+      const isVid = (r.mime_type || '').startsWith('video') || (r.source_type === 'url' && /youtube|youtu\.be/i.test(r.source_url || ''));
+      const icon = isVid
+        ? '<polygon points="5 3 19 12 5 21 5 3"/>'
+        : '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>';
+      const statusClass = r.status === 'ready' ? 'background:rgba(52,211,153,.08);color:var(--accent)' : 'background:rgba(251,191,36,.08);color:#fbbf24';
+      const statusText = r.status === 'ready' ? 'Ready' : r.status === 'processing' ? 'Processing' : r.status || 'Queued';
+      const size = r.file_size ? (r.file_size > 1048576 ? Math.round(r.file_size / 1048576) + ' MB' : Math.round(r.file_size / 1024) + ' KB') : '';
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;font-size:11px';
+      row.innerHTML = `
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="14" height="14" style="flex-shrink:0;color:var(--text-dim)">${icon}</svg>
+        <span style="flex:1;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.original_name || r.source_url || 'Untitled'}</span>
+        <span style="font-size:8px;padding:1px 5px;border-radius:3px;font-weight:500;${statusClass}">${statusText}</span>
+        ${size ? `<span style="font-size:9px;color:var(--text-dim)">${size}</span>` : ''}`;
+      container.appendChild(row);
+    }
+  } catch (err) {
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:10px">Error loading resources</div>';
+  }
+}
+
+function _addToCollection(collectionId) {
+  // Trigger file input scoped to this collection
+  const input = document.getElementById('byo-file-input');
+  if (!input) return;
+  input.dataset.collectionId = collectionId;
+  input.click();
+}
+
+function _startFromCollection(collectionId, mode) {
+  // Navigate to a session grounded on this collection
+  console.log('[Collections] Start session:', collectionId, mode);
+  // TODO: wire to session creation with collection_id + mode
+}
+
+function _initCollectionsUI() {
+  // Wire "New Collection" button
+  const btn = document.getElementById('btn-new-collection');
+  if (btn) btn.addEventListener('click', () => {
+    const modal = document.getElementById('new-collection-modal');
+    if (modal) { modal.style.display = 'flex'; const inp = document.getElementById('new-col-name'); if (inp) { inp.value = ''; inp.focus(); } }
+  });
+
+  // Wire "Create" button in modal
+  const createBtn = document.getElementById('btn-create-collection');
+  if (createBtn) createBtn.addEventListener('click', async () => {
+    const nameInput = document.getElementById('new-col-name');
+    const title = (nameInput?.value || '').trim();
+    if (!title) return;
+
+    try {
+      const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+        body: JSON.stringify({ title }),
+      });
+      if (!res.ok) { alert('Failed to create collection'); return; }
+      document.getElementById('new-collection-modal').style.display = 'none';
+      _loadCollections();
+    } catch (err) {
+      console.error('Create collection failed:', err);
+      alert('Failed to create collection');
+    }
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+//   BYO Materials (legacy — kept for compat)
+// ═══════════════════════════════════════════════════════════════
 
 async function _loadByoMaterials() {
   const grid = document.getElementById('byo-grid');
@@ -10765,6 +10935,7 @@ async function initSetup() {
 
   // ─── Home screen tabs + Euler ─────────────────────────────
   _initHomeTabs();
+  _initCollectionsUI();
   _initEuler();
 
   // ─── Course detail wiring ─────────────────────────────
