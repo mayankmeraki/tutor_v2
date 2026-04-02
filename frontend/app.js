@@ -1459,6 +1459,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
 
 function handleSSEEvent(event) {
   state._lastSSETimestamp = Date.now();
+  _resetSafetyTimeout(); // Reset safety timer on every event
   const type = event.type;
 
   switch (type) {
@@ -17293,13 +17294,16 @@ window.togglePause = togglePause;
 
 /**
  * Safety timeout — auto-recover if system gets stuck.
- * Called at the start of each streamADK.
+ * Resets on every SSE event. Only fires if NO events for 45s.
  */
 function _startSafetyTimeout() {
+  _resetSafetyTimeout();
+}
+function _resetSafetyTimeout() {
   if (_safetyTimeout) clearTimeout(_safetyTimeout);
   _safetyTimeout = setTimeout(() => {
     if (state.isStreaming) {
-      console.warn('[Safety] Auto-recovery — stream stuck for 45s');
+      console.warn('[Safety] Auto-recovery — no SSE events for 45s');
       stopAll();
     }
   }, 45000);
