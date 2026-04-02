@@ -685,23 +685,8 @@ function createAnimation(cmd) {
 
   figure.appendChild(el);
 
-  // Legend (inline below canvas — self-contained, no separate beats needed)
-  var hasLegend = cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0;
-  if (hasLegend) {
-    var legendBar = document.createElement('div');
-    legendBar.className = 'bd-anim-legend-bar';
-    cmd.legend.forEach(function(item) {
-      var li = document.createElement('span');
-      li.className = 'bd-anim-legend-item';
-      var dot = document.createElement('span');
-      dot.className = 'bd-anim-legend-dot';
-      dot.style.background = resolveColor(item.color || '#e8e8e0');
-      li.appendChild(dot);
-      li.appendChild(document.createTextNode(item.text || item));
-      legendBar.appendChild(li);
-    });
-    figure.appendChild(legendBar);
-  }
+  // Bottom legend bar disabled — AnimHelper A.legend() renders glass overlay inside canvas
+  // if (cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0) { ... }
 
   // Place the self-contained figure
   placeElement(figure, cmd.placement, cmd);
