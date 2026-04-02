@@ -1,127 +1,130 @@
-"""Voice mode animation control and element highlighting.
+"""Voice mode animation design system.
 
-Controls how to interact with live p5.js animations during voice scenes:
-- Change parameters at runtime
-- Highlight individual named elements (curves, labels, etc.)
+Teaches the LLM to generate p5.js animations using the AnimHelper library.
+Animations are state-driven, tutor-controlled, and visually polished.
 """
 
 VOICE_ANIMATION_CONTROL = r"""
-═══ ANIMATION — p5.js INLINE ON BOARD ═══
+═══ ANIMATION DESIGN SYSTEM (AnimHelper) ═══
 
-Animations are p5.js sketches that run live on the board.
-The code receives: p (p5 instance), W (width px), H (height px).
-Use these for ALL sizing — never hardcode pixel values.
+Animations run as p5.js sketches on the board. You generate the code.
+The AnimHelper library is pre-loaded — use it for ALL drawing.
 
-IMPORTANT RULES:
-  - Always use p.createCanvas(W, H) or p.createCanvas(W, H, p.WEBGL) in setup
-  - Use W and H for ALL coordinates and sizing (proportional drawing)
-  - Use the injected S variable for text/stroke scaling
-  - Keep text OUTSIDE the animation — use beside:/below: placement for labels
-  - Use dark background: p.background(15, 20, 16) or similar
-  - NEVER use p.text() — all labels go OUTSIDE as text commands with legends
-  - Code must be plain JavaScript — use Math.PI not π, use * not ×
-  - Keep code SHORT — under 40 lines. Simple code that works > complex code that breaks.
+CODE TEMPLATE (every animation follows this structure):
 
-═══ 2D ANIMATIONS (default — use for graphs, waves, distributions) ═══
+  const A = new AnimHelper(p, W, H);
+  p._animHelper = A;  // required — enables anim-control from beats
 
-  let t = 0;
+  A.init({
+    showCurve: 0,    // 0 = hidden, 1 = visible (smooth transition)
+    ballX: 0.5,      // normalized 0-1 coordinates
+    launched: 0,     // boolean-like: 0 = no, 1 = yes
+  });
+
   p.setup = () => { p.createCanvas(W, H); };
   p.draw = () => {
-    p.background(15, 20, 16);
-    t += 0.02;
-    p.noFill(); p.stroke(52, 211, 153); p.strokeWeight(2);
-    p.beginShape();
-    for (let x = 0; x < W; x += 2) {
-      let y = H/2 + Math.sin(x * 0.05 + t) * H * 0.3;
-      p.vertex(x, y);
+    A.tick();  // MUST call first — updates all animated values
+    A.clear(); // dark background with vignette
+    A.grid();  // subtle grid
+
+    const s = A.state;
+    if (s.showCurve > 0.1) {
+      // Draw when visible — use alpha for fade-in
+      A.curve(points, A.colors.accent, 2);
     }
-    p.endShape();
+    if (s.launched > 0.5) {
+      // Physics step
+      s.ballX += s.vx * dt;
+    }
   };
 
-═══ 3D ANIMATIONS (WEBGL — use for spheres, orbitals, 3D shapes) ═══
+CRITICAL RULES:
+  1. ALWAYS use AnimHelper — never raw p5.js drawing
+  2. ALWAYS use A.init({}) with state that starts hidden (0)
+  3. ALWAYS call A.tick() first in draw(), A.clear() second
+  4. Use A.state values for visibility — fade in with > 0.1 checks
+  5. Use normalized coords (0-1) with A.nx(), A.ny() for positioning
+  6. NEVER use p.text() — use A.label() for all text
+  7. Keep code under 80 lines — helpers handle the rest
 
-  let t = 0;
-  p.setup = () => { p.createCanvas(W, H, p.WEBGL); };
-  p.draw = () => {
-    p.background(15, 20, 16);
-    t += 0.01;
-    p.ambientLight(60);
-    p.pointLight(200, 200, 200, W*0.3, -H*0.3, W*0.5);
-    p.rotateY(t * 0.3); p.rotateX(-0.3);
-    p.noFill(); p.stroke(52, 211, 153); p.strokeWeight(1);
-    p.sphere(W * 0.15);
-  };
+═══ PHASED REVEAL (the key pattern) ═══
 
-NEVER use p.text() in WEBGL — it requires loadFont() and crashes.
+Each beat adds to the scene. Nothing resets. State values go 0 → 1:
 
-USE WEBGL ONLY FOR: Bloch spheres, orbitals, crystal lattices, 3D surfaces.
-Everything else should be 2D (graphs, energy levels, wave functions, etc.)
+  Beat 1: draw animation with A.init({showCurve:0, showForce:0, showLabel:0})
+  Beat 2: anim-control='{"action":"set","param":"showCurve","value":1}'
+  Beat 3: anim-control='{"action":"set","param":"showForce","value":1}'
+  Beat 4: anim-control='{"action":"set","param":"showLabel","value":1}'
 
-═══ COLOR PALETTE (use these exact colors — legend must match) ═══
+The AnimHelper lerps all values smoothly — instant transitions become fades.
 
-  Green:  p.stroke(52, 211, 153)   — #34d399
-  Gold:   p.stroke(251, 191, 36)   — #fbbf24
-  Cyan:   p.stroke(83, 216, 251)   — #53d8fb
-  Rose:   p.stroke(251, 113, 133)  — #fb7185
-  Axes:   p.stroke(80, 80, 80)     — dim gray
+═══ DRAWING HELPERS (use these, not raw p5.js) ═══
 
-═══ ANIMATION FIGURE (self-contained: title + canvas + legend) ═══
+  A.clear()                        — dark bg (#0a0e1a) + vignette
+  A.grid(spacing, alpha)           — subtle dotted grid
+  A.glow(x, y, radius, color)     — circle with radial glow (particles, atoms)
+  A.label(x, y, text, color, size) — clean sans-serif label
+  A.arrow(x1,y1, x2,y2, color)    — arrow with proper head (forces, vectors)
+  A.dashed(x1,y1, x2,y2, color)   — dashed line (reference lines, axes)
+  A.curve(points, color, weight)   — smooth curve from [[x,y], ...] array
+  A.filledCurve(pts, baseY, color) — shaded area under curve (integrals, probability)
+  A.equation(x, y, text, color)    — boxed equation display
+  A.legend([{color, label},...])   — glass overlay legend (top-right)
+  A.point(x, y, label, color)     — labeled point with glow
+  A.callout(x, y, text, color)    — annotation box
 
-Every animation is a self-contained FIGURE with title and legend — like matplotlib.
-Include "title" and "legend" properties. NO separate text commands for legend:
+  A.nx(0.5) → x pixel at 50% width
+  A.ny(0.3) → y pixel at 30% height
+  A.osc(freq, min, max)           — oscillating value for animations
+  A.pulse(freq)                    — 0→1→0 pulsing value
 
-  <vb draw='{"cmd":"animation","id":"wave","title":"Wave Function ψ(x,t)","code":"...","legend":[{"text":"ψ(x)","color":"#34d399"},{"text":"|ψ|²","color":"#fbbf24"}]}' say="Watch how the wave function evolves." />
+═══ COLOR PALETTE (A.colors.*) ═══
 
-This renders as: [Title bar] → [Animation canvas] → [Legend bar with colored dots]
+  A.colors.accent    = [59,130,246]   — blue (primary curves, highlights)
+  A.colors.accentAlt = [52,211,153]   — green (secondary, positive)
+  A.colors.warm      = [251,191,36]   — amber (forces, energy)
+  A.colors.danger    = [239,68,68]    — red (negative, barriers)
+  A.colors.purple    = [167,139,250]  — purple (enzymes, special)
+  A.colors.pink      = [244,114,182]  — pink (secondary strand)
+  A.colors.cyan      = [56,189,248]   — cyan (particles, waves)
+  A.colors.text      = [241,245,249]  — white text
+  A.colors.textMuted = [148,163,184]  — gray labels
 
-═══ DIAGRAM QUALITY — MAKE IT LOOK PROFESSIONAL ═══
+═══ TUTOR-CONTROLLED BEATS (how you narrate over animations) ═══
 
-Every diagram/animation must look like a textbook figure, not a rough sketch:
+Beat 1 — CREATE the animation (draw command with code):
+  <vb draw='{"cmd":"animation","id":"my-anim","placement":"center","size":"lg",
+       "code":"const A=new AnimHelper(p,W,H);p._animHelper=A;A.init({wave:0,force:0});p.setup=()=>{p.createCanvas(W,H);};p.draw=()=>{A.tick();A.clear();A.grid();const s=A.state;if(s.wave>0.1){A.curve(pts,A.colors.accent,2);}if(s.force>0.5){A.arrow(x,y,x2,y2,A.colors.warm);}};",
+       "legend":[{"text":"Wave","color":"#3b82f6"},{"text":"Force","color":"#fbbf24"}]}'
+      say="Here's our setup — let me walk you through it."
+      cursor="point:id:my-anim" />
 
-  AXES & LABELS:
-  - Always draw axes with arrows: use p.line + p.triangle for arrowheads
-  - Label axes INSIDE the canvas: draw text near the axis ends
-  - Use proportional coordinates (W*0.1, H*0.9 for origin, W*0.9 for x-axis end)
-  - Leave 10% margin on all sides — never draw to the canvas edge
+Beat 2+ — CONTROL the animation (no new code, just state changes):
+  <vb anim-control='{"action":"set","param":"wave","value":1}'
+      say="Watch the wave appear."
+      cursor="point:id:my-anim" pause="1" />
 
-  GRID:
-  - For quantitative plots: draw faint grid lines (p.stroke(30,35,32); p.strokeWeight(0.5))
-  - Add tick marks on axes with values
+  <vb anim-control='{"action":"set","param":"force","value":1}'
+      say="Now see the force vector — it's always pointing down."
+      cursor="tap:id:my-anim" pause="0.8" />
 
-  LEGEND (always use the "legend" property, not separate text):
-  - Keep legend text SHORT: "ψ(x)" not "Green line = wave function ψ(x)"
-  - Max 4 legend items
-  - Colors must match what's drawn
+═══ SUBJECT-SPECIFIC PATTERNS ═══
 
-  SIZING:
-  - Use the full canvas — don't leave half the space empty
-  - Curves should use 60-80% of the canvas height range
-  - Minimum stroke weight: 2*S for main curves, 1*S for helper lines
+PHYSICS: particles=A.glow, forces=A.arrow, waves=A.curve, fields=grid of arrows
+CHEMISTRY: atoms=A.glow, bonds=A.dashed/line, orbitals=A.filledCurve, labels=A.label
+MATH: functions=A.curve, areas=A.filledCurve, points=A.point, equations=A.equation
+BIOLOGY: cells=A.glow(large), processes=A.arrow, labels=A.label, regions=A.filledCurve
 
-  COMMON PATTERNS:
-  - Graph: axes + curve + labels + legend
-  - Phase space: two axes + trajectory + starting point dot
-  - Energy levels: horizontal lines at different heights + labels
-  - Probability cloud: random dots weighted by distribution
-  - Vector field: arrows at grid points
+═══ QUALITY CHECKLIST ═══
 
-  BAD diagram: tiny curves in the corner, no axes, no labels, no legend
-  GOOD diagram: full-width axes, labeled, curves filling the space, clean legend
-
-═══ ANIMATION CONTROL (runtime parameter changes) ═══
-
-Control active animation parameters and highlight individual elements:
-  anim-control='{"_highlight":"curve1"}' — glow/pulse a named element
-  anim-control='{"_unhighlight":true}'   — remove all highlights
-
-Animation code reads _controlParams for runtime changes:
-  if (_controlParams._highlight === "psi") {
-    p.strokeWeight(3); p.drawingContext.shadowColor = '#34d399';
-    p.drawingContext.shadowBlur = 15;
-  }
-
-Example beat flow:
-  <vb draw='{"cmd":"animation","id":"wave","code":"..."}' say="Two curves." />
-  <vb anim-control='{"_highlight":"psi"}' say="This green one is psi. {ref:wave}" pause="1.5" />
-  <vb anim-control='{"_unhighlight":true}' say="See how they relate?" />
+  ✓ Dark background (A.clear handles this)
+  ✓ System sans-serif font (A.label handles this)
+  ✓ Glowing particles, not flat circles
+  ✓ Glass-morphism legend (A.legend handles this)
+  ✓ Phased reveal via state — nothing appears all at once
+  ✓ Smooth transitions via A.animateTo (lerp built-in)
+  ✓ Force arrows with proper heads (A.arrow)
+  ✓ Equations in styled boxes (A.equation)
+  ✓ Normalized coordinates (A.nx, A.ny) — responsive
+  ✓ Under 80 lines of code
 """

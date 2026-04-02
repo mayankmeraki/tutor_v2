@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>DNA Replication</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0e1a;color:#e8edf5;font-family:-apple-system,sans-serif;height:100vh;display:flex;flex-direction:column}.bar{padding:10px 20px;border-bottom:1px solid rgba(148,163,184,0.12);display:flex;align-items:center;gap:12px}.bar h1{font-size:15px;font-weight:600;flex:1}.tag{font-size:10px;padding:3px 10px;border-radius:10px;background:rgba(52,211,153,0.12);color:#34d399;font-weight:700}.main{flex:1;min-height:0}.sub{padding:12px 24px;text-align:center;font-size:13px;color:#7a8ba8;border-top:1px solid rgba(148,163,184,0.12);min-height:46px}.sub b{color:#e8edf5}.beats{padding:10px 16px;display:flex;gap:6px;overflow-x:auto;border-top:1px solid rgba(148,163,184,0.12);background:#131a2b}.beat-btn{padding:5px 12px;border:1px solid rgba(148,163,184,0.12);background:rgba(51,65,85,0.3);color:#7a8ba8;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}.beat-btn:hover{border-color:#34d399;color:#e8edf5}.beat-btn.active{background:#34d399;border-color:#34d399;color:#fff}.beat-btn.done{background:rgba(52,211,153,0.1);color:#34d399}.auto-btn{padding:5px 14px;border:1px solid #34d399;background:#34d399;color:#fff;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;margin-left:auto}</style>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<script src="shared.js"></script>
+</head><body>
+<div class="bar"><h1>DNA Replication — The Molecular Machine</h1><span class="tag">BIOLOGY</span></div>
+<div class="main" id="cc"></div>
+<div class="sub" id="subtitle">Hit <b>Play All</b> to watch DNA replication unfold step by step.</div>
+<div class="beats">
+  <button class="beat-btn" data-beat="0">1. The helix</button>
+  <button class="beat-btn" data-beat="1">2. Base pairs</button>
+  <button class="beat-btn" data-beat="2">3. Helicase</button>
+  <button class="beat-btn" data-beat="3">4. Unzipping</button>
+  <button class="beat-btn" data-beat="4">5. Pol III builds</button>
+  <button class="beat-btn" data-beat="5">6. Two copies</button>
+  <button class="auto-btn" id="auto-play">▶ Play All</button>
+</div>
+<script>
+let A;
+const SEQ='ATGCTAGCAATTGCGATCGA';
+const COMP={A:'T',T:'A',G:'C',C:'G'};
+const BC={A:[245,158,11],T:[59,130,246],G:[52,211,153],C:[239,68,68]};
+
+new p5(function(p){
+  const cc=document.getElementById('cc');let W,H;
+  p.setup=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.createCanvas(W,H).parent(cc);p.textFont('sans-serif');
+    A=new AnimHelper(p,W,H);p._animHelper=A;
+    A.init({helix:0, labels:0, helicaseY:-0.05, unzip:0, polyProgress:0, split:0});
+  };
+  p.windowResized=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.resizeCanvas(W,H);A.W=W;A.H=H;};
+  p.draw=function(){
+    A.tick();A.clear();
+    const s=A.state, cx=W/2, topY=50, botY=H-30, n=SEQ.length, yStep=(botY-topY)/n;
+
+    for(let i=0;i<n;i++){
+      const normI=i/n, y=topY+i*yStep;
+      const fadeIn=Math.min(1,Math.max(0,(s.helix*n-i)/3));
+      if(fadeIn<0.01)continue;
+
+      let sep=0;
+      if(normI<s.unzip)sep=Math.min(1,(s.unzip-normI)*4);
+
+      const base=SEQ[i],comp=COMP[base];
+      const bw=24, gap=sep*70;
+      const lx=cx-bw-gap, rx=cx+gap;
+
+      // Backbone
+      p.drawingContext.globalAlpha=fadeIn;
+      p.fill(129,140,248,fadeIn*180);p.noStroke();p.ellipse(lx-3,y,5,5);
+      p.fill(244,114,182,fadeIn*180);p.ellipse(rx+bw+3,y,5,5);
+
+      // Backbone connections
+      if(i>0){const py=topY+(i-1)*yStep;p.stroke(129,140,248,fadeIn*50);p.strokeWeight(1.5);p.line(lx-3,py,lx-3,y);p.stroke(244,114,182,fadeIn*50);p.line(rx+bw+3,py,rx+bw+3,y);}
+
+      // Base pair blocks
+      p.noStroke();
+      const[lr,lg,lb]=BC[base];p.fill(lr,lg,lb,fadeIn*200);
+      p.rect(lx,y-3,bw*(1-sep*0.2),6,2);
+      const[rr,rg,rb]=BC[comp];p.fill(rr,rg,rb,fadeIn*200);
+      p.rect(rx+bw*sep*0.2,y-3,bw*(1-sep*0.2),6,2);
+
+      // Bonds
+      if(sep<0.3){
+        p.fill(255,255,255,(1-sep*3)*fadeIn*80);
+        const nb=(base==='G'||base==='C')?3:2;
+        for(let b=0;b<nb;b++)p.ellipse(cx+(b-nb/2+0.5)*5,y,2,2);
+      }
+
+      // Base labels
+      if(s.labels>0.3){
+        p.drawingContext.globalAlpha=fadeIn*Math.min(1,(s.labels-0.3)/0.7);
+        p.fill(255,255,255,200);p.textSize(8);p.textAlign(p.CENTER,p.CENTER);
+        p.text(base,lx+bw/2,y);p.text(comp,rx+bw/2,y);
+      }
+
+      // New strand synthesis
+      if(s.polyProgress>0&&normI<s.polyProgress&&sep>0.5){
+        const sa=Math.min(1,(s.polyProgress-normI)*6);
+        p.drawingContext.globalAlpha=fadeIn*sa*0.7;
+        // New complement for left template
+        const[ncr,ncg,ncb]=BC[comp];
+        p.fill(ncr,ncg,ncb);p.rect(lx-bw-8,y-3,bw,6,2);
+        p.fill(52,211,153,150);p.ellipse(lx-bw-11,y,4,4); // new backbone
+        // New complement for right template
+        const[nbr,nbg,nbb]=BC[base];
+        p.fill(nbr,nbg,nbb);p.rect(rx+bw+8,y-3,bw,6,2);
+        p.fill(52,211,153,150);p.ellipse(rx+bw*2+11,y,4,4);
+      }
+      p.drawingContext.globalAlpha=1;
+    }
+
+    // Helicase enzyme
+    if(s.helicaseY>-0.03){
+      const hy=topY+s.helicaseY*(botY-topY);
+      const ha=Math.min(1,(s.helicaseY+0.05)*10);
+      A.glow(cx,hy,18,[251,191,36],0.3*ha);
+      p.drawingContext.globalAlpha=ha;
+      p.fill(255);p.textSize(10);p.textAlign(p.CENTER,p.CENTER);p.textStyle(p.BOLD);p.text('H',cx,hy);p.textStyle(p.NORMAL);
+      A.label(cx,hy+24,'Helicase',[251,191,36],9,false);
+      p.drawingContext.globalAlpha=1;
+    }
+
+    // Pol III enzymes
+    if(s.polyProgress>0.05){
+      const pa=Math.min(1,s.polyProgress*5);
+      const polY=topY+s.polyProgress*(botY-topY)*0.4;
+      A.glow(cx-95,polY,14,[167,139,250],0.25*pa);
+      A.glow(cx+95,polY+8,14,[167,139,250],0.25*pa);
+      p.drawingContext.globalAlpha=pa;
+      p.fill(255);p.textSize(9);p.textAlign(p.CENTER,p.CENTER);p.textStyle(p.BOLD);
+      p.text('III',cx-95,polY);p.text('III',cx+95,polY+8);p.textStyle(p.NORMAL);
+      p.drawingContext.globalAlpha=1;
+    }
+
+    // Split labels
+    if(s.split>0.1){
+      p.drawingContext.globalAlpha=s.split;
+      A.label(cx,botY+15,'Semiconservative — each copy keeps one original strand',A.colors.accentAlt,11,false);
+      p.drawingContext.globalAlpha=1;
+    }
+
+    // Legend
+    const items=[{color:BC.A,label:'Adenine (A)'},{color:BC.T,label:'Thymine (T)'},{color:BC.G,label:'Guanine (G)'},{color:BC.C,label:'Cytosine (C)'}];
+    if(s.helix>0.3)A.legend(items);
+  };
+},document.getElementById('cc'));
+
+const beats=[
+  {say:"This is the <b>DNA double helix</b> — two strands running antiparallel. Watch it build from top to bottom.",fn:()=>{A.animateTo('helix',1,2);}},
+  {say:"See the colored blocks? Those are <b>base pairs</b>. <b style='color:#f59e0b'>A</b> always pairs with <b style='color:#3b82f6'>T</b>, <b style='color:#34d399'>G</b> with <b style='color:#ef4444'>C</b>. The dots between them are hydrogen bonds.",fn:()=>{A.animateTo('labels',1);}},
+  {say:"<b style='color:#fbbf24'>Helicase</b> arrives — the unzipper enzyme. It grabs the double helix and starts breaking those hydrogen bonds.",fn:()=>{A.animateTo('helicaseY',0.05);}},
+  {say:"Watch the strands <b>peel apart</b>. Helicase moves down, breaking bonds one by one. The exposed bases are now templates.",fn:()=>{A.animateTo('helicaseY',0.6,1.5);A.animateTo('unzip',0.6,1.5);}},
+  {say:"<b style='color:#a78bfa'>DNA Polymerase III</b> follows behind. It reads each exposed base and adds the <b>matching complement</b>. New strands growing in real time!",fn:()=>{A.animateTo('polyProgress',0.55,1.2);A.animateTo('helicaseY',0.75,1);A.animateTo('unzip',0.75,1);}},
+  {say:"One DNA molecule → <b>two identical copies</b>. Each keeps one original strand plus one new one. That's <b style='color:#34d399'>semiconservative replication</b>.",fn:()=>{A.animateTo('polyProgress',0.9,1);A.animateTo('unzip',0.95,1);A.animateTo('helicaseY',0.95,1);A.animateTo('split',1);}},
+];
+initBeatRunner(beats,()=>A);
+</script></body></html>

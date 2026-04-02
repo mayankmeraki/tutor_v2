@@ -12428,13 +12428,26 @@ function bdRegisterElement(cmd) {
 }
 
 function bdControlAnimation(params) {
-  // Send control params to the most recent active animation (via BoardEngine)
-  const anims = BoardEngine.state.animations;
-  if (!anims || anims.length === 0) return;
-  const entry = anims[anims.length - 1];
-  if (entry.instance && typeof entry.instance._onControl === 'function') {
-    entry.instance._onControl(params);
+  // Send control params to the most recent active animation.
+  // Tries three paths: BoardEngine.state.animations, bdActiveAnimations, then p5 instance.
+
+  // Path 1: BoardEngine tracked animations
+  const anims = BoardEngine.state?.animations;
+  if (anims?.length) {
+    const entry = anims[anims.length - 1];
+    if (entry.instance?._onControl) { entry.instance._onControl(params); return; }
   }
+
+  // Path 2: bdActiveAnimations (local tracking)
+  if (bdActiveAnimations.length > 0) {
+    const entry = bdActiveAnimations[bdActiveAnimations.length - 1];
+    // Try AnimHelper via p5 instance
+    const p5inst = entry.p5Instance || entry.inst;
+    if (p5inst?._animHelper?._onControl) { p5inst._animHelper._onControl(params); return; }
+    if (p5inst?._onControl) { p5inst._onControl(params); return; }
+  }
+
+  console.warn('[AnimControl] No active animation to control');
 }
 
 function bdZoomPulse_LEGACY(elementId) {
@@ -14404,9 +14417,12 @@ async function bdRunAnimation(cmd) {
       const userSetup = p.setup;
       p.setup = function() {
         if (userSetup) userSetup.call(p);
-        // Use default sans-serif font for animations (not Caveat cursive)
         try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch(e) {}
       };
+      // Wire AnimHelper _onControl if the animation created one
+      if (p._animHelper) {
+        p._onControl = (params) => p._animHelper._onControl(params);
+      }
     }, canvasWrap);
   } catch (e) {
     console.error('[Animation] p5 init error:', e.message);

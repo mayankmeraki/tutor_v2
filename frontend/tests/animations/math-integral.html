@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Integration as Area</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0e1a;color:#e8edf5;font-family:-apple-system,sans-serif;height:100vh;display:flex;flex-direction:column}.bar{padding:10px 20px;border-bottom:1px solid rgba(148,163,184,0.12);display:flex;align-items:center;gap:12px}.bar h1{font-size:15px;font-weight:600;flex:1}.tag{font-size:10px;padding:3px 10px;border-radius:10px;background:rgba(245,158,11,0.12);color:#f59e0b;font-weight:700}.main{flex:1;min-height:0}.sub{padding:12px 24px;text-align:center;font-size:13px;color:#7a8ba8;border-top:1px solid rgba(148,163,184,0.12);min-height:46px}.sub b{color:#e8edf5}.beats{padding:10px 16px;display:flex;gap:6px;overflow-x:auto;border-top:1px solid rgba(148,163,184,0.12);background:#131a2b}.beat-btn{padding:5px 12px;border:1px solid rgba(148,163,184,0.12);background:rgba(51,65,85,0.3);color:#7a8ba8;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}.beat-btn:hover{border-color:#f59e0b;color:#e8edf5}.beat-btn.active{background:#f59e0b;border-color:#f59e0b;color:#fff}.beat-btn.done{background:rgba(52,211,153,0.1);color:#34d399}.auto-btn{padding:5px 14px;border:1px solid #34d399;background:#34d399;color:#fff;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;margin-left:auto}</style>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<script src="shared.js"></script>
+</head><body>
+<div class="bar"><h1>Integration — Area Under a Curve</h1><span class="tag">MATH</span></div>
+<div class="main" id="cc"></div>
+<div class="sub" id="subtitle">Hit <b>Play All</b> to see how rectangles become an integral.</div>
+<div class="beats">
+  <button class="beat-btn" data-beat="0">1. The curve</button>
+  <button class="beat-btn" data-beat="1">2. What's the area?</button>
+  <button class="beat-btn" data-beat="2">3. Rough rectangles</button>
+  <button class="beat-btn" data-beat="3">4. More rectangles</button>
+  <button class="beat-btn" data-beat="4">5. Infinitely many</button>
+  <button class="beat-btn" data-beat="5">6. The integral</button>
+  <button class="auto-btn" id="auto-play">▶ Play All</button>
+</div>
+<script>
+let A;
+function f(x){return 0.4*Math.sin(x*1.5)+0.6+0.15*Math.cos(x*3);}
+
+new p5(function(p){
+  const cc=document.getElementById('cc');let W,H;
+  p.setup=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.createCanvas(W,H).parent(cc);p.textFont('sans-serif');
+    A=new AnimHelper(p,W,H);p._animHelper=A;
+    A.init({showCurve:0,showRegion:0,numRects:4,showRects:0,showExact:0,showEq:0,a:1,b:5});
+  };
+  p.windowResized=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.resizeCanvas(W,H);A.W=W;A.H=H;};
+
+  function toX(v){return 60+(v/6.5)*(W-120);}
+  function toY(v){return H*0.82-v*(H*0.55);}
+
+  p.draw=function(){
+    A.tick();A.clear();A.grid(50,5);
+    const s=A.state;
+
+    // Axes
+    p.stroke(148,163,184,50);p.strokeWeight(1.5);
+    p.line(50,toY(0),W-30,toY(0)); // x-axis
+    p.line(toX(0),H*0.9,toX(0),H*0.08); // y-axis
+    A.label(W-25,toY(0)+14,'x',A.colors.textMuted,11);
+    A.label(toX(0)-14,H*0.06,'y',A.colors.textMuted,11);
+
+    // Tick marks
+    for(let i=1;i<=6;i++){
+      const x=toX(i);
+      p.stroke(148,163,184,30);p.strokeWeight(1);p.line(x,toY(0)-3,x,toY(0)+3);
+      A.label(x,toY(0)+14,String(i),A.colors.textMuted,9,false);
+    }
+
+    // Riemann rectangles
+    if(s.showRects>0.1){
+      const n=Math.round(s.numRects);
+      const a=s.a, b=s.b;
+      const dx=(b-a)/n;
+      p.drawingContext.globalAlpha=Math.min(1,s.showRects)*0.7;
+      for(let i=0;i<n;i++){
+        const xi=a+i*dx;
+        const h=f(xi+dx/2); // midpoint
+        const x1=toX(xi), x2=toX(xi+dx);
+        const yt=toY(h), yb=toY(0);
+        // Fill
+        p.fill(59,130,246,40);p.stroke(59,130,246,100);p.strokeWeight(1);
+        p.rect(x1,yt,x2-x1,yb-yt);
+      }
+      p.drawingContext.globalAlpha=1;
+      // Sum value
+      let sum=0;
+      for(let i=0;i<n;i++){sum+=f(a+i*dx+dx/2)*dx;}
+      A.label(W*0.15,H*0.15,`n = ${n} rectangles`,A.colors.accent,12);
+      A.label(W*0.15,H*0.2,`Sum ≈ ${sum.toFixed(3)}`,A.colors.accent,11,false);
+    }
+
+    // Exact filled area
+    if(s.showExact>0.1){
+      const pts=[];
+      for(let i=0;i<=100;i++){const x=s.a+i/100*(s.b-s.a);pts.push([toX(x),toY(f(x))]);}
+      p.drawingContext.globalAlpha=Math.min(1,s.showExact);
+      A.filledCurve(pts,toY(0),A.colors.accentAlt,0.25);
+      p.drawingContext.globalAlpha=1;
+      // Exact value (approximate)
+      let exact=0;for(let i=0;i<1000;i++){const x=s.a+i/1000*(s.b-s.a);exact+=f(x)*(s.b-s.a)/1000;}
+      A.label(W*0.85,H*0.15,`Exact = ${exact.toFixed(4)}`,A.colors.accentAlt,12);
+    }
+
+    // Highlighted region boundaries
+    if(s.showRegion>0.1){
+      p.drawingContext.globalAlpha=Math.min(1,s.showRegion);
+      A.dashed(toX(s.a),toY(0),toX(s.a),toY(f(s.a)),A.colors.warm);
+      A.dashed(toX(s.b),toY(0),toX(s.b),toY(f(s.b)),A.colors.warm);
+      A.label(toX(s.a),toY(0)+24,'a='+s.a.toFixed(0),A.colors.warm,10);
+      A.label(toX(s.b),toY(0)+24,'b='+s.b.toFixed(0),A.colors.warm,10);
+      // Question mark in the region
+      if(s.showRects<0.1&&s.showExact<0.1){
+        const mx=(s.a+s.b)/2;
+        A.label(toX(mx),toY(f(mx)*0.4),'Area = ?',A.colors.warm,16);
+      }
+      p.drawingContext.globalAlpha=1;
+    }
+
+    // The curve itself
+    if(s.showCurve>0.1){
+      const pts=[];
+      for(let i=0;i<=200;i++){const x=i/200*6.5;pts.push([toX(x),toY(f(x))]);}
+      p.drawingContext.globalAlpha=Math.min(1,s.showCurve);
+      A.curve(pts,A.colors.cyan,2.5);
+      p.drawingContext.globalAlpha=1;
+      A.label(toX(5.5),toY(f(5.5))-14,'f(x)',A.colors.cyan,11);
+    }
+
+    // Equation
+    if(s.showEq>0.5){
+      A.equation(W/2,H*0.92,'∫ᵃᵇ f(x) dx = lim[n→∞] Σ f(xᵢ)·Δx',A.colors.accent);
+    }
+  };
+},document.getElementById('cc'));
+
+const beats=[
+  {say:"Here's our function <b>f(x)</b> — a smooth curve. Nothing special, just a wave-like shape.",fn:()=>{A.animateTo('showCurve',1);}},
+  {say:"Now the question: what's the <b style='color:#fbbf24'>area</b> between the curve and the x-axis, from <b>a=1</b> to <b>b=5</b>? We can't just use length × width — it's curved.",fn:()=>{A.animateTo('showRegion',1);}},
+  {say:"Start rough — <b>4 rectangles</b>. Each one's height is f(x) at the midpoint. The total area of the rectangles approximates the true area.",fn:()=>{A.animateTo('showRects',1);A.animateTo('numRects',4,8);}},
+  {say:"<b>20 rectangles</b> — much better. The skinnier the rectangles, the better they hug the curve. The gaps are shrinking.",fn:()=>{A.animateTo('numRects',20,2);}},
+  {say:"Take it to the limit — <b>200 rectangles</b>. They practically ARE the curve now. This limit IS the integral.",fn:()=>{A.animateTo('numRects',200,1.5);A.animateTo('showExact',1,1);}},
+  {say:"The <b>definite integral</b>: the limit of the Riemann sum as n approaches infinity. Exact area under the curve — no approximation.",fn:()=>{A.animateTo('showEq',1);A.animateTo('showRects',0.3,2);}},
+];
+initBeatRunner(beats,()=>A);
+</script></body></html>

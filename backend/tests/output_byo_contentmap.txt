@@ -1,0 +1,458 @@
+======================================================================
+  CONTENT MAP (course_adapter)
+======================================================================
+
+  [content_map] course_id=1: ERROR: 'NoneType' object has no attribute 'execute'
+
+  [content_map] course_id=2: ERROR: 'NoneType' object has no attribute 'execute'
+
+  [content_map] course_id=4: ERROR: 'NoneType' object has no attribute 'execute'
+
+  [content_map] course_id=8: ERROR: 'NoneType' object has no attribute 'execute'
+
+======================================================================
+  CONTENT READ / PEEK
+======================================================================
+
+  [content_read] ref=lesson:2:
+    Lesson 2 — 12 sections:
+      lesson:2:section:0  <Untitled Chapter 1>
+      lesson:2:section:1  Practical Things To Know
+      lesson:2:section:2  Lateness Policy
+      lesson:2:section:3  Color and Hardness
+      lesson:2:section:4  Hardness Box
+      lesson:2:section:5  The Uncertainty Principle
+      lesson:2:section:6  Mirrors
+      lesson:2:section:7  Experiment 1
+      lesson:2:section:8  Predictions
+      lesson:2:section:9  Third Experiment
+      lesson:2:section:10  Experiment Four
+      lesson:2:section:11  Experimental Result
+    
+    ── First section ──
+    Section: <Untitled Chapter 1>
+    Video timestamps: 0:00 - 2:00
+    
+    Transcript:
+    The following
+    content is provided under a Creative
+    Commons license. Your support will help MIT
+    OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare at ocw.mit.edu. ALLAN ADAMS: Hi everyone. Welcome to 804 for spring 2013. This is the fourth, and
+    presumably final time that I will be
+    teaching this class. So I'm pretty excited about it. So my name is Allan Adams. I'll be lecturing the course. I'm an assistant
+    professor in Course 8. I study string theory
+    and its applications to gravity, quantum gravity,
+    and condensed matter physics. Quantum mechanics, this is a
+    course in quantam mechanics. Quantam mechanics Is
+    my daily language. Quantum mechanics
+    is my old friend. I met quantum
+    mechanics 20 years ago. I just realized that last night. It was kind of depressing. So, old friend.
+    ... (2641 total chars)
+
+  [content_read] ref=lesson:3:
+    Lesson 3 — 11 sections:
+      lesson:3:section:0  Introduction & Course Overview
+      lesson:3:section:1  Existence of Electrons & Nuclei
+      lesson:3:section:2  Randomness: Geiger & Collisions
+      lesson:3:section:3  Atomic Spectra: Discrete & Structured
+      lesson:3:section:4  Photoelectric Effect: Classical View
+      lesson:3:section:5  Photoelectric Effect: Einstein's Photons
+      lesson:3:section:6  Planck's Constant & Blackbody Radiation
+      lesson:3:section:7  Light as a Wave: Double-Slit
+      lesson:3:section:8  Electron Diffraction & Duality
+      lesson:3:section:9  Which-Path & Quantum Measurement
+      lesson:3:section:10  Single Photon Interference
+    
+    ── First section ──
+    Section: Introduction & Course Overview
+    Video timestamps: 0:00 - 1:25
+    
+    Transcript:
+    The following content is provided under a
+    Creative Commons license. Your support will help MIT OpenCourseWare continue to offer
+    high-quality educational resources for free. To make a donation or to view additional materials
+    from hundreds of MIT courses, visit MIT OpenCourseWare at ocw.mit.edu. PROFESSOR: All right. So today's task is going
+    to be to outline some of the basic experimental facts that we will both have to deal with
+    and that our aim should be to understand and model through the rest of the course. Physics doesn't tell you some abstract truth
+    about why the universe is the way it is. Physics gives you models to understand how things
+    work and predict what will happen next. And what we will be aiming to do is develop models
+    that give us an 
+    ... (2495 total chars)
+
+  [content_read] ref=lesson:5:
+    Lesson 5 — 15 sections:
+      lesson:5:section:0  Introduction and Housekeeping
+      lesson:5:section:1  Review of Quantum Postulates
+      lesson:5:section:2  Wave Function Properties and Normalization
+      lesson:5:section:3  Interpretable Wave Functions and Superpositions
+      lesson:5:section:4  Basis Vectors and Superposition Analogy
+      lesson:5:section:5  Clicker Questions: Wavelengths and Momentum
+      lesson:5:section:6  Probability Theory: Expected Values
+      lesson:5:section:7  Defining Uncertainty: Standard Deviation
+      lesson:5:section:8  Continuous Variables and QM Expectation
+      lesson:5:section:9  Momentum Expectation and Incompatibility
+      lesson:5:section:10  Momentum Operator: De Broglie Relation
+      lesson:5:section:11  Noether's Theorem: Symmetries and Conservation
+      lesson:5:section:12  Translation Operator and Derivatives
+      lesson:5:section:13  Declaring the Momentum Operator
+      lesson:5:section:14  Momentum Eigenstates and Superposition
+    
+    ── First section ──
+    Section: Introduction and Housekeeping
+    Video timestamps: 0:00 - 0:50
+    
+    Transcript:
+    The following
+    content is provided under a Creative
+    Commons license. Your support will help MIT
+    OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or to
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare ocw.mit.edu. PROFESSOR: Anything lingering
+    and disturbing or bewildering? No? Nothing? All right. OK, so the story so far is
+    basically three postulates. The first is that th
+    ... (1887 total chars)
+
+  [content_read] ref=lesson:25:
+    Lesson 25 — 15 sections:
+      lesson:25:section:0  Introduction and Spin Recap
+      lesson:25:section:1  Effective Mass Experiment Introduction
+      lesson:25:section:2  Ping-Pong Ball Experiment Demonstration
+      lesson:25:section:3  Analyzing Ping-Pong Ball Motion
+      lesson:25:section:4  Reintroducing Spin and Operators
+      lesson:25:section:5  Spin States as Two-Component Spinors
+      lesson:25:section:6  Conceptual Nature of Spin
+      lesson:25:section:7  Matrix Representation of Sz and S^2
+      lesson:25:section:8  Raising and Lowering Spin Operators
+      lesson:25:section:9  Deriving Pauli Spin Matrices
+      lesson:25:section:10  Verifying Spin Commutation Relations
+      lesson:25:section:11  Eigenstates of Sx and Sy
+      lesson:25:section:12  General Spin Operator S_theta
+      lesson:25:section:13  Sequential Spin Measurements and Superposition
+      lesson:25:section:14  Stern-Gerlach Experiment Analysis
+    
+    ── First section ──
+    Section: Introduction and Spin Recap
+    Video timestamps: 0:00 - 3:00
+    
+    Transcript:
+    The following
+    content is provided under a Creative
+    Commons license. Your support will help MIT
+    OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or to
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare at ocw.mit.edu. PROFESSOR: Before
+    we get started, let me ask you guys if
+    you have any questions, pragmatic or otherwise,
+    about the course so far. Seriously? To those of you
+    reading newspapers, I encourage you to find
+    a slightly differen
+    ... (4172 total chars)
+
+  [content_read] ref=lesson:2:section:0:
+    Section: <Untitled Chapter 1>
+    Video timestamps: 0:00 - 2:00
+    
+    Transcript:
+    The following
+    content is provided under a Creative
+    Commons license. Your support will help MIT
+    OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare at ocw.mit.edu. ALLAN ADAMS: Hi everyone. Welcome to 804 for spring 2013. This is the fourth, and
+    presumably final time that I will be
+    teaching this class. So I'm pretty excited about it. So my name is Allan Adams. I'll be lecturing the course. I'm an assistant
+    professor in Course 8. I study string theory
+    and its applications to gravity, quantum gravity,
+    and condensed matter physics. Quantum mechanics, this is a
+    course in quantam mechanics. Quantam mechanics Is
+    my daily language. Quantum mechanics
+    is my old friend. I met quantum
+    mechanics 20 years ago. I just realized that last night. It was kind of depressing. So, old friend. It's also my most powerful tool. So I'm pretty psyched about it. Our recitation instructors
+    are Barton Zwiebach, yea! And Matt Evans-- yea! Matt's new to the
+    department, so welcome him. Hi. So he just started
+    his faculty position, which is pretty awesome. And our TA is Paolo Glorioso. Paolo, are you here? Yea! There you go. OK, so he's the person to
+    send all complaints to. So just out of curiosity, how
+    many of you all are Course 8? Awesome. How many of you all
+    are, I don't know, 18? Solid. 6? Excellent. 9? No o
+    ... (2060 total chars)
+
+  [content_read] ref=lesson:3:section:0:
+    Section: Introduction & Course Overview
+    Video timestamps: 0:00 - 1:25
+    
+    Transcript:
+    The following content is provided under a
+    Creative Commons license. Your support will help MIT OpenCourseWare continue to offer
+    high-quality educational resources for free. To make a donation or to view additional materials
+    from hundreds of MIT courses, visit MIT OpenCourseWare at ocw.mit.edu. PROFESSOR: All right. So today's task is going
+    to be to outline some of the basic experimental facts that we will both have to deal with
+    and that our aim should be to understand and model through the rest of the course. Physics doesn't tell you some abstract truth
+    about why the universe is the way it is. Physics gives you models to understand how things
+    work and predict what will happen next. And what we will be aiming to do is develop models
+    that give us an intuition for the phenomena and allow us to make predictions. And these
+    are going to be the experimental facts I would like to both explain, develop an intuition
+    for, and be able to predict consequences of. So we'll start off with-- so let me just outline
+    them. So, first fact, atoms exist. I'll go over some of the arguments for that. Randomness,
+    definitely present in the world. Atomic spectre are discrete and structured. We have a photoelectric
+    effect, which I'll describe in some detail.
+    
+    Summary: This lecture introduces the course's objective: to develop models and intuition for understanding and predicting phenomena based on experimental facts. It o
+    ... (1772 total chars)
+
+  [content_read] ref=lesson:3:section:1:
+    Section: Existence of Electrons & Nuclei
+    Video timestamps: 1:25 - 6:50
+    
+    Transcript:
+    are discrete and structured. We have a photoelectric
+    effect, which I'll describe in some detail. Electrons do some funny things. In particular
+    electron diffraction. And sixth and finally, Bell's Inequality. Something that we will
+    come back to at the very end of the class, which I like to think of as a sort of a frame
+    for the entirety of 8.04. So... we'll stick with this for the moment. So everyone in here knows that atoms are made
+    of electrons and nuclei. In particular, you know that electrons exist because you've seen
+    a cathode ray tube. I used to be able to say you've seen a TV, but you all have flat panel
+    TVs, so this is useless. So a cathode ray tube is a gun that shoots electrons at a phosphorescent
+    screen. And every time the electron hits the screen it induces a little phosphorescence,
+    a little glow. And that's how you see on a CRT. And so as was pithily stated long ago by a
+    very famous physicist, if you can spray them, they exist. Pretty good argument. There's
+    a better argument for the existence of electrons, which is that we can actually see them individually. And this is one of the most famous images
+    in high-energy physics. It's from an experiment called Gargamelle, which was a 30-cubic meter
+    tank of liquid freon pulsing just at its vapor pressure 60 times a second. And what this
+    image is is, apart from all the schmut, you're watching a trail of bubbles in this de-pressurizing
+    freon t
+    ... (3586 total chars)
+
+  [content_peek] ref=lesson:2:
+    Lesson 2 — 12 sections:
+      lesson:2:section:0  <Untitled Chapter 1> (0:00-2:00)
+      lesson:2:section:1  Practical Things To Know (2:00-7:44)
+      lesson:2:section:2  Lateness Policy (7:44-11:15)
+      lesson:2:section:3  Color and Hardness (11:15-12:47)
+      lesson:2:section:4  Hardness Box (12:47-30:18)
+      lesson:2:section:5  The Uncertainty Principle (30:18-33:46)
+      lesson:2:section:6  Mirrors (33:46-36:34)
+      lesson:2:section:7  Experiment 1 (36:34-45:22)
+      lesson:2:section:8  Predictions (45:22-46:44)
+      lesson:2:section:9  Third Experiment (46:44-56:47)
+      lesson:2:section:10  Experiment Four (56:47-62:55)
+      lesson:2:section:11  Experimental Result (62:55-76:06)
+
+  [content_peek] ref=lesson:3:
+    Lesson 3 — 11 sections:
+      lesson:3:section:0  Introduction & Course Overview (0:00-1:25)
+      lesson:3:section:1  Existence of Electrons & Nuclei (1:25-6:50)
+      lesson:3:section:2  Randomness: Geiger & Collisions (6:50-14:00)
+      lesson:3:section:3  Atomic Spectra: Discrete & Structured (14:00-20:40)
+      lesson:3:section:4  Photoelectric Effect: Classical View (20:40-27:00)
+      lesson:3:section:5  Photoelectric Effect: Einstein's Photons (27:00-34:00)
+      lesson:3:section:6  Planck's Constant & Blackbody Radiation (34:00-40:00)
+      lesson:3:section:7  Light as a Wave: Double-Slit (40:00-46:00)
+      lesson:3:section:8  Electron Diffraction & Duality (46:00-56:00)
+      lesson:3:section:9  Which-Path & Quantum Measurement (56:00-64:00)
+      lesson:3:section:10  Single Photon Interference (64:00-65:40)
+
+  [content_peek] ref=lesson:25:
+    Lesson 25 — 15 sections:
+      lesson:25:section:0  Introduction and Spin Recap (0:00-3:00)
+      lesson:25:section:1  Effective Mass Experiment Introduction (3:00-4:00)
+      lesson:25:section:2  Ping-Pong Ball Experiment Demonstration (4:00-9:00)
+      lesson:25:section:3  Analyzing Ping-Pong Ball Motion (9:00-13:00)
+      lesson:25:section:4  Reintroducing Spin and Operators (13:00-15:00)
+      lesson:25:section:5  Spin States as Two-Component Spinors (15:00-18:00)
+      lesson:25:section:6  Conceptual Nature of Spin (18:00-22:00)
+      lesson:25:section:7  Matrix Representation of Sz and S^2 (22:00-26:00)
+      lesson:25:section:8  Raising and Lowering Spin Operators (26:00-29:00)
+      lesson:25:section:9  Deriving Pauli Spin Matrices (29:00-32:00)
+      lesson:25:section:10  Verifying Spin Commutation Relations (32:00-34:00)
+     
+
+======================================================================
+  BYO TOOLS
+======================================================================
+  Found 9 BYO collections:
+    - 867563d8-1e9: "21MAT11set1.pdf" status=ready user=binayak@baburao.com
+    - 3069c65f-ae9: "Upload (2 files)" status=ready user=ishita@ishita.com
+    - 4ec74e1d-1ef: "Spectrum Modern History | COMPLETE UPSC PREPARATION" status=error user=monica@friends.com
+    - e0f599c8-421: "GS History - Ancient India - RS Sharma NCERT for Competitive Exams | UPSC IAS | Study IQ IAS" status=error user=mayank@test.com
+    - 28668d04-237: "CSAT Maths Free Complete Online Classes for UPSC IAS Prelims" status=error user=monica@friends.com
+    - 19fb67cb-d1a: "MIT 6.824 Distributed Systems (Spring 2020)" status=ready user=monica@friends.com
+    - f47b920f-1dd: "DB_Access_Onboarding.md" status=ready user=ishita@ishita.com
+    - f779e73d-3c8: "DB_Access_Onboarding.md" status=ready user=ishita@ishita.com
+    - bb4f9942-e89: "YouTube video" status=ready user=ishita@ishita.com
+
+  --- BYO collection: 867563d8-1e9 (21MAT11set1.pdf) ---
+  [byo_list]:
+    Chunks in collection 867563d8-1e9:
+      [0]  (question, proof) — 355 tokens
+      [1]  (question) — 293 tokens
+      [2]  (question) — 553 tokens
+  [byo_read chunk=0]:
+    [BYO Chunk 0]
+    Topics: 
+    
+    <!-- page 1 -->
+    Model Question Paper-I  with effect from 2021 (CBCS Scheme) 
+     
+    USN 
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+     
+    First Semester B.E Degree Examination 
+    Calculus and Differential Equations (21MAT11) 
+     
+    TIME: 03 Hours    
+     
+     
+    Max.  Marks: 100 
+       Note:  Answer any FIVE full questions, choosing at least ONE question from each MODULE.  
+     
+    Module -1 
+    Marks 
+    Q.01 
+    a 
+    With usual notations prove that tan 𝜑= 𝑟
+    𝑑𝜃
+    𝑑𝑟 
+    06 
+     
+    b Find the angle between the curves 
+     𝑟= 𝑎(1 + cos 𝜃)  𝑎𝑛𝑑   𝑟= 𝑏(1 −cos 𝜃) 
+     
+    07 
+     
+    c 
+    Show that the radius of curvature at any point of the  cycloid 
+               𝑥= 𝑎(𝜃= sin𝜃),   𝑦= 𝑎(1 −cos𝜃) 𝑖𝑠 4𝑎cos(
+    𝜃
+    2) 
+    07 
+    OR 
+     
+    Q.02 
+    a 
+    If 𝑝 be the perpendicular from the pole on the tangent, then show that   
+       
+    1
+    𝑝2 =
+    1
+    𝑟2 +
+    1
+    𝑟4 (
+    𝑑𝑟
+    𝑑𝜃)
+    2
+     
+     
+    06 
+     
+    b Find the pedal equation of the curve 
+     𝑟𝑚= 𝑎𝑚(cos 𝑚𝜃+ sin 𝑚𝜃) 
+     
+    07 
+     
+    c 
+    Find the radius of curvature of the curve  𝑥3 + 𝑦3 = 3𝑎𝑥𝑦  at (
+    3𝑎
+    2 ,
+    3𝑎
+    2 ) 
+     
+    07 
+    Module-2 
+     
+    Q. 03 
+    a 
+    Expand  𝑒𝑠𝑖𝑛𝑥  by Maclaurin’s
+
+  --- BYO collection: 3069c65f-ae9 (Upload (2 files)) ---
+  [byo_list]:
+    Chunks in collection 3069c65f-ae9:
+      [0]  (explanation) — 10 tokens
+      [0]  (explanation) — 10 tokens
+  [byo_read chunk=0]:
+    [BYO Chunk 0]
+    Topics: 
+    
+    # Image
+    
+    [Image description unavailable]
+
+  --- BYO collection: 4ec74e1d-1ef (Spectrum Modern History | COMPLETE UPSC PREPARATION) ---
+  [byo_list]:
+    Collection 'Spectrum Modern History | COMPLETE UPSC PREPARATION' had a processing error — the content could not be extracted.
+  [byo_read chunk=0]:
+    No chunk found at index 0 in collection 4ec74e1d-1ef
+
+  BYO chunks sample:
+    chunk_id=99534113-edce-49ad-8cf5-3a1977116637, collection=867563d8-1e9, tokens=355, topics=[], content=<!-- page 1 -->
+Model Question Paper-I  with effect from 2021 (CBCS Scheme) 
+ 
+USN 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+ 
+First Semester B.E Degree Examination 
+Calculus and Differential Equations (21MAT11) 
+ 
+
+    chunk_id=c067e213-2591-41ae-b128-9da01eabc6b9, collection=867563d8-1e9, tokens=293, topics=[], content=<!-- page 2 -->
+Module-3 
+ 
+Q. 05 
+a 
+Solve 𝑥
+𝑑𝑦
+𝑑𝑥+ 𝑦= 𝑥3𝑦6  
+ 
+06 
+ 
+b Find the orthogonal trajectories of the family of curves  
+         
+𝑥2
+𝑎2 +
+𝑦2
+𝑏2+ 𝜆= 1, where 𝜆 𝑖𝑠 𝑎 𝑝𝑎𝑟𝑎𝑚𝑒𝑡𝑒𝑟 
+ 
+07 
+ 
+c 
+So
+    chunk_id=2fc1b2cf-10bd-4eeb-824e-53a9aefbfdd9, collection=867563d8-1e9, tokens=553, topics=[], content=<!-- page 3 -->
+ 
+b 
+Solve the system of equations by using the Gauss-Jordan method 
+   𝑥+ 𝑦+ 𝑧= 10,   
+ 2𝑥−𝑦+ 3𝑧= 19,    
+ 𝑥+ 2𝑦+ 3𝑧= 22 
+07 
+ 
+c 
+Using Rayleigh’s power method find the dominant eige

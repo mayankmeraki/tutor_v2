@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Projectile Motion</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0e1a;color:#e8edf5;font-family:-apple-system,sans-serif;height:100vh;display:flex;flex-direction:column}.bar{padding:10px 20px;border-bottom:1px solid rgba(148,163,184,0.12);display:flex;align-items:center;gap:12px}.bar h1{font-size:15px;font-weight:600;flex:1}.tag{font-size:10px;padding:3px 10px;border-radius:10px;background:rgba(59,130,246,0.12);color:#3b82f6;font-weight:700}.main{flex:1;min-height:0}.sub{padding:12px 24px;text-align:center;font-size:13px;color:#7a8ba8;border-top:1px solid rgba(148,163,184,0.12);min-height:46px}.sub b{color:#e8edf5}.beats{padding:10px 16px;display:flex;gap:6px;overflow-x:auto;border-top:1px solid rgba(148,163,184,0.12);background:#131a2b}.beat-btn{padding:5px 12px;border:1px solid rgba(148,163,184,0.12);background:rgba(51,65,85,0.3);color:#7a8ba8;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}.beat-btn:hover{border-color:#3b82f6;color:#e8edf5}.beat-btn.active{background:#3b82f6;border-color:#3b82f6;color:#fff}.beat-btn.done{background:rgba(52,211,153,0.1);color:#34d399}.auto-btn{padding:5px 14px;border:1px solid #34d399;background:#34d399;color:#fff;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;margin-left:auto}</style>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<script src="shared.js"></script>
+</head><body>
+<div class="bar"><h1>Projectile Motion — Gravity vs Air Resistance</h1><span class="tag">PHYSICS</span></div>
+<div class="main" id="cc"></div>
+<div class="sub" id="subtitle">Hit <b>Play All</b> to explore projectile motion.</div>
+<div class="beats">
+  <button class="beat-btn" data-beat="0">1. The setup</button>
+  <button class="beat-btn" data-beat="1">2. Launch!</button>
+  <button class="beat-btn" data-beat="2">3. Forces</button>
+  <button class="beat-btn" data-beat="3">4. Add drag</button>
+  <button class="beat-btn" data-beat="4">5. Compare</button>
+  <button class="beat-btn" data-beat="5">6. Equation</button>
+  <button class="auto-btn" id="auto-play">▶ Play All</button>
+</div>
+<script>
+let A; const trail1=[],trail2=[];
+new p5(function(p){
+  const cc=document.getElementById('cc');let W,H;
+  p.setup=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.createCanvas(W,H).parent(cc);p.textFont('sans-serif');
+    A=new AnimHelper(p,W,H);p._animHelper=A;
+    A.init({ball:0,launched:0,forces:0,drag:0,compare:0,eq:0,bx:0.08,by:0.78,vx:3.5,vy:-5,b2x:0.08,b2y:0.78,v2x:3.5,v2y:-5});
+  };
+  p.windowResized=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.resizeCanvas(W,H);A.W=W;A.H=H;};
+  p.draw=function(){
+    A.tick();A.clear();A.grid(50,6);
+    const s=A.state,dt=Math.min(p.deltaTime/1000,0.03),gnd=0.82;
+
+    // Ground
+    p.noStroke();p.fill(148,163,184,10);p.rect(0,A.ny(gnd),W,H-A.ny(gnd));
+    p.stroke(148,163,184,40);p.strokeWeight(1.5);p.line(0,A.ny(gnd),W,A.ny(gnd));
+
+    // Physics
+    if(s.launched>0.5){
+      s.bx+=s.vx*dt*0.04;s.vy+=9.8*dt*0.3;s.by+=s.vy*dt*0.04;
+      if(s.by>gnd){s.by=gnd;s.vy=0;s.vx=0;}
+      trail1.push([A.nx(s.bx),A.ny(s.by)]);if(trail1.length>500)trail1.shift();
+      if(s.drag>0.5){
+        s.v2x-=s.v2x*0.02;s.v2y+=9.8*dt*0.3;s.v2y-=s.v2y*0.01;
+        s.b2x+=s.v2x*dt*0.04;s.b2y+=s.v2y*dt*0.04;
+        if(s.b2y>gnd){s.b2y=gnd;s.v2y=0;s.v2x=0;}
+        trail2.push([A.nx(s.b2x),A.ny(s.b2y)]);if(trail2.length>500)trail2.shift();
+      }
+    }
+
+    // Trails
+    if(trail1.length>1)A.curve(trail1,s.compare>0.5?A.colors.accent:A.colors.cyan,2,0.5);
+    if(trail2.length>1&&s.compare>0.5)A.curve(trail2,A.colors.danger,2,0.5);
+
+    // Ball
+    if(s.ball>0.3){
+      A.glow(A.nx(s.bx),A.ny(s.by),16,A.colors.cyan,0.3);
+      if(s.compare>0.5)A.label(A.nx(s.bx),A.ny(s.by)-18,'Ideal',A.colors.cyan,9);
+      if(s.drag>0.5&&s.compare>0.5){
+        A.glow(A.nx(s.b2x),A.ny(s.b2y),12,A.colors.danger,0.3);
+        A.label(A.nx(s.b2x),A.ny(s.b2y)-16,'Drag',A.colors.danger,9);
+      }
+    }
+
+    // Forces
+    if(s.forces>0.5&&s.ball>0.5){
+      const bx=A.nx(s.bx),by=A.ny(s.by);
+      A.arrow(bx,by+10,bx,by+45,A.colors.warm,2);
+      A.label(bx+18,by+32,'mg',A.colors.warm,10);
+      if(s.launched>0.5&&s.by<gnd){
+        A.arrow(bx,by,bx+s.vx*12,by+s.vy*2.5,A.colors.accentAlt,1.5);
+        A.label(bx+s.vx*12+10,by+s.vy*2.5,'v',A.colors.accentAlt,9);
+      }
+    }
+
+    // Angle indicator
+    if(s.ball>0.5&&s.launched<0.5){
+      A.dashed(A.nx(0.08),A.ny(0.78),A.nx(0.08)+80,A.ny(0.78),A.colors.textMuted);
+      p.stroke(148,163,184,60);p.strokeWeight(1);p.noFill();p.arc(A.nx(0.08),A.ny(0.78),30,30,-0.96,0);
+      A.label(A.nx(0.08)+28,A.ny(0.78)-12,'45°',A.colors.textMuted,9,false);
+    }
+
+    // Equation
+    if(s.eq>0.5)A.equation(W/2,A.ny(0.1),'y = v₀t·sinθ − ½gt²',A.colors.accent);
+
+    // Legend
+    if(s.ball>0.3){
+      const items=[{color:A.colors.cyan,label:'Projectile'}];
+      if(s.forces>0.3)items.push({color:A.colors.warm,label:'Gravity (mg)'});
+      if(s.compare>0.3)items.push({color:A.colors.danger,label:'With air drag'});
+      A.legend(items);
+    }
+  };
+},document.getElementById('cc'));
+
+const beats=[
+  {say:"A ball at <b>45°</b> — the angle for maximum range in a vacuum. Ready to launch.",fn:()=>{A.animateTo('ball',1);}},
+  {say:"Launched! Watch the <b>parabolic arc</b> — this is pure gravity, no air resistance. A perfect parabola.",fn:()=>{A.animateTo('launched',1);}},
+  {say:"The forces: <b style='color:#fbbf24'>gravity</b> pulls straight down, constant. The <b style='color:#34d399'>velocity</b> rotates as the ball curves.",fn:()=>{A.animateTo('forces',1);}},
+  {say:"Now add <b style='color:#ef4444'>air resistance</b>. It opposes velocity — slows the ball AND changes the shape of the path.",fn:()=>{
+    A.set('bx',0.08);A.set('by',0.78);A.set('vx',3.5);A.set('vy',-5);
+    A.set('b2x',0.08);A.set('b2y',0.78);A.set('v2x',3.5);A.set('v2y',-5);
+    trail1.length=0;trail2.length=0;
+    A.animateTo('drag',1);A.animateTo('compare',1);A.set('launched',1);
+  }},
+  {say:"<b style='color:#38bdf8'>Blue = ideal</b>, <b style='color:#ef4444'>red = with drag</b>. Drag shortens the range and makes the descent steeper. Not a parabola anymore.",fn:()=>{}},
+  {say:"The equation: <b>y = v₀t·sinθ − ½gt²</b> without drag. With drag, add a velocity-dependent term that makes it unsolvable analytically.",fn:()=>{A.animateTo('eq',1);}},
+];
+initBeatRunner(beats,()=>A);
+</script></body></html>

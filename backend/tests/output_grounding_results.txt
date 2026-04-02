@@ -1,0 +1,702 @@
+Grounding Tool Test Results — 2026-04-02T19:09:46.411245
+Testing 6 student intents against all grounding tools
+
+
+================================================================================
+  1. CONTENT SEARCH (content_service.search_content)
+================================================================================
+  How: MongoDB text/vector search across course content index
+  Returns: matching courses/lessons with scores
+
+  [content_search] query: "teach me quantum entanglement" (3447ms)
+    → 2 results:
+    - Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle (score=0.7404447793960571)
+    -  Quantum mechanics  (score=0.7174475193023682)
+
+  [content_search] query: "I want to understand superposition" (1586ms)
+    → 2 results:
+    - More on Energy Eigenstates (score=0.7217736840248108)
+    - The Wave Function (score=0.7280946969985962)
+
+  [content_search] query: "explain the double slit experiment" (1868ms)
+    → 1 results:
+    - Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle (score=0.6689248085021973)
+
+  [content_search] query: "what is Schrodinger's equation" (1426ms)
+    → 3 results:
+    - Time Evolution and the Schrödinger Equation (score=0.8092503547668457)
+    - Operators and the Schrödinger Equation (score=0.8027626276016235)
+    -  Linearity and nonlinear theories. Schrödinger's equation  (score=0.7795810699462891)
+
+  [content_search] query: "how does quantum teleportation work" (1267ms)
+    → 2 results:
+    - Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle (score=0.6981114149093628)
+    - Introduction to Quantum Mechanics: From Classical Physics to Atomic Structure (score=0.6970034241676331)
+
+  [content_search] query: "Bell's theorem and hidden variables" (1275ms)
+    → 0 results:
+
+================================================================================
+  2. CONTENT RESOLVER (content_resolver.resolve_content)
+================================================================================
+  How: Maps student intent → course/lesson matches via vector search
+  Returns: matched courses, lessons, gaps
+
+  [resolve_content] query: "teach me quantum entanglement" (1469ms)
+    {
+      "matched_courses": [
+        {
+          "course_id": 2,
+          "title": "MIT 8.04 Quantum Physics I, 2013",
+          "matched_lessons": [],
+          "relevance": 0.7502391338348389
+        },
+        {
+          "course_id": 8,
+          "title": "",
+          "matched_lessons": [
+            {
+              "lesson_id": 57,
+              "title": "Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle",
+              "relevance": 0.7404447793960571,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.7404447793960571
+        },
+        {
+          "course_id": 4,
+          "title": " Quantum mechanics ",
+          "matched_lessons": [],
+          "relevance": 0.7174475193023682
+        }
+      ],
+      "gaps": [],
+      "total_matches": 3,
+      "resolve_method": "vector_search",
+      "primary_course_id": 2
+    }
+
+    Formatted brief:
+      [CONTENT BRIEF]
+      Resolved via: vector_search (3 matches)
+      
+      Course: MIT 8.04 Quantum Physics I, 2013 (id=2)
+      
+      Course:  (id=8)
+        lesson:57 — Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle
+      
+      Course:  Quantum mechanics  (id=4)
+      
+
+  [resolve_content] query: "I want to understand superposition" (1281ms)
+    {
+      "matched_courses": [
+        {
+          "course_id": 2,
+          "title": "",
+          "matched_lessons": [
+            {
+              "lesson_id": 2,
+              "title": "Introduction to Superposition",
+              "relevance": 0.7262834310531616,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.7262834310531616
+        }
+      ],
+      "gaps": [],
+      "total_matches": 1,
+      "resolve_method": "vector_search",
+      "primary_course_id": 2
+    }
+
+    Formatted brief:
+      [CONTENT BRIEF]
+      Resolved via: vector_search (1 matches)
+      
+      Course:  (id=2)
+        lesson:2 — Introduction to Superposition
+      
+
+  [resolve_content] query: "explain the double slit experiment" (2712ms)
+    {
+      "matched_courses": [
+        {
+          "course_id": 8,
+          "title": "",
+          "matched_lessons": [
+            {
+              "lesson_id": 57,
+              "title": "Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle",
+              "relevance": 0.6689248085021973,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.6689248085021973
+        },
+        {
+          "course_id": 2,
+          "title": "",
+          "matched_lessons": [
+            {
+              "lesson_id": 4,
+              "title": "The Wave Function",
+              "relevance": 0.6388645768165588,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.6388645768165588
+        }
+      ],
+      "gaps": [],
+      "total_matches": 2,
+      "resolve_method": "vector_search",
+      "primary_course_id": 8
+    }
+
+    Formatted brief:
+      [CONTENT BRIEF]
+      Resolved via: vector_search (2 matches)
+      
+      Course:  (id=8)
+        lesson:57 — Introduction to Quantum Mechanics: From Classical Physics to Heisenberg's Uncertainty Principle
+      
+      Course:  (id=2)
+        lesson:4 — The Wave Function
+      
+
+  [resolve_content] query: "what is Schrodinger's equation" (1789ms)
+    {
+      "matched_courses": [
+        {
+          "course_id": 2,
+          "title": "MIT 8.04 Quantum Physics I, 2013",
+          "matched_lessons": [
+            {
+              "lesson_id": 7,
+              "title": "Time Evolution and the Schr\u00f6dinger Equation",
+              "relevance": 0.8092503547668457,
+              "has_video": false
+            },
+            {
+              "lesson_id": 6,
+              "title": "Operators and the Schr\u00f6dinger Equation",
+              "relevance": 0.8027626276016235,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.8092503547668457
+        },
+        {
+          "course_id": 4,
+          "title": "",
+          "matched_lessons": [
+            {
+              "lesson_id": 31,
+              "title": " Linearity and nonlinear theories. Schr\u00f6dinger's equation ",
+              "relevance": 0.7795810699462891,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.7795810699462891
+        }
+      ],
+      "gaps": [],
+      "total_matches": 4,
+      "resolve_method": "vector_search",
+      "primary_course_id": 2
+    }
+
+    Formatted brief:
+      [CONTENT BRIEF]
+      Resolved via: vector_search (4 matches)
+      
+      Course: MIT 8.04 Quantum Physics I, 2013 (id=2)
+        lesson:7 — Time Evolution and the Schrödinger Equation
+        lesson:6 — Operators and the Schrödinger Equation
+      
+      Course:  (id=4)
+        lesson:31 —  Linearity and nonlinear theories. Schrödinger's equation 
+      
+
+  [resolve_content] query: "how does quantum teleportation work" (1236ms)
+    {
+      "matched_courses": [
+        {
+          "course_id": 2,
+          "title": "MIT 8.04 Quantum Physics I, 2013",
+          "matched_lessons": [],
+          "relevance": 0.6858947277069092
+        },
+        {
+          "course_id": 4,
+          "title": " Quantum mechanics ",
+          "matched_lessons": [],
+          "relevance": 0.6682969331741333
+        }
+      ],
+      "gaps": [],
+      "total_matches": 2,
+      "resolve_method": "vector_search",
+      "primary_course_id": 2
+    }
+
+    Formatted brief:
+      [CONTENT BRIEF]
+      Resolved via: vector_search (2 matches)
+      
+      Course: MIT 8.04 Quantum Physics I, 2013 (id=2)
+      
+      Course:  Quantum mechanics  (id=4)
+      
+
+  [resolve_content] query: "Bell's theorem and hidden variables" (1480ms)
+    {
+      "matched_courses": [
+        {
+          "course_id": 2,
+          "title": "",
+          "matched_lessons": [
+            {
+              "lesson_id": 25,
+              "title": "Entanglement \u2014 QComputing, EPR & Bell",
+              "relevance": 0.6920580267906189,
+              "has_video": false
+            }
+          ],
+          "relevance": 0.6920580267906189
+        }
+      ],
+      "gaps": [],
+      "total_matches": 1,
+      "resolve_method": "vector_search",
+      "primary_course_id": 2
+    }
+
+    Formatted brief:
+      [CONTENT BRIEF]
+      Resolved via: vector_search (1 matches)
+      
+      Course:  (id=2)
+        lesson:25 — Entanglement — QComputing, EPR & Bell
+      
+
+================================================================================
+  3. CONTENT MAP (course_adapter.content_map)
+================================================================================
+  How: Returns full course hierarchy — what the tutor sees as structure
+
+  [content_map] query: "course_id=1" (0ms)
+    ERROR: create_adapter() got an unexpected keyword argument 'db_session'
+
+  [content_map] query: "course_id=2" (0ms)
+    ERROR: create_adapter() got an unexpected keyword argument 'db_session'
+
+================================================================================
+  4. GET SECTION CONTENT (handlers.get_section_content)
+================================================================================
+  How: Fetches full section with transcript, key points, concepts
+  Needs: lesson_id (int) + section_index (int)
+
+  [get_section_content] query: "lesson=1, section=0" (27ms)
+    Section 1:0 not found.
+
+  [get_section_content] query: "lesson=1, section=1" (38ms)
+    Section 1:1 not found.
+
+  [get_section_content] query: "lesson=2, section=0" (34ms)
+    Section: <Untitled Chapter 1>
+    Video timestamps: 0:00 - 2:00
+    
+    Transcript:
+    The following
+    content is provided under a Creative
+    Commons license. Your support will help MIT
+    OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare at ocw.mit.edu. ALLAN ADAMS: Hi everyone. Welcome to 804 for spring 2013. This is the fourth, and
+    presumably final time that I will be
+    teaching this class. So I'm pretty excited about it. So my name is Allan Adams. I'll be lecturing the course. I'm an assistant
+    professor in Course 8. I study string theory
+    and its applications to gravity, quantum gravity,
+    and condensed matter physics. Quantum mechanics, this is a
+    course in quantam mechanics. Quantam mechanics Is
+    my daily language. Quantum mechanics
+    is my old friend. I met quantum
+    mechanics 20 years ago. I just realized that last night. It was kind of depressing. So, old friend. It's also my most powerful tool. So I'm pretty psyched about it. Our recitation instructors
+    are Barton Zwiebach, yea! And Matt Evans-- yea! Matt's new to the
+    department, so welcome him. Hi. So he just started
+    his faculty position, which is pretty awesome. And our TA is Paolo Glorioso. Paolo, are you here? Yea! There you go. OK, so he's the person to
+    send all complaints to. So just out of curiosity, how
+    many of you all are Course 8? Awesome. How many of you all
+    are, I don't know, 18? Solid. 6? Excellent. 9? No one? This is the first year we
+    haven't had anyone Course 9. That's a shame. Last year one of
+    the best students was a Course 9 student. So two practical things to know.
+    
+    Summary: This section introduces Allan Adams, the instructor for MIT's 8.04 Quantum Mechanics course, and his background in string theory and its applications. He expresses his enthusiasm for quantum mechanics, describing it as his daily language and most powerful tool, and introduces the teaching staff.
+    
+    Concepts: quantum_mechani
+    ... (2060 total chars)
+
+  [get_section_content] query: "lesson=2, section=1" (57ms)
+    Section: Practical Things To Know
+    Video timestamps: 2:00 - 7:44
+    
+    Transcript:
+    So two practical things to know. The first thing is
+    everything that we put out will be on the Stellar website. Lecture notes, homeworks,
+    exams, everything is going to be done through
+    Stellar, including your grades. The second thing
+    is that as you may notice there are rather
+    more lights than usual. I'm wearing a mic. And there are these signs up. We're going to be
+    videotaping this course for the lectures for OCW. And if you're happy
+    with that, cool. If not, just sit on
+    the sides and you won't appear anywhere on video. Sadly, I can't do that. But you're welcome
+    to if you like. But hopefully that should
+    not play a meaningful role in any of the lectures. So the goal of 804 is for you
+    to learn quantum mechanics. And by learn
+    quantum mechanics, I don't mean to learn
+    how to do calculations, although that's an important
+    and critical thing. I mean learn some intuition. I want you to develop
+    some intuition for quantum phenomena. Now, quantam
+    mechanics is not hard. It has a reputation
+    for being a hard topic. It is not a super hard topic. So in particular,
+    everyone in this room, I'm totally positive, can
+    learn quantum mechanics. It does require
+    concerted effort. It's not a trivial topic. And in order to really
+    develop a good intuition, the essential thing
+    is to solve problems. So the way you develop
+    a new intuition is by solving problems
+    and by dealing with new situations, new
+    context, new regimes, which is what we're
+    going to do in 804. It's essential that you work
+    hard on the problem sets. So your job is to devote
+    yourself to the problem sets. My job is to convince you
+    at the end of every lecture that the most interesting
+    thing you could possibly do when you leave
+    is the problem set. So you decide who
+    has the harder job. So the workload is not so bad. So we have problem
+    sets due, they're due in the physics box in
+    the usual places, by lecture, by 11 AM sharp on
+    Tuesdays every week. Late work, no, not 
+    ... (3528 total chars)
+
+  [get_section_content] query: "lesson=3, section=0" (32ms)
+    Section: Introduction & Course Overview
+    Video timestamps: 0:00 - 1:25
+    
+    Transcript:
+    The following content is provided under a
+    Creative Commons license. Your support will help MIT OpenCourseWare continue to offer
+    high-quality educational resources for free. To make a donation or to view additional materials
+    from hundreds of MIT courses, visit MIT OpenCourseWare at ocw.mit.edu. PROFESSOR: All right. So today's task is going
+    to be to outline some of the basic experimental facts that we will both have to deal with
+    and that our aim should be to understand and model through the rest of the course. Physics doesn't tell you some abstract truth
+    about why the universe is the way it is. Physics gives you models to understand how things
+    work and predict what will happen next. And what we will be aiming to do is develop models
+    that give us an intuition for the phenomena and allow us to make predictions. And these
+    are going to be the experimental facts I would like to both explain, develop an intuition
+    for, and be able to predict consequences of. So we'll start off with-- so let me just outline
+    them. So, first fact, atoms exist. I'll go over some of the arguments for that. Randomness,
+    definitely present in the world. Atomic spectre are discrete and structured. We have a photoelectric
+    effect, which I'll describe in some detail.
+    
+    Summary: This lecture introduces the course's objective: to develop models and intuition for understanding and predicting phenomena based on experimental facts. It outlines several key experimental facts that will be explored, including the existence of atoms, randomness, discrete atomic spectra, the photoelectric effect, electron diffraction, and Bell's Inequality.
+    
+    Concepts: experimental_facts, physics_models, intuition, prediction
+
+  [get_section_content] query: "lesson=5, section=0" (29ms)
+    Section: Introduction and Housekeeping
+    Video timestamps: 0:00 - 0:50
+    
+    Transcript:
+    The following
+    content is provided under a Creative
+    Commons license. Your support will help MIT
+    OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or to
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare ocw.mit.edu. PROFESSOR: Anything lingering
+    and disturbing or bewildering? No? Nothing? All right. OK, so the story so far is
+    basically three postulates. The first is that the
+    configuration of a particle
+    
+    Summary: This section serves as a brief introduction and housekeeping, with the professor checking for any lingering questions. It sets the stage by mentioning that the ongoing discussion of quantum mechanics is built upon three fundamental postulates.
+    
+    Concepts: quantum_mechanics_postulates
+
+  [get_section_content] query: "lesson=10, section=0" (35ms)
+    Section: Lecture Introduction & Exam Q&A
+    Video timestamps: 0:05 - 2:00
+    
+    Transcript:
+    Your support will help
+    MIT OpenCourseWare continue to offer high quality
+    educational resources for free. To make a donation or to
+    view additional materials from hundreds of MIT courses,
+    visit MIT OpenCourseWare at ocw.mit.edu. PROFESSOR: So it's a
+    beautiful recording. OK, so to get
+    started, questions? From last time? Barton covered for me last time. I fled. I was out of town. I was at a math conference. It was pretty surreal. Questions, yes. AUDIENCE: What can you
+    tell us about the exam? PROFESSOR: About--? AUDIENCE: The exam. PROFESSOR: The exam. Yes, absolutely. So the exam is, as you all
+    know, on Thursday, a week hence. So on Tuesday we
+    will have a lecture. The material Tuesday will
+    not be covered on the exam. The exam will be a
+    review of everything through today's lecture,
+    including the problems that, which for some
+    technical reason I don't know why didn't get posted. But it should be up
+    after lecture today. The exam will be a
+    combination of short questions and computations. It will not focus on an
+    enormous number of computations. It will focus more
+    on conceptual things. But there will be a few
+    calculations on the exam. And I will post some
+    practice problems over the next couple of days. AUDIENCE: Do we have a
+    problem set due next week? PROFESSOR: You do have a
+    problem set due Tuesday. And that is part of your
+    preparation for the exam. Here's a basic strategy
+    for exams for this class. Anything that's on a
+    problem set is fair game. Anything that's not
+    covered on a problem set is not going to be fair game. If you haven't seen
+    a new problem on it, broadly construed,
+    then you won't-- I won't test you on a topic you
+    haven't done problems on before. But I will take problems and
+    ideas that you've studied before and spin them
+    slightly differently to make you think through
+    them in real time on the exam. OK?
+    
+    Summary: This introductory section addresses student questions regarding the upco
+    ... (2310 total chars)
+
+================================================================================
+  5. GET SECTION BRIEF (handlers.get_section_brief)
+================================================================================
+  How: Compact brief — title, summary, key pedagogical points
+
+  [get_section_brief] query: "lesson=1, section=0" (61ms)
+    Section 1:0 not found.
+
+  [get_section_brief] query: "lesson=2, section=0" (71ms)
+    Section: <Untitled Chapter 1>
+    Summary: This section introduces Allan Adams, the instructor for MIT's 8.04 Quantum Mechanics course, and his background in string theory and its applications. He expresses his enthusiasm for quantum mechanics, describing it as his daily language and most powerful tool, and introduces the teaching staff.
+    Concepts: quantum_mechanics, string_theory, quantum_gravity, condensed_matter_physics
+
+  [get_section_brief] query: "lesson=3, section=0" (65ms)
+    Section: Introduction & Course Overview
+    Summary: This lecture introduces the course's objective: to develop models and intuition for understanding and predicting phenomena based on experimental facts. It outlines several key experimental facts that will be explored, including the existence of atoms, randomness, discrete atomic spectra, the photoelectric effect, electron diffraction, and Bell's Inequality.
+    Concepts: experimental_facts, physics_models, intuition, prediction
+
+  [get_section_brief] query: "lesson=5, section=0" (68ms)
+    Section: Introduction and Housekeeping
+    Summary: This section serves as a brief introduction and housekeeping, with the professor checking for any lingering questions. It sets the stage by mentioning that the ongoing discussion of quantum mechanics is built upon three fundamental postulates.
+    Concepts: quantum_mechanics_postulates
+
+================================================================================
+  6. SIMULATION DETAILS
+================================================================================
+  How: Fetches interactive simulation metadata from MongoDB learning_tools
+
+  [get_simulation_details] query: "id=6995c9fd312db6eea7b87205" (34ms)
+    Simulation: Double Slit Simulation
+    Type: simulation
+    Description: Wave–particle duality interactive simulator
+    At timestamp: 22:00
+    Thumbnail: https://storage.googleapis.com/capacity-platform-assets/courses/2/lessons/2/thumbnails/6995c9fd312db6eea7b87205.png
+    
+    Context: This simulation demonstrates the single-electron double-slit experiment — the quintessential demonstration of wave-particle duality in quantum mechanics. Electrons are fired one at a time through a pair of slits. Each electron arrives as a localized dot on the detector screen (particle behavior), yet after many electrons accumulate, the classic interference fringe pattern emerges (wave behavior). The purpose is to make tangible the idea that quantum objects do not travel along definite paths but instead exhibit superposition of all possible paths until measurement.
+    Visuals: The main canvas shows two vertical slits in a barrier with electrons emitted from a source on the left. Each electron traverses the apparatus and lands as a single bright dot on the detector screen to the right. As hundreds of electrons accumulate, the dots collectively form the characteristic bright and dark interference bands. A combined chart below the main canvas overlays the growing histogram of electron hits against the theoretical interference envelope. When the 'Show Classical Pattern' button is activated, a smooth classical prediction curve appears for comparison. A guided narration panel at the bottom walks through the physics step by step with play/pause/back controls and a progress bar.
+    Controls:
+      slit_separation: Slider (400–1600 units). Adjusts the center-to-center distance between the two slits.
+      slit_width: Slider (100–500 units). Controls the width of each individual slit.
+      wavelength: Slider (380–700 nm). Sets the de Broglie wavelength of the electrons, also changes the dot color to match.
+      screen_distance: Slider (4000–8000 units). Moves the detector screen closer to or farther from the slits.
+      emission_rate: Sl
+    ... (3666 total chars)
+
+  [get_simulation_details] query: "id=699c43e345ca987c9b2e2189" (35ms)
+    Simulation: Stern-Gerlach Multi-Stage
+    Type: simulation
+    Description: Spin-1/2 algebra, Pauli matrices. Simulation is a visual lab companion for every example.
+    At timestamp: 5:00-35:00
+    Thumbnail: https://storage.googleapis.com/capacity-platform-assets/courses/2/lessons/25/thumbnails/699c43e345ca987c9b2e2189.png
+    
+    Context: This simulation extends the Stern-Gerlach apparatus to a sequential multi-stage configuration. Up to three SG devices can be chained in series, each oriented along a chosen axis (X or Z), with optional blockers to filter out specific spin states between stages. The purpose is to demonstrate that quantum measurements along incompatible axes (e.g., S_z and S_x) disturb each other: measuring S_x re-randomizes a previously prepared S_z state. This is the experimental foundation for understanding non-commuting observables, [S_z, S_x] ≠ 0.
+    Visuals: The main canvas displays up to three SG magnets in series, connected by beam paths. Atoms travel left to right, splitting at each magnet and potentially being blocked. Detector spots accumulate on a screen at the far right. Each stage shows its axis orientation and active blocker status. A detection statistics panel tracks total atoms sent, detected, and blocked, along with per-channel (spin-up/spin-down) counts. Color-coded beams distinguish spin-up (e.g., blue) from spin-down (e.g., red) paths through each stage.
+    Controls:
+      stage_1_axis: {'type': 'dropdown', 'label': 'Stage 1 Axis Orientation', 'options': ['Z-Axis (↑↓)', 'X-Axis (←→)']}
+      stage_1_blocker: {'type': 'dropdown', 'label': 'Stage 1 Blocker', 'options': ['Block None', 'Block + Beam', 'Block − Beam']}
+      stage_2: {'axis': {'type': 'dropdown', 'label': 'Stage 2 Axis Orientation', 'options': ['Z-Axis (↑↓)', 'X-Axis (←→)']}, 'blocker': {'type': 'dropdown', 'label': 'Stage 2 Blocker', 'options': ['Block None', 'Block + Beam', 'Block − Beam']}}
+      stage_3: {'axis': {'type': 'dropdown', 'label': 'Stage 3 Axis Orientation', 'options': ['Z-Axis (↑↓)', 'X-Axis 
+    ... (3914 total chars)
+
+  [get_simulation_details] query: "id=699c44f145ca987c9b2e218a" (32ms)
+    Simulation: Gaussian Wave Packet
+    Type: simulation
+    Description: Δx Δp ≥ ℏ/2. Students see Δx grow as the packet disperses.
+    At timestamp: 10:00-45:00
+    Thumbnail: https://storage.googleapis.com/capacity-platform-assets/courses/2/lessons/5/thumbnails/699c44f145ca987c9b2e218a.png
+    
+    Context: This simulation visualizes a Gaussian probability distribution as a model for the quantum wavefunction of a free particle. The Gaussian is the minimum-uncertainty wavepacket — it saturates the Heisenberg bound Δx Δp = ℏ/2. The simulation shows how particles are sampled from this distribution and how the statistical properties (mean μ, standard deviation σ) manifest from repeated sampling. The purpose is to build intuition about wavefunctions as probability distributions and to observe how the width σ controls the position uncertainty.
+    Visuals: The main canvas displays the Gaussian probability curve |ψ(x)|² with the current formula shown above it. Particles appear as dots sampled from this distribution, raining down and accumulating into a live histogram underneath the theoretical curve. A statistics panel shows live sample count, elapsed time, mean (μ), and standard deviation (σ) of the sampled data. The narration panel provides step-by-step context linking the mathematical Gaussian to quantum probability.
+    Controls:
+      mean_mu: {'type': 'slider', 'label': 'Mean (μ)', 'min': -3, 'max': 3, 'step': 0.1, 'default': 0, 'description': 'Shifts the center of the Gaussian, corresponding to the expected position ⟨x⟩.'}
+      sigma: {'type': 'slider', 'label': 'Standard Deviation (σ)', 'min': 0.2, 'max': 3, 'step': 0.1, 'default': 1, 'description': 'Controls the width of the Gaussian and directly represents the position uncertainty Δx.'}
+      sampling_rate: {'type': 'slider', 'label': 'Sampling Rate', 'min': 1, 'max': 100, 'step': 1, 'default': 25, 'unit': 'samples/sec', 'description': 'Sets how quickly random samples are drawn from the distribution.'}
+      pause: {'type': 'button', 'label': 'Pause / Resume'
+    ... (3240 total chars)
+
+  [get_simulation_details] query: "id=699c45e145ca987c9b2e218b" (31ms)
+    Simulation: Quantum Harmonic Oscillator
+    Type: simulation
+    Description: Primary visual companion: Eₙ, Gaussian ground state, Hermite polynomials, zero-point energy.
+    At timestamp: 00:00-55:00
+    Thumbnail: https://storage.googleapis.com/capacity-platform-assets/courses/2/lessons/9/thumbnails/699c45e145ca987c9b2e218b.png
+    
+    Context: This simulation displays the energy eigenstates of the quantum harmonic oscillator — one of the most important exactly solvable systems in quantum mechanics. The QHO models molecular vibrations, phonons, and quantum field excitations. The simulation shows the wavefunctions ψ_n(x), probability densities |ψ_n(x)|², quantized energy levels E_n = (n + 1/2)ℏω, classical turning points, and the potential energy parabola. It also supports superposition of two eigenstates to visualize time-dependent dynamics.
+    Visuals: Three vertically stacked panels display: (1) the wavefunction ψ_n(x) with real and imaginary parts oscillating in time, (2) the probability density |ψ_n(x)|² with shaded area under the curve, and (3) the parabolic potential V(x) = 1/2 mω²x² with horizontal lines marking the quantized energy levels. Classical turning points are indicated on the probability panel. In superposition mode, a beating pattern emerges as two eigenstates with different energies interfere over time. MathJax renders all equations live. A narration panel provides guided context.
+    Controls:
+      quantum_number_n: {'type': 'slider', 'label': 'Primary Quantum Number (n₁)', 'min': 0, 'max': 10, 'step': 1, 'default': 0}
+      superposition_mode: {'type': 'checkbox', 'label': 'Enable Superposition Mode', 'default': False}
+      second_quantum_number: {'type': 'slider', 'label': 'Second Quantum Number (n₂)', 'min': 0, 'max': 10, 'step': 1, 'default': 1, 'active_when': 'superposition_mode = true'}
+      x_range_scale: {'type': 'slider', 'label': 'Spatial Range Scale', 'min': 4, 'max': 20, 'step': 1, 'default': 10, 'description': 'Zooms in or out on the spatial extent of the display.'}
+      anima
+    ... (3706 total chars)
+
+  [get_simulation_details] query: "id=699c469a45ca987c9b2e218c" (33ms)
+    Simulation: Classical vs. Schrödinger Solutions
+    Type: simulation
+    Description: Wave packet spreading. Shows when quantum behavior diverges from classical.
+    At timestamp: 05:00-25:00
+    Thumbnail: https://storage.googleapis.com/capacity-platform-assets/courses/2/lessons/12/thumbnails/699c469a45ca987c9b2e218c.png
+    
+    Context: This simulation presents a side-by-side comparison of how a particle evolves under classical mechanics (Newton's laws) versus quantum mechanics (Schrödinger equation) in a harmonic potential. A classical particle oscillates back and forth with a definite trajectory, while a quantum wave packet evolves, spreads, and may exhibit interference. The purpose is to visualize the correspondence principle: at high energies or large quantum numbers, the quantum probability distribution approaches the classical one, but at low energies they diverge dramatically.
+    Visuals: The canvas is split into two side-by-side panels: the left panel shows the classical oscillator as a point particle moving in a parabolic potential, while the right panel shows the quantum wavefunction evolving under the Schrödinger equation as a shaded probability density within the same potential. A narration panel walks through the comparison. Play/Pause and Reset buttons control the time evolution. The sidebar control panel (toggled via ☰) contains all parameter sliders.
+    Controls:
+      mass: {'type': 'slider', 'label': 'Mass (m)', 'min': 0.25, 'max': 4, 'step': 0.05, 'default': 1, 'description': 'Sets the particle mass m for both classical and quantum systems.'}
+      spring_constant: {'type': 'slider', 'label': 'Spring Constant (k)', 'min': 0.25, 'max': 4, 'step': 0.05, 'default': 1, 'description': 'Sets the spring constant k, determining ω = √(k/m).'}
+      energy: {'type': 'slider', 'label': 'Total Energy', 'min': 0.5, 'max': 5, 'step': 0.1, 'default': 1, 'description': 'Sets the total energy, controlling the classical amplitude and the quantum state.'}
+      play_pause: {'type': 'button', 'label': 'Play /
+    ... (3328 total chars)
+
+================================================================================
+  7. SEARCH IMAGES (Wikimedia Commons)
+================================================================================
+  How: Searches Wikimedia Commons API for educational images
+
+  [search_images] query: "quantum entanglement diagram" (1485ms)
+    Found 2 image(s):
+    - URL: https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Molmer-Sorensen_Energy_Level_Diagram.png/960px-Molmer-Sorensen_Energy_Level_Diagram.png
+      Caption: A depiction of the energy level diagram for the Mølmer-Sørensen interaction, simplified from the diagrams in Fig. 2 of "Multi-particle entanglement of hot trapped ions" by Klaus Mølmer and Anders Søre
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/thumb/b/b8/Molmer-Sorensen_Energy_Level_Diagram.png/960px-Molmer-Sorensen_Energy_Level_Diagram.png" caption="A depiction of the energy level diagram for the Mølmer-Sørensen interaction, simplified from the diagrams in Fig. 2 of 'Multi-particle entanglement of hot trapped ions' by Klaus Mølmer and Anders Søre" />
+    - URL: https://upload.wikimedia.org/wikipedia/commons/6/63/QuantumTicTacToeUncollapsed.png
+      Caption: A game of Quantum Tic-Tac-Toe, with two squares already collapsed (classically marked) and several squares entangled. A cyclic entanglement has been created by O's last move, but has not yet been reso
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/6/63/QuantumTicTacToeUncollapsed.png" caption="A game of Quantum Tic-Tac-Toe, with two squares already collapsed (classically marked) and several squares entangled. A cyclic entanglement has been created by O's last move, but has not yet been reso" />
+
+  [search_images] query: "double slit experiment interference pattern" (1169ms)
+    Found 2 image(s):
+    - URL: https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Double-slit_experiment_results_Tanamura_4.jpg/960px-Double-slit_experiment_results_Tanamura_4.jpg
+      Caption: Results of a double-slit-experiment performed by Dr. Tonomura showing the build-up of an interference pattern of single electrons. Numbers of electrons are 11 (a), 200 (b), 6000 (c), 140000 (d).
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/thumb/3/32/Double-slit_experiment_results_Tanamura_4.jpg/960px-Double-slit_experiment_results_Tanamura_4.jpg" caption="Results of a double-slit-experiment performed by Dr. Tonomura showing the build-up of an interference pattern of single electrons. Numbers of electrons are 11 (a), 200 (b), 6000 (c), 140000 (d)." />
+    - URL: https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Double-slit_experiment_results_Tonomura_2.jpg/960px-Double-slit_experiment_results_Tonomura_2.jpg
+      Caption: Results of a double-slit-experiment performed by Dr. Tonomura showing the build-up of an interference pattern of single electrons. Numbers of electrons are 11 (a), 200 (b), 6000 (c), 40000 (d), 140000
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/thumb/c/c7/Double-slit_experiment_results_Tonomura_2.jpg/960px-Double-slit_experiment_results_Tonomura_2.jpg" caption="Results of a double-slit-experiment performed by Dr. Tonomura showing the build-up of an interference pattern of single electrons. Numbers of electrons are 11 (a), 200 (b), 6000 (c), 40000 (d), 140000" />
+
+  [search_images] query: "Schrodinger equation wave function" (1275ms)
+    Found 2 image(s):
+    - URL: https://upload.wikimedia.org/wikipedia/commons/4/4f/Eckhaus_equation_wave_packet.gif
+      Caption: Animation of a wave-packet solution of the Eckhaus equation. The blue line is the real part of the solution, the red line is the imaginary part, the black line is the wave envelope (absolute value) an
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/4/4f/Eckhaus_equation_wave_packet.gif" caption="Animation of a wave-packet solution of the Eckhaus equation. The blue line is the real part of the solution, the red line is the imaginary part, the black line is the wave envelope (absolute value) an" />
+    - URL: https://upload.wikimedia.org/wikipedia/commons/9/90/QuantumHarmonicOscillatorAnimation.gif
+      Caption: A harmonic oscillator in classical mechanics (A-B) and quantum mechanics (C-H). In (A-B), a ball, attached to a spring (gray line), oscillates back and forth. In (C-H), wavefunction solutions to the T
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/9/90/QuantumHarmonicOscillatorAnimation.gif" caption="A harmonic oscillator in classical mechanics (A-B) and quantum mechanics (C-H). In (A-B), a ball, attached to a spring (gray line), oscillates back and forth. In (C-H), wavefunction solutions to the T" />
+
+  [search_images] query: "Bell inequality CHSH" (751ms)
+    Found 1 image(s):
+    - URL: https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Violaiton_of_CHSH_Inequality.png/960px-Violaiton_of_CHSH_Inequality.png
+      Caption: This is a graphical representation of the violation of the CHSH inequality using the mesureament of entangled particles
+      Use: <teaching-image src="https://upload.wikimedia.org/wikipedia/commons/thumb/0/05/Violaiton_of_CHSH_Inequality.png/960px-Violaiton_of_CHSH_Inequality.png" caption="This is a graphical representation of the violation of the CHSH inequality using the mesureament of entangled particles" />
+
+================================================================================
+  8. WEB SEARCH (DuckDuckGo)
+================================================================================
+  How: DuckDuckGo instant answer API + HTML fallback
+
+  [web_search] query: "quantum entanglement simple explanation" (549ms)
+    No web results found for "quantum entanglement simple explanation". Try rephrasing or using course materials.
+
+  [web_search] query: "Bell theorem experiment results" (433ms)
+    No web results found for "Bell theorem experiment results". Try rephrasing or using course materials.
+
+  [web_search] query: "quantum teleportation how it works" (429ms)
+    No web results found for "quantum teleportation how it works". Try rephrasing or using course materials.
+
+  [web_search] query: "EPR paradox Einstein" (438ms)
+    No web results found for "EPR paradox Einstein". Try rephrasing or using course materials.
+
+================================================================================
+  9. QUERY KNOWLEDGE (student concept notes)
+================================================================================
+  How: Vector/text search on student_concept_mastery collection
+
+  [query_knowledge] query: "user=ishita, query=superposition understanding" (470ms)
+    Found 5 notes matching 'superposition understanding':
+    
+      - Covered spinning coin analogy for superposition. Not yet verified — moved fast at student request. L1 at best. [superposition] (today)
+    
+      - Ishita skipped through basics and measurement collapse quickly, claiming familiarity. Jumped straight to Bell's theorem. Hasn't produced any L3+ explanation yet — all 'I know this' without demonstrati... [quantum_entanglement] (today)
+    
+      - Covered: entangled pair creation, measurement collapse, instant correlation, contrast with classical gloves. Rapid delivery — understanding not yet verified. [entanglement_basics] (today)
+    
+      - L2 — walked through 4-step protocol visually with animation. Student saw the animation. Not yet verified understanding at L3+. [quantum_teleportation] (today)
+    
+      - Introduced all 5 stages with seatbelt law example. Ishita correctly intuited agenda setting as understanding 'the why for a policy based on civilian needs'. Walked through formulation, adoption, imple... [policy_cycle] (yesterday)
+
+  [query_knowledge] query: "user=ishita, query=entanglement concepts" (526ms)
+    Found 3 notes matching 'entanglement concepts':
+    
+      - L3 — student claims familiarity with Bell states and basic entanglement. Skipped directly to spooky action. Has not been verified at L4+ yet. [entanglement] (today)
+    
+      - Covered: entangled pair creation, measurement collapse, instant correlation, contrast with classical gloves. Rapid delivery — understanding not yet verified. [entanglement_basics] (today)
+    
+      - Ishita skipped through basics and measurement collapse quickly, claiming familiarity. Jumped straight to Bell's theorem. Hasn't produced any L3+ explanation yet — all 'I know this' without demonstrati... [quantum_entanglement] (today)
+
+  [query_knowledge] query: "user=ishita, query=measurement collapse" (518ms)
+    Found 2 notes matching 'measurement collapse':
+    
+      - Covered: entangled pair creation, measurement collapse, instant correlation, contrast with classical gloves. Rapid delivery — understanding not yet verified. [entanglement_basics] (today)
+    
+      - Ishita skipped through basics and measurement collapse quickly, claiming familiarity. Jumped straight to Bell's theorem. Hasn't produced any L3+ explanation yet — all 'I know this' without demonstrati... [quantum_entanglement] (today)
+
+  [query_knowledge] query: "user=ishita, query=wave function" (515ms)
+    No notes matching 'wave function' found.
+
+================================================================================
+  10. BYO TOOLS (student uploaded content)
+================================================================================
+  (no BYO collections in DB)
+
+================================================================================
+  11. CONTENT READ/PEEK (via adapter)
+================================================================================
+  How: Fetches full content or brief for a given ref
+  ERROR: create_adapter() got an unexpected keyword argument 'db_session'
+
+================================================================================
+  12. DATABASE INVENTORY
+================================================================================
+  What content exists in MongoDB?
+  sections: 316 docs, fields: ['_id', 'course_id', 'module_id', 'lesson_id', 'index', 'title', 'start_timestamp', 'end_timestamp', 'start_seconds', 'end_seconds']
+  enriched_sections: 0 docs, fields: []
+  lessons: 29 docs, fields: ['_id', 'lesson_id', 'title', 'duration_seconds', 'video_url', 'summary', 'keywords', 'concepts_taught', 'section_count', 'module_id']
+  learning_tools: 83 docs, fields: ['_id', 'tool_type', 'course_id', 'module_id', 'lesson_id', 'title', 'description', 'thumbnail_url', 'at_timestamp', 'at_timestamp_sort']
+  search_index: 109 docs, fields: ['_id', 'type', 'courseId', 'lessonId', 'title', 'description', 'searchText', 'metadata', 'embedding', 'embeddingModel']
+  collections: 9 docs, fields: ['_id', 'collection_id', 'user_id', 'title', 'description', 'intent', 'status', 'stats', 'tags', 'created_at']
+  byo_chunks: 17 docs, fields: ['_id', 'chunk_id', 'collection_id', 'resource_id', 'index', 'content', 'tokens', 'anchor', 'labels', 'topics']
+  student_concept_mastery: 0 docs, fields: []
+
+================================================================================
+  SUMMARY
+================================================================================
+  Tests completed at 2026-04-02T19:10:17.334202
+  Total intents tested: 6

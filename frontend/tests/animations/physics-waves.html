@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html><head><meta charset="UTF-8"><title>Wave Superposition</title>
+<style>*{margin:0;padding:0;box-sizing:border-box}body{background:#0a0e1a;color:#e8edf5;font-family:-apple-system,sans-serif;height:100vh;display:flex;flex-direction:column}.bar{padding:10px 20px;border-bottom:1px solid rgba(148,163,184,0.12);display:flex;align-items:center;gap:12px}.bar h1{font-size:15px;font-weight:600;flex:1}.tag{font-size:10px;padding:3px 10px;border-radius:10px;background:rgba(59,130,246,0.12);color:#3b82f6;font-weight:700}.main{flex:1;min-height:0}.sub{padding:12px 24px;text-align:center;font-size:13px;color:#7a8ba8;border-top:1px solid rgba(148,163,184,0.12);min-height:46px}.sub b{color:#e8edf5}.beats{padding:10px 16px;display:flex;gap:6px;overflow-x:auto;border-top:1px solid rgba(148,163,184,0.12);background:#131a2b}.beat-btn{padding:5px 12px;border:1px solid rgba(148,163,184,0.12);background:rgba(51,65,85,0.3);color:#7a8ba8;border-radius:6px;font-size:10px;font-weight:600;cursor:pointer;white-space:nowrap;flex-shrink:0}.beat-btn:hover{border-color:#3b82f6;color:#e8edf5}.beat-btn.active{background:#3b82f6;border-color:#3b82f6;color:#fff}.beat-btn.done{background:rgba(52,211,153,0.1);color:#34d399}.auto-btn{padding:5px 14px;border:1px solid #34d399;background:#34d399;color:#fff;border-radius:6px;font-size:10px;font-weight:700;cursor:pointer;margin-left:auto}</style>
+<script src="https://cdn.jsdelivr.net/npm/p5@1.9.4/lib/p5.min.js"></script>
+<script src="shared.js"></script>
+</head><body>
+<div class="bar"><h1>Wave Superposition — Constructive & Destructive Interference</h1><span class="tag">PHYSICS</span></div>
+<div class="main" id="cc"></div>
+<div class="sub" id="subtitle">Hit <b>Play All</b> to see how two waves combine.</div>
+<div class="beats">
+  <button class="beat-btn" data-beat="0">1. One wave</button>
+  <button class="beat-btn" data-beat="1">2. Second wave</button>
+  <button class="beat-btn" data-beat="2">3. Add them</button>
+  <button class="beat-btn" data-beat="3">4. Constructive</button>
+  <button class="beat-btn" data-beat="4">5. Destructive</button>
+  <button class="beat-btn" data-beat="5">6. The principle</button>
+  <button class="auto-btn" id="auto-play">▶ Play All</button>
+</div>
+<script>
+let A;
+new p5(function(p){
+  const cc=document.getElementById('cc'); let W,H;
+  p.setup=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.createCanvas(W,H).parent(cc);p.textFont('sans-serif');
+    A=new AnimHelper(p,W,H); p._animHelper=A;
+    A.init({wave1:0, wave2:0, showSum:0, freq1:1, freq2:1, amp1:1, amp2:1, phase2:0, showEq:0});
+  };
+  p.windowResized=function(){const r=cc.getBoundingClientRect();W=r.width;H=r.height;p.resizeCanvas(W,H);A.W=W;A.H=H;};
+  p.draw=function(){
+    A.tick(); A.clear(); A.grid(50,6);
+    const s=A.state, cx=W/2, padX=40, waveW=W-padX*2;
+
+    // Axis
+    const y1=H*0.25, y2=H*0.5, y3=H*0.75;
+    if(s.wave1>0.1){A.dashed(padX,y1,W-padX,y1,A.colors.textMuted);A.label(padX-15,y1,'A',A.colors.textMuted,10);}
+    if(s.wave2>0.1){A.dashed(padX,y2,W-padX,y2,A.colors.textMuted);A.label(padX-15,y2,'B',A.colors.textMuted,10);}
+    if(s.showSum>0.1){A.dashed(padX,y3,W-padX,y3,A.colors.textMuted);A.label(padX-15,y3,'A+B',A.colors.accentAlt,10);}
+
+    const pts1=[], pts2=[], ptsSum=[];
+    for(let i=0;i<200;i++){
+      const x=padX+i/199*waveW;
+      const t=A._t*2;
+      const xn=i/199*Math.PI*6;
+      const v1=Math.sin(xn*s.freq1-t)*s.amp1*40;
+      const v2=Math.sin(xn*s.freq2-t+s.phase2)*s.amp2*40;
+      pts1.push([x,y1-v1]);
+      pts2.push([x,y2-v2]);
+      ptsSum.push([x,y3-(v1+v2)]);
+    }
+
+    if(s.wave1>0.1){p.push();p.drawingContext.globalAlpha=Math.min(1,s.wave1);A.curve(pts1,A.colors.accent,2.5);p.pop();}
+    if(s.wave2>0.1){p.push();p.drawingContext.globalAlpha=Math.min(1,s.wave2);A.curve(pts2,A.colors.pink,2.5);p.pop();}
+    if(s.showSum>0.1){p.push();p.drawingContext.globalAlpha=Math.min(1,s.showSum);A.curve(ptsSum,A.colors.accentAlt,3);A.filledCurve(ptsSum,y3,A.colors.accentAlt,0.08);p.pop();}
+
+    // Labels
+    if(s.wave1>0.5) A.label(W-padX+20,y1,'Wave A',A.colors.accent,10);
+    if(s.wave2>0.5) A.label(W-padX+20,y2,'Wave B',A.colors.pink,10);
+    if(s.showSum>0.5) A.label(W-padX+20,y3,'Sum',A.colors.accentAlt,10);
+
+    if(s.showEq>0.5) A.equation(cx,H*0.92,'y = A₁sin(ω₁t) + A₂sin(ω₂t + φ)',A.colors.accent);
+
+    if(s.wave1>0.3||s.wave2>0.3){
+      const items=[];
+      if(s.wave1>0.3)items.push({color:A.colors.accent,label:`Wave A (f=${s.freq1.toFixed(1)}, A=${s.amp1.toFixed(1)})`});
+      if(s.wave2>0.3)items.push({color:A.colors.pink,label:`Wave B (f=${s.freq2.toFixed(1)}, A=${s.amp2.toFixed(1)})`});
+      if(s.showSum>0.3)items.push({color:A.colors.accentAlt,label:'Superposition (A+B)'});
+      A.legend(items);
+    }
+  };
+},document.getElementById('cc'));
+
+const beats=[
+  {say:"Here's <b>Wave A</b> — a simple sine wave moving through space. Frequency 1, amplitude 1.",fn:()=>{A.animateTo('wave1',1);}},
+  {say:"Now <b style='color:#f472b6'>Wave B</b> arrives — same frequency, same amplitude, moving in the same direction.",fn:()=>{A.animateTo('wave2',1);}},
+  {say:"When both waves exist in the same space, they <b>add together</b>. The green line is their sum — the superposition.",fn:()=>{A.animateTo('showSum',1);}},
+  {say:"When waves are <b>in phase</b> (peaks align), they reinforce — <b style='color:#34d399'>constructive interference</b>. Double the amplitude!",fn:()=>{A.animateTo('phase2',0);A.animateTo('freq2',1);A.animateTo('amp2',1);}},
+  {say:"Shift Wave B by half a wavelength — peaks meet troughs. <b style='color:#ef4444'>Destructive interference</b>. They cancel!",fn:()=>{A.animateTo('phase2',Math.PI);}},
+  {say:"This is the <b>superposition principle</b>: the net displacement is always the sum of individual waves. Works for sound, light, water — any wave.",fn:()=>{A.animateTo('showEq',1);A.animateTo('phase2',Math.PI*0.5);}},
+];
+initBeatRunner(beats,()=>A);
+</script></body></html>
