@@ -127,7 +127,47 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
             # ContentBlock objects from SDK — pass through
             validated.append(msg)
 
-    return validated
+    # Final pass: detect orphaned tool_result blocks.
+    # Each tool_result's tool_use_id must match a tool_use block in the
+    # preceding assistant message. If not, strip the tool_result block.
+    cleaned = []
+    for i, msg in enumerate(validated):
+        content = msg.get("content")
+        if msg.get("role") == "user" and isinstance(content, list):
+            # Collect tool_use_ids from the preceding assistant message
+            prev_tool_ids = set()
+            if i > 0 and cleaned:
+                prev = cleaned[-1]
+                prev_content = prev.get("content")
+                if isinstance(prev_content, list):
+                    for b in prev_content:
+                        if isinstance(b, dict) and b.get("type") == "tool_use":
+                            prev_tool_ids.add(b.get("id", ""))
+                elif isinstance(prev_content, str):
+                    pass  # String content — no tool_use blocks
+
+            # Filter out orphaned tool_result blocks
+            has_orphans = False
+            fixed = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_result":
+                    if block.get("tool_use_id") not in prev_tool_ids:
+                        has_orphans = True
+                        log.warning("Stripping orphaned tool_result: %s", block.get("tool_use_id"))
+                        continue
+                fixed.append(block)
+
+            if has_orphans:
+                if fixed:
+                    cleaned.append({**msg, "content": fixed})
+                else:
+                    # All tool_results were orphaned — drop the entire message
+                    log.warning("Dropping user message with all orphaned tool_results")
+                continue
+
+        cleaned.append(msg)
+
+    return cleaned
 
 
 def _clean_partial_content(text: str) -> str:
@@ -3435,6 +3475,15 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             results = await _web_search(query) if query else None
             return json.dumps(results) if results else "No results found"
 
+        elif name in CONTENT_TOOL_NAMES:
+            # Content tools — route through content adapter
+            try:
+                result = await _run_content_tool(name, inp, context_data, request)
+                return result or f"No content found for {name}"
+            except Exception as e:
+                slog.warning("Content tool %s failed: %s", name, e)
+                return f"Content tool error: {e}"
+
         else:
             slog.warning("Unknown tool: %s", name)
             return f"Tool '{name}' executed (no specific handler)"
@@ -3618,6 +3667,24 @@ async def _generate_for_turn(
                 and session.assistant_turn_count % 5 == 0
             )
 
+            # Log plan state for debugging
+            has_plan = bool(session.current_plan)
+            has_topics = bool(session.current_topics)
+            topic_idx = session.current_topic_index if has_topics else -1
+            current_topic_title = (
+                session.current_topics[topic_idx].get("title", "?")
+                if has_topics and 0 <= topic_idx < len(session.current_topics)
+                else "(none)"
+            )
+            slog.info("Prompt build", extra={
+                "has_plan": has_plan,
+                "topics": len(session.current_topics) if has_topics else 0,
+                "topic_idx": topic_idx,
+                "current_topic": current_topic_title,
+                "completed": len(session.completed_topics),
+                "student_model": bool(session.student_model),
+            })
+
             tutor_prompt = build_tutor_prompt({
                 **context_data,
                 "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
@@ -3631,6 +3698,7 @@ async def _generate_for_turn(
                 "sessionScope": _format_session_scope(session),
                 "agentResults": agent_results_str,
                 "teachingMode": teaching_mode,
+                "planAccountability": _build_plan_accountability(session),
                 "_housekeepingDue": _housekeeping_due,
             })
 
@@ -3650,7 +3718,7 @@ async def _generate_for_turn(
             # immediately from plan + course map. Enrichment agent handles
             # content lookup in background.
             if is_first_turn:
-                _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek"}
+                _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek", "content_map"}
 
             if is_video_mode:
                 active_tools = [t for t in VIDEO_FOLLOW_TOOLS if t["name"] not in _removed_tools]
