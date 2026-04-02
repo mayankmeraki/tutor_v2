@@ -557,6 +557,7 @@ function buildControlBridge(scale, isWebGL) {
     '    function onControl(params) {\n' +
     '      if (params._unhighlight) { _controlParams._highlight = null; }\n' +
     '      Object.assign(_controlParams, params);\n' +
+    '      if (p._animHelper && p._animHelper._onControl) { p._animHelper._onControl(params); }\n' +
     '    }\n' +
     '    p._onControl = function(params) { onControl(params); };\n' +
     '    function sTextSize(sz) { return sz * S; }\n' +
@@ -726,7 +727,7 @@ function createAnimation(cmd) {
     try {
       sketchFn = new Function('p', 'W', 'H', fullCode.replace(/[^\x00-\x7F]/g, ''));
     } catch (e2) {
-      console.warn('[Animation] Compile error — calling Haiku fix:', e.message);
+      console.warn('[Animation] Compile error — calling syntax fix:', e.message);
       showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
       return;
     }
@@ -736,8 +737,8 @@ function createAnimation(cmd) {
   try {
     inst = new p5(function(p) {
       try { sketchFn(p, pw, ph); } catch (err) {
-        console.warn('[Animation] Sketch runtime error — calling Haiku fix:', err.message);
-        showSkeleton(el, canvasWrap, cmd, err.message, scale, isWebGL);
+        console.warn('[Animation] Sketch runtime error (Haiku fix disabled):', err.message);
+        canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation error</div>';
         return;
       }
       var userDraw = p.draw;
@@ -753,12 +754,21 @@ function createAnimation(cmd) {
       var userSetup = p.setup;
       p.setup = function () {
         if (userSetup) userSetup.call(p);
-        try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch (e) {}
+        try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+        // Auto-inject AnimHelper if LLM didn't create one
+        if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
+          try {
+            var _a = new AnimHelper(p, p.width, p.height);
+            p._animHelper = _a;
+            console.log('[Animation] AnimHelper auto-injected');
+          } catch (e) { console.warn('[Animation] AnimHelper auto-inject failed:', e); }
+        }
       };
+      // Note: anim-control forwarding to AnimHelper is handled by buildControlBridge's onControl()
     }, canvasWrap);
   } catch (e) {
-    console.warn('[Animation] Init error — calling Haiku fix:', e.message);
-    showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
+    console.warn('[Animation] Init error (Haiku fix disabled):', e.message);
+    canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation init error</div>';
     return;
   }
 
@@ -766,11 +776,12 @@ function createAnimation(cmd) {
   var entry = { container: el, instance: inst, _running: true };
   board.animations.push(entry);
 
-  var retryKey = cmd.id || 'anon';
-  var attempt = board.animRetries.get(retryKey) || 0;
-  if (attempt < 1) {
-    setTimeout(function() { detectBlank(canvasWrap, entry, cmd, retryKey, attempt); }, 2500);
-  }
+  // Blank detection disabled — Haiku fix causes more harm than good
+  // var retryKey = cmd.id || 'anon';
+  // var attempt = board.animRetries.get(retryKey) || 0;
+  // if (attempt < 1) {
+  //   setTimeout(function() { detectBlank(canvasWrap, entry, cmd, retryKey, attempt); }, 2500);
+  // }
 }
 
 function detectBlank(canvasWrap, entry, cmd, retryKey, attempt) {
@@ -847,7 +858,13 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
           return;
         }
         var userSetup = p.setup;
-        p.setup = function () { if (userSetup) userSetup.call(p); };
+        p.setup = function () {
+          if (userSetup) userSetup.call(p);
+          try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+          if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
+            try { p._animHelper = new AnimHelper(p, p.width, p.height); } catch (e) {}
+          }
+        };
       }, canvasWrap);
       el._p5Instance = inst;
       board.animations.push({ container: el, instance: inst, _running: true });

@@ -64,6 +64,8 @@ function buildControlBridge(scale, isWebGL) {
     function onControl(params) {
       if (params._unhighlight) { _controlParams._highlight = null; }
       Object.assign(_controlParams, params);
+      // Forward to AnimHelper if available
+      if (p._animHelper && p._animHelper._onControl) { p._animHelper._onControl(params); }
     }
     p._onControl = function(params) { onControl(params); };
     function sTextSize(sz) { return sz * S; }
@@ -139,7 +141,7 @@ export async function createAnimation(cmd) {
     try {
       sketchFn = new Function('p', 'W', 'H', fullCode.replace(/[^\x00-\x7F]/g, ''));
     } catch (e2) {
-      console.warn('[Animation] Compile error — calling Haiku fix:', e.message);
+      console.warn('[Animation] Compile error — calling syntax fix:', e.message);
       showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
       return;
     }
@@ -168,8 +170,17 @@ export async function createAnimation(cmd) {
       const userSetup = p.setup;
       p.setup = function () {
         if (userSetup) userSetup.call(p);
-        try { if (!p._renderer.isP3D) p.textFont('Caveat'); } catch (e) {}
+        try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+        // Auto-inject AnimHelper if LLM didn't create one
+        if (!p._animHelper && typeof AnimHelper !== 'undefined' && !p._renderer?.isP3D) {
+          try {
+            const _a = new AnimHelper(p, p.width, p.height);
+            p._animHelper = _a;
+            console.log('[Animation] AnimHelper auto-injected');
+          } catch (e) { console.warn('[Animation] AnimHelper auto-inject failed:', e); }
+        }
       };
+      // Note: anim-control forwarding to AnimHelper is handled by buildControlBridge's onControl()
     }, canvasWrap);
   } catch (e) {
     canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px">Init error</div>';
@@ -180,12 +191,12 @@ export async function createAnimation(cmd) {
   const entry = { container: el, instance: inst, _running: true };
   board.animations.push(entry);
 
-  // Blank detection (max 1 Haiku attempt)
-  const retryKey = cmd.id || 'anon';
-  const attempt = board.animRetries.get(retryKey) || 0;
-  if (attempt < 1) {
-    setTimeout(() => detectBlank(canvasWrap, entry, cmd, retryKey, attempt), 2500);
-  }
+  // Blank detection disabled — Haiku fix causes more harm than good
+  // const retryKey = cmd.id || 'anon';
+  // const attempt = board.animRetries.get(retryKey) || 0;
+  // if (attempt < 1) {
+  //   setTimeout(() => detectBlank(canvasWrap, entry, cmd, retryKey, attempt), 2500);
+  // }
 }
 
 /**
@@ -264,7 +275,13 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
           return;
         }
         const userSetup = p.setup;
-        p.setup = function () { if (userSetup) userSetup.call(p); };
+        p.setup = function () {
+          if (userSetup) userSetup.call(p);
+          try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+          if (!p._animHelper && typeof AnimHelper !== 'undefined' && !p._renderer?.isP3D) {
+            try { p._animHelper = new AnimHelper(p, p.width, p.height); } catch (e) {}
+          }
+        };
       }, canvasWrap);
       el._p5Instance = inst;
       board.animations.push({ container: el, instance: inst, _running: true });
