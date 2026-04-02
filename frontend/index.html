@@ -491,20 +491,21 @@
       </div>
 
       <!-- ── Learning outcomes + meta ── -->
-      <div style="max-width:1100px;margin:-20px auto 0;padding:0 24px 20px;position:relative;z-index:3">
-        <div id="cd-outcomes" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
-          <!-- Populated by JS from course.learning_outcomes -->
+      <div style="margin:-20px 0 0;padding:0 40px 20px;position:relative;z-index:3">
+        <div id="cd-outcomes" style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:6px">
+          <!-- Populated by JS -->
         </div>
+        <div id="cd-prereqs" style="font-size:11px;color:var(--text-dim);margin-bottom:4px"></div>
         <div style="font-size:11px;color:var(--text-dim)" id="cd-meta-line">Video follow-along with AI tutor</div>
       </div>
 
       <!-- ── Lectures filmstrip ── -->
-      <div class="cd-body" style="max-width:1100px;margin:0 auto;padding:0 24px 60px">
+      <div class="cd-body" style="padding:0 40px 60px">
         <div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
           <h2 style="font-size:15px;font-weight:600;color:rgba(255,255,255,.8)">Lectures</h2>
           <span style="font-size:11px;color:var(--accent);cursor:pointer" id="cd-selected-count">Select lectures to watch with AI</span>
         </div>
-        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;padding:8px 0 16px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
+        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;overflow-y:visible;padding:60px 0 16px;margin-top:-48px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
           <!-- Populated by JS -->
         </div>
 

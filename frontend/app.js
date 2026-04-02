@@ -10260,20 +10260,34 @@ async function _loadCourseDetail(courseId) {
     const banner = document.getElementById('cd-banner');
     if (banner) banner.style.background = _courseThumbStyle(course);
 
-    // ── Learning outcomes / metadata pills ──
+    // ── Learning outcomes + metadata pills ──
     const outcomesEl = document.getElementById('cd-outcomes');
     if (outcomesEl) {
-      const outcomes = course.learning_outcomes || course.tags || [];
-      outcomesEl.innerHTML = outcomes.slice(0, 6).map(o =>
-        `<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${o}</span>`
-      ).join('');
-      // If no outcomes, show difficulty + subject
-      if (!outcomes.length) {
-        const pills = [course.difficulty, ...(course.tags || [])].filter(Boolean);
-        outcomesEl.innerHTML = pills.map(p =>
-          `<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${p}</span>`
-        ).join('');
+      const pills = [];
+      // Difficulty badge
+      if (course.difficulty) pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;background:rgba(52,211,153,.08);color:var(--accent);font-weight:600">${course.difficulty}</span>`);
+      // Learning outcomes
+      const outcomes = course.learning_outcomes || [];
+      outcomes.slice(0, 5).forEach(o => pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${o}</span>`));
+      // Keywords from summary
+      if (!outcomes.length && course.course_summary_keywords) {
+        course.course_summary_keywords.slice(0, 5).forEach(k => pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${k}</span>`));
       }
+      // Tags
+      if (pills.length < 3 && course.tags) {
+        course.tags.slice(0, 3).forEach(t => pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${t}</span>`));
+      }
+      outcomesEl.innerHTML = pills.join('');
+    }
+    // Prerequisites
+    const prereqsEl = document.getElementById('cd-prereqs');
+    if (prereqsEl && course.prerequisites?.length) {
+      prereqsEl.innerHTML = '<span style="color:var(--text-muted)">Prerequisites:</span> ' + course.prerequisites.join(', ');
+    }
+    // Course summary as meta line
+    const metaLine = document.getElementById('cd-meta-line');
+    if (metaLine && course.course_summary) {
+      metaLine.textContent = course.course_summary.length > 120 ? course.course_summary.slice(0, 120) + '...' : course.course_summary;
     }
 
     // ── Filmstrip (horizontal scrollable lesson cards with selection) ──
@@ -10306,7 +10320,7 @@ async function _loadCourseDetail(courseId) {
             <div style="font-size:9px;color:var(--text-dim);margin-top:3px">${mod ? mod.title : ''}</div>
           </div>
           <!-- Hover tooltip -->
-          <div class="fs-tooltip" style="position:absolute;left:50%;bottom:100%;transform:translateX(-50%) translateY(8px);width:220px;padding:12px 14px;border-radius:10px;background:#151b2e;border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .2s,transform .2s;z-index:10">
+          <div class="fs-tooltip" style="position:absolute;left:50%;top:100%;transform:translateX(-50%) translateY(-4px);width:220px;padding:12px 14px;border-radius:10px;background:#151b2e;border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .2s,transform .2s;z-index:10;margin-top:4px">
             <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.9);margin-bottom:4px">${l.title}</div>
             <div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">${summary.length > 120 ? summary.slice(0, 120) + '...' : summary}</div>
             <div style="font-size:9px;color:var(--text-dim);display:flex;gap:8px">
@@ -10321,14 +10335,14 @@ async function _loadCourseDetail(courseId) {
           card.style.boxShadow = '0 12px 32px rgba(0,0,0,.4)';
           card.style.borderColor = 'rgba(255,255,255,.12)';
           const tip = card.querySelector('.fs-tooltip');
-          if (tip) { tip.style.opacity = '1'; tip.style.transform = 'translateX(-50%) translateY(0)'; }
+          if (tip) { tip.style.opacity = '1'; tip.style.transform = 'translateX(-50%) translateY(4px)'; }
         });
         card.addEventListener('mouseleave', () => {
           if (!selectedLessons.has(l.id)) { card.style.borderColor = 'rgba(255,255,255,.06)'; }
           card.style.transform = '';
           card.style.boxShadow = '';
           const tip = card.querySelector('.fs-tooltip');
-          if (tip) { tip.style.opacity = '0'; tip.style.transform = 'translateX(-50%) translateY(8px)'; }
+          if (tip) { tip.style.opacity = '0'; tip.style.transform = 'translateX(-50%) translateY(-4px)'; }
         });
 
         // Click checkbox to select, click card body to show detail
