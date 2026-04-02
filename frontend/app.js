@@ -10300,74 +10300,56 @@ async function _loadCourseDetail(courseId) {
       filmstrip.innerHTML = '';
       allLessons.forEach(l => {
         num++;
+        const _num = num;
         const thumb = _ytThumb(l.video_url);
         const mod = modules.find(m => m.id === l.module_id);
-        const summary = l.lesson_summary || l.title;
 
         const card = document.createElement('div');
         card.dataset.lessonId = l.id;
-        card.className = 'fs-card';
-        card.style.cssText = 'flex-shrink:0;width:150px;cursor:pointer;border-radius:10px;border:2px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);overflow:visible;transition:transform .25s cubic-bezier(.4,0,.2,1),border-color .2s,box-shadow .25s;position:relative';
+        card.style.cssText = 'flex-shrink:0;width:160px;cursor:pointer;border-radius:10px;border:2px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);overflow:hidden;transition:transform .25s cubic-bezier(.4,0,.2,1),border-color .2s,box-shadow .25s';
 
         card.innerHTML = `
-          <div class="fs-thumb" style="height:86px;background:${thumb ? `url(${thumb}) center/cover` : 'linear-gradient(135deg,#1a1d2e,#252a3a)'};position:relative;display:grid;place-items:center;border-radius:8px 8px 0 0;overflow:hidden">
-            ${!thumb ? `<span style="font-size:20px;font-weight:700;color:rgba(255,255,255,.15)">${num}</span>` : ''}
-            <span style="position:absolute;bottom:4px;right:6px;font-size:8px;background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);padding:1px 5px;border-radius:3px">${l.duration || '?'}m</span>
-            <div class="fs-check" style="position:absolute;top:5px;left:5px;width:18px;height:18px;border-radius:4px;border:1.5px solid rgba(255,255,255,.25);display:grid;place-items:center;background:rgba(0,0,0,.4);transition:all .15s;cursor:pointer"></div>
+          <div style="height:92px;background:${thumb ? `url(${thumb}) center/cover` : 'linear-gradient(135deg,#1a1d2e,#252a3a)'};position:relative;display:grid;place-items:center">
+            ${!thumb ? `<span style="font-size:22px;font-weight:700;color:rgba(255,255,255,.12)">${_num}</span>` : ''}
+            <span style="position:absolute;bottom:5px;right:6px;font-size:8px;background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);padding:2px 6px;border-radius:3px">${l.duration || '?'}m</span>
+            <div class="fs-check" style="position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:5px;border:1.5px solid rgba(255,255,255,.25);display:grid;place-items:center;background:rgba(0,0,0,.4);transition:all .15s;cursor:pointer"></div>
           </div>
-          <div style="padding:8px 9px">
-            <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.8);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${l.title}</div>
+          <div style="padding:8px 10px 10px">
+            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.85);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${l.title}</div>
             <div style="font-size:9px;color:var(--text-dim);margin-top:3px">${mod ? mod.title : ''}</div>
-          </div>
-          <!-- Hover tooltip -->
-          <div class="fs-tooltip" style="position:absolute;left:50%;top:100%;transform:translateX(-50%) translateY(-4px);width:220px;padding:12px 14px;border-radius:10px;background:#151b2e;border:1px solid rgba(255,255,255,.08);box-shadow:0 12px 40px rgba(0,0,0,.5);pointer-events:none;opacity:0;transition:opacity .2s,transform .2s;z-index:10;margin-top:4px">
-            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.9);margin-bottom:4px">${l.title}</div>
-            <div style="font-size:10px;color:var(--text-muted);line-height:1.5;margin-bottom:6px">${summary.length > 120 ? summary.slice(0, 120) + '...' : summary}</div>
-            <div style="font-size:9px;color:var(--text-dim);display:flex;gap:8px">
-              <span>${l.duration || '?'} min</span>
-              <span>${mod ? mod.title : ''}</span>
-            </div>
           </div>`;
 
-        // Hover: pop up + show tooltip
+        // Hover: pop up + show detail panel below
         card.addEventListener('mouseenter', () => {
-          card.style.transform = 'translateY(-6px)';
-          card.style.boxShadow = '0 12px 32px rgba(0,0,0,.4)';
+          card.style.transform = 'translateY(-5px)';
+          card.style.boxShadow = '0 10px 28px rgba(0,0,0,.4)';
           card.style.borderColor = 'rgba(255,255,255,.12)';
-          const tip = card.querySelector('.fs-tooltip');
-          if (tip) { tip.style.opacity = '1'; tip.style.transform = 'translateX(-50%) translateY(4px)'; }
+          _showLessonDetail(l, _num, thumb, mod);
         });
         card.addEventListener('mouseleave', () => {
-          if (!selectedLessons.has(l.id)) { card.style.borderColor = 'rgba(255,255,255,.06)'; }
+          if (!selectedLessons.has(l.id)) card.style.borderColor = 'rgba(255,255,255,.06)';
           card.style.transform = '';
           card.style.boxShadow = '';
-          const tip = card.querySelector('.fs-tooltip');
-          if (tip) { tip.style.opacity = '0'; tip.style.transform = 'translateX(-50%) translateY(-4px)'; }
         });
 
-        // Click checkbox to select, click card body to show detail
+        // Click: toggle select
         card.addEventListener('click', (e) => {
-          if (e.target.closest('.fs-check')) {
-            e.stopPropagation();
-            if (selectedLessons.has(l.id)) {
-              selectedLessons.delete(l.id);
-              card.style.borderColor = 'rgba(255,255,255,.06)';
-              card.querySelector('.fs-check').innerHTML = '';
-              card.querySelector('.fs-check').style.borderColor = 'rgba(255,255,255,.25)';
-              card.querySelector('.fs-check').style.background = 'rgba(0,0,0,.4)';
-            } else {
-              selectedLessons.add(l.id);
-              card.style.borderColor = 'var(--accent)';
-              const chk = card.querySelector('.fs-check');
-              chk.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
-              chk.style.borderColor = 'var(--accent)';
-              chk.style.background = 'var(--accent)';
-            }
-            const countEl = document.getElementById('cd-selected-count');
-            countEl.textContent = selectedLessons.size ? `${selectedLessons.size} lecture${selectedLessons.size > 1 ? 's' : ''} selected` : 'Select lectures to watch with AI';
+          const chk = card.querySelector('.fs-check');
+          if (selectedLessons.has(l.id)) {
+            selectedLessons.delete(l.id);
+            card.style.borderColor = 'rgba(255,255,255,.06)';
+            chk.innerHTML = '';
+            chk.style.borderColor = 'rgba(255,255,255,.25)';
+            chk.style.background = 'rgba(0,0,0,.4)';
           } else {
-            _showLessonDetail(l, num, thumb, mod);
+            selectedLessons.add(l.id);
+            card.style.borderColor = 'var(--accent)';
+            chk.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
+            chk.style.borderColor = 'var(--accent)';
+            chk.style.background = 'var(--accent)';
           }
+          const countEl = document.getElementById('cd-selected-count');
+          countEl.textContent = selectedLessons.size ? `${selectedLessons.size} lecture${selectedLessons.size > 1 ? 's' : ''} selected` : 'Select lectures to watch with AI';
         });
 
         filmstrip.appendChild(card);

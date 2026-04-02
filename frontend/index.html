@@ -500,17 +500,17 @@
       </div>
 
       <!-- ── Lectures filmstrip ── -->
-      <div class="cd-body" style="padding:0 40px 60px">
+      <div class="cd-body" style="padding:0 40px 60px;overflow:visible">
         <div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
           <h2 style="font-size:15px;font-weight:600;color:rgba(255,255,255,.8)">Lectures</h2>
           <span style="font-size:11px;color:var(--accent);cursor:pointer" id="cd-selected-count">Select lectures to watch with AI</span>
         </div>
-        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;overflow-y:visible;padding:60px 0 16px;margin-top:-48px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
+        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
           <!-- Populated by JS -->
         </div>
 
         <!-- Selected lesson detail (shown on click) -->
-        <div class="cd-lesson-detail" id="cd-lesson-detail" style="margin-top:12px;padding:16px 20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:none">
+        <div class="cd-lesson-detail" id="cd-lesson-detail" style="margin-top:8px;padding:16px 20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:none">
           <div style="display:flex;align-items:flex-start;gap:16px">
             <div id="cd-detail-thumb" style="width:160px;height:90px;border-radius:8px;background:var(--bg-surface);flex-shrink:0;overflow:hidden;display:grid;place-items:center">
               <img id="cd-detail-img" style="width:100%;height:100%;object-fit:cover;display:none">
