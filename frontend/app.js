@@ -17118,6 +17118,7 @@ function stopAll() {
     // Immediately reset flags (don't wait 50ms)
     if (BoardEngine.state) {
       BoardEngine.state.cancelFlag = false;
+      BoardEngine.state.pauseFlag = false;
       BoardEngine.state.isProcessing = false;
     }
   }

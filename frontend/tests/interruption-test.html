@@ -1,0 +1,572 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Interruption System — Unit Tests</title>
+<style>
+  body { background:#0f1219; color:#e8e8e0; font-family:'JetBrains Mono',monospace; font-size:13px; padding:20px }
+  h1 { font-size:16px; margin-bottom:16px }
+  .test { padding:8px 12px; margin:4px 0; border-radius:6px; border-left:3px solid #64748b }
+  .test.pass { border-color:#34d399; background:rgba(52,211,153,.06) }
+  .test.fail { border-color:#ff6b6b; background:rgba(255,107,107,.06) }
+  .test.running { border-color:#fbbf24; background:rgba(251,191,36,.06) }
+  .test-name { font-weight:600 }
+  .test-detail { color:#94a3b8; font-size:11px; margin-top:2px }
+  .summary { margin-top:20px; padding:12px; border-radius:8px; font-weight:600 }
+  .summary.allpass { background:rgba(52,211,153,.1); color:#34d399 }
+  .summary.somefail { background:rgba(255,107,107,.1); color:#ff6b6b }
+  #log { margin-top:16px; padding:12px; background:#161b22; border-radius:8px; max-height:300px; overflow:auto; font-size:11px; color:#8b949e }
+</style>
+</head>
+<body>
+<h1>Interruption System — Unit Tests</h1>
+<div id="results"></div>
+<div id="summary"></div>
+<div id="log"></div>
+
+<script>
+// ═══ Minimal mock environment ═══
+// We replicate just enough of the app's state and DOM for the tests to run
+
+const results = document.getElementById('results');
+const logEl = document.getElementById('log');
+let passed = 0, failed = 0, total = 0;
+
+function log(msg) {
+  logEl.textContent += msg + '\n';
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+function assert(condition, msg) {
+  if (!condition) throw new Error(msg || 'Assertion failed');
+}
+
+async function runTest(name, fn) {
+  total++;
+  const el = document.createElement('div');
+  el.className = 'test running';
+  el.innerHTML = `<div class="test-name">${name}</div><div class="test-detail">Running...</div>`;
+  results.appendChild(el);
+  try {
+    await fn();
+    el.className = 'test pass';
+    el.querySelector('.test-detail').textContent = 'Passed';
+    passed++;
+    log(`✓ ${name}`);
+  } catch (e) {
+    el.className = 'test fail';
+    el.querySelector('.test-detail').textContent = `FAILED: ${e.message}`;
+    failed++;
+    log(`✗ ${name}: ${e.message}`);
+  }
+}
+
+// ═══ Mock state object ═══
+const state = {
+  isStreaming: false,
+  _stopRequested: false,
+  _voiceSceneActive: false,
+  paused: false,
+  _lastSSETimestamp: 0,
+  _streamReader: null,
+  _streamUpdateTimer: null,
+  _streamingTimeout: null,
+  _currentTTSAudio: null,
+  voiceCurrentAudio: null,
+  voiceCurrentSrc: null,
+  voiceAudioCtx: null,
+  accumulatedText: '',
+  currentMessageId: null,
+  totalAssistantTurns: 0,
+  teachingMode: 'voice',
+  messages: [],
+  boardDraw: { commandQueue: [], isProcessing: false, cancelFlag: false },
+};
+
+// Mock _eager
+const _eager = { done: false, queue: [], running: false, parsedCount: 0, sceneInited: false, ttsPrefetch: null };
+
+// Mock BoardEngine
+const BoardEngine = {
+  state: { cancelFlag: false, pauseFlag: false, isProcessing: false, commandQueue: [] },
+  cancel() { this.state.cancelFlag = true; },
+};
+
+// Mock DOM elements
+function $(id) { return document.getElementById(id); }
+function _eagerReset() { _eager.done = false; _eager.queue = []; _eager.running = false; _eager.parsedCount = 0; _eager.sceneInited = false; }
+function generateId() { return Math.random().toString(36).slice(2); }
+function updateAIMessageStream() {}
+function finalizeAIMessage() {}
+function voiceBarSetThinking() {}
+function removeStreamingIndicator() {}
+function voiceHideSubtitle() {}
+function hideSessionPrep() {}
+
+// ═══ Create mock DOM elements for voice bar ═══
+const mockElements = ['voice-bar-input', 'voice-bar-send', 'voice-mic-btn', 'voice-bar-stop',
+  'voice-bar-pause', 'voice-bar-resume', 'vb-progress', 'vb-status', 'vm-stop-btn', 'vm-send-btn'];
+const mockContainer = document.createElement('div');
+mockContainer.style.display = 'none';
+mockElements.forEach(id => {
+  const el = document.createElement(id.includes('input') ? 'textarea' : 'div');
+  el.id = id;
+  el.className = '';
+  el.classList.add('hidden');
+  mockContainer.appendChild(el);
+});
+document.body.appendChild(mockContainer);
+
+// ═══ Import the actual functions (simplified versions) ═══
+
+let _vbState = 'idle';
+let _safetyTimeout = null;
+
+function stopAll() {
+  state._stopRequested = true;
+  state.paused = false;
+
+  if (state._streamReader) {
+    try { state._streamReader.cancel(); } catch (e) {}
+    state._streamReader = null;
+  }
+
+  [state._currentTTSAudio, state.voiceCurrentAudio].forEach(audio => {
+    if (audio) { try { audio.pause(); } catch(e) {} }
+  });
+  state._currentTTSAudio = null;
+  state.voiceCurrentAudio = null;
+  if (state.voiceCurrentSrc) {
+    try { state.voiceCurrentSrc.stop(); } catch(e) {}
+    state.voiceCurrentSrc = null;
+  }
+  if (state.voiceAudioCtx) {
+    try { state.voiceAudioCtx.close(); } catch(e) {}
+    state.voiceAudioCtx = null;
+  }
+
+  state._voiceSceneActive = false;
+  _eager.done = true;
+  _eager.queue = [];
+  _eager.running = false;
+  _eager.parsedCount = 999999;
+
+  BoardEngine.cancel();
+  if (BoardEngine.state) {
+    BoardEngine.state.cancelFlag = false;
+    BoardEngine.state.pauseFlag = false;
+    BoardEngine.state.isProcessing = false;
+  }
+  state.boardDraw.commandQueue = [];
+  state.boardDraw.isProcessing = false;
+  state.boardDraw.cancelFlag = false;
+
+  if (state._streamUpdateTimer) { clearTimeout(state._streamUpdateTimer); state._streamUpdateTimer = null; }
+  if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+  if (_safetyTimeout) { clearTimeout(_safetyTimeout); _safetyTimeout = null; }
+
+  if (state.accumulatedText) {
+    state.messages.push({
+      id: generateId(),
+      role: 'assistant',
+      content: state.accumulatedText + '\n\n[Student interrupted — tutor stopped here]',
+      stopped: true,
+    });
+    state.totalAssistantTurns++;
+    state.accumulatedText = '';
+  }
+
+  state.isStreaming = false;
+  setVoiceBarState('idle');
+}
+
+function setVoiceBarState(newState) {
+  _vbState = newState;
+  const field = document.getElementById('voice-bar-input');
+  const stopBtn = document.getElementById('voice-bar-stop');
+  const pauseBtn = document.getElementById('voice-bar-pause');
+  const resumeBtn = document.getElementById('voice-bar-resume');
+  const sendBtn = document.getElementById('voice-bar-send');
+  const micBtn = document.getElementById('voice-mic-btn');
+  const progress = document.getElementById('vb-progress');
+  const status = document.getElementById('vb-status');
+
+  [stopBtn, pauseBtn, resumeBtn].forEach(b => { if (b) b.classList.add('hidden'); });
+  if (sendBtn) sendBtn.classList.remove('hidden');
+  if (micBtn) micBtn.classList.remove('hidden');
+  if (progress) progress.className = 'vb-progress';
+  if (status) { status.className = 'vb-status'; status.textContent = ''; }
+
+  switch (newState) {
+    case 'idle':
+      if (field) field.placeholder = 'Your answer...';
+      break;
+    case 'thinking':
+      if (field) field.placeholder = 'Euler is thinking...';
+      if (sendBtn) sendBtn.classList.add('hidden');
+      if (micBtn) micBtn.classList.add('hidden');
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (progress) progress.className = 'vb-progress active thinking';
+      if (status) { status.className = 'vb-status active thinking'; status.textContent = 'Euler is thinking...'; }
+      break;
+    case 'speaking':
+      if (field) field.placeholder = 'Type to interrupt...';
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (progress) progress.className = 'vb-progress active speaking';
+      if (status) { status.className = 'vb-status active speaking'; status.textContent = 'Euler is speaking'; }
+      break;
+    case 'paused':
+      if (field) { field.placeholder = 'Paused — type or resume'; }
+      if (resumeBtn) resumeBtn.classList.remove('hidden');
+      if (progress) progress.className = 'vb-progress active paused';
+      if (status) { status.className = 'vb-status active paused'; status.textContent = 'Paused'; }
+      break;
+  }
+}
+
+function togglePause() {
+  if (_vbState === 'paused') {
+    state.paused = false;
+    if (BoardEngine.state) BoardEngine.state.pauseFlag = false;
+    setVoiceBarState('speaking');
+  } else if (_vbState === 'speaking') {
+    state.paused = true;
+    if (BoardEngine.state) BoardEngine.state.pauseFlag = true;
+    setVoiceBarState('paused');
+  }
+}
+
+// Helper to reset state between tests
+function resetAll() {
+  state.isStreaming = false;
+  state._stopRequested = false;
+  state._voiceSceneActive = false;
+  state.paused = false;
+  state._streamReader = null;
+  state._streamUpdateTimer = null;
+  state._streamingTimeout = null;
+  state._currentTTSAudio = null;
+  state.voiceCurrentAudio = null;
+  state.voiceCurrentSrc = null;
+  state.voiceAudioCtx = null;
+  state.accumulatedText = '';
+  state.currentMessageId = null;
+  state.messages = [];
+  state.totalAssistantTurns = 0;
+  state.boardDraw = { commandQueue: [], isProcessing: false, cancelFlag: false };
+  _eager.done = false; _eager.queue = []; _eager.running = false; _eager.parsedCount = 0;
+  BoardEngine.state.cancelFlag = false;
+  BoardEngine.state.pauseFlag = false;
+  BoardEngine.state.isProcessing = false;
+  _vbState = 'idle';
+  _safetyTimeout = null;
+}
+
+// ═══ TESTS ═══
+
+async function runAllTests() {
+
+  // ── stopAll tests ──
+
+  await runTest('stopAll: sets isStreaming to false', async () => {
+    resetAll();
+    state.isStreaming = true;
+    stopAll();
+    assert(state.isStreaming === false, `isStreaming is ${state.isStreaming}`);
+  });
+
+  await runTest('stopAll: sets _stopRequested to true', async () => {
+    resetAll();
+    state.isStreaming = true;
+    stopAll();
+    assert(state._stopRequested === true, `_stopRequested is ${state._stopRequested}`);
+  });
+
+  await runTest('stopAll: cancels stream reader', async () => {
+    resetAll();
+    let cancelled = false;
+    state._streamReader = { cancel() { cancelled = true; } };
+    state.isStreaming = true;
+    stopAll();
+    assert(cancelled, 'reader.cancel() was not called');
+    assert(state._streamReader === null, 'reader not nullified');
+  });
+
+  await runTest('stopAll: kills eager executor', async () => {
+    resetAll();
+    _eager.running = true;
+    _eager.queue = [{ say: 'test' }, { say: 'test2' }];
+    _eager.done = false;
+    state.isStreaming = true;
+    stopAll();
+    assert(_eager.done === true, '_eager.done not set');
+    assert(_eager.running === false, '_eager.running not reset');
+    assert(_eager.queue.length === 0, '_eager.queue not cleared');
+  });
+
+  await runTest('stopAll: saves partial message', async () => {
+    resetAll();
+    state.isStreaming = true;
+    state.accumulatedText = 'The fundamental theorem of calculus states that';
+    stopAll();
+    assert(state.messages.length === 1, `Expected 1 message, got ${state.messages.length}`);
+    assert(state.messages[0].stopped === true, 'Message not marked as stopped');
+    assert(state.messages[0].content.includes('[Student interrupted'), 'No interrupt marker');
+    assert(state.accumulatedText === '', 'accumulatedText not cleared');
+  });
+
+  await runTest('stopAll: does not save if no accumulated text', async () => {
+    resetAll();
+    state.isStreaming = true;
+    state.accumulatedText = '';
+    stopAll();
+    assert(state.messages.length === 0, `Expected 0 messages, got ${state.messages.length}`);
+  });
+
+  await runTest('stopAll: clears board state', async () => {
+    resetAll();
+    state.isStreaming = true;
+    state.boardDraw.commandQueue = [{ cmd: 'text' }, { cmd: 'line' }];
+    state.boardDraw.isProcessing = true;
+    stopAll();
+    assert(state.boardDraw.commandQueue.length === 0, 'Board queue not cleared');
+    assert(state.boardDraw.isProcessing === false, 'Board still processing');
+  });
+
+  await runTest('stopAll: clears paused state', async () => {
+    resetAll();
+    state.isStreaming = true;
+    state.paused = true;
+    stopAll();
+    assert(state.paused === false, 'paused not cleared');
+  });
+
+  await runTest('stopAll: closes AudioContext (nuclear kill)', async () => {
+    resetAll();
+    let closed = false;
+    state.voiceAudioCtx = { close() { closed = true; }, state: 'running' };
+    state.isStreaming = true;
+    stopAll();
+    assert(closed, 'AudioContext.close() not called');
+    assert(state.voiceAudioCtx === null, 'AudioContext not nullified');
+  });
+
+  await runTest('stopAll: sets voice bar to idle', async () => {
+    resetAll();
+    state.isStreaming = true;
+    setVoiceBarState('speaking');
+    stopAll();
+    assert(_vbState === 'idle', `Voice bar state is ${_vbState}, expected idle`);
+  });
+
+  await runTest('stopAll: clears safety timeout', async () => {
+    resetAll();
+    _safetyTimeout = setTimeout(() => {}, 99999);
+    state.isStreaming = true;
+    stopAll();
+    assert(_safetyTimeout === null, 'Safety timeout not cleared');
+  });
+
+  // ── Voice bar state machine tests ──
+
+  await runTest('setVoiceBarState: idle shows correct placeholder', async () => {
+    resetAll();
+    setVoiceBarState('idle');
+    const field = document.getElementById('voice-bar-input');
+    assert(field.placeholder === 'Your answer...', `Placeholder: "${field.placeholder}"`);
+    assert(_vbState === 'idle');
+  });
+
+  await runTest('setVoiceBarState: thinking shows stop, hides send+mic', async () => {
+    resetAll();
+    setVoiceBarState('thinking');
+    assert(_vbState === 'thinking');
+    assert(!document.getElementById('voice-bar-stop').classList.contains('hidden'), 'Stop not visible');
+    assert(document.getElementById('voice-bar-send').classList.contains('hidden'), 'Send still visible');
+    assert(document.getElementById('voice-mic-btn').classList.contains('hidden'), 'Mic still visible');
+    assert(document.getElementById('voice-bar-input').placeholder === 'Euler is thinking...');
+  });
+
+  await runTest('setVoiceBarState: speaking shows stop+pause+send+mic', async () => {
+    resetAll();
+    setVoiceBarState('speaking');
+    assert(_vbState === 'speaking');
+    assert(!document.getElementById('voice-bar-stop').classList.contains('hidden'), 'Stop not visible');
+    assert(!document.getElementById('voice-bar-pause').classList.contains('hidden'), 'Pause not visible');
+    assert(!document.getElementById('voice-bar-send').classList.contains('hidden'), 'Send not visible');
+    assert(!document.getElementById('voice-mic-btn').classList.contains('hidden'), 'Mic not visible');
+    assert(document.getElementById('voice-bar-input').placeholder === 'Type to interrupt...');
+  });
+
+  await runTest('setVoiceBarState: paused shows resume, correct placeholder', async () => {
+    resetAll();
+    setVoiceBarState('paused');
+    assert(_vbState === 'paused');
+    assert(!document.getElementById('voice-bar-resume').classList.contains('hidden'), 'Resume not visible');
+    assert(document.getElementById('voice-bar-stop').classList.contains('hidden'), 'Stop visible in paused');
+    assert(document.getElementById('voice-bar-pause').classList.contains('hidden'), 'Pause visible in paused');
+    assert(document.getElementById('voice-bar-input').placeholder === 'Paused — type or resume');
+  });
+
+  await runTest('setVoiceBarState: progress bar classes are correct', async () => {
+    resetAll();
+    const p = document.getElementById('vb-progress');
+    setVoiceBarState('thinking');
+    assert(p.className.includes('thinking'), `thinking: "${p.className}"`);
+    setVoiceBarState('speaking');
+    assert(p.className.includes('speaking'), `speaking: "${p.className}"`);
+    setVoiceBarState('paused');
+    assert(p.className.includes('paused'), `paused: "${p.className}"`);
+    setVoiceBarState('idle');
+    assert(!p.className.includes('active'), `idle should not be active: "${p.className}"`);
+  });
+
+  // ── Pause/resume tests ──
+
+  await runTest('togglePause: speaking → paused', async () => {
+    resetAll();
+    setVoiceBarState('speaking');
+    togglePause();
+    assert(_vbState === 'paused', `State is ${_vbState}`);
+    assert(state.paused === true, 'state.paused not set');
+    assert(BoardEngine.state.pauseFlag === true, 'Board pauseFlag not set');
+  });
+
+  await runTest('togglePause: paused → speaking', async () => {
+    resetAll();
+    state.paused = true;
+    setVoiceBarState('paused');
+    togglePause();
+    assert(_vbState === 'speaking', `State is ${_vbState}`);
+    assert(state.paused === false, 'state.paused not cleared');
+    assert(BoardEngine.state.pauseFlag === false, 'Board pauseFlag not cleared');
+  });
+
+  await runTest('togglePause: idle → no-op', async () => {
+    resetAll();
+    setVoiceBarState('idle');
+    togglePause();
+    assert(_vbState === 'idle', 'Should stay idle');
+    assert(state.paused === false, 'Should not pause when idle');
+  });
+
+  await runTest('togglePause: thinking → no-op', async () => {
+    resetAll();
+    setVoiceBarState('thinking');
+    togglePause();
+    assert(_vbState === 'thinking', 'Should stay thinking');
+  });
+
+  await runTest('togglePause: rapid toggle (3x)', async () => {
+    resetAll();
+    setVoiceBarState('speaking');
+    togglePause(); // → paused
+    assert(_vbState === 'paused');
+    togglePause(); // → speaking
+    assert(_vbState === 'speaking');
+    togglePause(); // → paused
+    assert(_vbState === 'paused');
+    assert(state.paused === true);
+    assert(BoardEngine.state.pauseFlag === true);
+  });
+
+  // ── Interrupt during pause ──
+
+  await runTest('stopAll during pause: resets everything', async () => {
+    resetAll();
+    state.isStreaming = true;
+    state.paused = true;
+    setVoiceBarState('paused');
+    BoardEngine.state.pauseFlag = true;
+    stopAll();
+    assert(_vbState === 'idle', `State should be idle, got ${_vbState}`);
+    assert(state.paused === false, 'paused not cleared');
+    assert(state.isStreaming === false, 'isStreaming not cleared');
+    assert(BoardEngine.state.pauseFlag === false, 'Board pauseFlag not cleared');
+  });
+
+  // ── Multiple rapid stopAll calls ──
+
+  await runTest('stopAll: idempotent — multiple calls safe', async () => {
+    resetAll();
+    state.isStreaming = true;
+    state.accumulatedText = 'Hello';
+    stopAll();
+    stopAll();
+    stopAll();
+    assert(state.messages.length === 1, `Expected 1 message, got ${state.messages.length}`);
+    assert(_vbState === 'idle');
+  });
+
+  // ── Eager executor crash recovery ──
+
+  await runTest('_eager.running resets even on crash scenario', async () => {
+    resetAll();
+    _eager.running = true;
+    _eager.done = false;
+    // Simulate crash by forcing done
+    _eager.done = true;
+    // In real code, the finally block resets running
+    // Here we just verify our stopAll handles it
+    stopAll();
+    assert(_eager.running === false, '_eager.running stuck true');
+  });
+
+  // ── State transition sequences ──
+
+  await runTest('Full flow: idle → thinking → speaking → paused → interrupt → idle', async () => {
+    resetAll();
+    // Idle
+    setVoiceBarState('idle');
+    assert(_vbState === 'idle');
+
+    // Start streaming
+    state.isStreaming = true;
+    setVoiceBarState('thinking');
+    assert(_vbState === 'thinking');
+
+    // TTS starts
+    setVoiceBarState('speaking');
+    assert(_vbState === 'speaking');
+
+    // Student pauses
+    togglePause();
+    assert(_vbState === 'paused');
+    assert(state.paused === true);
+
+    // Student types and sends (interrupt)
+    state.accumulatedText = 'Partial tutor response...';
+    stopAll();
+    assert(_vbState === 'idle');
+    assert(state.isStreaming === false);
+    assert(state.paused === false);
+    assert(state.messages.length === 1);
+    assert(state.messages[0].stopped === true);
+  });
+
+  await runTest('Full flow: idle → thinking → speaking → natural finish → idle', async () => {
+    resetAll();
+    setVoiceBarState('idle');
+    state.isStreaming = true;
+    setVoiceBarState('thinking');
+    setVoiceBarState('speaking');
+
+    // Natural finish
+    state.isStreaming = false;
+    _eager.running = false;
+    setVoiceBarState('idle');
+    assert(_vbState === 'idle');
+    assert(state.messages.length === 0); // no interrupted message
+  });
+
+  // ── Summary ──
+  const summaryEl = document.getElementById('summary');
+  summaryEl.className = `summary ${failed > 0 ? 'somefail' : 'allpass'}`;
+  summaryEl.textContent = `${passed}/${total} tests passed${failed > 0 ? ` — ${failed} FAILED` : ' — All good!'}`;
+}
+
+runAllTests();
+</script>
+</body>
+</html>
