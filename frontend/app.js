@@ -16445,13 +16445,18 @@ function voiceShowIndicator(mode) {
   const label = $('#voice-indicator-label');
   const bar = $('#voice-bar-main');
   if (!el) return;
-  el.classList.remove('hidden', 'speaking', 'listening');
+  el.classList.remove('hidden', 'speaking', 'listening', 'drawing');
   el.classList.add(mode);
-  if (label) label.textContent = mode === 'speaking' ? 'Euler is speaking' : 'Listening...';
+  if (label) {
+    if (mode === 'speaking') label.textContent = 'Euler is speaking';
+    else if (mode === 'drawing') label.textContent = 'Drawing on board...';
+    else if (mode === 'listening') label.textContent = 'Listening...';
+  }
   if (bar) {
-    bar.classList.remove('speaking', 'recording');
+    bar.classList.remove('speaking', 'recording', 'drawing');
     if (mode === 'speaking') bar.classList.add('speaking');
     if (mode === 'listening') bar.classList.add('recording');
+    if (mode === 'drawing') bar.classList.add('drawing');
   }
 }
 
@@ -17266,6 +17271,9 @@ async function executeDraw(drawCmds) {
   }
   console.log(`[VoiceScene] Drawing ${drawCmds.length} commands:`, drawCmds.map(c => c.cmd).join(', '));
 
+  // Show "Drawing on board..." indicator so students know the tutor is working
+  if (typeof voiceShowIndicator === 'function') voiceShowIndicator('drawing');
+
   // Ensure board canvas exists
   if (!state.boardDraw.canvas) {
     openBoardDrawSpotlight('Board', null, { clear: true });
@@ -17283,6 +17291,9 @@ async function executeDraw(drawCmds) {
   if (state.boardDraw.canvas) {
     await bdWaitForQueueDrain();
   }
+
+  // Hide drawing indicator
+  if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
 }
 
 // Wait for the command queue to fully drain (poll until isProcessing is false and queue is empty)

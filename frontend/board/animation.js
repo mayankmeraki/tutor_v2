@@ -162,8 +162,8 @@ export async function createAnimation(cmd) {
         let errors = 0;
         p.draw = function () {
           try { userDraw.call(p); } catch (err) {
-            if (++errors === 1) console.warn('[Animation] draw() error:', err.message);
-            if (errors >= 60) p.noLoop();
+            if (++errors === 1) console.log('[Animation] draw() has a minor error (animation still runs):', err.message);
+            if (errors >= 30) p.noLoop();
           }
         };
       }
