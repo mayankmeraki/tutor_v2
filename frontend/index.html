@@ -463,61 +463,72 @@
         </div>
       </nav>
 
-      <!-- Hero banner with Play button -->
-      <div class="cd-banner" id="cd-banner">
+      <!-- ── Netflix-style hero ── -->
+      <div class="cd-banner" id="cd-banner" style="position:relative;min-height:340px;padding-bottom:40px">
         <div class="cd-banner-overlay"></div>
-        <div class="cd-banner-content">
+        <div class="cd-banner-content" style="position:relative;z-index:2">
           <div class="cd-back" id="cd-back">
             <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z"/></svg>
             Back to courses
           </div>
           <span class="sc-tag" id="cd-tag"></span>
-          <h1 id="cd-title"></h1>
-          <p id="cd-description" style="max-width:600px;margin-bottom:16px"></p>
-          <div class="cd-stats">
-            <div class="cd-stat"><div class="cd-stat-v" id="cd-lessons-count">0</div><div class="cd-stat-l">Lessons</div></div>
-            <div class="cd-stat"><div class="cd-stat-v" id="cd-modules-count">0</div><div class="cd-stat-l">Modules</div></div>
-            <div class="cd-stat"><div class="cd-stat-v" id="cd-hours">~0</div><div class="cd-stat-l">Hours</div></div>
-          </div>
-          <div style="display:flex;gap:10px;margin-top:16px;align-items:center">
-            <button class="sc-btn sc-btn-accent sc-btn-lg" id="cd-play-btn" style="display:flex;align-items:center;gap:8px;font-size:15px;padding:12px 28px;border-radius:12px">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg>
-              Play Course
+          <h1 id="cd-title" style="font-size:36px;font-weight:800;letter-spacing:-.8px;margin-bottom:10px"></h1>
+          <p id="cd-description" style="max-width:520px;font-size:14px;color:rgba(255,255,255,.55);line-height:1.5;margin-bottom:18px"></p>
+          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
+            <button class="sc-btn sc-btn-accent" id="cd-play-btn" style="display:flex;align-items:center;gap:10px;font-size:16px;font-weight:700;padding:14px 32px;border-radius:10px;letter-spacing:-.2px">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg>
+              Play
             </button>
-            <span style="font-size:11px;color:var(--text-dim)">Video follow-along with AI tutor</span>
+            <div class="cd-stats" style="display:flex;gap:16px">
+              <div class="cd-stat"><div class="cd-stat-v" id="cd-lessons-count" style="font-size:16px">0</div><div class="cd-stat-l">Lessons</div></div>
+              <div class="cd-stat"><div class="cd-stat-v" id="cd-modules-count" style="font-size:16px">0</div><div class="cd-stat-l">Modules</div></div>
+              <div class="cd-stat"><div class="cd-stat-v" id="cd-hours" style="font-size:16px">~0</div><div class="cd-stat-l">Hours</div></div>
+            </div>
           </div>
         </div>
+        <!-- Bottom gradient fade into content -->
+        <div style="position:absolute;bottom:0;left:0;right:0;height:80px;background:linear-gradient(transparent,var(--bg));z-index:1"></div>
       </div>
 
-      <!-- Lecture filmstrip (horizontal scroll) + selected lesson detail -->
-      <div class="cd-body" style="max-width:1100px;margin:0 auto;padding:24px 24px 60px">
-        <div style="margin-bottom:8px;display:flex;align-items:center;justify-content:space-between">
-          <h2 style="font-size:14px;font-weight:600;color:var(--text-muted)">Lectures</h2>
-          <span style="font-size:11px;color:var(--text-dim)" id="cd-selected-count">Select lectures to play</span>
+      <!-- ── Learning outcomes + meta ── -->
+      <div style="max-width:1100px;margin:-20px auto 0;padding:0 24px 20px;position:relative;z-index:3">
+        <div id="cd-outcomes" style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:8px">
+          <!-- Populated by JS from course.learning_outcomes -->
         </div>
-        <!-- Filmstrip -->
-        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
-          <!-- Populated by JS: each card is a lesson thumbnail with checkbox -->
+        <div style="font-size:11px;color:var(--text-dim)" id="cd-meta-line">Video follow-along with AI tutor</div>
+      </div>
+
+      <!-- ── Lectures filmstrip ── -->
+      <div class="cd-body" style="max-width:1100px;margin:0 auto;padding:0 24px 60px">
+        <div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
+          <h2 style="font-size:15px;font-weight:600;color:rgba(255,255,255,.8)">Lectures</h2>
+          <span style="font-size:11px;color:var(--accent);cursor:pointer" id="cd-selected-count">Select lectures to watch with AI</span>
         </div>
-        <!-- Selected lesson detail -->
-        <div class="cd-lesson-detail" id="cd-lesson-detail" style="margin-top:16px;padding:16px 20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:none">
+        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;padding:8px 0 16px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
+          <!-- Populated by JS -->
+        </div>
+
+        <!-- Selected lesson detail (shown on click) -->
+        <div class="cd-lesson-detail" id="cd-lesson-detail" style="margin-top:12px;padding:16px 20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:none">
           <div style="display:flex;align-items:flex-start;gap:16px">
-            <div id="cd-detail-thumb" style="width:140px;height:80px;border-radius:8px;background:var(--bg-surface);flex-shrink:0;overflow:hidden;display:grid;place-items:center">
+            <div id="cd-detail-thumb" style="width:160px;height:90px;border-radius:8px;background:var(--bg-surface);flex-shrink:0;overflow:hidden;display:grid;place-items:center">
               <img id="cd-detail-img" style="width:100%;height:100%;object-fit:cover;display:none">
-              <span id="cd-detail-num" style="font-size:20px;font-weight:700;color:var(--text-dim)"></span>
+              <span id="cd-detail-num" style="font-size:22px;font-weight:700;color:var(--text-dim)"></span>
             </div>
             <div style="flex:1;min-width:0">
-              <h3 id="cd-detail-title" style="font-size:15px;font-weight:600;margin-bottom:4px"></h3>
-              <p id="cd-detail-desc" style="font-size:12px;color:var(--text-muted);line-height:1.5;margin-bottom:8px"></p>
+              <h3 id="cd-detail-title" style="font-size:16px;font-weight:600;margin-bottom:6px"></h3>
+              <p id="cd-detail-desc" style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:8px"></p>
               <div style="display:flex;gap:12px;font-size:11px;color:var(--text-dim)">
                 <span id="cd-detail-duration"></span>
                 <span id="cd-detail-module"></span>
               </div>
             </div>
+            <button class="sc-btn sc-btn-accent" style="flex-shrink:0;padding:8px 16px;font-size:12px;border-radius:8px;display:flex;align-items:center;gap:6px" id="cd-detail-play">
+              <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg> Watch
+            </button>
           </div>
         </div>
 
-        <!-- Curriculum (hidden — filmstrip replaces it) -->
         <div id="cd-curriculum" style="display:none"></div>
       </div>
     </div>

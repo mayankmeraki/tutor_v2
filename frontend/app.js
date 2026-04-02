@@ -10260,6 +10260,22 @@ async function _loadCourseDetail(courseId) {
     const banner = document.getElementById('cd-banner');
     if (banner) banner.style.background = _courseThumbStyle(course);
 
+    // ── Learning outcomes / metadata pills ──
+    const outcomesEl = document.getElementById('cd-outcomes');
+    if (outcomesEl) {
+      const outcomes = course.learning_outcomes || course.tags || [];
+      outcomesEl.innerHTML = outcomes.slice(0, 6).map(o =>
+        `<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${o}</span>`
+      ).join('');
+      // If no outcomes, show difficulty + subject
+      if (!outcomes.length) {
+        const pills = [course.difficulty, ...(course.tags || [])].filter(Boolean);
+        outcomesEl.innerHTML = pills.map(p =>
+          `<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${p}</span>`
+        ).join('');
+      }
+    }
+
     // ── Filmstrip (horizontal scrollable lesson cards with selection) ──
     const filmstrip = document.getElementById('cd-filmstrip');
     const allLessons = lessons.sort((a, b) => (a.order || 0) - (b.order || 0));
@@ -10488,6 +10504,15 @@ function _showLessonDetail(lesson, num, thumb, mod) {
   const numEl = document.getElementById('cd-detail-num');
   if (thumb) { img.src = thumb; img.style.display = 'block'; numEl.style.display = 'none'; }
   else { img.style.display = 'none'; numEl.style.display = 'block'; numEl.textContent = num; }
+  // Wire Watch button
+  const watchBtn = document.getElementById('cd-detail-play');
+  if (watchBtn) {
+    watchBtn.onclick = () => {
+      _unlockAudio();
+      const cid = state._coursePlaylistCourseId || _courseDetailData?.course?.id;
+      if (cid) vmStartVideoForLesson(cid, lesson.id);
+    };
+  }
 }
 
 async function _startVideoFollowAlong(courseId, firstLesson, lessonIds) {
