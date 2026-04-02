@@ -14268,8 +14268,23 @@ async function bdRunAnimation(cmd) {
     function onControl(params) {
       if (params._unhighlight) { _controlParams._highlight = null; }
       Object.assign(_controlParams, params);
+      // Forward to AnimHelper if available
+      if (p._animHelper) p._animHelper._onControl(params);
     }
     p._onControl = function(params) { onControl(params); };
+
+    // ── Auto-inject AnimHelper if available ──
+    // Even if LLM didn't use it, create an instance so:
+    // 1. anim-control works via AnimHelper._onControl
+    // 2. The helper is available for any code that references it
+    var A = null;
+    if (typeof AnimHelper !== 'undefined') {
+      try {
+        // Will be initialized properly in setup() once W/H are known
+        var _animHelperPending = true;
+      } catch(e) {}
+    }
+
     // Helper: scale-aware text size
     function sTextSize(sz) { return sz * S; }
     // Helper: scale-aware stroke weight
@@ -14418,11 +14433,25 @@ async function bdRunAnimation(cmd) {
       p.setup = function() {
         if (userSetup) userSetup.call(p);
         try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch(e) {}
+
+        // Auto-create AnimHelper if LLM didn't create one
+        // This ensures anim-control works and provides the design system
+        if (!p._animHelper && typeof AnimHelper !== 'undefined' && !p._renderer?.isP3D) {
+          try {
+            const _a = new AnimHelper(p, p.width, p.height);
+            p._animHelper = _a;
+            // Make A available in the animation's scope (for future beats that might reference it)
+            if (typeof A === 'undefined' || A === null) { A = _a; }
+          } catch(e) { console.warn('[Animation] AnimHelper auto-init failed:', e); }
+        }
       };
-      // Wire AnimHelper _onControl if the animation created one
-      if (p._animHelper) {
-        p._onControl = (params) => p._animHelper._onControl(params);
-      }
+      // Wire AnimHelper _onControl — check after setup runs
+      // (LLM may create it in setup, or we auto-create above)
+      setTimeout(() => {
+        if (p._animHelper && !p._onControl) {
+          p._onControl = (params) => p._animHelper._onControl(params);
+        }
+      }, 100);
     }, canvasWrap);
   } catch (e) {
     console.error('[Animation] p5 init error:', e.message);
@@ -14459,50 +14488,15 @@ async function bdRunAnimation(cmd) {
   }
   bdActiveAnimations.push(entry);
 
-  // Blank animation detection — max 1 Haiku attempt, then give up
-  const retryKey = cmd.id || 'anon';
-  if (!bd._animRetries) bd._animRetries = {};
-  const attemptNum = bd._animRetries[retryKey] || 0;
-  if (attemptNum < 1) {
-    setTimeout(() => {
-      try {
-        const p5c = canvasWrap.querySelector('canvas');
-        if (!p5c || p5c.width === 0) return;
-        // Check if canvas has ANY visible content (sample 50 pixels)
-        const ctx2 = p5c.getContext('2d', { willReadFrequently: true });
-        if (!ctx2) return;
-        const data = ctx2.getImageData(0, 0, p5c.width, p5c.height).data;
-        const step = Math.max(4, Math.floor(data.length / 200)) & ~3; // ~50 samples
-        let nonBgCount = 0;
-        for (let i = 0; i < data.length; i += step) {
-          if (data[i] > 25 || data[i+1] > 30 || data[i+2] > 25) nonBgCount++;
-        }
-        if (nonBgCount >= 3) return; // has content — animation is working
-
-        bd._animRetries[retryKey] = attemptNum + 1;
-        console.warn(`[Animation] Blank detected — calling Haiku fix:`, retryKey);
-        fetch(`${state.apiUrl}/api/fix-animation`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-          body: JSON.stringify({ code: cmd.code, error: 'Canvas all black. Fix drawing logic: use W,H for coords, visible colors, call stroke/fill before shapes.' }),
-        })
-        .then(r => r.ok ? r.json() : null)
-        .then(fixData => {
-          if (!fixData || !fixData.code) throw new Error('No code');
-          try { entry.inst.remove(); } catch(e) {}
-          if (entry.container?.parentNode) entry.container.parentNode.removeChild(entry.container);
-          const idx = bdActiveAnimations.indexOf(entry);
-          if (idx >= 0) bdActiveAnimations.splice(idx, 1);
-          bdRunAnimation({ ...cmd, code: fixData.code });
-        })
-        .catch(() => {
-          // Fix failed — remove animation, show fallback
-          bdAnimGiveUp(entry, container, retryKey);
-        });
-      } catch (e) { /* ignore */ }
-    }, 2500);
-  } else if (attemptNum >= 1) {
-    // Already tried — give up after checking
+  // Blank animation detection — DISABLED
+  // The Haiku auto-fix was triggering on working animations (especially those using
+  // AnimHelper with dark backgrounds) and rewriting them poorly. The fix caused more
+  // harm than good. Animations that truly fail will show the p5 error boundary instead.
+  //
+  // If re-enabling in the future: increase delay to 5000ms, raise nonBgCount threshold
+  // to 10+, and improve the fix prompt to not destroy animation logic.
+  if (false) { // eslint-disable-line no-constant-condition
+    const retryKey = cmd.id || 'anon';
     setTimeout(() => {
       try {
         const p5c = canvasWrap.querySelector('canvas');
