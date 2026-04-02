@@ -24,312 +24,132 @@
           <button class="sc-btn sc-btn-accent" id="lp-getstarted">Get started</button>
         </div>
       </nav>
-      <div class="lp-page">
-        <!-- ── Hero + Board teaser ── -->
-        <section class="lp-hero">
-          <div class="lp-hero-text">
-            <div class="hero-label"><i class="hero-dot"></i> Meet Euler</div>
-            <h1>One tutor.<br><em>Every subject.</em><br>Taught live.</h1>
-            <p>Euler draws on a board, speaks, and adapts to you in real time. A completely new way to experience learning with AI — a private tutor that actually <strong>teaches</strong>.</p>
-            <div class="hero-actions">
-              <div class="lp-hero-input-wrap">
-                <input type="text" class="lp-hero-input" id="lp-hero-input" placeholder="What do you want to learn?" autocomplete="off" name="euler-prompt">
-                <button class="lp-hero-btn" id="lp-hero-btn">Try it now &rarr;</button>
-              </div>
-              <div class="lp-hero-chips">
-                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Build me flashcards for organic chemistry</span>
-                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Prepare me for my physics exam on Friday</span>
-                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Teach me quantum entanglement visually</span>
-                <span class="lp-chip" onclick="document.getElementById('lp-hero-input').value=this.textContent;document.getElementById('lp-hero-btn').click()">Research latest transformer papers and explain</span>
-              </div>
-              <span class="lp-hero-note">Free to try &middot; No credit card required</span>
-            </div>
+      <div class="lp-page" style="max-width:960px;margin:0 auto;padding:80px 24px 0;text-align:center">
+
+        <!-- ── Hero (centered, simple) ── -->
+        <section class="lp-hero" style="max-width:620px;margin:0 auto 72px;display:block">
+          <h1 style="font-size:42px;font-weight:800;letter-spacing:-1px;line-height:1.15;margin-bottom:16px;color:#fff">One tutor. Every subject.<br>Taught <em>live</em>.</h1>
+          <p style="font-size:16px;color:var(--text-muted);line-height:1.6;max-width:480px;margin:0 auto 32px">An AI tutor that draws on a board, speaks, and adapts to you in real time. Upload your notes, follow any video, or just ask.</p>
+          <div class="lp-hero-input-wrap" style="max-width:500px;margin:0 auto;border-radius:14px">
+            <input type="text" class="lp-hero-input" id="lp-hero-input" placeholder="What do you want to learn?" autocomplete="off" name="euler-prompt">
+            <button class="lp-hero-btn" id="lp-hero-btn">Try it now &rarr;</button>
           </div>
-          <div class="lp-hero-board">
-            <!-- Phase 1: Orchestrator chat (visible 0-4s) -->
-            <div class="lp-hero-phase lp-phase-chat" id="lp-phase-chat">
-              <div class="lp-board-frame">
-                <div class="lp-board-header"><span class="lp-board-dot red"></span><span class="lp-board-dot yel"></span><span class="lp-board-dot grn"></span><span class="lp-board-title">Euler</span></div>
-                <div class="lp-chat-demo">
-                  <div class="lp-chat-msg lp-chat-user lp-ha1">Teach me quantum mechanics</div>
-                  <div class="lp-chat-msg lp-chat-euler lp-ha2">
-                    <span class="lp-chat-avatar">E</span>
-                    I have a full Quantum Mechanics course — 24 lessons from wave-particle duality to entanglement.
-                  </div>
-                  <div class="lp-chat-msg lp-chat-euler lp-ha3">
-                    <span class="lp-chat-avatar">E</span>
-                    <span class="lp-chat-card">
-                      <span>Ready to start on the board?</span>
-                      <span class="lp-chat-btn">Start session &rarr;</span>
-                    </span>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <!-- Phase 2: Live board session (visible 4s+) -->
-            <div class="lp-hero-phase lp-phase-board" id="lp-phase-board">
-              <div class="lp-board-frame">
-                <div class="lp-board-header"><span class="lp-board-dot red"></span><span class="lp-board-dot yel"></span><span class="lp-board-dot grn"></span><span class="lp-board-title">Live teaching session</span></div>
-                <div class="lp-board-content" id="lp-board-anim">
-                  <div class="lp-step lp-s1"><span class="lp-chalk-write">The Schr&ouml;dinger Equation</span></div>
-                  <div class="lp-step lp-s2"><span class="lp-chalk-write lp-chalk-dim">The equation that governs quantum mechanics</span></div>
-                  <div class="lp-step lp-s3"><span class="lp-chalk-write lp-eq">i&#x210F; &part;&psi;/&part;t = &Hcirc;&psi;</span></div>
-                  <div class="lp-step lp-s4"><span class="lp-chalk-write lp-ann">&larr; energy drives how &psi; changes in time</span></div>
-                  <div class="lp-step lp-s5">
-                    <svg viewBox="0 0 240 50" class="lp-wave-svg"><path d="M5 25 Q25 0 45 25 Q65 50 85 25 Q105 0 125 25 Q145 50 165 25 Q185 0 205 25 Q225 50 235 25" stroke="#34d399" stroke-width="2" fill="none" class="lp-wave-path"/></svg>
-                  </div>
-                  <div class="lp-step lp-s6"><span class="lp-chalk-write lp-question">What does &psi; actually tell us about the particle?</span></div>
-                </div>
-                <div class="lp-board-voice"><div class="lp-voice-bars"><span></span><span></span><span></span><span></span></div><span class="lp-voice-text">Euler is teaching</span></div>
-              </div>
-            </div>
-          </div>
+          <div class="lp-hero-note" style="margin-top:14px;font-size:11px;color:var(--text-dim)">Free to try. No credit card.</div>
         </section>
 
-        <!-- ── How we teach — two modes ── -->
-        <!-- ── How we teach — two modes ── -->
-        <section class="lp-modes">
-          <h2>A completely new way to learn</h2>
-          <p class="lp-modes-sub">Choose how you want to experience each lesson. Both modes adapt to you in real time.</p>
-          <div class="lp-modes-row">
-            <!-- Board teaching demo -->
-            <div class="lp-mode-card">
-              <div class="lp-mode-demo">
-                <div class="lp-board-mini">
-                  <div class="lp-bm-header"><span class="lp-bm-badge">BOARD</span> Newton's Laws <span class="lp-bm-right"><span class="lp-vbar"></span><span class="lp-vbar"></span><span class="lp-vbar"></span></span></div>
-                  <div class="lp-bm-body lp-bm-spatial">
-                    <!-- Left side: equation + annotation -->
-                    <div class="lp-bm-line lp-bm-a1 lp-bm-pos" style="color:#fbbf24;font-size:24px;font-weight:600;top:6%;left:4%">Newton's Second Law</div>
-                    <div class="lp-bm-line lp-bm-a2 lp-bm-pos" style="color:#53d8fb;font-size:28px;top:28%;left:4%">F = ma</div>
-                    <div class="lp-bm-line lp-bm-a3 lp-bm-pos" style="color:#b0bec5;font-size:14px;font-style:italic;top:30%;left:45%">&larr; net force</div>
-                    <!-- Right side: question -->
-                    <div class="lp-bm-line lp-bm-a4 lp-bm-pos" style="color:#34d399;font-size:15px;top:56%;left:4%;border-left:3px solid #34d399;padding-left:10px">If I double the force, what happens?</div>
-                    <!-- Bottom: result -->
-                    <div class="lp-bm-line lp-bm-a5 lp-bm-pos" style="color:#fbbf24;font-size:14px;top:76%;left:50%">&#10003; a = F/m &mdash; it doubles!</div>
-                    <!-- Small p5.js-style animation placeholder -->
-                    <svg class="lp-bm-anim lp-bm-a3" viewBox="0 0 120 60" style="position:absolute;top:52%;right:6%;width:100px;opacity:0">
-                      <rect x="20" y="20" width="30" height="20" rx="3" fill="none" stroke="#53d8fb" stroke-width="1.5"/>
-                      <line x1="50" y1="30" x2="95" y2="30" stroke="#fbbf24" stroke-width="1.5" stroke-dasharray="4 3"/>
-                      <polygon points="95,26 105,30 95,34" fill="#fbbf24"/>
-                      <text x="60" y="24" fill="#b0bec5" font-size="8" font-family="sans-serif">F</text>
-                      <text x="28" y="34" fill="#53d8fb" font-size="8" font-family="sans-serif">m</text>
-                    </svg>
-                  </div>
-                  <div class="lp-bm-input">Your answer...</div>
-                </div>
+        <!-- ── How it works — 3 animated demo cards ── -->
+        <div style="text-align:center;margin-bottom:28px">
+          <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:6px">How it works</div>
+          <div style="font-size:15px;color:var(--text-muted)">Three ways to learn with Euler</div>
+        </div>
+        <div class="demos">
+
+          <!-- Demo 1: Ask the tutor — board session -->
+          <div class="demo">
+            <div class="brd">
+              <div class="brd-head"><span class="brd-dot r"></span><span class="brd-dot y"></span><span class="brd-dot g"></span><span class="brd-title">Live session</span></div>
+              <div class="brd-body">
+                <div class="chalk chalk-title ch1" style="font-size:14px">The Schr&ouml;dinger Equation</div>
+                <div class="chalk chalk-dim ch2">Governs all of quantum mechanics</div>
+                <div class="chalk chalk-eq ch3" style="font-size:15px">i&#x210F; &part;&psi;/&part;t = &Hcirc;&psi;</div>
+                <svg class="wave-svg ch4" viewBox="0 0 220 28" style="height:28px"><path class="wave-path" d="M5 14Q22 0 40 14Q58 28 76 14Q94 0 112 14Q130 28 148 14Q166 0 184 14Q202 28 215 14" stroke="#34d399" stroke-width="1.5" fill="none" style="animation-delay:2.6s"/></svg>
+                <div class="chalk chalk-q ch5" style="animation-delay:3.4s">What does &psi; tell us about the particle?</div>
+                <div class="d1-input"><span class="d1-typing">Teach me quantum physics</span><span class="d1-cursor"></span></div>
               </div>
-              <h3>1-on-1 board teaching</h3>
-              <p>Your AI tutor draws diagrams, writes equations, explains step by step, asks you questions, adapts to your pace — a live teaching session, anytime you want.</p>
+              <div class="brd-voice"><div class="vbars"><span></span><span></span><span></span><span></span></div><span class="vtext">Euler is teaching</span></div>
             </div>
-            <!-- Video follow-along demo -->
-            <div class="lp-mode-card">
-              <div class="lp-mode-demo">
-                <div class="lp-board-mini">
-                  <div class="lp-bm-header"><span class="lp-bm-badge">BOARD</span> Electromagnetic Induction</div>
-                  <div class="lp-bm-body lp-bm-spatial" style="position:relative">
-                    <!-- Video thumbnail top-right -->
-                    <div class="lp-bm-vid-float">
-                      <img src="https://img.youtube.com/vi/nGQbA2jwkWI/mqdefault.jpg" alt="Lecture" loading="lazy">
-                      <div class="lp-bm-vid-badge">LIVE</div>
+            <div class="demo-label">
+              <div class="demo-icon" style="background:rgba(52,211,153,.08);color:var(--accent)"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg></div>
+              <div class="demo-text"><h3>Ask the tutor anything</h3><p>Type a topic &mdash; live board, voice, animations, step by step</p></div>
+            </div>
+          </div>
+
+          <!-- Demo 2: Video follow-along -->
+          <div class="demo">
+            <div class="brd">
+              <div class="brd-head"><span class="brd-dot r"></span><span class="brd-dot y"></span><span class="brd-dot g"></span><span class="brd-title">Video session</span></div>
+              <div class="d2-layout">
+                <div class="d2-board">
+                  <div class="d2-vid">
+                    <div class="d2-vid-play"><svg width="10" height="10" viewBox="0 0 24 24" fill="#fff"><polygon points="8 5 19 12 8 19"/></svg></div>
+                    <div class="d2-vid-pause"><span></span><span></span></div>
+                    <div class="d2-vid-live">LIVE</div>
+                    <div class="d2-vid-bar"></div>
+                  </div>
+                  <div class="d2-content">
+                    <div style="margin-left:108px">
+                      <div class="chalk chalk-title d2-c d2-c1" style="font-size:12px">Faraday's Law</div>
                     </div>
-                    <!-- Board content spread out -->
-                    <div class="lp-bm-line lp-bm-b1 lp-bm-pos" style="color:#fbbf24;font-size:22px;font-weight:600;top:6%;left:4%">Faraday's Law</div>
-                    <div class="lp-bm-line lp-bm-b2 lp-bm-pos" style="color:#53d8fb;font-size:24px;top:28%;left:4%">&Escr; = &minus;d&Phi;<sub>B</sub>/dt</div>
-                    <div class="lp-bm-line lp-bm-b3 lp-bm-pos" style="color:#b0bec5;font-size:13px;font-style:italic;top:30%;left:42%">&larr; changing flux induces EMF</div>
-                    <div class="lp-bm-line lp-bm-b1 lp-bm-pos" style="color:#34d399;font-size:14px;top:58%;left:4%;border-left:3px solid #34d399;padding-left:10px;animation-delay:2s">The professor showed the coil &mdash; watch what happens to the current</div>
-                    <!-- Coil diagram SVG -->
-                    <svg class="lp-bm-anim lp-bm-b2" viewBox="0 0 100 50" style="position:absolute;bottom:8%;right:8%;width:90px;opacity:0">
-                      <ellipse cx="50" cy="25" rx="30" ry="18" fill="none" stroke="#53d8fb" stroke-width="1.5"/>
-                      <path d="M20 25 L5 25" stroke="#fbbf24" stroke-width="1.5" marker-end="url(#lp-arr)"/>
-                      <text x="55" y="28" fill="#b0bec5" font-size="8" font-family="sans-serif">&Phi;</text>
-                      <defs><marker id="lp-arr" viewBox="0 0 6 6" refX="6" refY="3" markerWidth="5" markerHeight="5" orient="auto"><path d="M0 0L6 3L0 6z" fill="#fbbf24"/></marker></defs>
+                    <div class="chalk chalk-eq d2-c d2-c2" style="font-size:14px;margin-top:8px">&Escr; = &minus;d&Phi;<sub>B</sub>/dt</div>
+                    <div class="chalk chalk-dim d2-c d2-c3" style="margin-top:4px">Changing flux &rarr; induced voltage</div>
+                    <svg class="d2-c d2-c4" viewBox="0 0 140 36" style="width:65%;height:30px;margin-top:6px">
+                      <ellipse cx="44" cy="18" rx="22" ry="11" fill="none" stroke="#83d8fb" stroke-width="1.5" opacity=".5"/>
+                      <line x1="22" y1="18" x2="6" y2="18" stroke="#fbbf24" stroke-width="1.5" opacity=".6"/>
+                      <polygon points="6,15 2,18 6,21" fill="#fbbf24" opacity=".5"/>
                     </svg>
                   </div>
-                  <div class="lp-bm-input">Ask about what you just saw...</div>
+                  <div class="d2-q"><span class="d2-q-txt">What does changing flux actually mean?</span><span class="d2-q-cur"></span></div>
                 </div>
-              </div>
-              <h3>Watch lectures with AI tutor</h3>
-              <p>Watch original university lecture videos with your AI tutor alongside. Pause anytime — it explains what the professor just said and draws it on the board for you.</p>
-            </div>
-          </div>
-        </section>
-
-        <!-- ── BYO — Your own content ── -->
-        <section class="lp-byo-section">
-          <div class="lp-byo-inner">
-            <div class="lp-byo-text">
-              <h2>Got your own content?<br><em>Upload it. We'll teach from it.</em></h2>
-              <p>Upload your lecture videos, PDFs, notes, or textbooks. Euler processes them and teaches directly from YOUR materials — drawing diagrams, answering questions, and testing your understanding.</p>
-              <ul class="lp-byo-list">
-                <li><strong>YouTube lectures</strong> — paste a link, watch together, get explanations at every pause</li>
-                <li><strong>PDFs &amp; notes</strong> — upload study material, ask "teach me chapter 3" and it does</li>
-                <li><strong>Textbooks</strong> — upload any content, Euler builds a teaching plan from it</li>
-                <li><strong>Create from it</strong> — flashcards, summaries, practice problems, all from YOUR content</li>
-              </ul>
-              <div class="lp-byo-cta">
-                <button class="sc-btn sc-btn-accent" id="lp-byo-btn" onclick="document.getElementById('lp-hero-input').value='I have my own study materials to upload';document.getElementById('lp-hero-btn').click()">Try with your content &rarr;</button>
-              </div>
-            </div>
-            <div class="lp-byo-visual">
-              <div class="lp-byo-card">
-                <div class="lp-byo-card-icon">&#128196;</div>
-                <span>Organic Chemistry Notes.pdf</span>
-                <span class="lp-byo-status">Ready</span>
-              </div>
-              <div class="lp-byo-card">
-                <div class="lp-byo-card-icon">&#127916;</div>
-                <span>MIT 6.824 Distributed Systems</span>
-                <span class="lp-byo-status">Ready</span>
-              </div>
-              <div class="lp-byo-card">
-                <div class="lp-byo-card-icon">&#128218;</div>
-                <span>NCERT Physics Class 12</span>
-                <span class="lp-byo-status lp-byo-processing">Processing...</span>
-              </div>
-              <div class="lp-byo-arrow">&darr;</div>
-              <div class="lp-byo-result">
-                <span class="lp-byo-result-icon">&#9998;</span>
-                Euler teaches from your content — live on the board
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ── Study aids — what it creates for you ── -->
-        <section class="lp-aids">
-          <h2>Study aids created instantly — just ask</h2>
-          <p class="lp-aids-sub">Flashcards, revision notes, audio digests, formula sheets, study plans. Generated from your courses or your own materials. Say "make me flashcards" and they appear.</p>
-          <div class="lp-aids-row">
-            <div class="lp-aid-demo">
-              <div class="lp-aid-frame">
-                <div class="lp-aid-type">Flashcards</div>
-                <div class="lp-aid-card-demo">
-                  <div class="lp-aid-q">What is the derivative of sin(x)?</div>
-                  <div class="lp-aid-a">cos(x)</div>
-                </div>
-                <div class="lp-aid-meta">20 cards &middot; spaced repetition</div>
-              </div>
-            </div>
-            <div class="lp-aid-demo">
-              <div class="lp-aid-frame">
-                <div class="lp-aid-type">Revision notes</div>
-                <div class="lp-aid-note-demo">
-                  <div class="lp-aid-note-h">Chapter 3: Thermodynamics</div>
-                  <div class="lp-aid-note-li">First law: &Delta;U = Q - W</div>
-                  <div class="lp-aid-note-li">Entropy always increases</div>
-                  <div class="lp-aid-note-li">Carnot efficiency: 1 - Tc/Th</div>
+                <div class="d2-strip">
+                  <div class="d2-strip-head">Playlist</div>
+                  <div class="d2-thumb"><div class="d2-tn" style="background:linear-gradient(135deg,#1e1b4b,#282e60)"><svg viewBox="0 0 24 24" fill="#fff"><polygon points="8 5 19 12 8 19"/></svg></div><div><div style="color:var(--text-muted)">1. Coulomb</div><div class="d2-dur">8:22</div></div></div>
+                  <div class="d2-thumb"><div class="d2-tn" style="background:linear-gradient(135deg,#1a1b3a,#2a2d5e)"><svg viewBox="0 0 24 24" fill="#fff"><polygon points="8 5 19 12 8 19"/></svg></div><div><div style="color:var(--text-muted)">2. Fields</div><div class="d2-dur">12:05</div></div></div>
+                  <div class="d2-thumb playing"><div class="d2-tn" style="background:linear-gradient(135deg,#1e1040,#3b1d6e)"><svg viewBox="0 0 24 24" fill="#fff"><polygon points="8 5 19 12 8 19"/></svg></div><div><div style="color:#a78bfa">3. Faraday</div><div class="d2-dur">14:33</div></div></div>
+                  <div class="d2-thumb"><div class="d2-tn" style="background:linear-gradient(135deg,#1a2030,#252d40)"><svg viewBox="0 0 24 24" fill="#fff"><polygon points="8 5 19 12 8 19"/></svg></div><div><div style="color:var(--text-muted)">4. Maxwell</div><div class="d2-dur">11:48</div></div></div>
+                  <div class="d2-thumb"><div class="d2-tn" style="background:linear-gradient(135deg,#1a2530,#203540)"><svg viewBox="0 0 24 24" fill="#fff"><polygon points="8 5 19 12 8 19"/></svg></div><div><div style="color:var(--text-muted)">5. EM Waves</div><div class="d2-dur">9:15</div></div></div>
                 </div>
               </div>
             </div>
-            <div class="lp-aid-demo">
-              <div class="lp-aid-frame">
-                <div class="lp-aid-type">Audio digest</div>
-                <div class="lp-aid-audio-demo">
-                  <div class="lp-aid-audio-icon">&#127911;</div>
-                  <div class="lp-aid-audio-wave">
-                    <span></span><span></span><span></span><span></span><span></span><span></span><span></span><span></span>
-                  </div>
-                  <div class="lp-aid-audio-meta">12 min &middot; podcast-style</div>
+            <div class="demo-label">
+              <div class="demo-icon" style="background:rgba(167,139,250,.08);color:#a78bfa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="5 3 19 12 5 21 5 3"/></svg></div>
+              <div class="demo-text"><h3>Video follow-along</h3><p>Paste a lecture &mdash; pause anytime, ask a question, tutor explains on the board</p></div>
+            </div>
+          </div>
+
+          <!-- Demo 3: BYO materials -->
+          <div class="demo">
+            <div class="brd">
+              <div class="brd-head"><span class="brd-dot r"></span><span class="brd-dot y"></span><span class="brd-dot g"></span><span class="brd-title">Your materials</span></div>
+              <div class="brd-body" style="min-height:190px">
+                <div class="d3-prompt"><span class="d3-prompt-txt">Explain Q5 from my homework</span><span class="d3-prompt-cur"></span></div>
+                <div class="d3-src"><span class="d3-src-dot"></span> Reading from Physics_HW3.pdf</div>
+                <div class="d3-ans">
+                  <div class="chalk chalk-title d3-a d3-a1" style="font-size:12px">Q5: Projectile Motion</div>
+                  <div class="chalk chalk-eq d3-a d3-a2" style="font-size:13px">h = v&#8320;&sup2; sin&sup2;&theta; / 2g</div>
+                  <div class="chalk chalk-dim d3-a d3-a3">Split v into x and y, solve for peak height</div>
+                  <svg class="d3-anim" viewBox="0 0 160 50" style="width:75%;height:42px;margin-top:6px">
+                    <line x1="5" y1="45" x2="155" y2="45" stroke="rgba(255,255,255,.08)" stroke-width="1"/>
+                    <path d="M10 45 Q45 2 80 8 Q115 14 150 45" stroke="#34d399" stroke-width="1.5" fill="none" stroke-dasharray="180" stroke-dashoffset="180"><animate attributeName="stroke-dashoffset" from="180" to="0" dur="2s" begin="5.5s" fill="freeze" repeatCount="indefinite"/></path>
+                    <circle cx="10" cy="45" r="3" fill="#fbbf24"><animateMotion dur="2.5s" begin="5.5s" repeatCount="indefinite" path="M0 0 Q35 -43 70 -37 Q105 -31 140 0"/></circle>
+                    <text x="72" y="6" fill="rgba(52,211,153,.4)" font-size="7" font-family="sans-serif">h = 10.2 m</text>
+                  </svg>
                 </div>
               </div>
+              <div class="brd-voice"><div class="vbars"><span></span><span></span><span></span><span></span></div><span class="vtext">Euler explains from your homework</span></div>
+            </div>
+            <div class="demo-label">
+              <div class="demo-icon" style="background:rgba(96,165,250,.08);color:#60a5fa"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/></svg></div>
+              <div class="demo-text"><h3>Bring your own materials</h3><p>Upload homework, notes, or PDFs &mdash; ask anything, the tutor explains from your content</p></div>
             </div>
           </div>
-        </section>
 
-        <!-- ── The whole platform ── -->
-        <section class="lp-platform">
-          <h2>Everything Euler can do for you</h2>
-          <p class="lp-platform-sub">One tutor. Every subject. Every learning style. Everything connected.</p>
-          <div class="lp-platform-grid">
-            <div class="lp-plat-item">
-              <div class="lp-plat-icon">&#127891;</div>
-              <h4>University courses</h4>
-              <p>MIT, Stanford-level content. Full lesson plans taught live on the board by your AI tutor.</p>
-            </div>
-            <div class="lp-plat-item">
-              <div class="lp-plat-icon">&#128337;</div>
-              <h4>Exam prep mode</h4>
-              <p>Give it your exam date and topics. It builds a focused plan, teaches the hard parts, quizzes you.</p>
-            </div>
-            <div class="lp-plat-item">
-              <div class="lp-plat-icon">&#128196;</div>
-              <h4>Your own materials</h4>
-              <p>Upload PDFs, exam papers, lecture notes. Euler reads them and teaches from YOUR content.</p>
-            </div>
-            <div class="lp-plat-item">
-              <div class="lp-plat-icon">&#127911;</div>
-              <h4>Audio digests</h4>
-              <p>Turn any topic into a podcast-style summary. Listen on the go, review before exams.</p>
-            </div>
-            <div class="lp-plat-item">
-              <div class="lp-plat-icon">&#128202;</div>
-              <h4>Tracks your progress</h4>
-              <p>Knows what you've mastered, what needs work. Every session picks up where you left off.</p>
-            </div>
-            <div class="lp-plat-item">
-              <div class="lp-plat-icon">&#127793;</div>
-              <h4>Any topic, any time</h4>
-              <p>No course needed. Ask anything — from quantum physics to business strategy. Taught live.</p>
-            </div>
+        </div>
+
+        <!-- ── Footer ── -->
+        <footer class="lp-footer" style="text-align:center;padding:40px 24px;border-top:1px solid var(--border);margin-top:40px">
+          <div style="display:inline-block;background:rgba(251,191,36,.08);color:#fbbf24;font-size:9px;font-weight:700;padding:2px 8px;border-radius:4px;letter-spacing:.5px;text-transform:uppercase;margin-bottom:12px">Beta</div>
+          <div style="font-size:13px;color:var(--text-muted);margin-bottom:6px"><em style="font-style:normal;color:var(--accent)">E</em>uler</div>
+          <p style="max-width:320px;margin:0 auto 16px;line-height:1.6;font-size:11px;color:var(--text-dim)">AI tutoring with live board, voice, and animations. Currently in beta &mdash; we'd love your feedback.</p>
+          <div style="display:flex;gap:16px;justify-content:center;margin-bottom:16px;font-size:11px">
+            <a href="#" onclick="event.preventDefault();openFeedbackModal('bug')" style="color:var(--text-muted)">Report a bug</a>
+            <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')" style="color:var(--text-muted)">Contact us</a>
+            <a href="#" style="color:var(--text-muted)">Privacy</a>
+            <a href="#" style="color:var(--text-muted)">Terms</a>
           </div>
-        </section>
-
-        <!-- Bottom "Try it now" removed — hero input serves this purpose -->
-
-        <!-- ── Social proof ── -->
-        <section class="lp-social">
-          <div class="lp-stats">
-            <div class="lp-stat"><div class="lp-stat-n">10,000+</div><div class="lp-stat-l">Teaching sessions</div></div>
-            <div class="lp-stat"><div class="lp-stat-n">94%</div><div class="lp-stat-l">Say it's better than videos</div></div>
-            <div class="lp-stat"><div class="lp-stat-n">4.8/5</div><div class="lp-stat-l">Average rating</div></div>
-          </div>
-          <div class="lp-testimonials">
-            <div class="lp-testimonial">
-              <p>"I've never had anything explain wave functions this clearly. It literally drew the probability distributions for me and asked me to predict what happens next."</p>
-              <div class="lp-testimonial-author"><strong>Sarah M.</strong> &mdash; Physics undergrad, MIT</div>
-            </div>
-            <div class="lp-testimonial">
-              <p>"Went from failing calculus to actually understanding derivatives in two sessions. The way it builds up each concept on the board just clicks differently."</p>
-              <div class="lp-testimonial-author"><strong>James R.</strong> &mdash; Engineering student, Stanford</div>
-            </div>
-            <div class="lp-testimonial">
-              <p>"It's like having office hours whenever you want. I asked it to prep me for my quantum exam and it created a custom study plan on the spot."</p>
-              <div class="lp-testimonial-author"><strong>Priya K.</strong> &mdash; Graduate student, IIT Bombay</div>
-            </div>
-          </div>
-        </section>
-
-        <!-- ── Courses ── -->
-        <section class="lp-courses">
-          <h2>Available courses</h2>
-          <p class="lp-courses-sub">University-level courses with structured lesson plans. More added regularly.</p>
-          <div class="previews-grid" id="lp-courses-grid"></div>
-        </section>
-
-        <!-- ── Final CTA ── -->
-        <section class="lp-final-cta">
-          <h2>Euler is ready to teach you</h2>
-          <p>Start with any topic. No setup. No credit card.</p>
-          <button class="sc-btn sc-btn-lg sc-btn-accent" id="lp-cta-bottom">Get started <span>&rarr;</span></button>
-        </section>
-
-        <footer class="lp-footer">
-          <div class="lp-footer-top">
-            <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
-            <div class="lp-footer-links">
-              <a href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Institutions</a>
-              <a href="#" onclick="event.preventDefault();openFeedbackModal('contact')">Contact Us</a>
-              <a href="#" onclick="event.preventDefault();openFeedbackModal('feedback')">Feedback</a>
-            </div>
-          </div>
-          <div class="lp-footer-bottom">
-            <span>AI that teaches, not chats.</span>
-            <span class="lp-footer-contact">mayank@seekcapacity.ai</span>
-          </div>
+          <div style="color:var(--text-dim);font-size:10px">mayank@seekcapacity.ai &middot; Made with care, shipped fast.</div>
         </footer>
       </div>
     </div>
-
     <!-- ═══ FOR BUSINESS / INSTITUTIONS SCREEN ═══ -->
     <div id="business-screen" class="app-screen" style="display:none">
       <nav class="sc-nav">
@@ -537,252 +357,114 @@
 
       <!-- ── Tab bar ── -->
       <div class="home-tabs">
-        <button class="home-tab active" data-home-tab="home">
-          Home
-        </button>
-        <button class="home-tab" data-home-tab="content">
-          My Content
-        </button>
+        <button class="home-tab active" data-home-tab="home">Home</button>
+        <button class="home-tab" data-home-tab="stuff">My Stuff</button>
       </div>
 
-      <!-- ═══ TAB: Home (Euler + Explore merged) ═══ -->
+      <!-- ═══ TAB: Home ═══ -->
       <div class="home-tab-content active" id="tab-home">
-        <div class="euler-panel" id="euler-panel">
-          <!-- Idle state — hero + quick starts -->
-          <div class="euler-idle" id="euler-idle">
-            <div class="euler-idle-center">
-              <!-- Hero: input first -->
-              <h1 id="browse-greeting">What do you want to learn?</h1>
-              <div class="euler-input-bar">
-                <div class="euler-avatar">E</div>
-                <button class="euler-attach" id="euler-attach-btn" title="Attach file">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-                </button>
-                <textarea class="euler-input" id="euler-input" rows="1" placeholder="Ask Euler anything..." autocomplete="off"></textarea>
-                <button class="euler-send" id="euler-send-btn" title="Send">
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                </button>
-              </div>
-              <div class="euler-attach-preview" id="euler-attach-preview" style="display:none"></div>
-              <input type="file" id="euler-file-input" style="display:none" accept="image/*,.pdf,.txt,.md,.docx,.csv,.json,.py,.js,.html,.mp3,.wav,.mp4,.webm">
-              <div class="euler-chips" id="euler-chips">
-                <span class="euler-chip">Build me flashcards for organic chemistry</span>
-                <span class="euler-chip">Prepare me for my physics exam on Friday</span>
-                <span class="euler-chip">Teach me quantum entanglement visually</span>
-                <span class="euler-chip">Research latest transformer papers and explain</span>
-              </div>
+        <div class="sc-wrap" style="max-width:780px;margin:0 auto;padding:36px 24px 80px">
+
+          <!-- Hero: greeting + input -->
+          <div style="text-align:center;margin-bottom:44px">
+            <div class="hero-greeting" id="browse-greeting" style="font-size:14px;color:var(--text-muted);margin-bottom:6px">Good evening</div>
+            <h1 style="font-size:26px;font-weight:700;letter-spacing:-.4px;margin-bottom:22px;color:#fff">What would you like to learn?</h1>
+            <div class="euler-input-bar" style="max-width:540px;margin:0 auto;border-radius:13px">
+              <textarea class="euler-input" id="euler-input" rows="1" placeholder="Teach me about quantum entanglement..." autocomplete="off"></textarea>
+              <button class="euler-send" id="euler-send-btn" title="Send">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
             </div>
-
-            <!-- Sessions + Courses + Videos (inline below Euler input) -->
-            <div class="home-browse-section" id="home-browse">
-              <!-- Pick up where you left off -->
-              <div id="home-sessions-section" style="display:none">
-                <div class="sec-head"><h2>Pick up where you left off</h2></div>
-                <div class="session-row" id="home-sessions-row"></div>
-              </div>
-
-              <!-- Your Videos (above courses) -->
-              <div id="home-videos-section" style="display:none">
-                <div class="sec-head"><h2>Your videos</h2></div>
-                <div class="session-row" id="home-videos-row"></div>
-              </div>
-
-              <!-- Courses -->
-              <div id="home-courses-section" style="display:none">
-                <div class="sec-head">
-                  <h2>Pick a course to start</h2>
-                  <span id="home-course-count" class="sec-count"></span>
-                </div>
-                <div class="c-grid c-grid-collapsed" id="home-courses-grid"></div>
-              </div>
+            <div class="euler-chips" id="euler-chips" style="margin-top:12px;justify-content:center">
+              <span class="euler-chip">DNA replication</span>
+              <span class="euler-chip">Calculus from scratch</span>
+              <span class="euler-chip">How does RSA work?</span>
+              <span class="euler-chip">Newton's laws visually</span>
             </div>
           </div>
-          <!-- Active chat — split layout: conversation + artifact preview -->
-          <div class="euler-chat" id="euler-chat" style="display:none">
-            <div class="euler-chat-main">
-              <div class="euler-chat-header">
-                <div class="euler-chat-header-left">
-                  <button class="euler-home-btn" id="euler-home-btn" title="Back to home">
-                    <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path d="M10.707 2.293a1 1 0 00-1.414 0l-7 7a1 1 0 001.414 1.414L4 10.414V17a1 1 0 001 1h2a1 1 0 001-1v-2a1 1 0 011-1h2a1 1 0 011 1v2a1 1 0 001 1h2a1 1 0 001-1v-6.586l.293.293a1 1 0 001.414-1.414l-7-7z"/></svg>
-                    Home
-                  </button>
-                  <span class="euler-chat-title">Euler</span>
-                </div>
-                <button class="euler-clear-btn" id="euler-clear-btn" title="New conversation">New chat</button>
-              </div>
-              <div class="euler-messages" id="euler-messages"></div>
-              <div class="euler-chat-input">
-                <div class="euler-processing-bar" id="euler-processing-bar">
-                  <div class="euler-processing-dots"><span></span><span></span><span></span></div>
-                  <span id="euler-processing-label">Euler is thinking...</span>
-                </div>
-                <div class="euler-input-bar">
-                  <div class="euler-avatar">E</div>
-                  <button class="euler-attach" id="euler-attach-btn-active" title="Attach file">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-                  </button>
-                  <textarea class="euler-input" id="euler-input-active" rows="1" placeholder="Reply to Euler..." autocomplete="off"></textarea>
-                  <button class="euler-send" id="euler-send-btn-active" title="Send">
-                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-                  </button>
-                </div>
-                <div class="euler-attach-preview" id="euler-attach-preview-active" style="display:none"></div>
-                <input type="file" id="euler-file-input-active" style="display:none" accept="image/*,.pdf,.txt,.md,.docx,.csv,.json,.py,.js,.html,.mp3,.wav,.mp4,.webm">
-              </div>
+
+          <!-- Sessions + Courses + Videos -->
+          <div class="home-browse-section" id="home-browse">
+            <div id="home-sessions-section" class="section" style="display:none;margin-bottom:36px">
+              <div class="sec-head"><h2 style="font-size:13px;font-weight:600;color:var(--text-muted)">Pick up where you left off</h2><span class="sec-link" style="font-size:10px;color:var(--text-dim);cursor:pointer">All sessions</span></div>
+              <div class="session-row hscroll" id="home-sessions-row"></div>
             </div>
-            <!-- Artifact preview panel (hidden until artifact created) -->
-            <div class="euler-preview" id="euler-preview" style="display:none">
-              <div class="ep-header">
-                <div class="ep-header-left">
-                  <span class="ep-type" id="ep-type"></span>
-                  <span class="ep-title" id="ep-title"></span>
-                </div>
-                <div class="ep-actions">
-                  <button class="ep-btn ep-save" id="ep-save" title="Saved to learning aids">Saved</button>
-                  <button class="ep-btn ep-close" id="ep-close" title="Close preview">&times;</button>
-                </div>
+
+            <div id="home-courses-section" class="section" style="display:none;margin-bottom:36px">
+              <div class="sec-head">
+                <h2 style="font-size:13px;font-weight:600;color:var(--text-muted)">Start a course</h2>
+                <span class="sec-link" style="font-size:10px;color:var(--text-dim);cursor:pointer">Browse all</span>
               </div>
-              <div class="ep-body" id="ep-body"></div>
+              <div class="c-grid c-grid-collapsed hscroll" id="home-courses-grid"></div>
             </div>
+
+            <div id="home-videos-section" class="section" style="display:none;margin-bottom:36px">
+              <div class="sec-head"><h2 style="font-size:13px;font-weight:600;color:var(--text-muted)">Follow along with a video</h2><span class="sec-link" style="font-size:10px;color:var(--text-dim);cursor:pointer">Upload new</span></div>
+              <div class="session-row hscroll" id="home-videos-row"></div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ═══ TAB: My Stuff (collections) ═══ -->
+      <div class="home-tab-content" id="tab-stuff">
+        <div class="sc-wrap" style="max-width:720px;margin:0 auto;padding:28px 24px 80px">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
+            <h2 style="font-size:16px;font-weight:600">My Collections</h2>
+            <button class="sc-btn sc-btn-accent" id="btn-new-collection" style="font-size:12px;padding:7px 14px;border-radius:8px;display:flex;align-items:center;gap:6px">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+              New Collection
+            </button>
+          </div>
+          <p style="font-size:12px;color:var(--text-muted);margin:-14px 0 20px;line-height:1.6">Organize your study materials into collections. Upload PDFs, notes, videos, or links — then hit <strong style="color:var(--accent)">Teach me this</strong> and the tutor teaches from your content.</p>
+
+          <!-- Collections list (populated by JS) -->
+          <div class="collections" id="collections-list">
+            <!-- Skeleton shown while loading -->
+            <div class="skeleton-card" style="height:60px;border-radius:9px;margin-bottom:6px"></div>
+            <div class="skeleton-card" style="height:60px;border-radius:9px;margin-bottom:6px"></div>
+          </div>
+
+          <!-- BYO upload elements (hidden, used by JS) -->
+          <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg">
+        </div>
+      </div>
+
+      <!-- ═══ New Collection Modal ═══ -->
+      <div class="modal-bg" id="new-collection-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
+        <div class="modal" style="max-width:380px;border-radius:12px;border:1px solid var(--border);background:#111827;padding:20px">
+          <h3 style="font-size:15px;font-weight:600;margin-bottom:14px">New Collection</h3>
+          <div style="margin-bottom:12px">
+            <label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.5px">Name</label>
+            <input id="new-col-name" style="width:100%;padding:8px 11px;border-radius:7px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:12px;font-family:inherit;outline:none" placeholder="e.g. Organic Chemistry, MIT 18.06..." autofocus />
+          </div>
+          <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:16px">
+            <button class="sc-btn sc-btn-ghost" onclick="document.getElementById('new-collection-modal').style.display='none'" style="font-size:12px;padding:7px 14px">Cancel</button>
+            <button class="sc-btn sc-btn-accent" id="btn-create-collection" style="font-size:12px;padding:7px 14px">Create</button>
           </div>
         </div>
       </div>
 
-      <!-- ═══ TAB: Explore (hidden, kept for compat) ═══ -->
-      <div class="home-tab-content" id="tab-explore" style="display:none !important">
-        <div class="sc-wrap">
-          <!-- Hero + unified search -->
-          <div class="explore-hero">
-            <h2>Explore</h2>
-            <p class="explore-hero-sub">Courses, sessions, videos — all in one place.</p>
-            <div class="explore-search explore-search-lg">
-              <svg viewBox="0 0 20 20" fill="currentColor" width="16" height="16"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
-              <input placeholder="Search courses, sessions, videos..." id="explore-search-input" class="explore-search-input-lg">
-            </div>
-          </div>
+    </div>
 
-          <!-- My sessions — course sessions -->
-          <div id="explore-course-sessions-section" style="display:none">
-            <div class="sec-head">
-              <h2>Course sessions</h2>
-            </div>
-            <div class="session-row" id="explore-course-sessions-row"></div>
-          </div>
-
-          <!-- My sessions — free / on-demand -->
-          <div id="explore-free-sessions-section" style="display:none">
-            <div class="sec-head">
-              <h2>Recent sessions</h2>
-              <span id="explore-free-sessions-count"></span>
-            </div>
-            <div class="session-row" id="explore-free-sessions-row"></div>
-          </div>
-
-          <!-- My Videos -->
-          <div id="explore-my-videos-section" style="display:none">
-            <div class="sec-head">
-              <h2>My videos</h2>
-              <span id="explore-my-videos-count"></span>
-            </div>
-            <div class="session-row" id="explore-my-videos-row"></div>
-          </div>
-
-          <!-- Continue learning (conditional) -->
-          <div id="browse-continue-section" style="display:none">
-            <div class="sec-head"><h2>Continue learning</h2></div>
-            <div class="cont-row" id="browse-continue-row"></div>
-          </div>
-
-          <!-- Course grid -->
-          <div class="sec-head">
-            <h2>All courses</h2>
-            <span id="browse-course-count" class="sec-count"></span>
-          </div>
-          <div class="c-grid c-grid-collapsed" id="browse-courses-grid"></div>
-          <div class="sec-show-all" id="browse-show-all" style="display:none">
-            <button class="show-all-btn" onclick="document.getElementById('browse-courses-grid').classList.remove('c-grid-collapsed');this.parentElement.style.display='none'">Show all courses</button>
-          </div>
-
-          <!-- No match fallback -->
-          <div id="browse-no-match-zone" style="display:none">
-            <div class="explore-no-match">
-              <p>Can't find what you're looking for?</p>
-              <p class="explore-no-match-sub">Your tutor can teach any topic — even without a structured course. Just ask.</p>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ Contact / Feedback Section (bottom of home) ═══ -->
-      <div class="fb-contact-section" id="contact-section">
-        <div class="fb-contact-inner">
-          <h2>Get in touch</h2>
-          <p>Have feedback, found a bug, or just want to say hi? We'd love to hear from you.</p>
-          <div class="fb-contact-cards">
-            <div class="fb-card" onclick="openFeedbackModal('feedback')">
-              <div class="fb-card-icon">&#128172;</div>
-              <h3>Feedback</h3>
-              <p>Share ideas, suggestions, or what's working well</p>
-            </div>
-            <div class="fb-card" onclick="openFeedbackModal('bug')">
-              <div class="fb-card-icon">&#128027;</div>
-              <h3>Report a Bug</h3>
-              <p>Something broken? Let us know and we'll fix it</p>
-            </div>
-            <div class="fb-card" onclick="openFeedbackModal('contact')">
-              <div class="fb-card-icon">&#9993;</div>
-              <h3>Contact Us</h3>
-              <p>Questions about Euler? Reach out anytime</p>
-            </div>
-          </div>
-          <div class="fb-direct-contact">
-            <a href="mailto:mayank@seekcapacity.ai">mayank@seekcapacity.ai</a>
-            <span class="fb-direct-sep">&middot;</span>
-            <a href="tel:+919772187848">+91 97721 87848</a>
-          </div>
-        </div>
-      </div>
-
-      <!-- ═══ TAB: My Content ═══ -->
-      <div class="home-tab-content" id="tab-content">
-        <div class="sc-wrap">
-          <!-- Upload zone (compact) -->
-          <div class="mat-section">
-            <div class="mat-section-header">
-              <div class="mat-header-row">
-                <h2>Materials</h2>
-                <div class="mat-search">
-                  <svg viewBox="0 0 20 20" fill="currentColor" width="12" height="12"><path fill-rule="evenodd" d="M9 3.5a5.5 5.5 0 100 11 5.5 5.5 0 000-11zM2 9a7 7 0 1112.452 4.391l3.328 3.329a.75.75 0 11-1.06 1.06l-3.329-3.328A7 7 0 012 9z"/></svg>
-                  <input placeholder="Search..." id="byo-search-input" autocomplete="off">
-                </div>
-              </div>
-            </div>
-            <div class="byo-upload-compact">
-              <div class="byo-drop-area-compact" id="byo-drop-area">
-                <span class="byo-drop-icon-sm">+</span>
-                <span>Drop files or <span class="byo-browse-link" id="byo-browse-link">browse</span></span>
-              </div>
-              <div class="byo-link-row">
-                <input type="text" class="byo-link-input" id="byo-link-input" placeholder="Paste a YouTube or article link..." />
-                <button class="byo-link-btn" id="byo-link-btn">Add</button>
-              </div>
-            </div>
-            <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg">
-          </div>
-
-          <!-- My Uploads (grouped by type) -->
-          <div class="mat-section" id="mat-uploads-section" style="display:none">
-            <div class="mat-section-header"><h2>My uploads</h2></div>
-            <div id="byo-grid"></div>
-          </div>
-
-          <!-- Generated by Euler -->
-          <div class="mat-section" id="mat-generated-section" style="display:none">
-            <div class="mat-section-header"><h2>Generated by Euler</h2></div>
-            <div class="aids-grid" id="aids-grid"></div>
-          </div>
-        </div>
-      </div>
+    <!-- ═══ OLD EULER CHAT + EXPLORE + CONTACT + MY CONTENT REMOVED ═══ -->
+    <!-- NOTE: euler-chat, tab-explore, contact-section, old tab-content have been removed.
+         The orchestrator is no longer used. Home input goes directly to session creation.
+         My Content is replaced by My Stuff (collection-first model). -->
+    <!-- Hidden compat elements for JS that may reference old IDs -->
+    <div style="display:none" id="old-compat">
+      <div id="euler-idle"></div>
+      <div id="euler-chat"></div>
+      <div id="euler-messages"></div>
+      <div id="euler-panel"></div>
+      <div id="euler-preview"></div>
+      <div id="tab-content"></div>
+      <div id="tab-explore"></div>
+      <div id="contact-section"></div>
+      <div id="byo-grid"></div>
+      <div id="aids-grid"></div>
+      <div id="byo-search-input"></div>
     </div>
 
     <!-- ═══ COURSE DETAIL SCREEN ═══ -->
