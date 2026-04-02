@@ -1252,6 +1252,7 @@ const _ws = {
   accumulatedText: '',  // full text for message history
   reconnectTimer: null,
   retryCount: 0,
+  pingInterval: null,   // keepalive ping timer
 };
 
 // Per-turn state — completely replaced on each new turn.
@@ -1277,9 +1278,21 @@ function wsConnect() {
   try {
     _ws.conn = new WebSocket(url);
     _ws.conn.binaryType = 'arraybuffer';
-    _ws.conn.onopen = () => { console.log('[WS] Connected'); _ws.retryCount = 0; };
+    _ws.conn.onopen = () => {
+      console.log('[WS] Connected');
+      _ws.retryCount = 0;
+      // Keepalive ping every 30s to prevent Cloud Run / proxy idle timeout
+      if (_ws.pingInterval) clearInterval(_ws.pingInterval);
+      _ws.pingInterval = setInterval(() => {
+        if (_ws.conn?.readyState === WebSocket.OPEN) {
+          _ws.conn.send(JSON.stringify({ type: 'PING' }));
+        }
+      }, 30000);
+    };
     _ws.conn.onmessage = _wsOnMessage;
     _ws.conn.onclose = () => {
+      console.log('[WS] Disconnected — reconnecting...');
+      if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
       _wsKillTurn('disconnect');
       const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 30000);
       _ws.retryCount++;
