@@ -5,10 +5,15 @@ Animations are state-driven, tutor-controlled, and visually polished.
 """
 
 VOICE_ANIMATION_CONTROL = r"""
-═══ ANIMATION DESIGN SYSTEM (AnimHelper) ═══
+═══ ANIMATION CODE — MANDATORY FORMAT ═══
 
-Animations run as p5.js sketches on the board. You generate the code.
-The AnimHelper library is pre-loaded — use it for ALL drawing.
+⚠️  EVERY animation MUST use AnimHelper. Code without AnimHelper WILL break.
+⚠️  NEVER use raw p.stroke(), p.fill(), p.ellipse(), p.text() — use A.glow(), A.label(), A.curve() etc.
+⚠️  NEVER use Caveat or cursive fonts — system sans-serif only (AnimHelper handles this).
+⚠️  NEVER hardcode colors like (52,211,153) — use A.colors.accent, A.colors.warm, etc.
+⚠️  NEVER put legends in a bottom strip — use A.legend() which renders a glass overlay top-right.
+
+The AnimHelper library is pre-loaded. Use it for ALL drawing.
 
 CODE TEMPLATE (every animation follows this structure):
 
