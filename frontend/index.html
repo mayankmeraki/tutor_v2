@@ -346,13 +346,13 @@
 
       <!-- ═══ TAB: Home ═══ -->
       <div class="home-tab-content active" id="tab-home">
-        <div class="sc-wrap" style="max-width:780px;margin:0 auto;padding:36px 24px 80px">
+        <div style="padding:36px 40px 80px">
 
-          <!-- Hero: greeting + input -->
+          <!-- Hero: greeting + input (centered) -->
           <div style="text-align:center;margin-bottom:44px">
             <div class="hero-greeting" id="browse-greeting" style="font-size:14px;color:var(--text-muted);margin-bottom:6px">Good evening</div>
-            <h1 style="font-size:26px;font-weight:700;letter-spacing:-.4px;margin-bottom:22px;color:#fff">What would you like to learn?</h1>
-            <div class="euler-input-bar" style="max-width:540px;margin:0 auto;border-radius:13px">
+            <h1 style="font-size:28px;font-weight:700;letter-spacing:-.4px;margin-bottom:22px;color:#fff">What would you like to learn?</h1>
+            <div class="euler-input-bar" style="max-width:560px;margin:0 auto;border-radius:13px">
               <textarea class="euler-input" id="euler-input" rows="1" placeholder="Teach me about quantum entanglement..." autocomplete="off"></textarea>
               <button class="euler-send" id="euler-send-btn" title="Send">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
@@ -366,23 +366,23 @@
             </div>
           </div>
 
-          <!-- Sessions + Courses + Videos -->
+          <!-- Sessions + Courses + Videos (full-width) -->
           <div class="home-browse-section" id="home-browse">
-            <div id="home-sessions-section" class="section" style="display:none;margin-bottom:36px">
-              <div class="sec-head"><h2 style="font-size:13px;font-weight:600;color:var(--text-muted)">Pick up where you left off</h2><span class="sec-link" style="font-size:10px;color:var(--text-dim);cursor:pointer">All sessions</span></div>
+            <div id="home-sessions-section" class="section" style="display:none;margin-bottom:40px">
+              <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Pick up where you left off</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">All sessions</span></div>
               <div class="session-row hscroll" id="home-sessions-row"></div>
             </div>
 
-            <div id="home-courses-section" class="section" style="display:none;margin-bottom:36px">
+            <div id="home-courses-section" class="section" style="display:none;margin-bottom:40px">
               <div class="sec-head">
-                <h2 style="font-size:13px;font-weight:600;color:var(--text-muted)">Start a course</h2>
-                <span class="sec-link" style="font-size:10px;color:var(--text-dim);cursor:pointer">Browse all</span>
+                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Start a course</h2>
+                <span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">Browse all</span>
               </div>
               <div class="c-grid c-grid-collapsed hscroll" id="home-courses-grid"></div>
             </div>
 
-            <div id="home-videos-section" class="section" style="display:none;margin-bottom:36px">
-              <div class="sec-head"><h2 style="font-size:13px;font-weight:600;color:var(--text-muted)">Follow along with a video</h2><span class="sec-link" style="font-size:10px;color:var(--text-dim);cursor:pointer">Upload new</span></div>
+            <div id="home-videos-section" class="section" style="display:none;margin-bottom:40px">
+              <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Follow along with a video</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">Upload new</span></div>
               <div class="session-row hscroll" id="home-videos-row"></div>
             </div>
           </div>
@@ -392,7 +392,7 @@
 
       <!-- ═══ TAB: My Stuff (collections) ═══ -->
       <div class="home-tab-content" id="tab-stuff">
-        <div class="sc-wrap" style="max-width:720px;margin:0 auto;padding:28px 24px 80px">
+        <div style="padding:28px 40px 80px">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
             <h2 style="font-size:16px;font-weight:600">My Collections</h2>
             <button class="sc-btn sc-btn-accent" id="btn-new-collection" style="font-size:12px;padding:7px 14px;border-radius:8px;display:flex;align-items:center;gap:6px">
