@@ -266,24 +266,26 @@
           </div>
         </div>
 
-        <!-- ── CTA ── -->
-        <div style="margin-bottom:48px;padding:36px 24px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
-          <h2 style="font-size:22px;font-weight:700;margin-bottom:8px;color:#fff">Give every student a private tutor</h2>
-          <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Universities, coaching institutes, and ed-tech companies. We'll onboard your curriculum in days.</p>
-          <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;margin-bottom:16px">
-            <button class="sc-btn sc-btn-accent sc-btn-lg" onclick="openFeedbackModal('contact')">Schedule a Demo</button>
-          </div>
-          <div style="font-size:11px;color:var(--text-dim)">
-            <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-muted)">mayank@seekcapacity.ai</a>
-            <span style="margin:0 8px;color:var(--text-dim)">&middot;</span>
-            <a href="tel:+919772187848" style="color:var(--text-muted)">+91 97721 87848</a>
+        <!-- ── Schedule a Demo ── -->
+        <div style="margin-bottom:0;padding:36px 24px;border-radius:14px;border:1px solid var(--border);background:rgba(255,255,255,.02)">
+          <h2 style="font-size:22px;font-weight:700;margin-bottom:8px;color:#fff">Schedule a Demo</h2>
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:20px">Tell us about your institution and we'll set up a walkthrough.</p>
+          <div style="max-width:400px;margin:0 auto;text-align:left">
+            <input id="biz-email" type="email" placeholder="Your email" style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:12px;font-family:inherit;outline:none;margin-bottom:8px" />
+            <textarea id="biz-message" rows="3" placeholder="Tell us about your institution, number of students, and what you're looking for..." style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:12px;font-family:inherit;outline:none;resize:vertical;margin-bottom:12px"></textarea>
+            <button class="sc-btn sc-btn-accent" id="biz-demo-submit" style="width:100%;padding:10px;font-size:13px;font-weight:600;border-radius:8px" onclick="_submitBizDemo()">Send Request</button>
+            <div id="biz-demo-status" style="font-size:11px;color:var(--accent);margin-top:8px;text-align:center;display:none"></div>
           </div>
         </div>
 
-        <footer style="text-align:center;padding:24px;border-top:1px solid var(--border);margin-top:48px;font-size:10px;color:var(--text-dim)">
-          <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-dim)">mayank@seekcapacity.ai</a>
-          <span style="margin:0 6px">&middot;</span>
-          <a href="tel:+919772187848" style="color:var(--text-dim)">+91 97721 87848</a>
+        <!-- ── Footer: contact info only ── -->
+        <footer style="text-align:center;padding:28px 24px;margin-top:32px">
+          <div style="font-size:11px;font-weight:500;color:var(--text-muted);margin-bottom:6px">Contact us</div>
+          <div style="font-size:10px;color:var(--text-dim)">
+            <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-dim)">mayank@seekcapacity.ai</a>
+            <span style="margin:0 6px">&middot;</span>
+            <a href="tel:+919772187848" style="color:var(--text-dim)">+91 97721 87848</a>
+          </div>
         </footer>
 
       </div>

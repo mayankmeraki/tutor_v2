@@ -16,7 +16,8 @@ from app.core.config import settings
 log = logging.getLogger(__name__)
 
 # ── Voice config ─────────────────────────────────────────────
-VOICE_ID = "UgBBYS2sOqTuMpoF3BR0"
+# VOICE_ID = "UgBBYS2sOqTuMpoF3BR0"
+VOICE_ID = "zGjIP4SZlMnY9m93k97r"
 MODEL_ID = "eleven_turbo_v2_5"
 VOICE_SETTINGS = {"stability": 0.55, "similarity_boost": 0.75, "style": 0.2}
 OPTIMIZE_STREAMING_LATENCY = 4

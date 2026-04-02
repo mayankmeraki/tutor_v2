@@ -16126,7 +16126,8 @@ document.addEventListener('DOMContentLoaded', () => {
 // Module 23: Voice Mode — TTS, Hand Cursor, Board Interaction
 // ═══════════════════════════════════════════════════════════
 
-const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
+// const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
+const ELEVENLABS_VOICE_ID = 'zGjIP4SZlMnY9m93k97r';
 const ELEVENLABS_MODEL_DIALOGUE = 'eleven_v3'; // Text to Dialogue — natural emotion tags
 const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 
@@ -19065,3 +19066,30 @@ async function submitFeedback(e) {
   }
 }
 window.submitFeedback = submitFeedback;
+
+async function _submitBizDemo() {
+  const email = document.getElementById('biz-email')?.value.trim();
+  const message = document.getElementById('biz-message')?.value.trim();
+  const status = document.getElementById('biz-demo-status');
+  const btn = document.getElementById('biz-demo-submit');
+  if (!email || !message) { if (status) { status.style.display = 'block'; status.textContent = 'Please fill in both fields.'; status.style.color = '#f87171'; } return; }
+
+  btn.disabled = true; btn.textContent = 'Sending...';
+  try {
+    const apiUrl = typeof state !== 'undefined' ? (state.apiUrl || '') : '';
+    const res = await fetch(`${apiUrl}/api/v1/feedback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'demo_request', email, message, name: '', phone: '', page: '/for-business', attachments: [] }),
+    });
+    const data = await res.json();
+    if (data.status === 'sent' || data.status === 'received') {
+      status.style.display = 'block'; status.textContent = 'Thank you! We\'ll be in touch shortly.'; status.style.color = 'var(--accent)';
+      btn.textContent = 'Sent!';
+    } else { throw new Error('fail'); }
+  } catch (err) {
+    status.style.display = 'block'; status.textContent = 'Failed to send. Email us directly.'; status.style.color = '#f87171';
+    btn.disabled = false; btn.textContent = 'Send Request';
+  }
+}
+window._submitBizDemo = _submitBizDemo;
