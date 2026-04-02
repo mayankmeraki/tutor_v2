@@ -17293,19 +17293,15 @@ function togglePause() {
 window.togglePause = togglePause;
 
 /**
- * Safety timeout — auto-recover if system gets stuck.
- * Resets on every SSE event. Only fires if NO events for 45s.
+ * Safety timeout — disabled. The eager executor's try/finally and stopAll()
+ * handle stuck states. An aggressive timeout kills legitimate long responses.
  */
 function _startSafetyTimeout() {
-  _resetSafetyTimeout();
+  // No-op — removed to prevent killing slow-starting sessions
 }
 function _resetSafetyTimeout() {
-  if (_safetyTimeout) clearTimeout(_safetyTimeout);
-  _safetyTimeout = setTimeout(() => {
-    if (state.isStreaming) {
-      console.warn('[Safety] Auto-recovery — no SSE events for 45s');
-      stopAll();
-    }
+  // No-op
+  if (_safetyTimeout) { clearTimeout(_safetyTimeout); _safetyTimeout = null; }
   }, 45000);
 }
 
