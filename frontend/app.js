@@ -1354,6 +1354,7 @@ function _wsOnMessage(msg) {
     const entry = turn.beats[beatNum];
     if (!entry || entry.audio || entry.skip) return;
     entry.audio = msg.data.slice(6);
+    console.log(`[WS] Audio arrived beat #${beatNum} (${entry.audio.byteLength}B)`);
     if (entry._resolver) { entry._resolver('audio'); entry._resolver = null; }
     return;
   }
@@ -1531,8 +1532,17 @@ async function _wsExecBeat(beat, beatNum, turn) {
 async function _wsPlayAudio(beat, beatNum, turn) {
   if (!beat.say?.trim() || turn.executorExited) return;
 
+  // Stop any previously playing audio from this turn (prevents overlap from timeout race)
+  if (turn.audioEl) {
+    try { turn.audioEl.pause(); } catch (e) {}
+    if (turn.audioEl._blobUrl) try { URL.revokeObjectURL(turn.audioEl._blobUrl); } catch (e) {}
+    turn.audioEl = null;
+    state.voiceCurrentAudio = null;
+  }
+
   const refs = [];
   const cleanText = beat.say.replace(/\{ref:([^}]+)\}/g, (_, id) => { refs.push(id.trim()); return ''; }).trim();
+  console.log(`[WS Audio] Beat #${beatNum} playing "${cleanText.slice(0,40)}"`);
   voiceShowSubtitle(cleanText);
   if (typeof voiceShowIndicator === 'function') voiceShowIndicator('speaking');
 
@@ -1570,10 +1580,16 @@ async function _wsPlayAudio(beat, beatNum, turn) {
   state.voiceCurrentAudio = audio;
 
   await new Promise(resolve => {
-    const done = () => { URL.revokeObjectURL(url); if (turn.audioEl === audio) turn.audioEl = null; if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null; resolve(); };
-    audio.onended = done;
-    audio.onerror = done;
-    audio.play().catch(done);
+    const done = (reason) => {
+      console.log(`[WS Audio] Beat #${beatNum} ended (${reason || 'done'})`);
+      URL.revokeObjectURL(url);
+      if (turn.audioEl === audio) turn.audioEl = null;
+      if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null;
+      resolve();
+    };
+    audio.onended = () => done('ended');
+    audio.onerror = () => done('error');
+    audio.play().then(() => console.log(`[WS Audio] Beat #${beatNum} started playing`)).catch(() => done('autoplay-blocked'));
   });
 
   if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
