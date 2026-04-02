@@ -127,7 +127,38 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
             # ContentBlock objects from SDK — pass through
             validated.append(msg)
 
-    return validated
+    # Safety net: if an assistant message was serialized as a string but
+    # the next user message has tool_result blocks, the API will reject them
+    # as orphaned. Fix by converting the assistant message back to a list
+    # with a text block + dummy tool_use blocks for each tool_result.
+    cleaned = []
+    for i, msg in enumerate(validated):
+        content = msg.get("content")
+        if msg.get("role") == "user" and isinstance(content, list):
+            tool_result_ids = [
+                b.get("tool_use_id") for b in content
+                if isinstance(b, dict) and b.get("type") == "tool_result"
+            ]
+            if tool_result_ids and i > 0 and cleaned:
+                prev = cleaned[-1]
+                prev_content = prev.get("content")
+                # Check if preceding assistant message is a string (tool_use IDs lost)
+                if prev.get("role") == "assistant" and isinstance(prev_content, str):
+                    # Reconstruct: convert string to text block + add dummy tool_use blocks
+                    reconstructed = [{"type": "text", "text": prev_content}]
+                    for tid in tool_result_ids:
+                        reconstructed.append({
+                            "type": "tool_use",
+                            "id": tid,
+                            "name": "_reconstructed",
+                            "input": {},
+                        })
+                    cleaned[-1] = {**prev, "content": reconstructed}
+                    log.info("Reconstructed %d tool_use blocks in serialized assistant message", len(tool_result_ids))
+
+        cleaned.append(msg)
+
+    return cleaned
 
 
 def _clean_partial_content(text: str) -> str:
