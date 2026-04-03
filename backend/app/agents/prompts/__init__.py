@@ -274,6 +274,37 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if is_voice:
         static_parts.append(_get_voice_mode_prompt())
 
+    # Video follow-along: inject course map into STATIC block (cacheable across turns)
+    # This gives the tutor full course context so it can teach even without the video
+    if context_data.get("videoState") and context_data.get("courseMap"):
+        import json as _json_s
+        try:
+            cm = _json_s.loads(context_data["courseMap"]) if isinstance(context_data["courseMap"], str) else context_data["courseMap"]
+        except (ValueError, TypeError):
+            cm = {}
+        if cm:
+            course_title = cm.get("title") or cm.get("course", {}).get("title", "")
+            course_desc = cm.get("course", {}).get("description", "") or cm.get("description", "")
+            modules = cm.get("modules", [])
+            lessons = cm.get("lessons", [])
+            outline_lines = []
+            for mod in modules:
+                mod_lessons = sorted(
+                    [l for l in lessons if l.get("module_id") == mod.get("id")],
+                    key=lambda l: l.get("order", 0),
+                )
+                lesson_strs = [f'"{l.get("title", "?")}" (lesson_id:{l.get("id")}, {l.get("duration", "?")}min)' for l in mod_lessons]
+                outline_lines.append(f"  {mod.get('title', '?')}: {', '.join(lesson_strs)}")
+            static_parts.append(
+                f"\n═══ COURSE CONTENT (video follow-along) ═══\n"
+                f"Course: {course_title}\n"
+                f"{course_desc[:300]}\n"
+                f"Structure:\n" + "\n".join(outline_lines) + "\n"
+                f"\nYou have FULL access to this course content via content_map/content_read/content_search tools.\n"
+                f"You can teach ANY topic from this course on the board — even without the video playing.\n"
+                f"═══════════════════════════════════════════\n"
+            )
+
     static_prompt = "\n".join(static_parts)
 
     # DYNAMIC: context that changes per turn (not cacheable)
@@ -349,7 +380,7 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if session_metrics:
         parts.append(f"[Session Metrics]\n{session_metrics}\n")
 
-    # Video follow-along state
+    # Video follow-along state (dynamic — changes every turn)
     video_state_raw = context_data.get("videoState")
     if video_state_raw:
         import json as _json
@@ -358,11 +389,20 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         except (ValueError, TypeError):
             vs = {}
         if vs:
-            parts.append("[VIDEO FOLLOW-ALONG — Student paused a lecture video]")
+            parts.append("[VIDEO FOLLOW-ALONG — Current State]")
             parts.append(f"Lesson: {vs.get('lessonTitle', '?')} (ID: {vs.get('lessonId', '?')})")
-            parts.append(f"Paused at: {vs.get('currentTimestamp', 0):.0f}s")
+            ts = vs.get('currentTimestamp', 0)
+            parts.append(f"Timestamp: {ts:.0f}s ({int(ts // 60)}:{int(ts % 60):02d})")
             parts.append(f"Section: [{vs.get('currentSectionIndex', 0)}] {vs.get('sectionTitle', '?')}")
-            parts.append("The student paused to ask you a question.\n")
+            # Playlist info if available
+            playlist = vs.get('playlist')
+            if playlist:
+                parts.append(f"Playlist: {len(playlist)} lessons — " + ", ".join(f'"{l.get("title","?")}"' for l in playlist[:8]))
+            # Lesson sections if available
+            sections = vs.get('sections')
+            if sections:
+                parts.append("Lesson sections: " + ", ".join(f'{s.get("title","?")}' for s in sections[:8]))
+            parts.append("Use get_transcript_context to see what the professor said near this timestamp.\n")
 
     active_sim = context_data.get("activeSimulation")
     if active_sim:

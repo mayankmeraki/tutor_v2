@@ -2257,6 +2257,8 @@ function buildContext() {
   // Course Concepts — REMOVED from per-turn context. Available via content_map tool.
 
   // Context: Video State (if in video follow-along mode)
+  // NOTE: Course map is injected into the STATIC prompt block by the backend
+  // (cacheable across turns). Only dynamic state goes here.
   if (state.video && state.video.active) {
     const videoCtx = {
       lessonId: state.video.lessonId,
@@ -2265,50 +2267,14 @@ function buildContext() {
       currentSectionIndex: state.video.currentSectionIndex,
       sectionTitle: state.video.sectionTitle,
     };
+    // Include playlist and sections in videoState so backend can use them
+    if (state._videoPlaylist) {
+      videoCtx.playlist = state._videoPlaylist.map(l => ({ id: l.id, title: l.title }));
+    }
+    if (state.video.sections) {
+      videoCtx.sections = state.video.sections.map(s => ({ title: s.title, start: s.start_seconds, end: s.end_seconds }));
+    }
     items.push({ description: 'Video State', value: JSON.stringify(videoCtx) });
-
-    // Course context — full course structure so tutor can teach without video too
-    if (state.courseMap) {
-      const cm = state.courseMap;
-      const courseTitle = cm.title || cm.course?.title || '';
-      const modules = cm.modules || [];
-      const lessons = cm.lessons || [];
-      const courseDesc = cm.course?.description || cm.description || '';
-
-      // Build a compact course outline
-      const outline = modules.map(mod => {
-        const modLessons = lessons.filter(l => l.module_id === mod.id).sort((a, b) => (a.order || 0) - (b.order || 0));
-        return `${mod.title}: ${modLessons.map(l => `"${l.title}" (lesson_id:${l.id}, ${l.duration || '?'}min)`).join(', ')}`;
-      }).join('\n');
-
-      items.push({
-        description: 'Course Content — full course structure (tutor can teach from this even without video)',
-        value: `Course: ${courseTitle}\n${courseDesc ? courseDesc + '\n' : ''}Modules & Lessons:\n${outline}`,
-      });
-    }
-
-    // Selected/playlist lessons — so tutor knows what the student plans to watch
-    if (state._videoPlaylist && state._videoPlaylist.length > 0) {
-      const playlistInfo = state._videoPlaylist.map((l, i) => {
-        const marker = l.id === state.video.lessonId ? ' [CURRENT]' : (i < (state._videoPlaylistIndex || 0) ? ' [WATCHED]' : '');
-        return `${i + 1}. "${l.title}" (lesson_id:${l.id})${marker}`;
-      }).join('\n');
-      items.push({
-        description: 'Video Playlist — lessons the student selected to watch',
-        value: `${state._videoPlaylist.length} lessons in playlist:\n${playlistInfo}`,
-      });
-    }
-
-    // Current lesson sections (skeleton) — so tutor knows what's in this lesson
-    if (state.video.sections && state.video.sections.length > 0) {
-      const sectionOutline = state.video.sections.map((s, i) =>
-        `${i + 1}. ${s.title || 'Section ' + (i + 1)} (${Math.round(s.start_seconds || 0)}s - ${Math.round(s.end_seconds || 0)}s)`
-      ).join('\n');
-      items.push({
-        description: 'Current Lesson Sections — structure of the video being watched',
-        value: `Lesson: "${state.video.lessonTitle}" sections:\n${sectionOutline}`,
-      });
-    }
 
     // Capture video frame if paused OR if agent requested capture
     if (state.video.isPaused || state.video._pendingFrame) {
