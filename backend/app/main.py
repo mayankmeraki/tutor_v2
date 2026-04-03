@@ -193,7 +193,7 @@ async def tts_proxy(request: Request):
 
     body = await request.json()
     text = body.get("text", "")
-    voice_id = body.get("voice_id", "T3neIJTiSaa1xHynBN21")
+    voice_id = body.get("voice_id", "UgBBYS2sOqTuMpoF3BR0")
 
     if not text or len(text) > 500:
         return JSONResponse(status_code=400, content={"error": "Text required, max 500 chars"})
@@ -242,8 +242,8 @@ async def tts_proxy(request: Request):
 
 @app.post("/api/fix-animation")
 async def fix_animation(request: Request):
-    """Fix broken p5.js animation code using Haiku (fast, cheap).
-    Takes broken code + error, returns fixed code.
+    """Fix broken p5.js or Three.js animation code using Haiku (fast, cheap).
+    Takes broken code + error + optional type (p5|threejs), returns fixed code.
     """
     from app.api.routes.auth import get_optional_user
     try:
@@ -254,13 +254,13 @@ async def fix_animation(request: Request):
     body = await request.json()
     broken_code = body.get("code", "")
     error_msg = body.get("error", "")
+    code_type = body.get("type", "p5")  # "p5" or "threejs"
 
     if not broken_code:
         return JSONResponse(status_code=400, content={"error": "code is required"})
 
     import httpx
 
-    # Use Haiku via OpenRouter for speed (< 2s typically)
     api_key = settings.OPENROUTER_API_KEY or settings.ANTHROPIC_API_KEY
     if not api_key:
         return JSONResponse(status_code=503, content={"error": "No API key configured"})
@@ -269,27 +269,48 @@ async def fix_animation(request: Request):
     base_url = "https://openrouter.ai/api/v1" if is_openrouter else "https://api.anthropic.com/v1"
     model = "anthropic/claude-4.5-haiku-20251001" if is_openrouter else "claude-haiku-4-5-20251001"
 
-    system_prompt = (
-        "You are a p5.js animation SYNTAX FIXER. Return ONLY the fixed JavaScript — no explanation, no markdown fences.\n"
-        "The code runs inside: new Function('p', 'W', 'H', code)\n"
-        "Pre-injected: p (p5 instance), W/H (canvas size in px), S (scale factor).\n\n"
-        "⚠️  CRITICAL — MINIMAL FIXES ONLY:\n"
-        "- You MUST preserve the ENTIRE original code structure, style, and logic.\n"
-        "- ONLY fix the specific syntax/compile error described.\n"
-        "- Do NOT rewrite, simplify, or restyle the animation.\n"
-        "- Do NOT change colors, layout, drawing approach, or variable names.\n"
-        "- Do NOT remove AnimHelper usage (A.clear(), A.glow(), A.label(), A.legend(), etc.).\n"
-        "- Do NOT replace AnimHelper calls with raw p5 calls.\n"
-        "- Do NOT add p.background() if the original uses A.clear().\n"
-        "- Do NOT change fonts — the original uses sans-serif via AnimHelper.\n\n"
-        "COMMON FIXES (apply only what's needed):\n"
-        "- Truncated code: close unclosed brackets/braces/parens, complete cut-off expressions\n"
-        "- Unexpected token: fix the specific syntax error (missing operator, extra semicolon, etc.)\n"
-        "- Unclosed string: close the string literal\n"
-        "- Missing comma/semicolon: add the missing punctuation\n"
-        "- Duplicate declaration: change let/const to assignment if variable was already declared\n\n"
-        "Return the FULL code with ONLY the minimal fix applied. The output must be as close to the input as possible."
-    )
+    if code_type == "threejs":
+        system_prompt = (
+            "You are a Three.js SYNTAX FIXER. Return ONLY the fixed JavaScript — no explanation, no markdown fences.\n"
+            "The code runs inside: new Function('THREE', 'scene', 'camera', 'renderer', code)\n"
+            "Pre-injected: THREE (library), scene (THREE.Scene), camera (PerspectiveCamera), renderer (WebGLRenderer).\n\n"
+            "⚠️  CRITICAL — MINIMAL FIXES ONLY:\n"
+            "- You MUST preserve the ENTIRE original code structure, style, and logic.\n"
+            "- ONLY fix the specific syntax/compile error described.\n"
+            "- Do NOT rewrite, simplify, or restyle the 3D scene.\n"
+            "- Do NOT change colors, geometry, materials, or variable names.\n"
+            "- Do NOT change the camera position or scene setup approach.\n\n"
+            "COMMON FIXES (apply only what's needed):\n"
+            "- Truncated code: close unclosed brackets/braces/parens, complete cut-off expressions\n"
+            "- Unexpected identifier: add missing semicolon, comma, or operator before the identifier\n"
+            "- Unclosed string: close the string literal\n"
+            "- Missing comma/semicolon: add the missing punctuation\n"
+            "- Duplicate declaration: change let/const to assignment if variable was already declared\n"
+            "- Undefined variable: declare it or fix the typo\n\n"
+            "Return the FULL code with ONLY the minimal fix applied."
+        )
+    else:
+        system_prompt = (
+            "You are a p5.js animation SYNTAX FIXER. Return ONLY the fixed JavaScript — no explanation, no markdown fences.\n"
+            "The code runs inside: new Function('p', 'W', 'H', code)\n"
+            "Pre-injected: p (p5 instance), W/H (canvas size in px), S (scale factor).\n\n"
+            "⚠️  CRITICAL — MINIMAL FIXES ONLY:\n"
+            "- You MUST preserve the ENTIRE original code structure, style, and logic.\n"
+            "- ONLY fix the specific syntax/compile error described.\n"
+            "- Do NOT rewrite, simplify, or restyle the animation.\n"
+            "- Do NOT change colors, layout, drawing approach, or variable names.\n"
+            "- Do NOT remove AnimHelper usage (A.clear(), A.glow(), A.label(), A.legend(), etc.).\n"
+            "- Do NOT replace AnimHelper calls with raw p5 calls.\n"
+            "- Do NOT add p.background() if the original uses A.clear().\n"
+            "- Do NOT change fonts — the original uses sans-serif via AnimHelper.\n\n"
+            "COMMON FIXES (apply only what's needed):\n"
+            "- Truncated code: close unclosed brackets/braces/parens, complete cut-off expressions\n"
+            "- Unexpected token: fix the specific syntax error (missing operator, extra semicolon, etc.)\n"
+            "- Unclosed string: close the string literal\n"
+            "- Missing comma/semicolon: add the missing punctuation\n"
+            "- Duplicate declaration: change let/const to assignment if variable was already declared\n\n"
+            "Return the FULL code with ONLY the minimal fix applied. The output must be as close to the input as possible."
+        )
 
     user_msg = f"ERROR: {error_msg}\n\nBROKEN CODE:\n{broken_code[:3000]}"
 

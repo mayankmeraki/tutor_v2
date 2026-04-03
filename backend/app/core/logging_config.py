@@ -27,21 +27,32 @@ class JSONFormatter(logging.Formatter):
 
         # Structured context fields — only included when set
         for key in (
+            "event",
             "session_id",
             "user",
+            "turn",
+            "course_id",
             "model",
             "tokens_in",
             "tokens_out",
             "cost",
             "duration_ms",
+            "ttfb_ms",
             "tool",
             "agent",
             "round",
+            "rounds",
             "msg_count",
             "token_count",
+            "text_length",
+            "topic_count",
+            "section_count",
+            "score",
+            "mastery",
             "provider",
             "stop_reason",
             "caller",
+            "intent",
             "preview",
         ):
             val = getattr(record, key, None)
@@ -74,6 +85,8 @@ def setup_logging() -> None:
     # Silence noisy third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)
     logging.getLogger("httpcore").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn").setLevel(logging.WARNING)
+    logging.getLogger("uvicorn.error").setLevel(logging.WARNING)
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
     logging.getLogger("openai").setLevel(logging.WARNING)
     logging.getLogger("anthropic").setLevel(logging.WARNING)
@@ -87,12 +100,23 @@ class SessionLogger:
         slog.info("Chat started", extra={"msg_count": 5})
     """
 
-    def __init__(self, logger: logging.Logger, session_id: str = "", user: str = ""):
+    def __init__(self, logger: logging.Logger, session_id: str = "", user: str = "",
+                 course_id: int | str | None = None):
         self._logger = logger
         self._extra: dict = {
             "session_id": session_id[:8] if session_id else "",
             "user": user or "",
         }
+        if course_id is not None:
+            self._extra["course_id"] = course_id
+
+    def set_turn(self, turn_number: int) -> None:
+        """Set the current turn number for all subsequent log calls."""
+        self._extra["turn"] = turn_number
+
+    def set_course(self, course_id: int | str) -> None:
+        """Set the course_id for all subsequent log calls."""
+        self._extra["course_id"] = course_id
 
     def _log(self, level: int, msg: str, *args, **kwargs) -> None:
         extra = {**self._extra, **kwargs.pop("extra", {})}

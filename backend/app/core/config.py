@@ -47,7 +47,12 @@ class Settings(BaseSettings):
     @computed_field
     @property
     def planning_model(self) -> str:
-        return self.PLANNING_MODEL or self.MODEL_FAST
+        return self.PLANNING_MODEL or self.MODEL_MID
+
+    @computed_field
+    @property
+    def medium_model(self) -> str:
+        return self.MODEL_MID
 
     @computed_field
     @property

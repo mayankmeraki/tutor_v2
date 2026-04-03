@@ -151,6 +151,9 @@
   font-family: var(--bd-font);
   line-height: 1.6;
   text-shadow: var(--bd-glow);
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: visible;
 }
 
 /* First element in a scene has no top margin */
@@ -683,6 +686,7 @@
   position: relative;
   min-height: 220px;
   aspect-ratio: 4 / 3;
+  padding: 8px;
 }
 /* Ensure p5 canvas fills the box */
 .bd-anim-box canvas {
@@ -700,7 +704,7 @@
 /* Standalone figure — responsive, fill available space */
 .bd-anim-figure:not(.bd-row *) {
   width: 90%;
-  max-width: 900px;
+  max-width: min(900px, 100%);
 }
 
 /* Fullscreen mode — fixed overlay */

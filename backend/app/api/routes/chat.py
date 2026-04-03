@@ -247,6 +247,12 @@ _HANDOFF_RE = _re.compile(
     r'(?:\s+instructions=["\']([^"\']*)["\'])?'
     r'\s*/?>',
 )
+_SPAWN_RE = _re.compile(
+    r'<spawn\s+type=["\'](\w+)["\']'
+    r'(?:\s+task=["\']([^"\']*)["\'])?'
+    r'(?:\s+instructions=["\']([^"\']*)["\'])?'
+    r'\s*/?>',
+)
 
 
 def _strip_housekeeping_tag(text: str) -> str:
@@ -300,7 +306,7 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
             "section_progress": progress,
             "student_state": student_state,
         }
-        slog.info("Housekeeping signal", extra={"progress": progress, "student": student_state})
+        slog.debug("Housekeeping signal", extra={"progress": progress, "student": student_state})
 
         # Auto-advance topic when section is complete
         if progress == "complete":
@@ -312,7 +318,7 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                 completed_concepts = [completed_topic.get("concept", "")] if completed_topic.get("concept") else []
                 session.completed_topics.append(completed_topic_title)
                 session.current_topic_index += 1
-                slog.info("Auto-advanced topic via housekeeping signal",
+                slog.debug("Auto-advanced topic via housekeeping signal",
                           extra={"completed": completed_topic_title, "next_index": session.current_topic_index})
             session.pre_assessment_note = None
 
@@ -364,13 +370,20 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                 for entry in notes:
                     concepts = entry.get("concepts", [])
                     primary = concepts[0] if concepts else "_uncategorized"
+                    # Support both old format (note) and new format (blooms/observation/implication)
+                    blooms = entry.get("blooms")
+                    observation = entry.get("observation", entry.get("note", ""))
+                    implication = entry.get("implication", "")
                     model_notes[primary] = {
                         "concepts": concepts,
-                        "note": entry.get("note", ""),
+                        "blooms": blooms,
+                        "observation": observation,
+                        "implication": implication,
+                        "note": observation,  # backwards compat
                     }
-                slog.info("Housekeeping notes updated", extra={"count": len(notes)})
+                slog.debug("Housekeeping notes updated", extra={"count": len(notes)})
 
-                # Fire-and-forget DB upsert
+                # Build rich note text for DB persistence
                 _sm_course_id, _ = _extract_student_info(context_data)
                 _sm_email = _extract_user_email(context_data)
                 if _sm_course_id and _sm_email:
@@ -379,11 +392,22 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
 
                     async def _upsert_notes():
                         for entry in notes:
+                            # Build full note text from structured fields
+                            parts = []
+                            if entry.get("blooms"):
+                                parts.append(f"[Bloom's: {entry['blooms'].upper()}]")
+                            obs = entry.get("observation", entry.get("note", ""))
+                            if obs:
+                                parts.append(obs)
+                            imp = entry.get("implication")
+                            if imp:
+                                parts.append(f"→ {imp}")
+                            note_text = " ".join(parts) if parts else ""
                             try:
                                 await upsert_concept_note(
                                     _sm_course_id, _sm_email, session_id,
                                     concepts=entry.get("concepts", ["_uncategorized"]),
-                                    note_text=entry.get("note", ""),
+                                    note_text=note_text,
                                     lesson=entry.get("lesson"),
                                 )
                             except Exception as e:
@@ -404,21 +428,21 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
             # Add topic to end of plan
             new_topic = {"title": title, "concept": concept, "steps": [], "status": "pending", "_source": "tutor"}
             session.current_topics.append(new_topic)
-            slog.info("Plan: appended topic", extra={"title": title, "reason": reason})
+            slog.debug("Plan: appended topic", extra={"title": title, "reason": reason})
 
         elif action == "skip":
             # Skip current topic
             if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
                 skipped = session.current_topics[session.current_topic_index]
                 session.current_topic_index += 1
-                slog.info("Plan: skipped topic", extra={"title": skipped.get("title"), "reason": reason})
+                slog.debug("Plan: skipped topic", extra={"title": skipped.get("title"), "reason": reason})
 
         elif action == "insert" and title:
             # Insert topic right after current
             new_topic = {"title": title, "concept": concept, "steps": [], "status": "pending", "_source": "tutor"}
             idx = session.current_topic_index + 1
             session.current_topics.insert(idx, new_topic)
-            slog.info("Plan: inserted topic", extra={"title": title, "at": idx, "reason": reason})
+            slog.debug("Plan: inserted topic", extra={"title": title, "at": idx, "reason": reason})
 
     # Parse handoff tags (assessment or delegation)
     handoff_match = _HANDOFF_RE.search(hk_content)
@@ -436,7 +460,7 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                 "section": section_title,
                 "concepts": concepts,
             }
-            slog.info("Handoff: assessment", extra={"section": section_title, "concepts": concepts})
+            slog.info("Assessment handoff", extra={"event": "ASSESSMENT_START", "preview": section_title})
 
         elif handoff_type == "delegate":
             from app.agents.agent_runtime import DelegationState
@@ -446,7 +470,21 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                 topic=topic,
                 instructions=instructions,
             )
-            slog.info("Handoff: delegation", extra={"topic": topic})
+            slog.debug("Handoff: delegation", extra={"topic": topic})
+
+    # Parse spawn tags (background agent requests from tutor)
+    for spawn_match in _SPAWN_RE.finditer(hk_content):
+        agent_type = spawn_match.group(1) or ""
+        task_desc = spawn_match.group(2) or ""
+        instructions = spawn_match.group(3) or ""
+        if agent_type and task_desc and hasattr(session, 'agent_runtime') and session.agent_runtime:
+            session.agent_runtime.spawn(
+                agent_type=agent_type,
+                description=task_desc[:120],
+                instructions=instructions or task_desc,
+                context={},  # will be enriched by the runtime
+            )
+            slog.info("Agent spawned via tag", extra={"type": agent_type, "task": task_desc[:80]})
 
 
 
@@ -1013,97 +1051,117 @@ def _extract_orchestrator_plan(context_data: dict) -> dict | None:
         return None
 
 
-def _auto_spawn_planner(session, runtime, context_data: dict, slog) -> None:
-    """Pre-spawn planning agent at session start so plan builds in background.
+def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> None:
+    """Auto-spawn planning agent when tutor has enough context (~turn 4+).
 
-    The tutor starts teaching / calibrating immediately without waiting.
-    Plan lands in completed_queue by turn 2 or 3.
+    Triggers when: turn_count >= 4 AND student_model has >= 2 concept observations.
+    The planner gets FULL context: conversation history, student model, course map,
+    and grounding tools (content_read, web_search, etc.) to build a rich plan.
+
+    Uses Sonnet for high-quality, tool-grounded plans.
     """
+    # Guard: don't spawn if plan already exists or planner already running
+    if session.current_plan:
+        return
+    if getattr(session, '_planner_spawned', False):
+        return
+
+    # Check readiness: enough turns AND enough student observations
+    turn_count = session.assistant_turn_count
+    student_notes = (session.student_model or {}).get("notes", {})
+    note_count = len(student_notes)
+
+    if turn_count < 4 or note_count < 2:
+        return
+
     try:
         intent = session.student_intent or "general study session"
-        spawn_context = {
-            **context_data,
-            "sessionScope": None,
-            "completedTopics": None,
-            "studentModel": None,
-            "lastAssessmentSummary": None,
-            "tutorNotes": None,
-        }
 
-        # Include triage diagnostic if available
-        triage_info = ""
+        # Build rich conversation summary from recent messages
+        recent_msgs = (session.messages or [])[-12:]  # last 12 messages
+        conversation_summary = []
+        for msg in recent_msgs:
+            role = msg.get("role", "")
+            content = msg.get("content", "")
+            if isinstance(content, list):
+                content = " ".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+            if content and role in ("user", "assistant"):
+                # Truncate long messages but keep enough for context
+                content_short = content[:500] + ("..." if len(content) > 500 else "")
+                conversation_summary.append(f"[{role}]: {content_short}")
+        conversation_text = "\n".join(conversation_summary)
+
+        # Build student model summary
+        student_model_text = ""
+        if session.student_model:
+            student_model_text = json.dumps(session.student_model, indent=2, default=str)[:2000]
+
+        # Completed topics
+        completed_text = ""
+        if session.completed_topics:
+            completed_text = ", ".join(
+                t if isinstance(t, str) else t.get("title", "")
+                for t in session.completed_topics
+            )
+
+        # Triage results
+        triage_text = ""
         if session.triage_result:
-            tr = session.triage_result
-            triage_parts = []
-            if tr.get("diagnosed_gaps"):
-                triage_parts.append(f"Gaps: {', '.join(tr['diagnosed_gaps'])}")
-            if tr.get("confirmed_strong"):
-                triage_parts.append(f"Strong: {', '.join(tr['confirmed_strong'])}")
-            if tr.get("student_level"):
-                triage_parts.append(f"Level: {tr['student_level']}")
-            if tr.get("recommended_start"):
-                triage_parts.append(f"Start with: {tr['recommended_start']}")
-            if tr.get("content_refs"):
-                triage_parts.append(f"Content refs: {', '.join(tr['content_refs'])}")
-            triage_info = "\n\n[TRIAGE DIAGNOSTIC]\n" + "\n".join(triage_parts)
+            triage_text = json.dumps(session.triage_result, indent=2, default=str)[:1000]
 
-        # Include content brief if resolved
-        content_brief_str = ""
-        if hasattr(session, '_content_brief') and session._content_brief:
-            from app.services.content_resolver import format_content_brief
-            content_brief_str = f"\n\n{format_content_brief(session._content_brief)}"
-
-        # Include delegation summary (triage conversation summary)
-        triage_summary = ""
-        if session.delegation_result and session.delegation_result.get("summary"):
-            triage_summary = f"\n\n[TRIAGE SUMMARY]\n{session.delegation_result['summary']}"
-
-        # Extract BYO / orchestrator context if available
-        byo_context = ""
+        # BYO context
+        byo_text = ""
         session_ctx_str = context_data.get("sessionContext", "")
         if session_ctx_str:
             try:
                 ctx = json.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
-                col_id = ctx.get("collection_id")
-                if col_id:
-                    byo_context = f"\n\n[BYO Collection: {col_id}]\nStudent uploaded their own content. The tutor has byo_read/byo_list tools to access it."
-                enriched = ctx.get("enriched_intent")
-                if enriched and enriched != intent:
-                    byo_context += f"\n\n[Enriched Intent]\n{enriched[:500]}"
-                teaching_notes = ctx.get("teaching_notes")
-                if teaching_notes:
-                    byo_context += f"\n\n[Teaching Notes]\n{teaching_notes[:300]}"
+                if ctx.get("collection_id"):
+                    byo_text = f"Student uploaded content (collection: {ctx['collection_id']}). Use byo_read/byo_list to access."
+                if ctx.get("enriched_intent"):
+                    byo_text += f"\nEnriched intent: {ctx['enriched_intent'][:300]}"
             except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
 
-        has_course = bool(spawn_context.get("courseMap"))
-        if has_course:
-            plan_instructions = (
-                f"The student wants to study: {intent}\n"
-                "Create a teaching plan based on the course content and student knowledge state.\n"
-                "Use get_section_content to inspect relevant sections (max 2 calls), then output JSONL."
-                f"{triage_info}{content_brief_str}{triage_summary}{byo_context}"
-            )
-        else:
-            plan_instructions = (
-                f"The student wants to study: {intent}\n"
-                "There is NO structured course for this topic. Create a teaching plan from your own knowledge.\n"
-                "DO NOT call get_section_content — there are no sections to fetch.\n"
-                "Instead, output a logical topic structure directly as JSONL based on what a good curriculum would look like.\n"
-                "Keep it focused: 3-5 topics max for a single session."
-                f"{triage_info}{triage_summary}{byo_context}"
-            )
+        has_course = bool(context_data.get("courseMap"))
+        course_instruction = (
+            "Use content_read/content_peek to inspect relevant course sections and ground your plan in the professor's material."
+            if has_course else
+            "No structured course available. Use web_search to find authoritative resources and plan from your knowledge."
+        )
+
+        plan_instructions = f"""Plan a focused teaching session for this student.
+
+[STUDENT INTENT]
+{intent}
+
+[CONVERSATION SO FAR — {turn_count} turns]
+{conversation_text}
+
+[STUDENT MODEL — tutor's observations]
+{student_model_text or "No observations yet."}
+
+[COMPLETED TOPICS]
+{completed_text or "None yet."}
+
+{f"[TRIAGE DIAGNOSTIC]{chr(10)}{triage_text}" if triage_text else ""}
+{f"[BYO CONTENT]{chr(10)}{byo_text}" if byo_text else ""}
+
+[INSTRUCTIONS]
+{course_instruction}
+Based on what the tutor has taught so far and how the student is doing, plan the NEXT section of teaching.
+Include pre-fetched content summaries for each topic so the tutor can teach without fetching.
+Output a single JSON object (not JSONL).
+"""
 
         runtime.spawn(
             agent_type="planning",
             description=f"Plan session: {intent[:60]}",
             instructions=plan_instructions,
-            context=spawn_context,
+            context={**context_data},
         )
-        # Flag so the tutor doesn't spawn a duplicate planner
-        session._planner_auto_spawned = True
-        slog.info("Auto-spawned planning agent at session start",
-                   extra={"intent": intent[:80]})
+        session._planner_spawned = True
+        slog.info("Auto-spawned planner at turn %d (%d student observations)",
+                   turn_count, note_count, extra={"intent": intent[:80]})
     except Exception as e:
         slog.warning("Failed to auto-spawn planner: %s", e)
 
@@ -1314,6 +1372,74 @@ def _build_plan_accountability(session) -> dict | None:
     return result
 
 
+def _build_checkpoint_and_pace(session) -> str | None:
+    """Build checkpoint injection and pace nudges for the tutor context.
+
+    - CHECKPOINT: when all topics in current section are done → forces assessment
+    - PACE CHECK: when tutor has been on same topic for 5+ turns → soft nudge
+    Returns a string to inject into the dynamic context, or None.
+    """
+    parts = []
+
+    # ── Checkpoint: all section topics done → require assessment ──
+    if session.current_topics and session.current_topic_index >= len(session.current_topics):
+        # All topics exhausted — section is complete
+        section_title = "Current Section"
+        if session.current_plan and session.current_plan.get("sections"):
+            section_title = session.current_plan["sections"][0].get("title", section_title)
+        completed_concepts = [
+            t.get("concept", t.get("title", ""))
+            for t in session.current_topics if isinstance(t, dict)
+        ]
+        if not session.assessment:  # Don't double-inject if assessment already pending
+            parts.append(
+                f"[CHECKPOINT] Section \"{section_title}\" complete ({len(session.current_topics)}/{len(session.current_topics)} topics done).\n"
+                f"You MUST include <handoff type=\"assessment\" section=\"{section_title}\" "
+                f"concepts=\"{','.join(c for c in completed_concepts if c)}\" /> in your <teaching-housekeeping> tag.\n"
+                "Do not teach new content until assessment runs."
+            )
+
+    # ── Pace check: same topic for too long ──
+    if hasattr(session, '_topic_dwell_turns'):
+        dwell = session._topic_dwell_turns
+        if dwell >= 12:
+            parts.append(
+                f"[PACE CHECK] You've been on the current topic for {dwell} turns.\n"
+                "This is significantly longer than planned. Consider:\n"
+                "- If the student is progressing → wrap up and <signal progress=\"complete\" />\n"
+                "- If stuck → <plan-modify action=\"insert\" title=\"prerequisite topic\" />\n"
+                "- If the student is genuinely engaged and going deep → continue, but be mindful."
+            )
+        elif dwell >= 8:
+            parts.append(
+                f"[PACE CHECK] You've been on the current topic for {dwell} turns.\n"
+                "Consider: is the student progressing, or stuck?\n"
+                "If stuck → insert a prerequisite. If they understand → advance."
+            )
+        elif dwell >= 5:
+            parts.append(
+                f"[PACE CHECK] Topic dwell: {dwell} turns. This is informational.\n"
+                "Continue if the student is making progress."
+            )
+
+    return "\n\n".join(parts) if parts else None
+
+
+def _track_topic_dwell(session):
+    """Track how many turns the tutor has spent on the current topic."""
+    if not hasattr(session, '_topic_dwell_turns'):
+        session._topic_dwell_turns = 0
+        session._last_topic_index = getattr(session, 'current_topic_index', -1)
+
+    current_idx = getattr(session, 'current_topic_index', -1)
+    if current_idx != session._last_topic_index:
+        # Topic changed — reset dwell counter
+        session._topic_dwell_turns = 0
+        session._last_topic_index = current_idx
+    else:
+        session._topic_dwell_turns += 1
+
+
 def _build_assessment_summary(ar: dict) -> dict:
     """Build a persistent assessment summary that survives across turns.
 
@@ -1421,6 +1547,7 @@ def _build_tutor_prompt(session, context_data) -> str:
         "completedTopics": _format_completed(session.completed_topics),
         "scenarioSkill": scenario_skill,
         "planAccountability": _build_plan_accountability(session),
+        "checkpointAndPace": _build_checkpoint_and_pace(session),
         "teachingMode": session.teaching_mode,
     })
 
@@ -1555,9 +1682,8 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                         # TRIAGE → PLANNING: spawn planner with triage diagnostic
                         if old_phase == SessionPhase.TRIAGE and new_phase == SessionPhase.PLANNING:
                             session.phase = SessionPhase.TEACHING  # Move to teaching immediately
-                            if session.agent_runtime:
-                                _auto_spawn_planner(session, session.agent_runtime, context_data, slog)
-                                slog.info("Planner spawned with triage diagnostic")
+                            # Planner will auto-spawn when tutor has enough context (turn ~4)
+                            slog.info("Triage complete — planner will auto-spawn when ready")
 
                     # Sync session state after delegation ends
                     try:
@@ -1935,112 +2061,9 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
     yield _sse({"type": "RUN_ERROR", "message": "Too many assessment rounds"})
 
 
-# ── Plan Polling ──────────────────────────────────────────────────────────────
 
-@router.get("/api/session/{session_id}/plan")
-async def get_session_plan(session_id: str, request: Request, user: dict = Depends(get_optional_user)):
-    """Poll for the teaching plan. Returns the plan if ready, or {"status": "pending"}.
-
-    The frontend can poll this independently of the chat stream so the plan
-    sidebar updates even if the tutor's response has already finished streaming.
-    """
-    from app.agents.session import _sessions
-    session = _sessions.get(session_id)
-    if not session:
-        return {"status": "not_found"}
-
-    # Check if planner completed but wasn't promoted yet
-    if not session.current_plan and hasattr(session, 'agent_runtime') and session.agent_runtime:
-        completed = session.agent_runtime.pop_completed()
-        for agent in completed:
-            if agent["type"] == "planning":
-                if agent["status"] == "complete" and agent.get("result"):
-                    _promote_plan(session, agent["result"])
-                elif agent["status"] == "error":
-                    return {
-                        "status": "error",
-                        "error": agent.get("error", "Planning agent failed"),
-                    }
-
-    if session.current_plan:
-        return {
-            "status": "ready",
-            "plan": session.current_plan,
-            "sessionObjective": session.session_objective or "",
-        }
-
-    return {"status": "pending"}
-
-
-@router.post("/api/session/{session_id}/plan/repair")
-async def repair_session_plan(session_id: str, request: Request, user: dict = Depends(get_optional_user)):
-    """Emergency plan repair — generates a lightweight plan via fast model when the
-    planning agent fails or times out. Called automatically by the frontend."""
-    import httpx
-    from app.core.config import settings
-    from app.agents.session import _sessions
-
-    body = await request.json()
-    intent = body.get("intent", "")
-
-    session = _sessions.get(session_id)
-    # If plan already exists, return it
-    if session and session.current_plan:
-        return {"plan": session.current_plan, "sessionObjective": session.session_objective or ""}
-
-    api_key = settings.OPENROUTER_API_KEY
-    if not api_key or not intent:
-        return {"error": "Cannot repair plan"}, 400
-
-    prompt = f"""Generate a concise teaching plan for: {intent}
-
-Output ONLY a JSON object with this exact structure (no markdown, no explanation):
-{{
-  "session_objective": "one-line objective",
-  "sections": [
-    {{
-      "n": 1,
-      "title": "Section Title",
-      "covers": "what it covers",
-      "activity": "what tutor does",
-      "topics": [
-        {{"t": 1, "title": "Topic Name", "concept": "key concept"}}
-      ]
-    }}
-  ]
-}}
-
-Keep it focused: 2-4 sections, 2-3 topics each. This is a single tutoring session, not a full course."""
-
-    try:
-        async with httpx.AsyncClient(timeout=15.0) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/chat/completions",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={
-                    "model": settings.planning_model,
-                    "max_tokens": 1500,
-                    "messages": [{"role": "user", "content": prompt}],
-                    "temperature": 0.3,
-                },
-            )
-            if resp.status_code == 200:
-                data = resp.json()
-                text = data["choices"][0]["message"]["content"]
-                # Extract JSON from response
-                import re
-                json_match = re.search(r'\{[\s\S]*\}', text)
-                if json_match:
-                    plan = json.loads(json_match.group())
-                    # Promote to session if available
-                    if session:
-                        session.current_plan = plan
-                        session.session_objective = plan.get("session_objective", intent)
-                    return {"plan": plan, "sessionObjective": plan.get("session_objective", intent)}
-    except Exception as e:
-        log.warning("Plan repair failed: %s", e)
-
-    return {"error": "Plan repair failed"}
+# (Plan polling and repair endpoints removed — plan now auto-spawns at turn ~4
+#  and is delivered via PLAN_UPDATE SSE. No frontend polling needed.)
 
 
 # ── Chat Route ───────────────────────────────────────────────────────────────
@@ -2115,7 +2138,7 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
         preview = f"[multipart: {', '.join(types)}]"
     else:
         preview = "[complex]"
-    slog.info("POST /api/chat", extra={"msg_count": msg_count, "preview": preview})
+    slog.info("Chat request", extra={"event": "CHAT_REQUEST", "msg_count": msg_count, "preview": preview})
 
     if not claude_messages:
         async def _err():
@@ -2164,12 +2187,17 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             # ── Step 2b: Session phase — triage or teach ──────────────
             if is_session_start and not is_video_mode:
                 _init_session_phase(session, context_data, slog)
+                slog.info("Session started", extra={
+                    "event": "SESSION_START",
+                    "course_id": session.course_id if hasattr(session, 'course_id') else None,
+                    "intent": (session.student_intent or "")[:80],
+                })
 
-            # Plan setup — reuse existing plan, orchestrator plan, or spawn planner
+            # Plan setup — re-emit existing plan for frontend sidebar (if restored session)
+            # New sessions: planner auto-spawns at turn ~4 when tutor has enough context.
             if is_session_start and not is_video_mode:
                 if session.current_plan:
-                    # Restored session already has a plan — re-emit for frontend sidebar
-                    slog.info("Session already has plan — re-emitting for frontend")
+                    slog.debug("Re-emitting existing plan for frontend")
                     yield _sse({
                         "type": "PLAN_UPDATE",
                         "plan": session.current_plan,
@@ -2179,7 +2207,6 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 else:
                     orchestrator_plan = _extract_orchestrator_plan(context_data)
                     if orchestrator_plan:
-                        # Orchestrator already built a plan — use it immediately (0ms latency)
                         slog.info("Using orchestrator-provided plan (skipping planner agent)")
                         _promote_plan(session, orchestrator_plan)
                         yield _sse({
@@ -2187,9 +2214,6 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                             "plan": orchestrator_plan,
                             "sessionObjective": orchestrator_plan.get("session_objective", ""),
                         })
-                    elif session.phase != SessionPhase.TRIAGE:
-                        # No pre-built plan — spawn background planner (course or BYO)
-                        _auto_spawn_planner(session, runtime, context_data, slog)
 
             # ── Step 3a: Check assessment → route to assessment agent ──
             if session.assessment:
@@ -2214,8 +2238,7 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 if triage_turns >= 5:
                     slog.info("Triage auto-completed after %d turns", triage_turns)
                     session.phase = SessionPhase.TEACHING
-                    if session.agent_runtime and not session.current_plan:
-                        _auto_spawn_planner(session, session.agent_runtime, context_data, slog)
+                    # Planner will auto-spawn when tutor has enough context (turn ~4)
                     # Fall through to normal tutor prompt (no triage overlay)
                 else:
                     pass  # continue with triage overlay below
@@ -2427,11 +2450,13 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                 "lastAssessmentSummary": session.last_assessment_summary,
                 "scenarioSkill": SKILL_MAP.get(session.active_scenario) if session.active_scenario else None,
                 "planAccountability": _build_plan_accountability(session),
+                "checkpointAndPace": _build_checkpoint_and_pace(session),
                 "teachingMode": teaching_mode,
             })
+            _track_topic_dwell(session)
             if is_video_mode:
                 active_tools = VIDEO_FOLLOW_TOOLS
-                slog.info("Video follow-along mode: using VIDEO_FOLLOW_TOOLS")
+                slog.debug("Video follow-along mode")
             else:
                 active_tools = TUTOR_TOOLS
 
@@ -2607,8 +2632,8 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                             instructions = block.input.get("instructions", task_desc)
 
                             # Skip duplicate planning spawn if auto-spawned
-                            if agent_type == "planning" and getattr(session, '_planner_auto_spawned', False):
-                                session._planner_auto_spawned = False  # allow future spawns
+                            if agent_type == "planning" and getattr(session, '_planner_spawned', False):
+                                session._planner_spawned = False  # allow future spawns
                                 result = (
                                     "Planning agent is already running in the background (auto-spawned at session start). "
                                     "Results will be available in [AGENT RESULTS] on your next turn. "
@@ -3125,8 +3150,7 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                             session.phase = SessionPhase.TEACHING
                             slog.info("Triage complete → TEACHING", extra=session.triage_result)
                             # Spawn planner with triage diagnostic
-                            if session.agent_runtime and not session.current_plan:
-                                _auto_spawn_planner(session, session.agent_runtime, context_data, slog)
+                            # Planner will auto-spawn when tutor has enough context
                             result = (
                                 "Triage complete. You now have a clear picture of the student. "
                                 "Start teaching — use the board, draw, explain. "
@@ -3462,16 +3486,15 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             session.current_plan = None
             session.current_topics = []
             session.current_topic_index = 0
-            if runtime:
-                _auto_spawn_planner(session, runtime, context_data, slog)
-            return "Plan reset — new planner spawned"
+            session._planner_spawned = False  # allow re-spawn on next eligible turn
+            return "Plan reset — new planner will spawn when ready"
 
         elif name == "spawn_agent":
             agent_type = inp.get("type", "research")
             task_desc = inp.get("task", "")
             # Skip duplicate planning spawn
-            if agent_type == "planning" and getattr(session, '_planner_auto_spawned', False):
-                session._planner_auto_spawned = False
+            if agent_type == "planning" and getattr(session, '_planner_spawned', False):
+                session._planner_spawned = False
                 return "Planning agent already running in background."
             agent_id = runtime.spawn(agent_type=agent_type, task=task_desc, context=context_data)
             return f"Agent spawned: {agent_id} (type={agent_type})"
@@ -3655,8 +3678,6 @@ async def _generate_for_turn(
                     if orchestrator_plan:
                         _promote_plan(session, orchestrator_plan)
                         yield _sse({"type": "PLAN_UPDATE", "plan": orchestrator_plan, "sessionObjective": orchestrator_plan.get("session_objective", "")})
-                    elif session.phase != SessionPhase.TRIAGE:
-                        _auto_spawn_planner(session, runtime, context_data, slog)
 
             # Step 3: Assessment / delegation routing
             if session.assessment:
@@ -3724,8 +3745,12 @@ async def _generate_for_turn(
                 "agentResults": agent_results_str,
                 "teachingMode": teaching_mode,
                 "planAccountability": _build_plan_accountability(session),
+                "checkpointAndPace": _build_checkpoint_and_pace(session),
                 "_housekeepingDue": _housekeeping_due,
             })
+
+            # Track topic dwell time for pace nudges
+            _track_topic_dwell(session)
 
             # ── Tool filtering ──────────────────────────────────
             # Remove tools that are tag-based, deterministic, or cause unnecessary LLM rounds.
@@ -3736,6 +3761,7 @@ async def _generate_for_turn(
                 "spawn_agent", "check_agents",
                 "modify_plan", "reset_plan",
                 "handoff_to_assessment", "delegate_teaching",
+                "web_search", "search_images",  # disabled — not working reliably
             }
             is_first_turn = (session.assistant_turn_count == 0)
 
@@ -3766,6 +3792,8 @@ async def _generate_for_turn(
             _partial_text_parts = []  # accumulate text for partial save on interrupt
 
             session.assistant_turn_count += 1
+            slog.set_turn(session.assistant_turn_count)
+            slog.info("Turn started", extra={"event": "TURN_START"})
 
             valid_messages = _validate_messages(claude_messages)
             api_kwargs = {
@@ -3893,16 +3921,47 @@ async def _generate_for_turn(
                 # Re-window from session.messages — the pair is now in the source
                 claude_messages = apply_context_window(session, session.messages)
                 api_kwargs["messages"] = _validate_messages(claude_messages)
-                slog.info("Tool round %d done — %d results, next round messages: %d",
+                slog.debug("Tool round %d done — %d results, next round messages: %d",
                           rounds, len(tool_results), len(api_kwargs["messages"]))
 
             # Parse and strip housekeeping tags from the final message
             full_text = "".join(_partial_text_parts)
             _process_housekeeping_tags(session, full_text, context_data, sid, slog)
 
+            # ── Auto-spawn planner when tutor has enough context ──
+            _auto_spawn_planner_if_ready(session, runtime, context_data, slog)
+
+            # ── Check for plan completion: emit PLAN_UPDATE if planner finished ──
+            if not session.current_plan and hasattr(session, 'agent_runtime') and session.agent_runtime:
+                completed = session.agent_runtime.pop_completed()
+                for agent in completed:
+                    if agent["type"] == "planning" and agent["status"] == "complete" and agent.get("result"):
+                        _promote_plan(session, agent["result"])
+                        yield _sse({
+                            "type": "PLAN_UPDATE",
+                            "plan": agent["result"],
+                            "sessionObjective": agent["result"].get("session_objective", ""),
+                        })
+                        plan_result = agent["result"]
+                        slog.info("Plan arrived", extra={
+                            "event": "PLAN_ARRIVED",
+                            "topic_count": len(plan_result.get("_topics", [])),
+                            "section_count": len(plan_result.get("sections", [])),
+                        })
+
             # Periodic shadow enrichment — every 5th turn, fire-and-forget
             if session.assistant_turn_count >= 5 and session.assistant_turn_count % 5 == 0:
                 _spawn_enrichment_agent(session, runtime, context_data, slog, is_initial=False)
+
+            # ── TURN_END — log the complete turn ──
+            _turn_dur = round((_time.monotonic() - _turn_start) * 1000)
+            slog.info("Turn complete", extra={
+                "event": "TURN_END",
+                "duration_ms": _turn_dur,
+                "rounds": rounds,
+                "text_length": text_length,
+                "cost": round(session.llm_cost_cents, 2),
+            })
 
             # Save session
             await sync_backend_state(sid, session)

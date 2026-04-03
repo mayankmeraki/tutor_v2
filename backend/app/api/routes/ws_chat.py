@@ -5,11 +5,11 @@ Replaces the SSE-based /api/chat for voice mode.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
+from app.core.logging_config import SessionLogger
 from app.services.session_router import SessionRouter
 
 log = logging.getLogger(__name__)
@@ -33,31 +33,42 @@ async def ws_chat(ws: WebSocket):
         await ws.close(code=4001, reason="Authentication failed")
         return
 
+    user_email = user.get("email", "anon")
+    # Start with a bare slog — session_id added on first MESSAGE
+    slog = SessionLogger(log, user=user_email)
+
     router = SessionRouter(ws)
     router.user = user
-    log.info("[WS] Connected: %s", user.get("email", "anon"))
+    slog.debug("WS connected", extra={"event": "WS_CONNECT"})
 
     try:
-        # Run receive loop — router handles drain internally via background tasks
         while True:
             raw = await ws.receive_json()
             msg_type = raw.get("type", "")
 
             if msg_type == "MESSAGE":
-                # This starts a new turn and begins draining in background
-                # It does NOT block — returns immediately so we can receive INTERRUPT
+                session_id = raw.get("sessionId", "")
+                if session_id:
+                    slog = SessionLogger(log, session_id=session_id, user=user_email)
+                is_start = raw.get("isSessionStart", False)
+                text = raw.get("text", "")
+                slog.info("WS turn",
+                          extra={"event": "WS_TURN", "preview": text[:50],
+                                 "is_session_start": is_start})
                 await router.handle_message(
-                    text=raw.get("text", ""),
+                    text=text,
                     context=raw.get("context"),
-                    session_id=raw.get("sessionId"),
-                    is_session_start=raw.get("isSessionStart", False),
+                    session_id=session_id,
+                    is_session_start=is_start,
                     messages=raw.get("messages"),
                 )
 
             elif msg_type == "INTERRUPT":
+                slog.debug("WS interrupt")
                 await router.handle_interrupt()
 
             elif msg_type == "CANCEL":
+                slog.debug("WS cancel")
                 await router.handle_cancel()
 
             elif msg_type == "VOICE_MODE":
@@ -67,9 +78,9 @@ async def ws_chat(ws: WebSocket):
                 await ws.send_json({"type": "PONG"})
 
     except WebSocketDisconnect:
-        log.info("[WS] Disconnected: %s", user.get("email", "anon"))
+        slog.debug("WS disconnected", extra={"event": "WS_DISCONNECT"})
     except Exception as e:
-        log.exception("[WS] Error: %s", e)
+        slog.error("WS error: %s", e, exc_info=True, extra={"event": "WS_ERROR"})
     finally:
         await router.cleanup()
 

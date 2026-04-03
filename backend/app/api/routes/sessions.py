@@ -163,6 +163,116 @@ async def get(session_id: str, user: dict = Depends(get_optional_user)):
     return doc
 
 
+@router.get("/{session_id}/board-frames")
+async def get_board_frames(session_id: str, user: dict = Depends(get_optional_user)):
+    """Extract board-draw frames from session transcript for restoration.
+
+    Parses both:
+    - <teaching-board-draw> JSONL content (text mode)
+    - <teaching-voice-scene> with <vb draw='...' /> beats (voice mode)
+
+    Returns last N frames as arrays of draw commands, ready to render.
+    """
+    import re
+    import json as _json
+
+    doc = await get_session(session_id)
+    if not doc:
+        raise HTTPException(status_code=404, detail="Session not found")
+
+    transcript = doc.get("transcript", [])
+    frames = []
+
+    for msg in transcript:
+        if msg.get("role") != "assistant":
+            continue
+        raw_content = msg.get("content", "")
+        # Handle both string content and Anthropic content blocks format
+        if isinstance(raw_content, list):
+            content = "\n".join(
+                b.get("text", "") for b in raw_content
+                if isinstance(b, dict) and b.get("type") == "text"
+            )
+        elif isinstance(raw_content, str):
+            content = raw_content
+        else:
+            continue
+        if not content:
+            continue
+
+        # ── Extract from <teaching-board-draw> tags (text/SSE mode) ──
+        for bd_match in re.finditer(
+            r'<teaching-board-draw[^>]*>([\s\S]*?)</teaching-board-draw>', content
+        ):
+            title_match = re.search(r'title=["\']([^"\']*)["\']', bd_match.group(0))
+            title = title_match.group(1) if title_match else "Board"
+            jsonl = bd_match.group(1).strip()
+            commands = []
+            for line in jsonl.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    commands.append(_json.loads(line))
+                except _json.JSONDecodeError:
+                    pass
+            if commands:
+                frames.append({"title": title, "commands": commands})
+
+        # ── Extract from <teaching-voice-scene> tags (voice/WS mode) ──
+        for vs_match in re.finditer(
+            r'<teaching-voice-scene[^>]*>([\s\S]*?)</teaching-voice-scene>', content
+        ):
+            title_match = re.search(r'title=["\']([^"\']*)["\']', vs_match.group(0))
+            title = title_match.group(1) if title_match else "Board"
+            scene_content = vs_match.group(1)
+            commands = []
+            # Parse <vb draw='...' /> beats
+            for vb_match in re.finditer(r"draw='(\{[^']*\})'", scene_content):
+                try:
+                    commands.append(_json.loads(vb_match.group(1)))
+                except _json.JSONDecodeError:
+                    pass
+            # Also try draw="..." (double quotes)
+            for vb_match in re.finditer(r'draw="(\{[^"]*\})"', scene_content):
+                try:
+                    cmd_str = vb_match.group(1).replace('&quot;', '"')
+                    commands.append(_json.loads(cmd_str))
+                except _json.JSONDecodeError:
+                    pass
+            if commands:
+                frames.append({"title": title, "commands": commands})
+
+    # Also check activeBoardDrawContent as a fallback
+    active_content = doc.get("activeBoardDrawContent")
+    if active_content and isinstance(active_content, str):
+        commands = []
+        for line in active_content.split('\n'):
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                commands.append(_json.loads(line))
+            except _json.JSONDecodeError:
+                pass
+        if commands:
+            # Only add if it's different from the last frame
+            if not frames or commands != frames[-1].get("commands"):
+                frames.append({"title": "Active Board", "commands": commands})
+
+    # Return last 3 frames only
+    recent = frames[-3:] if len(frames) > 3 else frames
+    total_cmds = sum(len(f.get("commands", [])) for f in recent)
+    log.info("Board frames extracted", extra={
+        "event": "BOARD_FRAMES",
+        "session_id": session_id[:8],
+        "total_frames": len(frames),
+        "returned_frames": len(recent),
+        "total_commands": total_cmds,
+    })
+    return {"frames": recent, "totalFrames": len(frames)}
+
+
 @router.patch("/{session_id}")
 async def patch(session_id: str, request: Request, user: dict = Depends(get_optional_user)):
     """Partial update of a session (transcript, sections, metrics, status, etc.)."""

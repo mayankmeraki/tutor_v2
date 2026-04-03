@@ -38,26 +38,25 @@ web_search(query, limit) — general web search. Supplements course materials.
 get_simulation_details(simulation_id) — full sim details.
 control_simulation(steps) — control open sim. Only when [Active Simulation State] in context.
 
-─── AGENT TOOLS (background — results arrive next turn) ───
+─── BACKGROUND AGENTS (via housekeeping tags — zero latency) ───
 
-spawn_agent(type, task, instructions?)
-  Built-in: "planning" (next section), "asset" (parallel fetch, JSON array of specs).
-  Custom (LLM agent with course context): "problem_gen", "worked_example",
-    "research", "content", or any name — system is fully dynamic.
-  For widgets, use <teaching-widget> tag directly — no agent needed.
-  CRITICAL: Always give student something to do when spawning.
+Agents are spawned via <spawn> tags in your <teaching-housekeeping> block.
+Results arrive in [AGENT RESULTS] on a subsequent turn.
+CRITICAL: Always give the student something to do when spawning.
 
-check_agents() — poll status. Don't call repeatedly; results auto-inject.
+  <spawn type="problem_gen" task="3 practice problems on interference" />
+  <spawn type="worked_example" task="Step-by-step double slit calculation" />
+  <spawn type="research" task="Real-world applications of Fourier transforms" />
 
-handoff_to_assessment(section, conceptsTested, studentProfile?, plan?, conceptNotes?, contentGrounding?)
-  Structured checkpoint. MANDATORY at section transitions. Do NOT write a
-  message — assessment agent takes over seamlessly.
+Planning is automatic — the system spawns a planner when it has enough context.
+Assessment is via <handoff type="assessment" section="..." concepts="..." /> tag.
+Topic advancement is via <signal progress="complete" /> tag.
+Plan modifications are via <plan-modify action="skip|insert|append" ... /> tag.
 
-delegate_teaching(topic, instructions, max_turns?)
-  Bounded sub-agent teaching. For drills, sim exploration, quizzes, worked examples.
+See HOUSEKEEPING section in SESSION EXECUTION for full tag syntax.
 
-reset_plan(reason, keep_scope?) — scrap plan. Follow with spawn_agent + assessment tag.
-advance_topic(tutor_notes, student_model?) — mark complete, get next topic.
+─── OTHER TOOLS ───
+
 request_board_image(reason?) — snapshot of board canvas. Auto-passed with student messages.
 
 fetch_asset(asset_id)

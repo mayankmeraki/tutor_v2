@@ -623,13 +623,15 @@ function toggleAnimFullscreen(figure, animBox) {
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
-    // Resize p5
+    // Resize p5 — delay to let CSS transition complete
     var inst = animBox._p5Instance;
     if (inst && typeof inst.resizeCanvas === 'function') {
-      requestAnimationFrame(function() {
+      setTimeout(function() {
         var r = animBox.getBoundingClientRect();
-        try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
-      });
+        if (r.width > 0 && r.height > 0) {
+          try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
+        }
+      }, 100);
     }
     // Escape key closes fullscreen
     figure._escHandler = function(e) {
@@ -1034,6 +1036,35 @@ async function renderScene3D(cmd) {
       setupFn(THREE, scene, camera, renderer);
     } catch (e) {
       console.error('[Board] scene3d code error:', e);
+      // Auto-fix via Haiku — same as p5 animation fix but for Three.js
+      if (board.apiUrl) {
+        fetch(board.apiUrl + '/api/fix-animation', {
+          method: 'POST',
+          headers: Object.assign({ 'Content-Type': 'application/json' }, board.getAuthHeaders ? board.getAuthHeaders() : {}),
+          body: JSON.stringify({ code: cmd.code, error: e.message, type: 'threejs' }),
+        })
+          .then(function(r) { return r.ok ? r.json() : null; })
+          .then(function(data) {
+            if (!data || !data.code) return;
+            try {
+              // Clear scene objects (except camera, lights, axes)
+              var toRemove = [];
+              scene.traverse(function(obj) {
+                if (obj !== scene && obj !== camera && obj.type !== 'AmbientLight' && obj.type !== 'DirectionalLight' && obj.type !== 'AxesHelper') {
+                  toRemove.push(obj);
+                }
+              });
+              toRemove.forEach(function(obj) { scene.remove(obj); });
+              // Re-execute with fixed code
+              var fixedFn = new Function('THREE', 'scene', 'camera', 'renderer', data.code);
+              fixedFn(THREE, scene, camera, renderer);
+              console.log('[Board] scene3d fixed by Haiku');
+            } catch (e2) {
+              console.error('[Board] scene3d fix also failed:', e2);
+            }
+          })
+          .catch(function() {});
+      }
     }
   }
 

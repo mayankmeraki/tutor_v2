@@ -142,7 +142,7 @@ class AgentRuntime:
         # Cancel existing agents of the same type to avoid duplicates
         for aid, existing in list(self.agents.items()):
             if existing.type == agent_type and existing.status in ("spawned", "running"):
-                log.info("Cancelling duplicate %s agent %s (superseded)", agent_type, aid)
+                log.debug("Cancelling duplicate %s agent %s (superseded)", agent_type, aid)
                 if existing._task and not existing._task.done():
                     existing._task.cancel()
                 else:
@@ -162,7 +162,7 @@ class AgentRuntime:
 
         # Pick the right runner — open-ended, not restricted
         if agent_type == "planning":
-            coro = self._run_planning_agent(task, context)
+            coro = self._run_planning_agent(task, context)  # Sonnet + tools, JSON output
         elif agent_type == "enrichment":
             coro = self._run_enrichment_agent(task, context)
         elif agent_type == "visual_gen":
@@ -326,87 +326,136 @@ class AgentRuntime:
     # ── Planning agent ────────────────────────────────────────────────────
 
     async def _run_planning_agent(self, task: AgentTask, context: dict) -> dict:
-        """Run planning agent — structure first, grounding second.
+        """Run planning agent — Sonnet with tools, JSON output.
 
-        Phase 1 (fast, ~3-5s): Generate plan structure with NO tools.
-          → Emit immediately so tutor can start teaching topic 1.
-        Phase 2 (background): Ground topics with content tools if course exists.
-          → Enrich topics with content refs, but tutor is already teaching.
+        Spawned at turn ~4 when tutor has enough context (student model,
+        conversation history). Uses content/search tools to ground the plan
+        in real material. Outputs a single JSON plan object.
         """
         from app.agents.prompts import build_planning_prompt
 
         planning_prompt = build_planning_prompt(context)
         has_course = "courseMap" in context and context.get("courseMap")
 
-        # ── Phase 1: Structure only (no tools, fast) ──
-        wrapped_instructions = (
-            f"<task>\n{task.instructions}\n</task>\n\n"
-            "Output the complete JSONL plan. Do NOT call any tools.\n"
-            "Focus on topic STRUCTURE — titles, concepts, step types.\n"
-            "Content grounding will happen separately."
-        )
+        # Build tool list — planner can use content + search tools
+        from app.tools import TUTOR_TOOLS
+        planner_tool_names = {"content_read", "content_peek", "web_search",
+                              "query_knowledge", "get_section_content"}
+        if not has_course:
+            planner_tool_names -= {"content_read", "content_peek", "get_section_content"}
+        # Add BYO tools if BYO context present
+        session_ctx = context.get("sessionContext", "")
+        if session_ctx and "collection_id" in str(session_ctx):
+            planner_tool_names |= {"byo_read", "byo_list"}
+        planner_tools = [t for t in TUTOR_TOOLS if t["name"] in planner_tool_names]
 
-        messages: list[dict] = [{"role": "user", "content": wrapped_instructions}]
+        messages: list[dict] = [{"role": "user", "content": f"<task>\n{task.instructions}\n</task>"}]
 
-        request_params: dict[str, Any] = {
-            "model": settings.planning_model,
-            "max_tokens": 4096,
-            "system": planning_prompt,
-            "messages": messages,
-            "tools": [],  # No tools in Phase 1 — structure only
-            "metadata": self._meta("planning", task.agent_id),
-        }
+        # Agentic loop — planner can make tool calls to ground the plan
+        max_rounds = 4  # max tool-call rounds
+        for round_num in range(max_rounds):
+            request_params: dict[str, Any] = {
+                "model": settings.medium_model,  # Sonnet — better quality
+                "max_tokens": 4096,
+                "system": planning_prompt,
+                "messages": messages,
+                "tools": planner_tools if round_num < max_rounds - 1 else [],  # no tools on last round
+                "metadata": self._meta("planning", task.agent_id),
+            }
 
-        async def _call(params=request_params):
-            return await llm_call(**params)
+            response = await _retry_api_call(
+                lambda p=request_params: llm_call(**p),
+                label=f"Planning[{task.agent_id}] round {round_num + 1}",
+            )
+            task.track_usage(response)
 
-        response = await _retry_api_call(
-            _call, label=f"Planning[{task.agent_id}]"
-        )
-        task.retries_used = 0
-        task.track_usage(response)
+            # Check for tool calls
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            text_blocks = [b for b in response.content if b.type == "text" and b.text and b.text.strip()]
 
-        log.info(
-            "Planning done — stop: %s, %din/%dout",
-            response.stop_reason,
-            response.usage.input_tokens, response.usage.output_tokens,
-        )
+            if not tool_blocks:
+                # No tool calls — extract JSON plan from text
+                for block in text_blocks:
+                    plan = _parse_plan_json(block.text)
+                    if plan:
+                        log.debug("Planning done (round %d) — %din/%dout",
+                                 round_num + 1, response.usage.input_tokens, response.usage.output_tokens)
+                        return plan
+                # If no valid JSON found, ask for retry
+                if round_num < max_rounds - 1:
+                    messages.append({"role": "assistant", "content": response.content})
+                    messages.append({"role": "user", "content": "Output ONLY a valid JSON plan object. No markdown fences, no prose."})
+                    continue
+                break
 
-        # Parse JSONL from response
-        for block in response.content:
-            if block.type == "text" and block.text and block.text.strip():
-                try:
-                    return _parse_planning_jsonl(block.text)
-                except (ValueError, json.JSONDecodeError) as e:
-                    log.warning("Planning JSONL parse failed: %s — raw: %s", e, block.text[:200])
+            # Execute tool calls
+            messages.append({"role": "assistant", "content": response.content})
+            tool_results = []
+            for tb in tool_blocks:
+                result = await self._execute_planning_tool(tb.name, tb.input, context)
+                tool_results.append({
+                    "role": "user",
+                    "content": [{"type": "tool_result", "tool_use_id": tb.id, "content": result[:3000]}],
+                })
+            for tr in tool_results:
+                messages.append(tr)
 
-        # Retry with prefill if first attempt failed
-        log.warning("Planning output not JSONL, retrying with prefill")
-        messages.append({"role": "assistant", "content": response.content})
-        messages.append({
-            "role": "user",
-            "content": "Output ONLY valid JSONL. No markdown, no prose.",
-        })
-        prefill = '{"type":"plan"'
-        messages.append({
-            "role": "assistant",
-            "content": [{"type": "text", "text": prefill}],
-        })
+        raise RuntimeError("Planning agent failed to produce valid JSON plan")
 
-        response = await _retry_api_call(
-            lambda: llm_call(**{**request_params, "messages": messages}),
-            label=f"Planning[{task.agent_id}] retry",
-        )
-        task.track_usage(response)
+    @staticmethod
+    def _extract_course_id_from_context(context: dict) -> int | None:
+        """Try to extract course_id from context data."""
+        # Try direct field
+        cid = context.get("courseId") or context.get("course_id")
+        if cid:
+            try:
+                return int(cid)
+            except (ValueError, TypeError):
+                pass
+        # Try from sessionContext
+        sc = context.get("sessionContext", "")
+        if sc and isinstance(sc, str):
+            try:
+                sc_data = json.loads(sc)
+                cid = sc_data.get("courseId") or sc_data.get("course_id")
+                if cid:
+                    return int(cid)
+            except (json.JSONDecodeError, ValueError, TypeError):
+                pass
+        return None
 
-        for block in response.content:
-            if block.type == "text" and block.text and block.text.strip():
-                try:
-                    return _parse_planning_jsonl(prefill + block.text)
-                except (ValueError, json.JSONDecodeError) as e:
-                    log.error("Planning JSONL final parse failed: %s — raw: %s", e, block.text[:300])
+    async def _execute_planning_tool(self, tool_name: str, tool_input: dict, context: dict) -> str:
+        """Execute a tool call from the planning agent.
 
-        raise RuntimeError("Planning agent failed to produce valid JSONL plan after 3 rounds")
+        Uses execute_tutor_tool for most tools. For content adapter tools
+        that need course context, falls back to get_section_content which
+        works standalone.
+        """
+        try:
+            from app.tools import execute_tutor_tool
+            result = await execute_tutor_tool(tool_name, tool_input)
+            if result and "must be routed through the adapter" not in result:
+                return result
+            # Content adapter tools that failed — try via get_section_content
+            # which works without the adapter
+            if tool_name in ("content_read", "content_peek", "get_section_content"):
+                from app.tools.handlers import get_section_content
+                lesson_id = tool_input.get("lesson_id")
+                section_index = tool_input.get("section_index", 0)
+                ref = tool_input.get("ref", "")
+                # Parse ref format "lesson:X:section:Y" if provided
+                if ref and not lesson_id:
+                    import re
+                    m = re.match(r'lesson:(\d+)(?::section:(\d+))?', ref)
+                    if m:
+                        lesson_id = int(m.group(1))
+                        section_index = int(m.group(2) or 0)
+                if lesson_id is not None:
+                    return await get_section_content(int(lesson_id), int(section_index))
+                return f"Cannot resolve content ref: {ref or tool_input}"
+            return result or f"No result from {tool_name}"
+        except Exception as e:
+            return f"Tool error ({tool_name}): {e}"
 
     # ── Generic LLM agent ─────────────────────────────────────────────────
 
@@ -736,88 +785,37 @@ class AgentRuntime:
 # ── Helpers ─────────────────────────────────────────────────────────────────
 
 
-def _get_planning_tools() -> list[dict]:
-    """Tools available to the planning agent."""
-    return [
-        {
-            "name": "get_section_content",
-            "description": (
-                "Fetch detailed content for a specific course section — transcript, "
-                "key points, formulas. Use to ground topic plans in actual lecture content."
-            ),
-            "input_schema": {
-                "type": "object",
-                "properties": {
-                    "lesson_id": {"type": "number", "description": "Lesson ID from Course Map"},
-                    "section_index": {"type": "number", "description": "Section index within lesson"},
-                },
-                "required": ["lesson_id", "section_index"],
-            },
-        },
-    ]
+def _parse_plan_json(text: str) -> dict | None:
+    """Parse a JSON plan from the planning agent's text output.
 
-
-def _parse_planning_jsonl(text: str, prefill: str = "") -> dict:
-    """Parse JSONL output from planning agent. Returns plan dict.
-
-    If `prefill` is provided, it is prepended to the first line of text
-    (used when assistant prefill was used to force JSON start).
+    Handles: raw JSON, JSON in markdown fences, JSON embedded in prose.
+    Returns the plan dict with _topics extracted, or None if parsing fails.
     """
     import re
 
+    # Strip markdown fences if present
+    text = re.sub(r'```(?:json)?\s*', '', text).strip()
+    text = re.sub(r'```\s*$', '', text).strip()
+
     plan = None
-    topics = []
 
-    lines = text.strip().splitlines()
+    # Try parsing as a single JSON object
+    try:
+        plan = json.loads(text)
+    except json.JSONDecodeError:
+        # Extract the outermost JSON object from the text
+        m = re.search(r'\{[\s\S]*\}', text)
+        if m:
+            try:
+                plan = json.loads(m.group(0))
+            except json.JSONDecodeError:
+                return None
 
-    # Prepend prefill to first non-empty line
-    if prefill and lines:
-        for i, line in enumerate(lines):
-            if line.strip():
-                lines[i] = prefill + line
-                break
+    if not plan or not isinstance(plan, dict):
+        return None
 
-    for line in lines:
-        line = line.strip()
-        if not line:
-            continue
-
-        try:
-            obj = json.loads(line)
-        except json.JSONDecodeError:
-            m = re.search(r'\{.*\}', line)
-            if m:
-                try:
-                    obj = json.loads(m.group(0))
-                except json.JSONDecodeError:
-                    continue
-            else:
-                continue
-
-        obj_type = obj.get("type")
-        if obj_type == "plan":
-            plan = obj
-        elif obj_type == "topic":
-            topics.append(obj)
-        elif obj_type == "done":
-            pass
-
-    if not plan:
-        # Try parsing the whole text as a single JSON object
-        try:
-            plan = json.loads(text.strip())
-        except json.JSONDecodeError:
-            # Last resort: extract any JSON object from the text
-            m = re.search(r'\{[\s\S]*\}', text)
-            if m:
-                try:
-                    plan = json.loads(m.group(0))
-                except json.JSONDecodeError:
-                    raise ValueError(f"Planning agent did not produce valid plan. Raw output: {text[:300]}")
-            else:
-                raise ValueError(f"Planning agent did not produce valid plan. Raw output: {text[:300]}")
-
-    # If we parsed a single JSON with sections but no JSONL topics, extract them
+    # Extract topics from sections if not already in _topics
+    topics = plan.get("_topics", [])
     if not topics and plan.get("sections"):
         for sec in plan["sections"]:
             for t in sec.get("topics", []):

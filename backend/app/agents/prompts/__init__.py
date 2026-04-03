@@ -1,5 +1,5 @@
 from .tutor import TUTOR_SYSTEM_PROMPT, build_tutor_system_prompt
-from .planning import PLANNING_PROMPT
+from .planning import PLANNING_SYSTEM_PROMPT, build_planning_prompt as _build_planning_prompt_base
 from .toolkit import TOOLKIT_PROMPT
 from .tags import TAGS_PROMPT
 from .assessment import ASSESSMENT_SYSTEM_PROMPT
@@ -466,10 +466,15 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         acct_lines.append(f"Progress: {done}/{total} topics ({pct}%)")
         acct_lines.append(
             "RULES: Finish current topic before advancing. "
-            "For prereq gaps, call modify_plan(action='insert_prereq'). "
-            "To skip a topic the student knows, call modify_plan(action='skip')."
+            "For prereq gaps, use <plan-modify action=\"insert\" ... />. "
+            "To skip a topic the student knows, use <plan-modify action=\"skip\" />."
         )
         parts.append("\n".join(acct_lines) + "\n")
+
+    # Checkpoint and pace injection — structural forcing for assessment gating
+    checkpoint_pace = context_data.get("checkpointAndPace")
+    if checkpoint_pace:
+        parts.append(checkpoint_pace + "\n")
 
     # ─── SECTION 4: EVENT CONTEXT ───────────────────────────────
     # One-shot events from this turn — agent results, assessments, delegation.
@@ -557,106 +562,12 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     return (static_prompt, dynamic_context)
 
 
-def build_planning_prompt(context_data: dict) -> str:
-    """Build planning agent system prompt — works for course, BYO, and on-demand sessions."""
-    from .planning import PLANNING_PROMPT
-    parts = [PLANNING_PROMPT]
+def build_planning_prompt(context_data: dict) -> str | tuple[str, str]:
+    """Build planning agent system prompt with prompt caching support.
 
-    # Determine grounding mode
-    has_course = bool(context_data.get("courseMap"))
-
-    if has_course:
-        parts.append("\n[Course Map]\n" + str(context_data["courseMap"])[:3000])
-
-        concepts = context_data.get("concepts")
-        if concepts:
-            parts.append(f"\n[Course Concepts]\n{concepts[:1000]}")
-
-        sims = context_data.get("simulations")
-        if sims:
-            parts.append(f"\n[Available Simulations]\n{sims[:500]}")
-    else:
-        parts.append("\n[No course available — plan from your own knowledge of this subject. Do NOT try to call any tools.]")
-
-    # BYO / session context (enriched intent, collection info)
-    session_ctx_str = context_data.get("sessionContext", "")
-    if session_ctx_str:
-        try:
-            import json as _j
-            ctx = _j.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
-            enriched = ctx.get("enriched_intent", "")
-            if enriched:
-                parts.append(f"\n[Enriched Intent]\n{enriched[:500]}")
-            teaching_notes = ctx.get("teaching_notes", "")
-            if teaching_notes:
-                parts.append(f"\n[Teaching Notes]\n{teaching_notes[:500]}")
-        except (ValueError, TypeError, AttributeError):
-            pass
-
-    # Student context (works for all modes)
-    profile = context_data.get("studentProfile")
-    if profile:
-        parts.append(f"\n[Student Profile]\n{profile[:500]}")
-
-    student_model = context_data.get("studentModel")
-    if student_model:
-        parts.append(f"\n[Student Model]\n{student_model[:500]}")
-
-    # Tutor's recent notes — observations from teaching
-    tutor_notes = context_data.get("tutorNotes")
-    if tutor_notes:
-        parts.append(f"[Recent Tutor Observations]\n{tutor_notes}\n")
-
-    completed = context_data.get("completedTopics")
-    if completed:
-        parts.append(f"\n[Completed Topics So Far]\n{completed}\n")
-
-    session_scope = context_data.get("sessionScope")
-    if session_scope:
-        parts.append(f"\n[Session Scope]\n{session_scope}\n")
-
-    # Last assessment results — critical for adapting the plan
-    last_assessment = context_data.get("lastAssessmentSummary")
-    if last_assessment:
-        import json as _json
-        score = last_assessment.get("score", {})
-        pct = score.get("pct", 0)
-        weak = last_assessment.get("weakConcepts", [])
-        strong = last_assessment.get("strongConcepts", [])
-
-        parts.append("\n═══════════════════════════════════════════════════")
-        parts.append(" MOST RECENT ASSESSMENT RESULTS — Use this to adapt the plan")
-        parts.append("═══════════════════════════════════════════════════\n")
-        parts.append(f"Section: {last_assessment.get('section', '?')}")
-        parts.append(f"Score: {score.get('correct', 0)}/{score.get('total', 0)} ({pct}%)")
-        parts.append(f"Mastery: {last_assessment.get('overallMastery', '?')}")
-        if weak:
-            parts.append(f"WEAK concepts: {', '.join(weak)}")
-        if strong:
-            parts.append(f"Strong concepts: {', '.join(strong)}")
-        rec = last_assessment.get("recommendation", "")
-        if rec:
-            parts.append(f"Recommendation: {rec}")
-
-        if pct < 60:
-            parts.append(
-                "\nThe student scored below 60%. Your plan MUST:"
-                "\n- Prioritize re-teaching the weak concepts with a DIFFERENT approach"
-                "\n- Use different modalities (if text failed, use simulation/video/board-draw)"
-                "\n- Include scaffolding steps that build up to the weak concepts"
-                "\n- Add targeted checkpoint moments for the weak areas"
-                "\n- Adjust language/pace based on student model observations"
-            )
-        elif pct < 80:
-            parts.append(
-                "\nStudent is developing. Your plan should:"
-                "\n- Reinforce weak areas with additional practice"
-                "\n- Use the student's strongest modality for difficult concepts"
-                "\n- Build bridges from strong concepts to weak ones"
-            )
-        parts.append("")
-
-    return "\n".join(parts)
+    Delegates to planning.py which returns (static, dynamic) tuple.
+    """
+    return _build_planning_prompt_base(context_data)
 
 
 def build_assessment_prompt(context_data: dict) -> str:

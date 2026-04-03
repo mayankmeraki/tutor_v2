@@ -1428,6 +1428,25 @@ function _wsOnMessage(msg) {
 
     case 'VOICE_SCENE_END':
       state._voiceSceneActive = false;
+      // Snapshot the board content for session persistence
+      if (state.boardDraw.rawContent && state.boardDraw.active) {
+        const sceneTitle = state.spotlightInfo?.title || 'Board';
+        const refTag = { name: 'teaching-board-draw', attrs: { title: sceneTitle } };
+        refTag._boardDrawContent = state.boardDraw.rawContent;
+        // Update the most recent matching history entry or create one
+        const existing = [...state.spotlightHistory].reverse().find(
+          e => e.type === 'board-draw' && e.title === sceneTitle
+        );
+        if (existing) {
+          existing.boardDrawContent = state.boardDraw.rawContent;
+        } else {
+          const refId = 'bd-' + Date.now();
+          state.spotlightHistory.push({
+            id: refId, type: 'board-draw', title: sceneTitle,
+            tag: refTag, boardDrawContent: state.boardDraw.rawContent,
+          });
+        }
+      }
       break;
 
     case 'TEXT_DELTA':
@@ -1462,7 +1481,7 @@ function _wsOnMessage(msg) {
       if (!_wsTurn || (evt.gen !== undefined && evt.gen >= _ws.generation)) {
         state.isStreaming = false;
         setVoiceBarState('idle');
-        voiceHideSubtitle();
+        // Keep last subtitle visible — it's often the question. Cleared on next subtitle.
       }
       break;
 
@@ -2735,85 +2754,6 @@ function removeAssessmentTransition() {
 // Module 8b: Agent Event System (persistent SSE)
 // ═══════════════════════════════════════════════════════════
 
-// ── Plan polling — independent of chat stream ──
-let _planPollTimer = null;
-let _planPollAttempts = 0;
-const _PLAN_POLL_MAX = 20; // max 20 attempts = ~60 seconds, then give up
-
-function startPlanPolling() {
-  stopPlanPolling();
-  if (!state.sessionId || state.plan.length > 0) return;
-  _planPollAttempts = 0;
-
-  _planPollTimer = setInterval(async () => {
-    if (state.plan.length > 0) { stopPlanPolling(); return; }
-    _planPollAttempts++;
-
-    // Bail out after max attempts — try auto-repair via lightweight endpoint
-    if (_planPollAttempts > _PLAN_POLL_MAX) {
-      console.warn('[PlanPoll] Max attempts reached, trying auto-repair');
-      stopPlanPolling();
-      _autoRepairPlan();
-      return;
-    }
-
-    try {
-      const res = await fetch(`${state.apiUrl}/api/session/${state.sessionId}/plan`, {
-        headers: AuthManager.authHeaders(),
-      });
-      if (!res.ok) return;
-      const data = await res.json();
-      if (data.status === 'ready' && data.plan) {
-        handlePlanFromAgent(data.plan, data.sessionObjective);
-        stopPlanPolling();
-      } else if (data.status === 'error') {
-        console.warn('[PlanPoll] Plan generation failed:', data.error);
-        stopPlanPolling();
-        _autoRepairPlan();
-      }
-      // 'pending'/'building' — continue polling (capped by max attempts)
-    } catch (e) { /* ignore poll errors */ }
-  }, 3000); // poll every 3 seconds
-}
-
-function stopPlanPolling() {
-  if (_planPollTimer) { clearInterval(_planPollTimer); _planPollTimer = null; }
-}
-
-async function _autoRepairPlan() {
-  // Lightweight plan repair — asks the backend to generate a quick plan via fast model
-  const intent = state.studentIntent || '';
-  if (!intent || !state.sessionId) {
-    const body = document.getElementById('psb-body');
-    if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
-    return;
-  }
-
-  console.log('[PlanRepair] Attempting auto-repair for:', intent);
-  const body = document.getElementById('psb-body');
-  if (body) body.innerHTML = '<div class="psb-generating"><div class="psb-gen-pulse"></div><span>Rebuilding plan...</span></div>';
-
-  try {
-    const res = await fetch(`${state.apiUrl}/api/session/${state.sessionId}/plan/repair`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ intent }),
-    });
-    if (res.ok) {
-      const data = await res.json();
-      if (data.plan) {
-        handlePlanFromAgent(data.plan, data.sessionObjective || intent);
-        return;
-      }
-    }
-  } catch (e) {
-    console.warn('[PlanRepair] Failed:', e);
-  }
-
-  // Final fallback
-  if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
-}
-
 function connectAgentEvents() {
   disconnectAgentEvents();
   if (!state.sessionId) return;
@@ -2840,7 +2780,6 @@ function connectAgentEvents() {
 }
 
 function disconnectAgentEvents() {
-  stopPlanPolling();
   if (state.agentEventSource) {
     state.agentEventSource.close();
     state.agentEventSource = null;
@@ -2858,14 +2797,30 @@ function cleanupActiveSession() {
   if (typeof SessionManager !== 'undefined' && SessionManager.saveSession) {
     try { SessionManager.saveSession(); } catch(e) {}
   }
+
+  // ── 1. Kill all audio (TTS, voice, WS turn audio) ──
   if (state.voiceCurrentAudio) { try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {} state.voiceCurrentAudio = null; }
   if (state.voiceCurrentSrc) { try { state.voiceCurrentSrc.stop(); } catch(e) {} state.voiceCurrentSrc = null; }
   if (state._currentTTSAudio) { try { state._currentTTSAudio.pause(); } catch(e) {} state._currentTTSAudio = null; }
+
+  // ── 2. Kill active stream (SSE reader) ──
   if (state._streamReader) { try { state._streamReader.cancel(); } catch(e) {} state._streamReader = null; }
   state.isStreaming = false; state._stopRequested = false; state._voiceSceneActive = false;
-  if (typeof _eagerReset === 'function') _eagerReset();
+  state.paused = false;
+  state.currentMessageId = null;
+  state.accumulatedText = '';
   if (state._streamingTimeout) { clearTimeout(state._streamingTimeout); state._streamingTimeout = null; }
+
+  // ── 3. Kill WebSocket turn (stops WS audio, clears beat queue) ──
+  _wsKillTurn('session_cleanup');
+
+  // ── 4. Reset eager parser ──
+  if (typeof _eagerReset === 'function') _eagerReset();
+
+  // ── 5. Disconnect agent events & plan polling ──
   disconnectAgentEvents();
+
+  // ── 6. Board engine — full cleanup (JS state + DOM) ──
   if (typeof BoardEngine !== 'undefined') BoardEngine.cleanup();
   // Reset board canvas ref so next session triggers fresh BoardEngine.init
   if (state.boardDraw) {
@@ -2879,24 +2834,91 @@ function cleanupActiveSession() {
     state.boardDraw.dismissed = false;
     state.boardDraw.complete = false;
     state.boardDraw.processedLines = 0;
+    state.boardDraw.rawContent = null;
+    state.boardDraw.tutorSnapshot = null;
+    state.boardDraw._instantReplayCount = 0;
+    state.boardDraw.drawingEnabled = false;
     _sceneSnapshots.length = 0;
   }
-  state.spotlightActive = false; state.spotlightInfo = null;
-  state._videoWatchAlong = false;
+
+  // ── 7. Video mode — close player, hide overlay ──
+  if (state.video?.active || document.body.classList.contains('video-mode')) {
+    if (typeof cleanupVideoMode === 'function') cleanupVideoMode();
+  }
   // Clean up YouTube player
   if (state.video?._ytTimerInterval) { clearInterval(state.video._ytTimerInterval); state.video._ytTimerInterval = null; }
   if (state.video?._ytPlayer) { try { state.video._ytPlayer.destroy(); } catch(e) {} state.video._ytPlayer = null; }
-  state._startingSession = false; state._resumingSession = false;
+  state.video = { active: false, courseId: null, lessonId: null, lessonTitle: '', currentTimestamp: 0, currentSectionIndex: 0, sectionTitle: '', isPaused: false, player: null, sections: [], lessons: [], lessonIndex: 0 };
+  state._videoWatchAlong = false;
   state._videoPlaylist = null; state._videoPlaylistIndex = 0;
   if (typeof _hideVideoPlaylist === 'function') _hideVideoPlaylist();
+
+  // ── 8. Spotlight / notebook / simulation ──
+  state.spotlightActive = false; state.spotlightInfo = null;
+  state.spotlightHistory = [];
+  state.notebookSteps = [];
+  if (state.notebookCleanup) { try { state.notebookCleanup(); } catch(e) {} state.notebookCleanup = null; }
+  if (state.inactivityTimer) { clearTimeout(state.inactivityTimer); state.inactivityTimer = null; }
+  state.activeSimulation = null;
+  state.simulationLiveState = null;
+  if (state.simBridgeListener) { try { window.removeEventListener('message', state.simBridgeListener); } catch(e) {} state.simBridgeListener = null; }
+
+  // ── 9. Scribble annotation cleanup ──
+  state.scribble.active = false;
+  state.scribble.strokes = [];
+  state.scribble.currentStroke = null;
+  state.scribble.dirty = false;
+  state.scribble.beforeSnapshot = null;
+  state.scribble.capturePromise = null;
+
+  // ── 10. Widget state ──
+  state.widget.active = false;
+  state.widget.complete = false;
+  state.widget.title = '';
+  state.widget.code = '';
+  state.widget.contentStartIdx = 0;
+
+  // ── 11. Assessment state ──
+  state.assessment = { active: false, sectionTitle: '', concepts: [], conceptNotes: {}, questionNumber: 0, maxQuestions: 5 };
+
+  // ── 12. Plan / teaching state ──
+  state.plan = [];
+  state.planActiveStep = null;
+  state.detourStack = [];
+  state.planCallCount = 0;
+  state.pendingFallbackTimer && clearTimeout(state.pendingFallbackTimer);
+  state.pendingFallbackTimer = null;
+  state.currentScript = null;
+
+  // ── 13. Visual engagement counters ──
+  state.totalAssistantTurns = 0;
+  state.responses = 0;
+  state.lastVisualTurn = 0;
+  state.visualAssetCount = 0;
+  state.lastEngagementTurn = 0;
+  state.spotlightOpenedAtTurn = 0;
+
+  // ── 14. Misc pending state ──
+  state.pendingSpotlightEvent = null;
+  state.recentlyClosedSim = null;
+  state.pendingBoardCaptureRequest = false;
+  state.pendingBoardCapture = null;
+  state.activeToolCalls = {};
+  state.generatedVisuals = {};
+  state.voiceQueue = [];
+  state.voiceHandVisible = false;
+
+  // ── 15. Session flags ──
+  state._startingSession = false; state._resumingSession = false;
+
+  // ── 16. UI indicators ──
   if (typeof removeStreamingIndicator === 'function') removeStreamingIndicator();
   if (typeof voiceBarSetThinking === 'function') voiceBarSetThinking(false);
   if (typeof hideSessionPrep === 'function') hideSessionPrep();
-
-  // Hide plan sidebar
+  if (typeof cleanupToolIndicators === 'function') cleanupToolIndicators();
   hidePlanSidebar();
 
-  // ── Clear DOM content from previous session ──
+  // ── 17. Clear DOM content from previous session ──
   const spotlightContent = document.getElementById('spotlight-content');
   if (spotlightContent) spotlightContent.innerHTML = '';
   const canvasStream = document.getElementById('canvas-stream');
@@ -2905,20 +2927,27 @@ function cleanupActiveSession() {
   if (boardFrameStrip) boardFrameStrip.innerHTML = '';
   const boardEmpty = document.getElementById('board-empty-state');
   if (boardEmpty) boardEmpty.style.display = '';
-  // Reset board header
+  // Board header
   const spotlightTitle = document.getElementById('spotlight-title');
   if (spotlightTitle) spotlightTitle.textContent = 'Board';
   const spotlightBadge = document.getElementById('spotlight-type-badge');
   if (spotlightBadge) spotlightBadge.textContent = '';
-  // Hide pen toolbar
+  // Pen toolbar
   const penToolbar = document.getElementById('pen-draw-toolbar');
   if (penToolbar) penToolbar.classList.add('hidden');
   const penBtn = document.getElementById('board-pen-toggle');
   if (penBtn) penBtn.classList.remove('active');
-  // Reset plan heading
+  // Plan heading
   const planBar = document.getElementById('plan-heading-bar');
   if (planBar) planBar.classList.add('hidden');
-  // Clear session messages array
+  // Resource history
+  const resHistory = document.getElementById('resource-history-list');
+  if (resHistory) resHistory.innerHTML = '';
+  // Chat stream (euler conversation area)
+  const chatStream = document.getElementById('euler-stream');
+  if (chatStream) chatStream.innerHTML = '';
+
+  // ── 18. Clear session identity (last — everything above uses sessionId-independent cleanup) ──
   state.messages = [];
   state.sessionId = null;
 }
@@ -3113,8 +3142,6 @@ function transitionOnboardingToTeaching() {
 
 function handlePlanFromAgent(plan, sessionObjective) {
   if (!plan) {
-    // Even with no plan, stop polling so we don't loop forever
-    stopPlanPolling();
     return;
   }
   state.currentPlan = plan;
@@ -3165,11 +3192,10 @@ function handlePlanFromAgent(plan, sessionObjective) {
     }
   }
 
-  // If plan data was received but has no usable sections, stop polling and show fallback
+  // If plan data was received but has no usable sections, show fallback
   if (newSections.length === 0) {
-    stopPlanPolling();
     const body = document.getElementById('psb-body');
-    if (body) body.innerHTML = '<div class="psb-generating"><span>Plan unavailable — tutor will teach freely.</span></div>';
+    if (body) body.innerHTML = '<div class="psb-placeholder"><div class="psb-placeholder-icon">&#9776;</div><span>Plan unavailable — tutor will teach freely.</span></div>';
     return;
   }
 
@@ -3211,9 +3237,9 @@ function handlePlanFromAgent(plan, sessionObjective) {
   updateHeadingBar();
   updatePlanSidebar({ sections: state.plan });
 
-  // Show the plan sidebar (it starts hidden)
-  const psb = document.getElementById('plan-sidebar');
-  if (psb) psb.classList.remove('hidden');
+  // Cancel auto-collapse and fully show the sidebar when plan arrives
+  if (_planAutoCollapseTimer) { clearTimeout(_planAutoCollapseTimer); _planAutoCollapseTimer = null; }
+  showPlanSidebar();
 
   state.planCallCount++;
 }
@@ -10763,13 +10789,51 @@ async function _startOnDemandSession(intentText) {
 
 // ─── Plan sidebar ─────────────────────────────────────────
 
+let _planAutoCollapseTimer = null;
+
 function showPlanSidebar() {
   if (state._videoWatchAlong) return; // No plan in video watch-along mode
   const sb = document.getElementById('plan-sidebar');
-  if (sb) sb.classList.remove('hidden');
+  if (sb) {
+    sb.classList.remove('hidden');
+    sb.classList.remove('collapsed');
+  }
+}
+
+/**
+ * Show the plan sidebar with a placeholder and auto-collapse after 5s.
+ * Used at session start when no plan exists yet.
+ */
+function showPlanSidebarPlaceholder() {
+  if (state._videoWatchAlong) return;
+  const sb = document.getElementById('plan-sidebar');
+  if (!sb) return;
+
+  sb.classList.remove('hidden');
+  sb.classList.remove('collapsed');
+
+  // Show placeholder in body
+  const body = document.getElementById('psb-body');
+  if (body) {
+    body.innerHTML = `<div class="psb-placeholder">
+      <div class="psb-placeholder-icon">&#9776;</div>
+      <span>Your tutor is getting to know you.<br>A personalized learning path will appear here.</span>
+    </div>`;
+  }
+
+  // Auto-collapse after 5s so it doesn't take up space
+  if (_planAutoCollapseTimer) clearTimeout(_planAutoCollapseTimer);
+  _planAutoCollapseTimer = setTimeout(() => {
+    _planAutoCollapseTimer = null;
+    // Only collapse if plan still hasn't arrived
+    if (state.plan.length === 0 && sb && !sb.classList.contains('hidden')) {
+      sb.classList.add('collapsed');
+    }
+  }, 5000);
 }
 
 function hidePlanSidebar() {
+  if (_planAutoCollapseTimer) { clearTimeout(_planAutoCollapseTimer); _planAutoCollapseTimer = null; }
   const sb = document.getElementById('plan-sidebar');
   if (sb) sb.classList.add('hidden');
 }
@@ -10787,8 +10851,11 @@ function updatePlanSidebar(plan) {
 
   const sections = plan?.sections || plan?.steps || [];
   if (!sections.length) {
-    // Still generating
-    body.innerHTML = '<div class="psb-generating"><div class="psb-gen-pulse"></div><span>Building your plan...</span></div>';
+    // No plan yet — show placeholder (not "building" since we don't spawn planner until turn ~4)
+    body.innerHTML = `<div class="psb-placeholder">
+      <div class="psb-placeholder-icon">&#9776;</div>
+      <span>Your tutor will chart out a personalized learning path after a few interactions, based on how you're doing.</span>
+    </div>`;
     return;
   }
 
@@ -11220,6 +11287,7 @@ async function startNewSession(name, courseId, intent, scenario) {
 
   // Clean up any active session (board, agents, streaming)
   if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
+  state._startingSession = true; // re-set after cleanup cleared it
 
   // Show loading state on button
   const startBtn = $('#btn-start-session');
@@ -11284,38 +11352,13 @@ async function startNewSession(name, courseId, intent, scenario) {
     updateSessionPrep('Organizing your lesson plan...');
     showTeachingLayout(courseMap);
 
-    // Reset ALL session state for fresh start
-    state.messages = [];
-    state.plan = [];
+    // Session state already fully reset by cleanupActiveSession() above.
+    // Only set fields specific to new session setup:
     state.currentPlan = {};
-    state.planCallCount = 0;
-    state.planActiveStep = null;
     state._pendingFirstHeadings = false;
-    state.totalAssistantTurns = 0;
-    state.responses = 0;
-    state.lastVisualTurn = 0;
-    state.visualAssetCount = 0;
-    state.lastEngagementTurn = 0;
-    state.accumulatedText = '';
-    state.spotlightActive = false;
-    state.spotlightInfo = null;
-    state.spotlightHistory = [];
-    state.activeSimulation = null;
-    state.simulationLiveState = null;
-    state.assessment = { active: false, sectionTitle: '', concepts: [], questionNumber: 0, maxQuestions: 5 };
-    state.pendingSpotlightEvent = null;
-    state.recentlyClosedSim = null;
 
     // Reset plan UI
     updateHeadingBar();
-
-    // Clear board panel
-    const boardContent = $('#spotlight-content');
-    if (boardContent) boardContent.innerHTML = '';
-    const frameStrip = $('#board-frame-strip');
-    if (frameStrip) frameStrip.innerHTML = '';
-    const resHistory = $('#resource-history-list');
-    if (resHistory) resHistory.innerHTML = '';
     updateBoardEmptyState();
 
     // Generate session ID and create in MongoDB
@@ -11324,9 +11367,8 @@ async function startNewSession(name, courseId, intent, scenario) {
 
     Router.navigate('/session/' + state.sessionId, { skipHandler: true });
 
-    // Connect persistent SSE for agent events + plan polling
+    // Connect persistent SSE for agent events
     connectAgentEvents();
-    startPlanPolling();
 
     try {
       const coursePosition = {
@@ -11417,6 +11459,10 @@ window.continueSession = async function(sessionId) {
   if (state._resumingSession) return;
   state._resumingSession = true;
 
+  // Clean up any active session before restoring a different one
+  if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
+  state._resumingSession = true; // re-set after cleanup cleared it
+
   // Show a loading state immediately — hide all screens
   _hideAllScreens();
   if (typeof DashBg !== 'undefined') DashBg.stop();
@@ -11436,12 +11482,16 @@ window.continueSession = async function(sessionId) {
   }
 
   try {
-    // Fetch the full session
-    const res = await fetch(`${state.apiUrl}/api/v1/sessions/${sessionId}`, {
-      headers: { ...AuthManager.authHeaders() },
-    });
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    const sessionData = await res.json();
+    // Fetch session data + board frames in parallel (both during loading overlay)
+    const [sessionRes, boardFramesRes] = await Promise.all([
+      fetch(`${state.apiUrl}/api/v1/sessions/${sessionId}`, { headers: AuthManager.authHeaders() }),
+      fetch(`${state.apiUrl}/api/v1/sessions/${sessionId}/board-frames`, { headers: AuthManager.authHeaders() })
+        .then(r => r.ok ? r.json() : { frames: [] })
+        .catch(() => ({ frames: [] })),
+    ]);
+    if (!sessionRes.ok) throw new Error(`HTTP ${sessionRes.status}`);
+    const sessionData = await sessionRes.json();
+    const boardFrames = boardFramesRes.frames || [];
 
     state.studentName = sessionData.studentName;
     state.courseId = sessionData.courseId;
@@ -11624,20 +11674,46 @@ window.continueSession = async function(sessionId) {
       updatePlanSidebar({ sections: state.plan });
     }
 
-    // Rebuild historical canvas content from transcript
-    if (sessionData.transcript && sessionData.transcript.length > 0) {
-      rebuildCanvasFromTranscript(sessionData.transcript);
+    // ── Restore board content from pre-fetched board frames ──
+    // boardFrames was fetched in parallel with session data (during loading overlay).
+    if (boardFrames.length > 0) {
+      state.replayMode = true;
+      if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+        BoardEngine.state.replayMode = true;
+        BoardEngine.state.cancelFlag = false;
+      }
+
+      for (let i = 0; i < boardFrames.length; i++) {
+        const frame = boardFrames[i];
+        for (const cmd of frame.commands) {
+          if (typeof BoardEngine !== 'undefined') BoardEngine.queueCommand(cmd);
+        }
+        // Wait for queue to drain
+        if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+          await new Promise(r => {
+            const check = () => {
+              if (!BoardEngine.state.isProcessing && BoardEngine.state.commandQueue.length === 0) r();
+              else setTimeout(check, 20);
+            };
+            check();
+          });
+        }
+        // Snapshot all but the last frame (last = active live scene)
+        if (i < boardFrames.length - 1) {
+          if (typeof BoardEngine !== 'undefined') BoardEngine.snapshotScene();
+        }
+      }
+
+      state.replayMode = false;
+      if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+        BoardEngine.state.replayMode = false;
+      }
+      console.log(`[Restore] Rendered ${boardFrames.length} board frames`);
     }
 
-    // Reopen the spotlight that was active when session was saved
-    if (savedSpotlight && savedSpotlight.active && savedSpotlight.info) {
-      const sInfo = savedSpotlight.info;
-      const matchingEntry = [...(state.spotlightHistory)].reverse().find(
-        e => e.type === sInfo.type && e.title === sInfo.title
-      );
-      if (matchingEntry) {
-        setTimeout(() => reopenSpotlight(matchingEntry.id), 200);
-      }
+    // Rebuild chat stream (text only — board content already restored above)
+    if (sessionData.transcript && sessionData.transcript.length > 0) {
+      _rebuildChatFromTranscript(sessionData.transcript);
     }
 
     // Redraw scribble strokes after canvas rebuild
@@ -11685,7 +11761,78 @@ window.continueSession = async function(sessionId) {
   }
 };
 
-// ── Canvas Rebuild (Session Resume) ──────────────────────────────
+// ── Direct Board Frame Restoration (fast, reliable) ──────────────
+
+function _restoreBoardFrame(jsonlContent, title) {
+  /**
+   * Restore a single board frame by directly queuing JSONL commands.
+   * Runs in replayMode so all commands execute instantly (no animation delays).
+   */
+  if (!jsonlContent) return;
+
+  // Ensure board spotlight is open
+  if (!state.boardDraw.active) {
+    openBoardDrawSpotlight(title || 'Board', null, { clear: true, skipReference: true });
+  }
+
+  // Parse JSONL and queue commands directly into BoardEngine
+  const lines = jsonlContent.split('\n');
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const cmd = JSON.parse(trimmed);
+      if (typeof BoardEngine !== 'undefined') {
+        BoardEngine.queueCommand(cmd);
+      }
+    } catch (e) {
+      // Skip malformed lines
+    }
+  }
+}
+
+function _rebuildChatFromTranscript(transcript) {
+  /**
+   * Rebuild the chat stream (text messages only) from transcript.
+   * Board content is restored separately via _restoreBoardFrame.
+   * Only renders the last ~10 messages to keep it light.
+   */
+  const stream = document.getElementById('canvas-stream');
+  if (!stream) return;
+
+  // Only replay recent messages (last 10 for chat context)
+  const recentMessages = transcript.slice(-10);
+
+  state.replayMode = true;
+  for (const msg of recentMessages) {
+    if (msg.role === 'assistant') {
+      // Render text parts only (skip board-draw/voice-scene tags — already restored)
+      const text = msg.content || '';
+      // Strip teaching tags — we only want the chat text
+      const chatText = text
+        .replace(/<teaching-board-draw[\s\S]*?<\/teaching-board-draw>/g, '')
+        .replace(/<teaching-voice-scene[\s\S]*?<\/teaching-voice-scene>/g, '')
+        .replace(/<teaching-housekeeping[\s\S]*?<\/teaching-housekeeping>/g, '')
+        .replace(/<teaching-widget[\s\S]*?<\/teaching-widget>/g, '')
+        .replace(/<teaching-[a-z-]+[^>]*\/>/g, '')  // self-closing tags
+        .trim();
+      if (chatText) {
+        appendBlock('assistant', chatText);
+      }
+    } else if (msg.role === 'user') {
+      const c = msg.content || '';
+      if (!c.startsWith('[SYSTEM]') && !c.startsWith('[') && !c.startsWith('The student')) {
+        appendBlock('user', c);
+      }
+    }
+  }
+  state.replayMode = false;
+
+  // Scroll to bottom
+  if (stream) stream.scrollTop = stream.scrollHeight;
+}
+
+// ── Canvas Rebuild (Session Resume — legacy) ──────────────────────
 
 function rebuildCanvasFromTranscript(transcript) {
   const stream = document.getElementById('canvas-stream');
@@ -11931,8 +12078,12 @@ function showTeachingLayout(courseMap, opts) {
   $('#teaching-layout').classList.remove('hidden');
   if (typeof DashBg !== 'undefined') DashBg.stop();
 
-  // Show plan sidebar (will show "Building your plan..." until plan arrives)
-  showPlanSidebar();
+  // Show plan sidebar with placeholder — auto-collapses after 5s if no plan yet
+  if (state.plan.length > 0) {
+    showPlanSidebar();
+  } else {
+    showPlanSidebarPlaceholder();
+  }
   // Hide video playlist (will show if video mode)
   _hideVideoPlaylist();
 
@@ -16876,10 +17027,10 @@ async function _eagerExecutorLoop() {
     _eager.running = false;
   }
 
-  // If not stopped by question, hide hand and subtitle
+  // If not stopped by question, hide hand but keep last subtitle (often the question)
   if (!_eager.done) {
     voiceHideHand();
-    voiceHideSubtitle();
+    // Don't hide subtitle — last text stays visible until next turn
   }
 
   // Clean up voice scene state when stream ends naturally
@@ -17323,9 +17474,9 @@ async function executeVoiceScene(sceneTag) {
     }
   }
 
-  // Scene finished without a question — show generic input
+  // Scene finished without a question — hide hand but keep last subtitle
   voiceHideHand();
-  voiceHideSubtitle();
+  // Don't hide subtitle — last spoken text stays visible until next turn
 }
 
 // Execute draw commands from a beat
@@ -17348,10 +17499,13 @@ async function executeDraw(drawCmds) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // Queue commands via BoardEngine
+  // Queue commands via BoardEngine + accumulate JSONL for session persistence
   for (const origCmd of drawCmds) {
     if (!origCmd || !origCmd.cmd) continue;
     BoardEngine.queueCommand({ ...origCmd });
+    // Accumulate raw JSONL so activeBoardDrawContent gets saved for session restore
+    const jsonLine = JSON.stringify(origCmd);
+    state.boardDraw.rawContent = (state.boardDraw.rawContent || '') + jsonLine + '\n';
   }
 
   // Wait for the queue to fully drain before next beat/scene
