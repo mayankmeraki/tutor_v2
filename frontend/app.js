@@ -18585,6 +18585,10 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   hidePlanSidebar(); // No plan sidebar in video mode
   document.getElementById('teaching-layout').style.display = 'flex';
 
+  // Show the main voice bar — works for both video and non-video modes
+  const voiceFloat = document.getElementById('voice-mic-float');
+  if (voiceFloat) voiceFloat.classList.remove('hidden');
+
   // Create session silently
   state.sessionId = generateId();
   state.sessionStartTime = Date.now();
@@ -19065,14 +19069,25 @@ function _hidePenToolbar() {
 function _vmSendMessage() {
   const input = document.getElementById('vm-chat-input');
   const text = (input?.value || '').trim();
-  if (!text || state.isStreaming) return;
+  if (!text) return;
+
+  // If tutor is streaming/speaking, stop first then send (same as voice bar)
+  if (state.isStreaming || _vbState !== 'idle') {
+    stopAll();
+    setTimeout(() => {
+      if (text) {
+        input.value = '';
+        streamADK(text, false, false);
+      }
+    }, 50);
+    return;
+  }
+
   input.value = '';
 
   // If student has drawn on the board, auto-capture and include with message
-  if (state.boardDraw.studentDrawing && typeof bdCaptureAndSend === 'function') {
-    // Capture board then send text + image together
+  if (state.boardDraw?.studentDrawing && typeof bdCaptureAndSend === 'function') {
     bdCaptureAndSend();
-    // Also send the text message
     if (text !== '[Board drawing sent to tutor]') {
       streamADK(text, false, false);
     }
