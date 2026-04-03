@@ -12690,9 +12690,8 @@ function bdRegisterElement(cmd) {
   bdElementRegistry[cmd.id] = entry;
 }
 
-function bdControlAnimation(params) {
-  // Send control params to the most recent active animation.
-  // Tries three paths: BoardEngine.state.animations, bdActiveAnimations, then p5 instance.
+function bdControlAnimation(params, _retryCount) {
+  const retry = _retryCount || 0;
 
   // Path 1: BoardEngine tracked animations
   const anims = BoardEngine.state?.animations;
@@ -12704,13 +12703,18 @@ function bdControlAnimation(params) {
   // Path 2: bdActiveAnimations (local tracking)
   if (bdActiveAnimations.length > 0) {
     const entry = bdActiveAnimations[bdActiveAnimations.length - 1];
-    // Try AnimHelper via p5 instance
     const p5inst = entry.p5Instance || entry.inst;
     if (p5inst?._animHelper?._onControl) { p5inst._animHelper._onControl(params); return; }
     if (p5inst?._onControl) { p5inst._onControl(params); return; }
   }
 
-  console.warn('[AnimControl] No active animation to control');
+  // Animation may still be initializing — retry a few times with delay
+  if (retry < 5) {
+    setTimeout(() => bdControlAnimation(params, retry + 1), 200);
+    return;
+  }
+
+  console.log('[AnimControl] No active animation to control (after retries)');
 }
 
 function bdZoomPulse_LEGACY(elementId) {
