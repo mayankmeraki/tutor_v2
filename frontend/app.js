@@ -18578,45 +18578,34 @@ async function vmStartVideoForLesson(courseId, lessonId) {
 
   Router.navigate(`/session/${state.sessionId}`, { replace: true, skipHandler: true });
 
-  // Initialize board with session heading via a synthetic board-draw
+  // Initialize board with simple TA Session heading — tutor responds on first student message
   const courseTitle = state.courseMap?.title || state.courseMap?.course?.title || 'Course';
   const lessonTitle = state.video.lessonTitle || 'Lesson';
-  const sections = state.video.sections || [];
 
   setTimeout(() => {
-    // Ensure board panel is ready
     const spotlightContent = document.getElementById('spotlight-content');
     if (!spotlightContent) { console.warn('Board panel not ready for init'); return; }
 
-    // Update header
     const spotlightTitle = document.getElementById('spotlight-title');
-    if (spotlightTitle) spotlightTitle.textContent = lessonTitle;
+    if (spotlightTitle) spotlightTitle.textContent = 'TA Session';
     const badge = document.getElementById('spotlight-type-badge');
     if (badge) badge.textContent = 'VIDEO';
 
-    // Reset board state for fresh draw
     state.boardDraw.active = false;
     state.boardDraw.dismissed = false;
     state.boardDraw.complete = false;
     state.boardDraw.processedLines = 0;
 
-    // Build JSONL commands for the board
     const cmds = [
-      `{"cmd":"h1","text":"${lessonTitle.replace(/"/g, '\\"')}"}`,
-      `{"cmd":"gap","height":10}`,
+      `{"cmd":"h1","text":"TA Session"}`,
+      `{"cmd":"gap","height":8}`,
+      `{"cmd":"text","text":"${lessonTitle.replace(/"/g, '\\"')}","color":"#5eead4"}`,
       `{"cmd":"text","text":"${courseTitle.replace(/"/g, '\\"')}","color":"#9a9a9a"}`,
-      `{"cmd":"gap","height":30}`,
-      `{"cmd":"text","text":"What we'll cover:","color":"#5eead4"}`,
-      `{"cmd":"gap","height":10}`,
+      `{"cmd":"gap","height":24}`,
+      `{"cmd":"text","text":"Pause the video anytime to ask a question.","color":"#52525b"}`,
     ];
-    sections.slice(0, 6).forEach((s, i) => {
-      cmds.push(`{"cmd":"text","text":"${(i + 1)}. ${(s.title || 'Section ' + (i + 1)).replace(/"/g, '\\"')}"}`);
-    });
-    cmds.push(`{"cmd":"gap","height":30}`);
-    cmds.push(`{"cmd":"text","text":"Pause anytime to ask your tutor about what you see.","color":"#52525b"}`);
 
-    // Simulate a board-draw tag being streamed — this triggers the full board rendering pipeline
-    const fakeTag = `<teaching-board-draw title="${lessonTitle.replace(/"/g, '&quot;')}">\n${cmds.join('\n')}\n</teaching-board-draw>`;
+    const fakeTag = `<teaching-board-draw title="TA Session">\n${cmds.join('\n')}\n</teaching-board-draw>`;
     bdProcessStreaming(fakeTag);
   }, 600);
 
@@ -18690,22 +18679,8 @@ async function vmStartVideoForLesson(courseId, lessonId) {
     }
   });
 
-  // ── Trigger tutor with full course context ──
-  const playlistInfo = state._videoPlaylist
-    ? state._videoPlaylist.map((l, i) => `${i + 1}. "${l.title}"`).join(', ')
-    : '';
-  const sectionInfo = (state.video.sections || []).slice(0, 8).map((s, i) => `${i + 1}. ${s.title || 'Section ' + (i + 1)}`).join(', ');
-  const _triggerCourseTitle = courseTitle; // reuse from earlier in this function
-
-  const trigger = `[SYSTEM] Video follow-along session started for course "${_triggerCourseTitle}". ` +
-    `Current lesson: "${state.video.lessonTitle}" (lesson_id: ${state.video.lessonId}, course_id: ${courseId}). ` +
-    (sectionInfo ? `Lesson sections: ${sectionInfo}. ` : '') +
-    (playlistInfo ? `Playlist: ${playlistInfo}. ` : '') +
-    `You have full access to the course content via content_map/content_read/content_search tools. ` +
-    `Use get_transcript_context(timestamp) when the student pauses to see what the professor said. ` +
-    `You can also teach concepts from the course WITHOUT the video — draw on the board, explain, ask questions. ` +
-    `Greet the student briefly and let them know you're following along.`;
-  setTimeout(() => streamADK(trigger, true, true), 1200);
+  // No auto-trigger — tutor responds when student pauses and sends a message
+  // Course context is in the static prompt block (backend), transcript auto-injected on pause
 }
 
 
