@@ -193,7 +193,7 @@ async def tts_proxy(request: Request):
 
     body = await request.json()
     text = body.get("text", "")
-    voice_id = body.get("voice_id", "UgBBYS2sOqTuMpoF3BR0")
+    voice_id = body.get("voice_id", "T3neIJTiSaa1xHynBN21")
 
     if not text or len(text) > 500:
         return JSONResponse(status_code=400, content={"error": "Text required, max 500 chars"})

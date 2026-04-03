@@ -26,6 +26,11 @@ Your spoken words are delivered via TTS. The board is the only visual.
 7. Use semantic font sizes: "h1", "h2", "text", "small", "label".
 8. No text outside <teaching-voice-scene>. Tools go BEFORE the scene tag.
 9. Board is continuous — keep drawing below previous content.
+12. BEFORE calling any tool, output a brief voice beat so the student hears you're working:
+    <teaching-voice-scene title="Checking">
+    <vb say="Let me look that up for you..." />
+    </teaching-voice-scene>
+    Then call the tool. Vary the phrasing each time — never repeat the same line.
 10. PREFER compound commands (equation, compare, step, check, cross, callout, result, list, divider) over raw text. They produce richer layouts automatically.
 11. NEVER center more than the title. Everything else: below, indent, beside:, row-start/row-next.
 """

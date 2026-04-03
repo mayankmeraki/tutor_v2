@@ -5670,12 +5670,29 @@ function handleToolCallStart(event) {
     // For visible tools, show a user-friendly indicator
     removeStreamingIndicator();
     const friendlyNames = {
-      'search_images': 'Searching for images...',
-      'get_section_content': 'Reading course materials...',
+      'search_images': 'Finding relevant images...',
+      'get_section_content': 'Reading course content...',
+      'content_read': 'Checking course material...',
+      'content_search': 'Searching across the course...',
+      'content_map': 'Loading course structure...',
+      'content_peek': 'Glancing at a section...',
+      'get_transcript_context': 'Checking what the professor said...',
+      'get_section_brief': 'Reading section summary...',
       'get_simulation_details': 'Loading simulation...',
       'control_simulation': 'Adjusting simulation...',
+      'resume_video': 'Resuming video...',
+      'seek_video': 'Seeking to that moment...',
+      'web_search': 'Searching the web...',
+      'query_knowledge': 'Checking your progress...',
+      'byo_read': 'Reading your materials...',
+      'byo_list': 'Listing your content...',
     };
     const label = friendlyNames[toolName] || 'Working...';
+
+    // Voice mode: show in subtitle bar so student sees activity
+    if (state.teachingMode === 'voice' && typeof voiceShowSubtitle === 'function') {
+      voiceShowSubtitle(label);
+    }
     appendBlock('system', `
       <div class="tool-indicator active" id="tool-${toolId}">
         <span class="loading-spinner"></span>
@@ -16236,7 +16253,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Module 23: Voice Mode — TTS, Hand Cursor, Board Interaction
 // ═══════════════════════════════════════════════════════════
 
-const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
+const ELEVENLABS_VOICE_ID = 'T3neIJTiSaa1xHynBN21';
 const ELEVENLABS_MODEL_DIALOGUE = 'eleven_v3'; // Text to Dialogue — natural emotion tags
 const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 

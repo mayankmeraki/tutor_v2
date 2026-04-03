@@ -3205,10 +3205,14 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
                         break
 
                     # Continue conversation with tool results
-                    # claude_messages IS session.messages (same reference), so only append once
-                    # and always serialize ContentBlocks for MongoDB compatibility
-                    claude_messages.append({"role": "assistant", "content": _serialize_content(message.content)})
-                    claude_messages.append({"role": "user", "content": _serialize_content(tool_results)})
+                    # IMPORTANT: append to session.messages (source of truth) AND rebuild
+                    # claude_messages from it. This ensures tool_use/tool_result pairs survive
+                    # across turns — they're in session.messages which gets re-windowed.
+                    serialized_assistant = _serialize_content(message.content)
+                    serialized_results = _serialize_content(tool_results)
+                    session.messages.append({"role": "assistant", "content": serialized_assistant})
+                    session.messages.append({"role": "user", "content": serialized_results})
+                    claude_messages = apply_context_window(session, session.messages)
                     continue
 
                 # No more tool calls — done. Persist final assistant message.
@@ -3883,8 +3887,12 @@ async def _generate_for_turn(
                     slog.info("Terminal tool(s) %s — ending turn", tool_names)
                     break
 
-                claude_messages.append({"role": "user", "content": tool_results})
-                api_kwargs["messages"] = _validate_messages(apply_context_window(session, claude_messages))
+                # Append tool results to BOTH session.messages AND claude_messages
+                # This ensures the tool_use/tool_result pair stays together
+                session.messages.append({"role": "user", "content": tool_results})
+                # Re-window from session.messages — the pair is now in the source
+                claude_messages = apply_context_window(session, session.messages)
+                api_kwargs["messages"] = _validate_messages(claude_messages)
                 slog.info("Tool round %d done — %d results, next round messages: %d",
                           rounds, len(tool_results), len(api_kwargs["messages"]))
 
