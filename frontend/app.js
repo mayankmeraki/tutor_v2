@@ -1950,6 +1950,14 @@ function handleSSEEvent(event) {
 
     case 'TOOL_CALL_END':
       handleToolCallEnd(event);
+      // Handle video control tools (WS path doesn't send VIDEO_RESUME/VIDEO_SEEK)
+      if (event.toolCallName === 'resume_video' && typeof vmResumeVideo === 'function') {
+        vmResumeVideo();
+      } else if (event.toolCallName === 'seek_video' && typeof vmSeekVideo === 'function') {
+        try { const args = JSON.parse(event.toolCallArgs || '{}'); vmSeekVideo(args.timestamp || 0); } catch(e) {}
+      } else if (event.toolCallName === 'capture_video_frame' && typeof vmCaptureFrame === 'function') {
+        const frame = vmCaptureFrame(); if (frame) state.video._pendingFrame = frame;
+      }
       break;
 
     case 'TOOL_CALL_RESULT':
@@ -2197,55 +2205,8 @@ const MAX_FRONTEND_MESSAGES = 30; // Backend handles windowing; this is a payloa
 
 function _windowMessages(messages) {
   if (messages.length <= MAX_FRONTEND_MESSAGES) return messages;
-  let windowed = messages.slice(-MAX_FRONTEND_MESSAGES);
-
-  // Ensure the window doesn't start with a user message containing tool_results
-  // whose matching tool_use is in a message that got sliced off.
-  // If the first message is a user with tool_results, drop it.
-  while (windowed.length > 1) {
-    const first = windowed[0];
-    if (first.role === 'user' && Array.isArray(first.content)) {
-      const hasToolResult = first.content.some(b => typeof b === 'object' && b.type === 'tool_result');
-      if (hasToolResult) { windowed = windowed.slice(1); continue; }
-    }
-    // Also skip if first message is assistant with tool_use (no preceding user message)
-    if (first.role === 'assistant' && Array.isArray(first.content)) {
-      const hasToolUse = first.content.some(b => typeof b === 'object' && b.type === 'tool_use');
-      if (hasToolUse) { windowed = windowed.slice(1); continue; }
-    }
-    break;
-  }
-
-  // Strip any tool_result blocks from user messages where the tool_use_id
-  // doesn't exist in the preceding assistant message
-  for (let i = 0; i < windowed.length; i++) {
-    const msg = windowed[i];
-    if (msg.role === 'user' && Array.isArray(msg.content)) {
-      const toolResultIds = msg.content.filter(b => typeof b === 'object' && b.type === 'tool_result').map(b => b.tool_use_id);
-      if (toolResultIds.length === 0) continue;
-      // Find preceding assistant message
-      const prev = i > 0 ? windowed[i - 1] : null;
-      if (!prev || prev.role !== 'assistant') {
-        // No preceding assistant — strip all tool_results, keep text
-        windowed[i] = { ...msg, content: msg.content.filter(b => !(typeof b === 'object' && b.type === 'tool_result')) };
-        if (windowed[i].content.length === 0) windowed[i].content = [{ type: 'text', text: '[context trimmed]' }];
-        continue;
-      }
-      const prevContent = prev.content;
-      const existingToolUseIds = new Set();
-      if (Array.isArray(prevContent)) {
-        prevContent.forEach(b => { if (typeof b === 'object' && b.type === 'tool_use' && b.id) existingToolUseIds.add(b.id); });
-      }
-      const orphaned = toolResultIds.filter(id => !existingToolUseIds.has(id));
-      if (orphaned.length > 0) {
-        const orphanSet = new Set(orphaned);
-        windowed[i] = { ...msg, content: msg.content.filter(b => !(typeof b === 'object' && b.type === 'tool_result' && orphanSet.has(b.tool_use_id))) };
-        if (windowed[i].content.length === 0) windowed[i].content = [{ type: 'text', text: '[context trimmed]' }];
-      }
-    }
-  }
-
-  return windowed;
+  // Backend handles orphaned tool_result reconstruction — just slice here
+  return messages.slice(-MAX_FRONTEND_MESSAGES);
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -18639,9 +18600,12 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   hidePlanSidebar(); // No plan sidebar in video mode
   document.getElementById('teaching-layout').style.display = 'flex';
 
-  // Show the main voice bar — works for both video and non-video modes
+  // Show the main voice bar — use it as the ONLY input (not vm-chat-wrap)
   const voiceFloat = document.getElementById('voice-mic-float');
   if (voiceFloat) voiceFloat.classList.remove('hidden');
+  // Hide the duplicate vm-chat input — voice bar handles everything
+  const vmChatWrap = document.getElementById('vm-chat-wrap');
+  if (vmChatWrap) vmChatWrap.classList.remove('vm-show');
 
   // Create session silently
   state.sessionId = generateId();
@@ -18950,12 +18914,9 @@ window.vmExitVideoSession = function() {
   // DON'T navigate home — stay on the board with the playlist sidebar
   document.body.classList.remove('video-mode');
 
-  // Show the voice input bar so student can still interact with the tutor
+  // Show the voice input bar — single input, no duplicate vm-chat
   const voiceFloat = document.getElementById('voice-mic-float');
   if (voiceFloat) voiceFloat.classList.remove('hidden');
-  // Also show the vm-chat-wrap as fallback input
-  const chatWrap = document.getElementById('vm-chat-wrap');
-  if (chatWrap) chatWrap.classList.add('vm-show');
 
   // Notify tutor that video was closed
   try { streamADK('[Student closed the video]', true); } catch(e) {}
@@ -18971,9 +18932,8 @@ function _vmOnPause() {
   if (section) { state.video.currentSectionIndex = section.index; state.video.sectionTitle = section.title || ''; }
 
   document.getElementById('vm-vid-wrap').classList.add('vm-mini');
-  const chatWrap = document.getElementById('vm-chat-wrap');
-  if (chatWrap) chatWrap.classList.add('vm-show');
-  const input = document.getElementById('vm-chat-input');
+  // Don't show vm-chat-wrap — voice bar is the single input
+  const input = document.getElementById('voice-bar-input');
   if (input) setTimeout(() => input.focus(), 400);
 }
 
