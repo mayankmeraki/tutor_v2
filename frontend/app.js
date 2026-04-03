@@ -227,6 +227,12 @@ const SessionManager = (() => {
     return res.json();
   }
 
+  // ── Non-blocking save buffer ──
+  let _saveInFlight = false;
+  let _savePending = false;
+  let _saveRetries = 0;
+  const MAX_SAVE_RETRIES = 3;
+
   async function apiGet(path) {
     const res = await fetch(`${state.apiUrl}/api/v1/sessions${path}`, {
       headers: { ...AuthManager.authHeaders() },
@@ -270,7 +276,8 @@ const SessionManager = (() => {
       previousSessions: [],
     };
 
-    try { await apiPost('', session); } catch (e) { console.warn('Failed to create session in MongoDB:', e); }
+    // Fire-and-forget — don't block session start on DB write
+    apiPost('', session).catch(e => console.warn('[Session] Create failed (will retry on next save):', e.message));
 
     if (flushInterval) clearInterval(flushInterval);
     flushInterval = setInterval(() => saveSession(), FLUSH_INTERVAL_MS);
@@ -279,8 +286,14 @@ const SessionManager = (() => {
     return session;
   }
 
-  async function saveSession() {
+  function saveSession() {
+    // ── Fully non-blocking — NEVER awaited, NEVER blocks the tutor ──
     if (!session) return;
+
+    // If a save is already in flight, mark pending and return immediately
+    if (_saveInFlight) { _savePending = true; return; }
+
+    // Build snapshot synchronously (fast — just reads state)
     if (state.sessionStartTime) {
       const currentSegment = Math.floor((Date.now() - state.sessionStartTime) / 1000);
       session.durationSec = (state._accumulatedDuration || 0) + currentSegment;
@@ -291,62 +304,72 @@ const SessionManager = (() => {
     session.metrics.sectionsTotal = session.sections.length;
     session.metrics.planningCalls = state.planCallCount;
 
-    try {
-      await apiPatch(`/${session.sessionId}`, {
-        transcript: session.transcript,
-        sections: session.sections,
-        metrics: session.metrics,
-        coursePosition: session.coursePosition,
-        plan: session.plan,
-        durationSec: session.durationSec,
-        summaries: session.summaries,
-        generatedVisuals: state.generatedVisuals,
-        spotlightHistory: state.spotlightHistory,
-        notebookSteps: state.notebookSteps,
-        activeSpotlight: state.spotlightActive ? {
-          active: true,
-          info: state.spotlightInfo,
-          openedAtTurn: state.spotlightOpenedAtTurn,
-        } : null,
-        scribbleStrokes: state.scribble.strokes.map(s => ({
-          points: s.points,
-          color: s.color,
-          width: s.width,
-          isHighlighter: s.isHighlighter,
-        })),
-        teachingCounters: {
-          totalAssistantTurns: state.totalAssistantTurns,
-          lastVisualTurn: state.lastVisualTurn,
-          visualAssetCount: state.visualAssetCount,
-          lastEngagementTurn: state.lastEngagementTurn,
-        },
-        assessment: state.assessment.active ? {
-          active: true,
-          sectionTitle: state.assessment.sectionTitle,
-          concepts: state.assessment.concepts,
-          questionNumber: state.assessment.questionNumber,
-          maxQuestions: state.assessment.maxQuestions,
-        } : null,
-        conceptNotes: state.assessment.conceptNotes,
-        // Widget interaction state (slider values, etc.) — restored so tutor knows what student changed
-        widgetLiveState: state.widget.liveState || {},
-        // Active board-draw content (in case it was streaming when save occurred)
-        activeBoardDrawContent: state.boardDraw.rawContent || null,
-        // Voice mode state
-        teachingMode: state.teachingMode,
-        voiceSpeed: state.voiceSpeed,
-        // Video state — for resuming watch-along sessions
-        videoState: state.video.active ? {
-          lessonId: state.video.lessonId,
-          lessonTitle: state.video.lessonTitle,
-          currentTimestamp: state.video.currentTimestamp,
-          currentSectionIndex: state.video.currentSectionIndex,
-          sectionTitle: state.video.sectionTitle,
-          isPaused: state.video.isPaused,
-          lessonIndex: state.video.lessonIndex,
-        } : null,
+    const payload = {
+      transcript: session.transcript,
+      sections: session.sections,
+      metrics: session.metrics,
+      coursePosition: session.coursePosition,
+      plan: session.plan,
+      durationSec: session.durationSec,
+      summaries: session.summaries,
+      generatedVisuals: state.generatedVisuals,
+      spotlightHistory: state.spotlightHistory,
+      notebookSteps: state.notebookSteps,
+      activeSpotlight: state.spotlightActive ? {
+        active: true,
+        info: state.spotlightInfo,
+        openedAtTurn: state.spotlightOpenedAtTurn,
+      } : null,
+      scribbleStrokes: (state.scribble?.strokes || []).map(s => ({
+        points: s.points, color: s.color, width: s.width, isHighlighter: s.isHighlighter,
+      })),
+      teachingCounters: {
+        totalAssistantTurns: state.totalAssistantTurns,
+        lastVisualTurn: state.lastVisualTurn,
+        visualAssetCount: state.visualAssetCount,
+        lastEngagementTurn: state.lastEngagementTurn,
+      },
+      assessment: state.assessment?.active ? {
+        active: true,
+        sectionTitle: state.assessment.sectionTitle,
+        concepts: state.assessment.concepts,
+        questionNumber: state.assessment.questionNumber,
+        maxQuestions: state.assessment.maxQuestions,
+      } : null,
+      conceptNotes: state.assessment?.conceptNotes,
+      widgetLiveState: state.widget?.liveState || {},
+      activeBoardDrawContent: state.boardDraw?.rawContent || null,
+      teachingMode: state.teachingMode,
+      voiceSpeed: state.voiceSpeed,
+      videoState: state.video?.active ? {
+        lessonId: state.video.lessonId,
+        lessonTitle: state.video.lessonTitle,
+        currentTimestamp: state.video.currentTimestamp,
+        currentSectionIndex: state.video.currentSectionIndex,
+        sectionTitle: state.video.sectionTitle,
+        isPaused: state.video.isPaused,
+        lessonIndex: state.video.lessonIndex,
+      } : null,
+    };
+
+    // Fire-and-forget — network call runs in background, never blocks
+    _saveInFlight = true;
+    apiPatch(`/${session.sessionId}`, payload)
+      .then(() => { _saveRetries = 0; })
+      .catch(e => {
+        _saveRetries++;
+        if (_saveRetries <= MAX_SAVE_RETRIES) {
+          console.log(`[Session] Save failed (attempt ${_saveRetries}/${MAX_SAVE_RETRIES}), will retry on next flush`);
+          _savePending = true; // retry on next interval
+        } else {
+          console.warn('[Session] Save failed after retries — data buffered in memory');
+        }
+      })
+      .finally(() => {
+        _saveInFlight = false;
+        // If another save was requested while this one was in flight, do it now
+        if (_savePending) { _savePending = false; saveSession(); }
       });
-    } catch (e) { console.warn('Failed to save session to MongoDB:', e); }
   }
 
   async function loadPreviousSessions(courseId, studentName) {
@@ -361,7 +384,7 @@ const SessionManager = (() => {
     }
   }
 
-  async function archiveSession() {
+  function archiveSession() {
     if (!session) return;
     session.status = 'complete';
     session.endedAt = now();
@@ -369,43 +392,36 @@ const SessionManager = (() => {
       const currentSegment = Math.floor((Date.now() - state.sessionStartTime) / 1000);
       session.durationSec = (state._accumulatedDuration || 0) + currentSegment;
     }
-    try {
-      await apiPatch(`/${session.sessionId}`, {
-        status: 'complete', endedAt: session.endedAt,
-        durationSec: session.durationSec, metrics: session.metrics,
-        transcript: session.transcript, sections: session.sections,
-        plan: session.plan,
-        coursePosition: session.coursePosition,
-        summaries: session.summaries,
-        generatedVisuals: state.generatedVisuals,
-        spotlightHistory: state.spotlightHistory,
-        notebookSteps: state.notebookSteps,
-        activeSpotlight: state.spotlightActive ? {
-          active: true,
-          info: state.spotlightInfo,
-          openedAtTurn: state.spotlightOpenedAtTurn,
-        } : null,
-        scribbleStrokes: state.scribble.strokes.map(s => ({
-          points: s.points, color: s.color, width: s.width, isHighlighter: s.isHighlighter,
-        })),
-        teachingCounters: {
-          totalAssistantTurns: state.totalAssistantTurns,
-          lastVisualTurn: state.lastVisualTurn,
-          visualAssetCount: state.visualAssetCount,
-          lastEngagementTurn: state.lastEngagementTurn,
-        },
-        assessment: state.assessment.active ? {
-          active: true,
-          sectionTitle: state.assessment.sectionTitle,
-          concepts: state.assessment.concepts,
-          questionNumber: state.assessment.questionNumber,
-          maxQuestions: state.assessment.maxQuestions,
-        } : null,
-        conceptNotes: state.assessment.conceptNotes,
-        widgetLiveState: state.widget.liveState || {},
-        activeBoardDrawContent: state.boardDraw.rawContent || null,
-      });
-    } catch (e) { console.warn('Failed to archive session:', e); }
+    // Fire-and-forget — don't block UI on archive
+    apiPatch(`/${session.sessionId}`, {
+      status: 'complete', endedAt: session.endedAt,
+      durationSec: session.durationSec, metrics: session.metrics,
+      transcript: session.transcript, sections: session.sections,
+      plan: session.plan,
+      coursePosition: session.coursePosition,
+      summaries: session.summaries,
+      generatedVisuals: state.generatedVisuals,
+      spotlightHistory: state.spotlightHistory,
+      notebookSteps: state.notebookSteps,
+      activeSpotlight: state.spotlightActive ? {
+        active: true, info: state.spotlightInfo, openedAtTurn: state.spotlightOpenedAtTurn,
+      } : null,
+      scribbleStrokes: (state.scribble?.strokes || []).map(s => ({
+        points: s.points, color: s.color, width: s.width, isHighlighter: s.isHighlighter,
+      })),
+      teachingCounters: {
+        totalAssistantTurns: state.totalAssistantTurns, lastVisualTurn: state.lastVisualTurn,
+        visualAssetCount: state.visualAssetCount, lastEngagementTurn: state.lastEngagementTurn,
+      },
+      assessment: state.assessment?.active ? {
+        active: true, sectionTitle: state.assessment.sectionTitle,
+        concepts: state.assessment.concepts, questionNumber: state.assessment.questionNumber,
+        maxQuestions: state.assessment.maxQuestions,
+      } : null,
+      conceptNotes: state.assessment?.conceptNotes,
+      widgetLiveState: state.widget?.liveState || {},
+      activeBoardDrawContent: state.boardDraw?.rawContent || null,
+    }).catch(e => console.warn('[Session] Archive failed:', e.message));
     if (flushInterval) clearInterval(flushInterval);
   }
 
