@@ -10500,20 +10500,7 @@ function _showLessonDetail(lesson, num, thumb, mod) {
   const numEl = document.getElementById('cd-detail-num');
   if (thumb) { img.src = thumb; img.style.display = 'block'; numEl.style.display = 'none'; }
   else { img.style.display = 'none'; numEl.style.display = 'block'; numEl.textContent = num; }
-  // Wire Watch button
-  const watchBtn = document.getElementById('cd-detail-play');
-  if (watchBtn) {
-    watchBtn.onclick = () => {
-      _unlockAudio();
-      const cid = state._coursePlaylistCourseId || _courseDetailData?.course?.id;
-      if (cid) {
-        const allLessons = (_courseDetailData?.lessons || []).filter(l => l.video_url).sort((a, b) => (a.order || 0) - (b.order || 0));
-        const activeIdx = allLessons.findIndex(l => l.id === lesson.id);
-        if (allLessons.length > 0) setTimeout(() => _showVideoPlaylist(allLessons, activeIdx >= 0 ? activeIdx : 0), 800);
-        vmStartVideoForLesson(cid, lesson.id);
-      }
-    };
-  }
+  // Watch button removed — Play button in hero handles all playback
 }
 
 async function _startVideoFollowAlong(courseId, firstLesson, lessonIds) {
@@ -18876,15 +18863,17 @@ window.vmExitVideoSession = function() {
   state.video.active = false;
   state.video.player = null;
 
-  // Hide overlay
+  // Hide video overlay — but keep teaching layout + playlist visible
   const overlay = document.getElementById('vm-video-overlay');
   if (overlay) overlay.classList.add('hidden');
   document.getElementById('vm-vid-wrap')?.classList.remove('vm-mini');
 
-  // Clean up session
+  // DON'T navigate home — stay on the board with the playlist sidebar
+  // The student can pick another lesson from the playlist or continue on the board
   document.body.classList.remove('video-mode');
-  cleanupActiveSession();
-  Router.navigate('/home');
+
+  // Notify tutor that video was closed
+  try { streamADK('[Student closed the video]', true); } catch(e) {}
 };
 
 function _vmOnPause() {
