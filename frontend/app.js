@@ -19031,16 +19031,69 @@ async function vmStartVideoForLesson(courseId, lessonId) {
     });
   }
 
-  // Get direct stream URL (for YouTube) or use URL directly (for hosted videos)
+  // Get video source — YouTube embed or direct URL
   const videoId = _extractYTVideoId(lessonVideoUrl);
   if (videoId) {
-    // YouTube — extract stream URL via backend
-    const streamUrl = await _getStreamUrl(lessonVideoUrl);
+    // YouTube — use embed iframe (works everywhere, no yt-dlp needed)
+    // Try direct stream first (works locally with yt-dlp), fall back to YouTube player
+    let streamUrl = null;
+    try { streamUrl = await _getStreamUrl(lessonVideoUrl); } catch (e) {}
+
     if (streamUrl) {
       video.src = streamUrl;
     } else {
-      // Fallback: show thumbnail + message
-      box.innerHTML = `<div style="width:100%;aspect-ratio:16/9;background:#111;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:14px">Video loading failed — tutor will teach from transcript</div>`;
+      // Use YouTube iframe player — more reliable than yt-dlp in prod
+      box.innerHTML = '';
+      const ytContainer = document.createElement('div');
+      ytContainer.id = 'yt-player-container';
+      ytContainer.style.cssText = 'width:100%;aspect-ratio:16/9;';
+      box.appendChild(ytContainer);
+      // Load YouTube IFrame API if not loaded
+      if (!window.YT || !window.YT.Player) {
+        const tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+        await new Promise(resolve => {
+          window.onYouTubeIframeAPIReady = resolve;
+          setTimeout(resolve, 5000); // timeout fallback
+        });
+      }
+      if (window.YT && window.YT.Player) {
+        const ytPlayer = new YT.Player('yt-player-container', {
+          videoId: videoId,
+          playerVars: { autoplay: 1, modestbranding: 1, rel: 0, start: Math.floor(state.video.currentTimestamp || 0) },
+          events: {
+            onReady: (e) => {
+              state.video.player = {
+                get currentTime() { try { return e.target.getCurrentTime(); } catch(x) { return 0; } },
+                set currentTime(t) { try { e.target.seekTo(t, true); } catch(x) {} },
+                pause: () => { try { e.target.pauseVideo(); } catch(x) {} },
+                play: () => { try { e.target.playVideo(); } catch(x) {} },
+                get paused() { try { return e.target.getPlayerState() === 2; } catch(x) { return true; } },
+              };
+              state.video._ytPlayer = e.target;
+              // Sync timestamp periodically
+              state.video._ytTimerInterval = setInterval(() => {
+                try { state.video.currentTimestamp = e.target.getCurrentTime(); } catch(x) {}
+              }, 2000);
+            },
+            onStateChange: (e) => {
+              if (e.data === YT.PlayerState.PAUSED) {
+                state.video.isPaused = true;
+                state.video.currentTimestamp = e.target.getCurrentTime();
+              } else if (e.data === YT.PlayerState.PLAYING) {
+                state.video.isPaused = false;
+              }
+            },
+          },
+        });
+      } else {
+        box.innerHTML = `<div style="width:100%;aspect-ratio:16/9;background:#111;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:14px">Video unavailable</div>`;
+        return;
+      }
+      // Skip the Plyr setup below since we're using YT player
+      overlay.classList.remove('hidden');
+      document.body.classList.add('video-mode');
       return;
     }
   } else if (lessonVideoUrl) {
