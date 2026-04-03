@@ -7988,6 +7988,10 @@ function _buildSessionCard(s, isCourse) {
     ? `<span class="session-card-score${score.pct >= 80 ? ' good' : score.pct >= 50 ? ' ok' : ''}">${score.pct}%</span>`
     : '';
 
+  // Clean up description — remove "Student learned/engaged/explored" prefix
+  let cleanDesc = desc.replace(/^Student\s+(learned|engaged|explored|studied|discovered|worked)\s+\w*\s*/i, '').trim();
+  if (cleanDesc.length > 100) cleanDesc = cleanDesc.slice(0, 100) + '...';
+
   card.innerHTML = `
     <div class="session-card-top">
       <span class="session-card-time">${ago}</span>
@@ -7996,10 +8000,8 @@ function _buildSessionCard(s, isCourse) {
         ${dur ? `<span class="session-card-dur">${dur}</span>` : ''}
       </div>
     </div>
-    ${isCourse && courseName ? `<div class="session-card-badge">${_escHtml(courseName)}</div>` : ''}
     <div class="session-card-title">${_escHtml(headline)}</div>
-    ${desc ? `<div class="session-card-desc">${_escHtml(desc)}</div>` : ''}
-    ${topics.length ? `<div class="session-card-topics">${topics.map(t => `<span class="session-card-topic">${_escHtml(t)}</span>`).join('')}</div>` : ''}
+    ${cleanDesc ? `<div class="session-card-desc">${_escHtml(cleanDesc)}</div>` : ''}
     <div class="session-card-cta">${isActive ? 'Continue' : 'Review'} &rarr;</div>`;
   card.addEventListener('click', () => {
     state.courseId = s.courseId;
@@ -10234,10 +10236,13 @@ async function _loadCourseDetail(courseId) {
   if (courseIdEl) courseIdEl.value = courseId;
 
   // Show skeleton while loading
-  const curEl = document.getElementById('cd-curriculum');
-  if (curEl) curEl.innerHTML = Array.from({ length: 3 }, () =>
-    `<div class="mod-block"><div class="mod-head skeleton-pulse" style="height:44px;border-radius:10px"></div></div>`
+  const titleEl = document.getElementById('cd-title');
+  if (titleEl && !titleEl.textContent) titleEl.textContent = 'Loading...';
+  const filmstrip = document.getElementById('cd-filmstrip');
+  if (filmstrip) filmstrip.innerHTML = Array.from({ length: 6 }, () =>
+    `<div style="flex-shrink:0;width:160px;height:140px;border-radius:10px;background:rgba(255,255,255,.03);animation:skeletonShimmer 1.5s infinite"></div>`
   ).join('');
+  const curEl = document.getElementById('cd-curriculum');
 
   try {
     // Check sessionStorage cache first

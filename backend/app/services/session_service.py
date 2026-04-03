@@ -183,8 +183,8 @@ async def generate_section_summary(
 
 
 HEADLINE_PROMPT = """\
-Generate a short headline and description for this tutoring session. Return ONLY valid JSON:
-{{"headline": "3-5 word headline describing the topic", "description": "One sentence describing what happened"}}
+Generate a headline and description for this tutoring session. Return ONLY valid JSON:
+{{"headline": "3-6 word topic headline (e.g. 'Wave-Particle Duality', 'DNA Replication Process')", "description": "One short sentence about what was covered — do NOT start with 'Student learned/engaged/explored', just describe the topic directly (e.g. 'Covered wave functions, probability, and the Schrödinger equation')"}}
 
 Session info:
 - Student intent: {intent}
