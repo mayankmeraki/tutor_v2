@@ -38,20 +38,19 @@ async def create(request: Request, user: dict = Depends(get_optional_user)):
 
 @router.get("/me/all")
 async def all_my_sessions(user: dict = Depends(get_optional_user)):
-    """Get all sessions for the authenticated user across all courses, newest first.
-
-    Returns sessions enriched with headlines and course names, separated into
-    course sessions and free/on-demand sessions for frontend grouping.
-    """
+    """Get all sessions for the authenticated user across all courses, newest first."""
+    import asyncio
     from app.core.mongodb import get_tutor_db
     from app.services.session_service import _enrich_sessions_with_headlines
     db = get_tutor_db()
+
+    # Only fetch light fields — NO transcript (huge, slow to transfer)
     cursor = db["sessions"].find(
         {"userEmail": user["email"]},
         {f: 1 for f in [
             "sessionId", "courseId", "studentName", "startedAt", "status",
             "headline", "headlineDescription", "intent", "durationSec",
-            "metrics", "sections", "plan.sessionObjective", "transcript",
+            "metrics", "sections", "plan.sessionObjective",
         ]},
     ).sort("startedAt", -1).limit(20)
     docs = []
@@ -59,31 +58,23 @@ async def all_my_sessions(user: dict = Depends(get_optional_user)):
         doc.pop("_id", None)
         docs.append(doc)
 
-    # Enrich with AI-generated headlines (non-blocking — uses fallbacks)
+    # Enrich headlines (non-blocking — uses cached or fallback, fires bg tasks)
     docs = await _enrich_sessions_with_headlines(docs)
-    # Strip transcript (was only needed for headline gen)
-    for d in docs:
-        d.pop("transcript", None)
 
-    # Attach course names from content service (cached, no Postgres dependency)
+    # Attach course names — use a simple in-memory cache + parallel fetch
     course_ids = list({d["courseId"] for d in docs if d.get("courseId")})
     course_names = {}
     if course_ids:
         try:
-            from app.services.content_service import get_course_with_hierarchy
-            from app.core.database import get_db
-            db_gen = get_db()
-            db_session = await db_gen.__anext__()
-            try:
-                for cid in course_ids[:10]:  # cap at 10 to avoid slow queries
-                    try:
-                        course = await get_course_with_hierarchy(db_session, cid)
-                        if course and course.get("title"):
-                            course_names[cid] = course["title"]
-                    except Exception:
-                        pass
-            finally:
-                await db_gen.aclose()
+            from app.services.content_service import get_course_title_cached
+            # Fetch all course names in parallel
+            results = await asyncio.gather(
+                *[get_course_title_cached(cid) for cid in course_ids[:10]],
+                return_exceptions=True,
+            )
+            for cid, name in zip(course_ids[:10], results):
+                if isinstance(name, str) and name:
+                    course_names[cid] = name
         except Exception as e:
             log.warning("Failed to fetch course names: %s", e)
 

@@ -23,6 +23,8 @@ async def ensure_session_indexes():
     await coll.create_index([("courseId", 1), ("studentName", 1)])
     await coll.create_index([("courseId", 1), ("userEmail", 1)])
     await coll.create_index("startedAt")
+    # Index for /me/all — userEmail alone with startedAt sort
+    await coll.create_index([("userEmail", 1), ("startedAt", -1)])
     log.info("Session indexes ensured")
 
 

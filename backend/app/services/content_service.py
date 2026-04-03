@@ -31,6 +31,32 @@ def _serialize_mongo(doc: dict) -> dict:
     return out
 
 
+# ── Lightweight cached course title lookup ──
+_course_title_cache: dict[int, str] = {}
+
+async def get_course_title_cached(course_id: int) -> str:
+    """Get just the course title — cached in memory, single lightweight query."""
+    if course_id in _course_title_cache:
+        return _course_title_cache[course_id]
+    try:
+        from app.core.database import get_db
+        db_gen = get_db()
+        db_session = await db_gen.__anext__()
+        try:
+            result = await db_session.execute(
+                select(Course.title).where(Course.id == course_id)
+            )
+            title = result.scalar_one_or_none()
+            if title:
+                _course_title_cache[course_id] = title
+                return title
+        finally:
+            await db_gen.aclose()
+    except Exception:
+        pass
+    return ""
+
+
 async def get_course_with_hierarchy(db: AsyncSession, course_id: int) -> dict | None:
     course = (await db.execute(select(Course).where(Course.id == course_id))).scalar_one_or_none()
     if not course:
