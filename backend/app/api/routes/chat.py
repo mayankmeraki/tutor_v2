@@ -3794,11 +3794,13 @@ async def _generate_for_turn(
             }
             is_first_turn = (session.assistant_turn_count == 0)
 
-            # Turn 1: also remove content-fetching tools — tutor should teach
-            # immediately from plan + course map. Enrichment agent handles
-            # content lookup in background.
-            if is_first_turn:
-                _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek", "content_map"}
+            # content_map always removed — course map is already in context
+            _removed_tools.add("content_map")
+
+            # First 3 turns: remove ALL content tools — tutor should teach from
+            # plan + course map context, not fetch content. Teaches immediately.
+            if session.assistant_turn_count < 3:
+                _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek"}
 
             if is_video_mode:
                 # Determine if this is a NEW pause (fresh timestamp) or a follow-up at same spot
