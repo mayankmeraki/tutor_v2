@@ -606,7 +606,7 @@ body {
 .euler-idle { display:flex; flex-direction:column; align-items:center;
   animation:eulerFadeIn .4s ease-out; padding-top:40px }
 .euler-idle-center { text-align:center; width:100%; max-width:620px; margin:0 auto }
-.home-browse-section { width:100%; max-width:900px; margin:36px auto 0; text-align:left }
+.home-browse-section { width:100%; max-width:900px; margin:36px auto 0; text-align:left; overflow:visible }
 
 /* ── Home section skeleton loading ── */
 .home-section-skeleton { display:flex; gap:12px; overflow:hidden }
@@ -944,8 +944,11 @@ body {
   background:var(--bg-elevated); font-size:11px; color:var(--text-dim) }
 .euler-msg-attach-name { max-width:100px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap }
 .euler-send:hover { opacity:.85 }
-.euler-send:disabled { opacity:.4; cursor:not-allowed }
+.euler-send:disabled { opacity:.6; cursor:not-allowed }
 .euler-send svg { width:14px; height:14px }
+.euler-send-spinner { width:14px; height:14px; border:2px solid rgba(0,0,0,.2);
+  border-top-color:#000; border-radius:50%; animation:spin .6s linear infinite; display:inline-block }
+@keyframes spin { to { transform:rotate(360deg) } }
 
 /* ── Processing indicator above input ── */
 .euler-processing-bar { display:none; align-items:center; gap:6px; padding:4px 12px;
@@ -1340,11 +1343,10 @@ body {
 .cont-info h4 { font-size:13px; font-weight:600; margin-bottom:1px }
 .cont-info p { font-size:11px; color:var(--text-dim) }
 
-/* Course grid */
+/* Course grid — wrapping grid when expanded */
 .c-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(220px,1fr)); gap:14px; padding-bottom:30px }
-.c-grid-collapsed { max-height:440px; overflow:hidden; position:relative }
-.c-grid-collapsed::after { content:''; position:absolute; bottom:0; left:0; right:0; height:60px;
-  background:linear-gradient(transparent, var(--bg)); pointer-events:none }
+/* Course cards in horizontal scroll row (session-row) */
+.session-row > .ccard { flex:0 0 260px; min-width:260px; max-width:260px }
 .sec-show-all { text-align:center; margin:-10px 0 20px }
 .show-all-btn { background:none; border:1px solid var(--border); color:var(--text-dim); padding:8px 24px;
   border-radius:8px; font-size:13px; cursor:pointer; transition:all .15s }

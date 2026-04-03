@@ -163,6 +163,74 @@ async def get(session_id: str, user: dict = Depends(get_optional_user)):
     return doc
 
 
+def _extract_draw_commands(scene_content: str) -> list[dict]:
+    """Extract draw commands from voice scene <vb> tags.
+
+    Handles nested JSON (e.g. draw='{"items":[{"color":"#ff0000"}]}') by
+    finding the opening quote after draw=, then matching braces to find
+    the complete JSON object.
+    """
+    import json as _json
+    commands = []
+    # Find all draw= attribute starts
+    idx = 0
+    while idx < len(scene_content):
+        draw_pos = scene_content.find("draw=", idx)
+        if draw_pos == -1:
+            break
+        # Find the quote character (single or double)
+        quote_pos = draw_pos + 5  # len("draw=")
+        if quote_pos >= len(scene_content):
+            break
+        quote_char = scene_content[quote_pos]
+        if quote_char not in ("'", '"'):
+            idx = quote_pos + 1
+            continue
+        # Find the JSON object by matching braces
+        json_start = quote_pos + 1
+        if json_start >= len(scene_content) or scene_content[json_start] != '{':
+            idx = json_start + 1
+            continue
+        # Count braces to find the end
+        depth = 0
+        json_end = json_start
+        in_string = False
+        escape_next = False
+        for j in range(json_start, len(scene_content)):
+            ch = scene_content[j]
+            if escape_next:
+                escape_next = False
+                continue
+            if ch == '\\':
+                escape_next = True
+                continue
+            if ch == '"' and not in_string:
+                in_string = True
+                continue
+            if ch == '"' and in_string:
+                in_string = False
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    json_end = j + 1
+                    break
+        if depth != 0:
+            idx = json_start + 1
+            continue
+        json_str = scene_content[json_start:json_end]
+        try:
+            commands.append(_json.loads(json_str))
+        except _json.JSONDecodeError:
+            pass
+        idx = json_end
+    return commands
+
+
 @router.get("/{session_id}/board-frames")
 async def get_board_frames(session_id: str, user: dict = Depends(get_optional_user)):
     """Extract board-draw frames from session transcript for restoration.
@@ -181,6 +249,15 @@ async def get_board_frames(session_id: str, user: dict = Depends(get_optional_us
         raise HTTPException(status_code=404, detail="Session not found")
 
     transcript = doc.get("transcript", [])
+    # Fallback: if transcript has no assistant messages, check backendState.messages
+    # (WS/voice sessions before the fix didn't save assistant msgs to transcript)
+    has_assistant = any(m.get("role") == "assistant" for m in transcript)
+    if not has_assistant:
+        backend_msgs = (doc.get("backendState") or {}).get("messages", [])
+        if any(m.get("role") == "assistant" for m in backend_msgs):
+            transcript = backend_msgs
+            log.info("Using backendState.messages for board-frames (transcript had no assistant msgs)",
+                     extra={"session_id": session_id[:8]})
     frames = []
 
     for msg in transcript:
@@ -226,20 +303,7 @@ async def get_board_frames(session_id: str, user: dict = Depends(get_optional_us
             title_match = re.search(r'title=["\']([^"\']*)["\']', vs_match.group(0))
             title = title_match.group(1) if title_match else "Board"
             scene_content = vs_match.group(1)
-            commands = []
-            # Parse <vb draw='...' /> beats
-            for vb_match in re.finditer(r"draw='(\{[^']*\})'", scene_content):
-                try:
-                    commands.append(_json.loads(vb_match.group(1)))
-                except _json.JSONDecodeError:
-                    pass
-            # Also try draw="..." (double quotes)
-            for vb_match in re.finditer(r'draw="(\{[^"]*\})"', scene_content):
-                try:
-                    cmd_str = vb_match.group(1).replace('&quot;', '"')
-                    commands.append(_json.loads(cmd_str))
-                except _json.JSONDecodeError:
-                    pass
+            commands = _extract_draw_commands(scene_content)
             if commands:
                 frames.append({"title": title, "commands": commands})
 

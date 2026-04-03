@@ -20,7 +20,7 @@
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
           <button class="fb-bug-btn" onclick="openFeedbackModal('bug')" title="Report a bug" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
           </button>
           <a class="sc-btn sc-btn-ghost" href="/for-business" onclick="event.preventDefault();Router.navigate('/for-business')">For Institutions</a>
           <button class="sc-btn sc-btn-ghost" id="lp-signin">Sign in</button>
@@ -151,7 +151,7 @@
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')" style="font-size:22px;font-weight:800"><em>E</em>uler</a>
         <div class="sc-nav-r">
           <button class="fb-bug-btn" onclick="openFeedbackModal('bug')" title="Report a bug" style="background:none;border:none;color:var(--text-dim);cursor:pointer;padding:4px">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
           </button>
           <a class="sc-btn sc-btn-ghost" href="/" onclick="event.preventDefault();Router.navigate('/')">Home</a>
           <button class="sc-btn sc-btn-accent" onclick="openFeedbackModal('contact')">Get in touch</button>
@@ -328,7 +328,7 @@
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
           <button class="fb-bug-btn" onclick="openFeedbackModal('bug')" title="Report a bug">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
           </button>
           <div class="sc-pill" id="btn-logout">
             <div class="sc-pill-avatar" id="dash-avatar">?</div>
@@ -375,10 +375,15 @@
 
             <div id="home-courses-section" class="section" style="display:none;margin-bottom:40px">
               <div class="sec-head">
-                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Start a course</h2>
-                <span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">Browse all</span>
+                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Start a course <span id="home-course-count" style="color:var(--text-dim);font-weight:400"></span></h2>
+                <span class="sec-link" id="browse-all-btn" style="font-size:11px;color:var(--text-dim);cursor:pointer" onclick="window._toggleBrowseAll()">Browse all</span>
               </div>
-              <div class="c-grid c-grid-collapsed hscroll" id="home-courses-grid"></div>
+              <div id="home-course-search" style="display:none;margin-bottom:10px">
+                <input type="text" id="home-course-search-input" placeholder="Search courses..."
+                  style="width:100%;padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-surface);color:#fff;font-size:13px;outline:none"
+                  autocomplete="off">
+              </div>
+              <div class="session-row" id="home-courses-grid"></div>
             </div>
 
             <div id="home-videos-section" class="section" style="display:none;margin-bottom:40px">
@@ -392,41 +397,16 @@
 
       <!-- ═══ TAB: My Stuff (collections) ═══ -->
       <div class="home-tab-content" id="tab-stuff">
-        <div style="padding:28px 40px 80px">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:20px">
-            <h2 style="font-size:16px;font-weight:600">My Collections</h2>
-            <button class="sc-btn sc-btn-accent" id="btn-new-collection" style="font-size:12px;padding:7px 14px;border-radius:8px;display:flex;align-items:center;gap:6px">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-              New Collection
-            </button>
+        <div style="padding:60px 40px 80px;display:flex;flex-direction:column;align-items:center;text-align:center;max-width:520px;margin:0 auto">
+          <div style="width:56px;height:56px;border-radius:16px;background:rgba(52,211,153,.08);display:grid;place-items:center;margin-bottom:20px">
+            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
           </div>
-          <p style="font-size:12px;color:var(--text-muted);margin:-14px 0 20px;line-height:1.6">Organize your study materials into collections. Upload PDFs, notes, videos, or links — then hit <strong style="color:var(--accent)">Teach me this</strong> and the tutor teaches from your content.</p>
-
-          <!-- Collections list (populated by JS) -->
-          <div class="collections" id="collections-list">
-            <!-- Skeleton shown while loading -->
-            <div class="skeleton-card" style="height:60px;border-radius:9px;margin-bottom:6px"></div>
-            <div class="skeleton-card" style="height:60px;border-radius:9px;margin-bottom:6px"></div>
-          </div>
-
-          <!-- BYO upload elements (hidden, used by JS) -->
-          <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg">
+          <h2 style="font-size:20px;font-weight:700;margin-bottom:10px;color:#fff">My Stuff</h2>
+          <p style="font-size:14px;color:var(--text-muted);line-height:1.7;margin-bottom:28px">Upload your own collection of resources &mdash; PDFs, notes, lecture slides, problem sets &mdash; group them however you like, and ask Euler to teach you directly from your study materials.</p>
+          <button class="sc-btn" disabled style="font-size:13px;padding:10px 28px;border-radius:10px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid var(--border);cursor:default;font-weight:600;letter-spacing:.2px">Coming Soon</button>
         </div>
-      </div>
-
-      <!-- ═══ New Collection Modal ═══ -->
-      <div class="modal-bg" id="new-collection-modal" style="display:none" onclick="if(event.target===this)this.style.display='none'">
-        <div class="modal" style="max-width:380px;border-radius:12px;border:1px solid var(--border);background:#111827;padding:20px">
-          <h3 style="font-size:15px;font-weight:600;margin-bottom:14px">New Collection</h3>
-          <div style="margin-bottom:12px">
-            <label style="display:block;font-size:10px;color:var(--text-muted);margin-bottom:4px;font-weight:500;text-transform:uppercase;letter-spacing:.5px">Name</label>
-            <input id="new-col-name" style="width:100%;padding:8px 11px;border-radius:7px;border:1px solid var(--border);background:rgba(255,255,255,.03);color:var(--text);font-size:12px;font-family:inherit;outline:none" placeholder="e.g. Organic Chemistry, MIT 18.06..." autofocus />
-          </div>
-          <div style="display:flex;justify-content:flex-end;gap:6px;margin-top:16px">
-            <button class="sc-btn sc-btn-ghost" onclick="document.getElementById('new-collection-modal').style.display='none'" style="font-size:12px;padding:7px 14px">Cancel</button>
-            <button class="sc-btn sc-btn-accent" id="btn-create-collection" style="font-size:12px;padding:7px 14px">Create</button>
-          </div>
-        </div>
+        <!-- BYO upload elements (hidden, used by JS) -->
+        <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg">
       </div>
 
     </div>
@@ -498,7 +478,7 @@
       <div class="cd-body" style="padding:0 40px 60px;overflow:visible">
         <div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
           <h2 style="font-size:15px;font-weight:600;color:rgba(255,255,255,.8)">Lectures</h2>
-          <span style="font-size:11px;color:var(--accent);cursor:pointer" id="cd-selected-count">Select lectures to watch with AI</span>
+          <span style="font-size:11px;color:var(--text-dim)" id="cd-selected-count"></span>
         </div>
         <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
           <!-- Populated by JS -->

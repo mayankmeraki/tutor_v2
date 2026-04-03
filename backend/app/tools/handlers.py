@@ -50,6 +50,21 @@ async def get_section_content(lesson_id: int, section_index: int) -> str:
     if data.get("formulas") and isinstance(data["formulas"], list):
         lines.append(f"\nFormulas: {', '.join(data['formulas'])}")
 
+    # Also include enriched teaching brief if available (avoids a second tool call)
+    try:
+        enriched = await get_enriched_section(lesson_id, section_index)
+        if enriched:
+            if enriched.get("teaching_summary"):
+                lines.append(f"\nTeaching brief: {enriched['teaching_summary']}")
+            if enriched.get("key_pedagogical_points"):
+                lines.append("Teaching points: " + "; ".join(enriched["key_pedagogical_points"][:5]))
+            if enriched.get("notable_examples"):
+                lines.append("Professor's examples: " + "; ".join(enriched["notable_examples"][:3]))
+            if enriched.get("professor_framing"):
+                lines.append(f"How professor frames it: {enriched['professor_framing']}")
+    except Exception:
+        pass
+
     return "\n".join(lines)
 
 
@@ -60,7 +75,12 @@ def _fmt_time(seconds: float) -> str:
 
 
 async def get_transcript_context(lesson_id: int, timestamp: float) -> str:
-    """Return transcript segments in a window around the given timestamp (60s before, 30s after)."""
+    """Return transcript + key points + teaching brief around a timestamp.
+
+    Single call gives everything the tutor needs — no chaining required.
+    Includes: transcript window, section summary, key points, professor's framing,
+    concepts, formulas, and notable examples.
+    """
     logger.debug("get_transcript_context lesson_id=%d timestamp=%.1f", lesson_id, timestamp)
     sections = await get_sections_for_lesson(lesson_id)
     if not sections:
@@ -74,12 +94,14 @@ async def get_transcript_context(lesson_id: int, timestamp: float) -> str:
     if not target:
         target = min(sections, key=lambda s: abs(s.get("start_seconds", 0) - timestamp))
 
-    full = await get_section_full(lesson_id, target.get("index", 0))
+    section_index = target.get("index", 0)
+    full = await get_section_full(lesson_id, section_index)
     if not full:
         return f"Section data not available for lesson {lesson_id} at {timestamp}s."
 
     lines = [f"Section: {full.get('title', '')}", f"Timestamps: {_fmt_time(full.get('start_seconds', 0))} – {_fmt_time(full.get('end_seconds', 0))}", f"Student paused at: {_fmt_time(timestamp)}", ""]
 
+    # Transcript window (60s before, 30s after)
     segments = full.get("segments")
     if segments and isinstance(segments, list):
         win_start, win_end = timestamp - 60, timestamp + 30
@@ -97,12 +119,32 @@ async def get_transcript_context(lesson_id: int, timestamp: float) -> str:
         transcript = transcript[:3200] + "..."
     lines.append(f"Transcript:\n{transcript}")
 
+    # Key points + concepts + formulas from section data
+    if full.get("summary"):
+        lines.append(f"\nSummary: {full['summary']}")
     kp = full.get("key_points")
     if kp and isinstance(kp, list):
-        lines.append("\nKey points: " + "; ".join(kp[:5]))
+        lines.append("\nKey points:\n" + "\n".join(f"  • {p}" for p in kp[:8]))
     concepts = full.get("concepts")
     if concepts and isinstance(concepts, list):
         lines.append(f"Concepts: {', '.join(concepts)}")
+    formulas = full.get("formulas")
+    if formulas and isinstance(formulas, list):
+        lines.append(f"Formulas: {', '.join(formulas)}")
+
+    # Enriched teaching brief (professor's framing, examples)
+    try:
+        enriched = await get_enriched_section(lesson_id, section_index)
+        if enriched:
+            if enriched.get("teaching_summary"):
+                lines.append(f"\nTeaching brief: {enriched['teaching_summary']}")
+            if enriched.get("notable_examples"):
+                lines.append("Professor's examples: " + "; ".join(enriched["notable_examples"][:3]))
+            if enriched.get("professor_framing"):
+                lines.append(f"How professor frames it: {enriched['professor_framing']}")
+    except Exception:
+        pass  # enriched data is optional
+
     return "\n".join(lines)
 
 

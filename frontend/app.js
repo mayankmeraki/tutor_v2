@@ -341,10 +341,10 @@ const SessionManager = (() => {
       activeBoardDrawContent: state.boardDraw?.rawContent || null,
       teachingMode: state.teachingMode,
       voiceSpeed: state.voiceSpeed,
-      videoState: state.video?.active ? {
+      videoState: (state.video?.active || state.video?.lessonId || state._videoWatchAlong) ? {
         lessonId: state.video.lessonId,
         lessonTitle: state.video.lessonTitle,
-        currentTimestamp: state.video.currentTimestamp,
+        currentTimestamp: state.video.player?.currentTime || state.video.currentTimestamp || 0,
         currentSectionIndex: state.video.currentSectionIndex,
         sectionTitle: state.video.sectionTitle,
         isPaused: state.video.isPaused,
@@ -461,6 +461,16 @@ const SessionManager = (() => {
           conceptNotes: state.assessment.conceptNotes,
           widgetLiveState: state.widget.liveState || {},
           activeBoardDrawContent: state.boardDraw.rawContent || null,
+          videoState: (state.video?.active || state.video?.lessonId || state._videoWatchAlong) ? {
+            lessonId: state.video.lessonId,
+            lessonTitle: state.video.lessonTitle,
+            currentTimestamp: state.video.player?.currentTime || state.video.currentTimestamp || 0,
+            currentSectionIndex: state.video.currentSectionIndex,
+            sectionTitle: state.video.sectionTitle,
+            isPaused: state.video.isPaused,
+            lessonIndex: state.video.lessonIndex,
+          } : null,
+          teachingMode: state.teachingMode,
         }),
         keepalive: true,
       });
@@ -1468,7 +1478,11 @@ function _wsOnMessage(msg) {
       if (_ws.accumulatedText) {
         state.messages.push({ id: state.currentMessageId || generateId(), role: 'assistant', content: _ws.accumulatedText, timestamp: Date.now() });
         state.totalAssistantTurns++;
-        if (typeof SessionManager !== 'undefined') SessionManager.saveSession();
+        // Record to session transcript (for persistence + restoration)
+        if (typeof SessionManager !== 'undefined') {
+          SessionManager.recordMessage('assistant', _ws.accumulatedText);
+          SessionManager.saveSession();
+        }
       }
       if (!turn?.executorRunning) setVoiceBarState('idle');
       break;
@@ -1952,6 +1966,7 @@ function handleSSEEvent(event) {
         content: state.accumulatedText,
       });
       SessionManager.recordMessage('assistant', state.accumulatedText);
+      SessionManager.saveSession();
       state.currentMessageId = null;
       // Show indicator if still streaming (more tool calls / messages coming)
       if (state.isStreaming && !$('#streaming-indicator')) {
@@ -7861,6 +7876,12 @@ async function _loadHomeSessions() {
   } catch (e) { section.style.display = 'none'; }
 }
 
+let _allCoursesCached = null;
+let _coursesExpanded = false;
+const _COURSES_COLLAPSED_COUNT = 4;
+const _COURSES_PAGE_SIZE = 12;
+let _coursesShownCount = 0;
+
 async function _loadHomeCourses() {
   const section = document.getElementById('home-courses-section');
   const grid = document.getElementById('home-courses-grid');
@@ -7868,12 +7889,21 @@ async function _loadHomeCourses() {
 
   const courses = await _fetchCourses();
   if (!courses || !courses.length) { section.style.display = 'none'; return; }
+  _allCoursesCached = courses;
 
   const countEl = document.getElementById('home-course-count');
-  if (countEl) countEl.textContent = `${courses.length} courses`;
+  if (countEl) countEl.textContent = `(${courses.length})`;
 
-  // Reuse the same card HTML as _loadBrowseCourses
-  grid.innerHTML = courses.slice(0, 4).map(c => `
+  _coursesExpanded = false;
+  _coursesShownCount = Math.min(_COURSES_PAGE_SIZE, courses.length);
+  _renderCourseCards(grid, courses.slice(0, _coursesShownCount));
+  // Lazy-load more courses on horizontal scroll
+  _wireCourseLazyScroll(grid);
+  _revealHomeSection(section, 150);
+}
+
+function _renderCourseCards(grid, courses) {
+  grid.innerHTML = courses.map(c => `
     <div class="ccard" data-course-id="${c.id}">
       <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
         <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
@@ -7885,11 +7915,112 @@ async function _loadHomeCourses() {
       </div>
     </div>
   `).join('');
-  grid.querySelectorAll('.ccard').forEach(card => {
+  // Add "Load more" button if there are more courses
+  if (_coursesExpanded && _allCoursesCached && _coursesShownCount < _allCoursesCached.length) {
+    const remaining = _allCoursesCached.length - _coursesShownCount;
+    grid.insertAdjacentHTML('beforeend', `
+      <div class="ccard ccard-load-more" id="courses-load-more" style="display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px dashed rgba(255,255,255,0.15);min-height:120px">
+        <span style="color:var(--text-dim);font-size:13px">Show ${Math.min(remaining, _COURSES_PAGE_SIZE)} more of ${remaining} remaining</span>
+      </div>
+    `);
+    document.getElementById('courses-load-more')?.addEventListener('click', _loadMoreCourses);
+  }
+  grid.querySelectorAll('.ccard[data-course-id]').forEach(card => {
     card.addEventListener('click', () => Router.navigate('/courses/' + card.dataset.courseId));
   });
-  _revealHomeSection(section, 150);
 }
+
+function _loadMoreCourses() {
+  if (!_allCoursesCached || _coursesShownCount >= _allCoursesCached.length) return;
+  const grid = document.getElementById('home-courses-grid');
+  if (!grid) return;
+  const prevCount = _coursesShownCount;
+  _coursesShownCount = Math.min(_coursesShownCount + _COURSES_PAGE_SIZE, _allCoursesCached.length);
+  // Append new cards instead of re-rendering all
+  const newCourses = _allCoursesCached.slice(prevCount, _coursesShownCount);
+  const fragment = document.createDocumentFragment();
+  for (const c of newCourses) {
+    const card = document.createElement('div');
+    card.className = 'ccard';
+    card.dataset.courseId = c.id;
+    card.innerHTML = `
+      <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
+        <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
+        <div class="meta"><span>${c.lesson_count || '?'} lessons</span><span>~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span></div>
+      </div>
+      <div class="ccard-body">
+        <h3>${c.title}</h3>
+        <p>${(c.description || '').slice(0, 100)}${(c.description || '').length > 100 ? '...' : ''}</p>
+      </div>`;
+    card.addEventListener('click', () => Router.navigate('/courses/' + c.id));
+    fragment.appendChild(card);
+  }
+  grid.appendChild(fragment);
+}
+
+function _wireCourseLazyScroll(grid) {
+  if (grid._lazyScrollWired) return;
+  grid._lazyScrollWired = true;
+  grid.addEventListener('scroll', () => {
+    if (!_allCoursesCached || _coursesShownCount >= _allCoursesCached.length) return;
+    // Load more when scrolled within 200px of the right edge
+    const { scrollLeft, scrollWidth, clientWidth } = grid;
+    if (scrollLeft + clientWidth >= scrollWidth - 200) {
+      _loadMoreCourses();
+    }
+  }, { passive: true });
+}
+
+window._toggleBrowseAll = function() {
+  if (!_allCoursesCached) return;
+  const grid = document.getElementById('home-courses-grid');
+  const btn = document.getElementById('browse-all-btn');
+  if (!grid) return;
+
+  const searchWrap = document.getElementById('home-course-search');
+  const searchInput = document.getElementById('home-course-search-input');
+
+  if (_coursesExpanded) {
+    // Collapse back to horizontal scroll row (paginated, lazy-loads on scroll)
+    _coursesExpanded = false;
+    _coursesShownCount = Math.min(_COURSES_PAGE_SIZE, _allCoursesCached.length);
+    grid.className = 'session-row';
+    if (searchWrap) searchWrap.style.display = 'none';
+    if (searchInput) searchInput.value = '';
+    _renderCourseCards(grid, _allCoursesCached.slice(0, _coursesShownCount));
+    _wireCourseLazyScroll(grid);
+    if (btn) btn.textContent = 'Browse all';
+  } else {
+    // Expand: wrapping grid with search + pagination
+    _coursesExpanded = true;
+    _coursesShownCount = Math.min(_COURSES_PAGE_SIZE, _allCoursesCached.length);
+    grid.className = 'c-grid';
+    if (searchWrap) searchWrap.style.display = 'block';
+    _renderCourseCards(grid, _allCoursesCached.slice(0, _coursesShownCount));
+    if (btn) btn.textContent = 'Show less';
+    // Wire search filtering
+    if (searchInput && !searchInput._wired) {
+      searchInput._wired = true;
+      let _t;
+      searchInput.addEventListener('input', () => {
+        clearTimeout(_t);
+        _t = setTimeout(() => {
+          const q = searchInput.value.toLowerCase().trim();
+          if (!q) {
+            _renderCourseCards(grid, _allCoursesCached.slice(0, _coursesShownCount));
+            return;
+          }
+          const filtered = _allCoursesCached.filter(c =>
+            (c.title || '').toLowerCase().includes(q) ||
+            (c.description || '').toLowerCase().includes(q) ||
+            (c.subject || '').toLowerCase().includes(q)
+          );
+          _renderCourseCards(grid, filtered);
+        }, 200);
+      });
+    }
+  }
+};
 
 async function _loadHomeVideos() {
   const section = document.getElementById('home-videos-section');
@@ -8412,10 +8543,21 @@ function _eulerSend() {
   const text = input.value.trim();
   if (!text || _eulerBusy) return;
 
-  // ── NEW: Start on-demand session directly (no orchestrator) ──
+  // ── Start on-demand session directly ──
   if (!_eulerStarted) {
+    // Guard: block double-click / re-send
+    if (state._startingSession) return;
+    // Show loading state on send button
+    const sendBtn = document.getElementById('euler-send-btn');
+    if (sendBtn) {
+      sendBtn.disabled = true;
+      sendBtn.innerHTML = '<span class="euler-send-spinner"></span>';
+    }
+    input.disabled = true;
     input.value = '';
     input.style.height = 'auto';
+    // Disable chips
+    document.querySelectorAll('.euler-chip').forEach(c => { c.style.pointerEvents = 'none'; c.style.opacity = '0.5'; });
     _startOnDemandSession(text);
     return;
   }
@@ -10377,7 +10519,7 @@ async function _loadCourseDetail(courseId) {
           <div style="height:92px;background:${thumb ? `url(${thumb}) center/cover` : 'linear-gradient(135deg,#1a1d2e,#252a3a)'};position:relative;display:grid;place-items:center">
             ${!thumb ? `<span style="font-size:22px;font-weight:700;color:rgba(255,255,255,.12)">${_num}</span>` : ''}
             <span style="position:absolute;bottom:5px;right:6px;font-size:8px;background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);padding:2px 6px;border-radius:3px">${l.duration || '?'}m</span>
-            <div class="fs-check" style="position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:5px;border:1.5px solid rgba(255,255,255,.25);display:grid;place-items:center;background:rgba(0,0,0,.4);transition:all .15s;cursor:pointer"></div>
+            <div style="position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:5px;display:grid;place-items:center;background:rgba(0,0,0,.5)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><polygon points="5 3 19 12 5 21"/></svg></div>
           </div>
           <div style="padding:8px 10px 10px">
             <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.85);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${l.title}</div>
@@ -10397,24 +10539,10 @@ async function _loadCourseDetail(courseId) {
           card.style.boxShadow = '';
         });
 
-        // Click: toggle select
-        card.addEventListener('click', (e) => {
-          const chk = card.querySelector('.fs-check');
-          if (selectedLessons.has(l.id)) {
-            selectedLessons.delete(l.id);
-            card.style.borderColor = 'rgba(255,255,255,.06)';
-            chk.innerHTML = '';
-            chk.style.borderColor = 'rgba(255,255,255,.25)';
-            chk.style.background = 'rgba(0,0,0,.4)';
-          } else {
-            selectedLessons.add(l.id);
-            card.style.borderColor = 'var(--accent)';
-            chk.innerHTML = '<svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#000" stroke-width="3"><polyline points="20 6 9 17 4 12"/></svg>';
-            chk.style.borderColor = 'var(--accent)';
-            chk.style.background = 'var(--accent)';
-          }
-          const countEl = document.getElementById('cd-selected-count');
-          countEl.textContent = selectedLessons.size ? `${selectedLessons.size} lecture${selectedLessons.size > 1 ? 's' : ''} selected` : 'Select lectures to watch with AI';
+        // Click: start video follow-along with this lecture directly
+        card.addEventListener('click', () => {
+          _unlockAudio();
+          _startVideoFollowAlong(courseData.id, l, allLessons.map(ll => ll.id));
         });
 
         filmstrip.appendChild(card);
@@ -10426,9 +10554,9 @@ async function _loadCourseDetail(courseId) {
     if (playBtn) {
       playBtn.onclick = () => {
         _unlockAudio();
-        const lessonIds = selectedLessons.size > 0 ? [...selectedLessons] : allLessons.map(l => l.id);
-        const firstLesson = allLessons.find(l => l.id === lessonIds[0]);
-        if (firstLesson) _startVideoFollowAlong(courseId, firstLesson, lessonIds);
+        if (allLessons.length > 0) {
+          _startVideoFollowAlong(courseId, allLessons[0], allLessons.map(l => l.id));
+        }
       };
     }
 
@@ -10574,18 +10702,13 @@ async function _startVideoFollowAlong(courseId, firstLesson, lessonIds) {
   state._coursePlaylist = lessonIds;
   state._coursePlaylistCourseId = courseId;
 
-  // Build playlist from course detail data for the sidebar
+  // Build playlist from course detail data — show ALL lessons
   if (_courseDetailData) {
     const allLessons = (_courseDetailData.lessons || [])
-      .filter(l => l.video_url)
       .sort((a, b) => (a.order || 0) - (b.order || 0));
-    const selectedSet = new Set(lessonIds);
-    const playlistLessons = selectedSet.size > 0 && selectedSet.size < allLessons.length
-      ? allLessons.filter(l => selectedSet.has(l.id))
-      : allLessons;
-    const activeIdx = playlistLessons.findIndex(l => l.id === firstLesson.id);
-    if (playlistLessons.length > 0) {
-      setTimeout(() => _showVideoPlaylist(playlistLessons, activeIdx >= 0 ? activeIdx : 0), 800);
+    const activeIdx = allLessons.findIndex(l => l.id === firstLesson.id);
+    if (allLessons.length > 0) {
+      setTimeout(() => _showVideoPlaylist(allLessons, activeIdx >= 0 ? activeIdx : 0), 800);
     }
   }
 
@@ -10631,12 +10754,10 @@ function _startFromMode() {
       // Show playlist sidebar after video loads
       if (_courseDetailData) {
         const allLessons = (_courseDetailData.lessons || [])
-          .filter(l => l.video_url)
           .sort((a, b) => (a.order || 0) - (b.order || 0));
-        const selectedIds = new Set(selected.map(s => s.id));
-        const playlistLessons = allLessons.filter(l => selectedIds.has(l.id));
-        if (playlistLessons.length > 0) {
-          setTimeout(() => _showVideoPlaylist(playlistLessons, 0), 800);
+        if (allLessons.length > 0) {
+          const activeIdx = allLessons.findIndex(l => l.id === firstLesson.id);
+          setTimeout(() => _showVideoPlaylist(allLessons, activeIdx >= 0 ? activeIdx : 0), 800);
         }
       }
       vmStartVideoForLesson(courseId, firstLesson.id);
@@ -10656,7 +10777,7 @@ function _ytThumb(videoUrl) {
   return m ? `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg` : '';
 }
 
-const VPL_PAGE_SIZE = 5;
+const VPL_PAGE_SIZE = 50;
 
 function _renderVplItems(lessons, activeIndex, startIdx, count) {
   const end = Math.min(startIdx + count, lessons.length);
@@ -11685,6 +11806,7 @@ window.continueSession = async function(sessionId) {
 
       for (let i = 0; i < boardFrames.length; i++) {
         const frame = boardFrames[i];
+        console.log(`[Restore] Frame ${i}: ${frame.commands.length} cmds — ${frame.commands.map(c => c.cmd).join(', ')}`);
         for (const cmd of frame.commands) {
           if (typeof BoardEngine !== 'undefined') BoardEngine.queueCommand(cmd);
         }
@@ -11719,6 +11841,56 @@ window.continueSession = async function(sessionId) {
     // Redraw scribble strokes after canvas rebuild
     if (state.scribble.strokes.length > 0) {
       setTimeout(() => scribbleRedraw(), 300);
+    }
+
+    // ── Restore video follow-along ──
+    const isVideoFollowAlong = (
+      (sessionData.backendState?.activeScenario === 'video_follow') ||
+      (sessionData.intent?.raw || '').startsWith('Video follow-along:') ||
+      (sessionData.intent?.raw || '').startsWith('Video watch-along:') ||
+      sessionData.videoState
+    );
+    if (isVideoFollowAlong && courseMap) {
+      state._videoWatchAlong = true;
+      hidePlanSidebar();
+      // Restore video state
+      const vs = sessionData.videoState || {};
+      const lessonId = vs.lessonId || null;
+      const timestamp = vs.currentTimestamp || 0;
+      // Build lesson list from course map for the lecture strip
+      const allLessons = [];
+      for (const mod of (courseMap.modules || [])) {
+        for (const lesson of (mod.lessons || [])) {
+          allLessons.push({
+            id: lesson.lesson_id || lesson.id,
+            title: lesson.title || '',
+            duration: lesson.duration_minutes || Math.round((lesson.sections || []).length * 8),
+            thumbnail: lesson.thumbnail || null,
+            videoUrl: lesson.video_url || null,
+          });
+        }
+      }
+      // Show lecture strip with ALL lessons
+      if (allLessons.length > 0) {
+        const activeIdx = lessonId
+          ? allLessons.findIndex(l => l.id === lessonId)
+          : 0;
+        _showVideoPlaylist(allLessons, Math.max(0, activeIdx));
+      }
+      // Reopen the video at last known position
+      if (lessonId && state.courseId) {
+        setTimeout(async () => {
+          try {
+            await vmStartVideoForLesson(state.courseId, lessonId);
+            // Seek to last timestamp
+            if (timestamp > 0 && state.video.player) {
+              state.video.player.currentTime = timestamp;
+            }
+          } catch (e) {
+            console.warn('[Restore] Video reopen failed:', e);
+          }
+        }, 500);
+      }
     }
 
     // Populate messages from transcript (gives AI full context)

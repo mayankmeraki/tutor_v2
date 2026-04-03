@@ -96,17 +96,12 @@ class AnimHelper {
 
   // ── Drawing primitives ──
 
-  /** Clear with dark background + subtle vignette */
+  /** Clear canvas — uses board background so animation blends seamlessly */
   clear() {
     const p = this.p;
-    p.background(10, 14, 26);
-    // Subtle radial vignette
-    p.noStroke();
-    for (let i = 5; i > 0; i--) {
-      const a = i * 3;
-      p.fill(10, 14, 26, a);
-      p.ellipse(this.W/2, this.H/2, this.W * (1 + i*0.15), this.H * (1 + i*0.15));
-    }
+    // Use board bg color so animation blends with board surface
+    // This is necessary (vs p.clear()) because animated objects need prior frame erased
+    p.background(26, 29, 46);
   }
 
   /** Draw subtle grid */

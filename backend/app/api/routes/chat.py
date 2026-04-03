@@ -2183,6 +2183,14 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             is_video_mode = bool(context_data.get("videoState"))
             if is_video_mode:
                 session.active_scenario = "video_follow"
+                # Sync video state for persistence/restoration
+                try:
+                    _vs_raw = context_data.get("videoState", "")
+                    _vs = json.loads(_vs_raw) if isinstance(_vs_raw, str) else _vs_raw
+                    if isinstance(_vs, dict):
+                        session.video_state = _vs
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
             # ── Step 2b: Session phase — triage or teach ──────────────
             if is_session_start and not is_video_mode:
@@ -2417,20 +2425,41 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             teaching_mode = _extract_teaching_mode(context_data)
             session.teaching_mode = teaching_mode  # Persist for session restore
 
-            # ── Auto-inject nearby transcript for video follow-along ──
-            # Pre-fetch so the tutor has the professor's words without a tool call
+            # ── Auto-inject context for video follow-along ──
+            # Pre-fetch transcript + section content so tutor doesn't need tool calls
             video_state_raw = context_data.get("videoState")
-            if video_state_raw and not context_data.get("_autoTranscript"):
+            if video_state_raw:
                 try:
                     import json as _vjson
                     vs = _vjson.loads(video_state_raw) if isinstance(video_state_raw, str) else video_state_raw
                     _vid_lesson = vs.get("lessonId")
                     _vid_ts = vs.get("currentTimestamp", 0)
-                    if _vid_lesson and _vid_ts > 0:
-                        from app.tools.handlers import get_transcript_context as _gtc
-                        context_data["_autoTranscript"] = await _gtc(int(_vid_lesson), float(_vid_ts))
+                    _vid_section = vs.get("currentSectionIndex", 0)
+
+                    if _vid_lesson:
+                        # Fetch transcript + section content in parallel
+                        import asyncio as _aio
+                        _fetch_tasks = []
+                        if _vid_ts > 0 and not context_data.get("_autoTranscript"):
+                            from app.tools.handlers import get_transcript_context as _gtc
+                            _fetch_tasks.append(_gtc(int(_vid_lesson), float(_vid_ts)))
+                        else:
+                            _fetch_tasks.append(_aio.sleep(0))  # placeholder
+
+                        if not context_data.get("_autoSectionContent"):
+                            from app.tools.handlers import get_section_content as _gsc
+                            _fetch_tasks.append(_gsc(int(_vid_lesson), int(_vid_section)))
+                        else:
+                            _fetch_tasks.append(_aio.sleep(0))
+
+                        results = await _aio.gather(*_fetch_tasks, return_exceptions=True)
+
+                        if not isinstance(results[0], (Exception, type(None))) and results[0]:
+                            context_data["_autoTranscript"] = results[0]
+                        if not isinstance(results[1], (Exception, type(None))) and results[1]:
+                            context_data["_autoSectionContent"] = results[1]
                 except Exception as _te:
-                    log.debug("Auto-transcript injection failed: %s", _te)
+                    log.debug("Auto video context injection failed: %s", _te)
 
             tutor_prompt = build_tutor_prompt({
                 **context_data,
@@ -3772,6 +3801,24 @@ async def _generate_for_turn(
                 _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek", "content_map"}
 
             if is_video_mode:
+                # Determine if this is a NEW pause (fresh timestamp) or a follow-up at same spot
+                _vid_ts = 0
+                try:
+                    _vs_raw = context_data.get("videoState", "")
+                    _vs_parsed = json.loads(_vs_raw) if isinstance(_vs_raw, str) and _vs_raw else (_vs_raw if isinstance(_vs_raw, dict) else {})
+                    _vid_ts = int(_vs_parsed.get("currentTimestamp", 0))
+                    _is_youtube = "youtube" in str(_vs_parsed.get("videoUrl", "") or _vs_parsed.get("lessonTitle", "")).lower() or _vs_parsed.get("isYouTube", False)
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    _is_youtube = False
+
+                session._last_video_timestamp = _vid_ts
+                # Tools kept available for looking up OTHER sections/timestamps.
+                # Current section context is pre-injected (see prompt).
+
+                # capture_video_frame only works with custom player, not YouTube (cross-origin)
+                if _is_youtube:
+                    _removed_tools.add("capture_video_frame")
+
                 active_tools = [t for t in VIDEO_FOLLOW_TOOLS if t["name"] not in _removed_tools]
             else:
                 active_tools = [t for t in TUTOR_TOOLS if t["name"] not in _removed_tools]

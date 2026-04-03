@@ -677,7 +677,7 @@ function createAnimation(cmd) {
 
   var canvasWrap = document.createElement('div');
   canvasWrap.className = 'bd-anim-canvas-wrap';
-  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;border-radius:0 0 4px 4px;';
+  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;';
   el.appendChild(canvasWrap);
 
   var animH = cmd.h || 280;
@@ -970,8 +970,8 @@ async function renderScene3D(cmd) {
   container.style.height = (cmd.height || 300) + 'px';
   container.style.borderRadius = '10px';
   container.style.overflow = 'hidden';
-  container.style.border = '1px solid rgba(255,255,255,0.08)';
-  container.style.background = '#0a0c10';
+  container.style.border = 'none';
+  container.style.background = '#1a1d2e';
   container.style.position = 'relative';
   placeElement(container, cmd.placement, cmd);
 
@@ -991,7 +991,7 @@ async function renderScene3D(cmd) {
   container.innerHTML = '';
   var w = cmd.width || 400, h = cmd.height || 300;
   var scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x0a0c10);
+  scene.background = new THREE.Color(0x1a1d2e);
   var camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000);
   camera.position.set(cmd.cameraX || 3, cmd.cameraY || 2, cmd.cameraZ || 5);
   camera.lookAt(0, 0, 0);

@@ -627,20 +627,19 @@
    7. Animation Figure (self-contained: title + canvas + legend)
    ═══════════════════════════════════════════════════════════ */
 
-/* Figure container — wraps title + canvas + legend like matplotlib */
+/* Figure container — wraps title + canvas + legend; blends into board */
 .bd-anim-figure {
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 12px;
-  overflow: hidden;
-  background: #0c0f11;
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+  background: transparent;
   margin-top: var(--bd-el-gap);
 }
 
 /* Figure title bar — sans-serif (not board chalk font) */
 .bd-anim-title {
   padding: 8px 14px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  border-bottom: none;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
   font-weight: 600;
@@ -678,11 +677,11 @@
   box-shadow: 0 0 6px currentColor;
 }
 
-/* Canvas area inside figure */
+/* Canvas area inside figure — transparent so board bg shows through */
 .bd-anim-box {
   display: block;
   overflow: hidden;
-  background: #0a0e10;
+  background: transparent;
   position: relative;
   min-height: 220px;
   aspect-ratio: 4 / 3;
@@ -717,6 +716,7 @@
   margin: 0 !important;
   border-radius: 12px;
   box-shadow: 0 20px 60px rgba(0,0,0,0.6);
+  background: var(--bd-bg) !important;
 }
 .bd-anim-fullscreen .bd-anim-box {
   min-height: 0;

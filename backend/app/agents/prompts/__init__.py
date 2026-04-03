@@ -408,13 +408,29 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
             # The chat route fetches nearby transcript before building the prompt
             # so the tutor has the professor's words without a tool call round-trip.
             transcript_ctx = context_data.get("_autoTranscript")
+            section_ctx = context_data.get("_autoSectionContent")
+
+            if transcript_ctx or section_ctx:
+                parts.append("\n╔══════════════════════════════════════════════════════════╗")
+                parts.append("║  PRE-LOADED CONTEXT — DO NOT FETCH THIS VIA TOOLS       ║")
+                parts.append("║  Everything below is for the CURRENT video position.     ║")
+                parts.append("║  Only use tools if student asks about a DIFFERENT section.║")
+                parts.append("╚══════════════════════════════════════════════════════════╝\n")
+
             if transcript_ctx:
-                parts.append(f"\n[TRANSCRIPT — What the professor said around {int(ts // 60)}:{int(ts % 60):02d}]")
+                parts.append(f"[TRANSCRIPT — around {int(ts // 60)}:{int(ts % 60):02d}]")
                 if len(transcript_ctx) > 1500:
                     transcript_ctx = transcript_ctx[:1500] + "\n[... truncated]"
                 parts.append(transcript_ctx)
 
-            parts.append("You can also call get_transcript_context(lesson_id, timestamp) for other timestamps.\n")
+            if section_ctx:
+                parts.append("\n[SECTION CONTENT — key points, formulas, examples]")
+                if len(section_ctx) > 2000:
+                    section_ctx = section_ctx[:2000] + "\n[... truncated]"
+                parts.append(section_ctx)
+
+            if transcript_ctx or section_ctx:
+                parts.append("\n⚠️ The above content is ALREADY HERE. Do NOT call get_transcript_context or get_section_content for this section. Those tools are ONLY for looking up OTHER sections the student asks about.\n")
 
     active_sim = context_data.get("activeSimulation")
     if active_sim:

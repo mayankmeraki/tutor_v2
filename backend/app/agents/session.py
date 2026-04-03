@@ -41,6 +41,7 @@ class Session:
     student_model: dict | None = None
     student_intent: str | None = None
     active_scenario: str | None = None
+    video_state: dict | None = None  # {lessonId, lessonTitle, currentTimestamp, sectionIndex, ...}
     tutor_notes: list[str] = field(default_factory=list)
     assistant_turn_count: int = 0
     chat_summaries: list[str] = field(default_factory=list)
@@ -218,6 +219,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
             session_scope=bs.get("sessionScope"),
             scope_concepts=bs.get("scopeConcepts", []),
             active_scenario=bs.get("activeScenario"),
+            video_state=bs.get("videoState") or doc.get("videoState"),
             generated_visuals=doc.get("generatedVisuals", {}),
             assessment_result=bs.get("assessmentResult"),
             pre_assessment_note=bs.get("preAssessmentNote"),

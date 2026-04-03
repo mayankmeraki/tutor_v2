@@ -485,6 +485,7 @@ async def sync_backend_state(session_id: str, session) -> None:
         "sessionScope": session.session_scope,
         "scopeConcepts": session.scope_concepts,
         "activeScenario": session.active_scenario,
+        "videoState": session.video_state,
         "llmCostCents": session.llm_cost_cents,
         "llmTotalInputTokens": session.llm_total_input_tokens,
         "llmTotalOutputTokens": session.llm_total_output_tokens,

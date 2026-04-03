@@ -1150,14 +1150,17 @@ async def _execute_byo_transcript(tool_input: dict) -> str:
 
 # ── Video Follow-Along Tools ─────────────────────────────────────────────────
 
+# Video follow-along tools: transcript + section content for CURRENT timestamp are
+# PRE-INJECTED in the prompt. Tools below are for looking up OTHER sections/timestamps.
+# Each tool returns EVERYTHING in one call (transcript + key points + teaching brief) —
+# no need to chain multiple tools.
 VIDEO_FOLLOW_TOOLS = [
-    t for t in TUTOR_TOOLS if t["name"] in ("search_images", "web_search", "get_section_content", "update_student_model")
-] + [
-    {"name": "get_transcript_context", "description": "Get the professor's words around a specific moment in the lecture (~60s before, ~30s after). Use to understand what the student just heard.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "timestamp": {"type": "number", "description": "Seconds"}}, "required": ["lesson_id", "timestamp"]}},
-    {"name": "get_section_brief", "description": "Get a concise teaching brief for a lecture section: key points, examples, how the professor frames it.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "section_index": {"type": "number"}}, "required": ["lesson_id", "section_index"]}},
+    {"name": "get_transcript_context", "description": "Get transcript + key points + teaching brief around a DIFFERENT timestamp (not the current one — that's already in your context). Returns everything in one call: transcript window, summary, key points, professor's framing, examples. ONE call is enough — do NOT also call get_section_content or get_section_brief.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "timestamp": {"type": "number", "description": "Seconds"}}, "required": ["lesson_id", "timestamp"]}},
+    {"name": "get_section_content", "description": "Get full content for a DIFFERENT section (not the current one — that's already in your context). Returns transcript + key points + teaching brief + formulas all in one call. ONE call is enough.", "input_schema": {"type": "object", "properties": {"lesson_id": {"type": "number"}, "section_index": {"type": "number"}}, "required": ["lesson_id", "section_index"]}},
     {"name": "resume_video", "description": "Resume video playback. Call when you've answered the student's question. Do NOT ask 'shall we continue?' — just call this.", "input_schema": {"type": "object", "properties": {"message": {"type": "string", "description": "Optional brief note before resuming"}}, "required": []}},
     {"name": "seek_video", "description": "Seek the video to a specific timestamp. Use to point the student to a relevant moment.", "input_schema": {"type": "object", "properties": {"timestamp": {"type": "number"}, "reason": {"type": "string"}}, "required": ["timestamp"]}},
-    {"name": "capture_video_frame", "description": "Capture a screenshot of what the student is currently seeing in the video. Returns the frame as an image. Use when you need to see what's on screen — diagrams, equations, slides, board work — to give a better answer.", "input_schema": {"type": "object", "properties": {}, "required": []}},
+    # capture_video_frame disabled — cross-origin blocks it for YouTube streams
+    # {"name": "capture_video_frame", ...},
 ]
 
-VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video", "capture_video_frame"}
+VIDEO_CONTROL_TOOLS = {"resume_video", "seek_video"}
