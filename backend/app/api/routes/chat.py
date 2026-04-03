@@ -2394,6 +2394,21 @@ async def chat(request: Request, user: dict = Depends(get_optional_user)):
             teaching_mode = _extract_teaching_mode(context_data)
             session.teaching_mode = teaching_mode  # Persist for session restore
 
+            # ── Auto-inject nearby transcript for video follow-along ──
+            # Pre-fetch so the tutor has the professor's words without a tool call
+            video_state_raw = context_data.get("videoState")
+            if video_state_raw and not context_data.get("_autoTranscript"):
+                try:
+                    import json as _vjson
+                    vs = _vjson.loads(video_state_raw) if isinstance(video_state_raw, str) else video_state_raw
+                    _vid_lesson = vs.get("lessonId")
+                    _vid_ts = vs.get("currentTimestamp", 0)
+                    if _vid_lesson and _vid_ts > 0:
+                        from app.tools.handlers import get_transcript_context as _gtc
+                        context_data["_autoTranscript"] = await _gtc(int(_vid_lesson), float(_vid_ts))
+                except Exception as _te:
+                    log.debug("Auto-transcript injection failed: %s", _te)
+
             tutor_prompt = build_tutor_prompt({
                 **context_data,
                 "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,

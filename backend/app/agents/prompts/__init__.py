@@ -389,9 +389,10 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         except (ValueError, TypeError):
             vs = {}
         if vs:
-            parts.append("[VIDEO FOLLOW-ALONG — Current State]")
-            parts.append(f"Lesson: {vs.get('lessonTitle', '?')} (ID: {vs.get('lessonId', '?')})")
+            lesson_id = vs.get('lessonId')
             ts = vs.get('currentTimestamp', 0)
+            parts.append("[VIDEO FOLLOW-ALONG — Current State]")
+            parts.append(f"Lesson: {vs.get('lessonTitle', '?')} (ID: {lesson_id})")
             parts.append(f"Timestamp: {ts:.0f}s ({int(ts // 60)}:{int(ts % 60):02d})")
             parts.append(f"Section: [{vs.get('currentSectionIndex', 0)}] {vs.get('sectionTitle', '?')}")
             # Playlist info if available
@@ -402,7 +403,18 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
             sections = vs.get('sections')
             if sections:
                 parts.append("Lesson sections: " + ", ".join(f'{s.get("title","?")}' for s in sections[:8]))
-            parts.append("Use get_transcript_context to see what the professor said near this timestamp.\n")
+
+            # ── Auto-injected transcript (pre-fetched by chat route) ──
+            # The chat route fetches nearby transcript before building the prompt
+            # so the tutor has the professor's words without a tool call round-trip.
+            transcript_ctx = context_data.get("_autoTranscript")
+            if transcript_ctx:
+                parts.append(f"\n[TRANSCRIPT — What the professor said around {int(ts // 60)}:{int(ts % 60):02d}]")
+                if len(transcript_ctx) > 1500:
+                    transcript_ctx = transcript_ctx[:1500] + "\n[... truncated]"
+                parts.append(transcript_ctx)
+
+            parts.append("You can also call get_transcript_context(lesson_id, timestamp) for other timestamps.\n")
 
     active_sim = context_data.get("activeSimulation")
     if active_sim:
