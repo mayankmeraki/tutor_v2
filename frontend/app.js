@@ -2267,6 +2267,49 @@ function buildContext() {
     };
     items.push({ description: 'Video State', value: JSON.stringify(videoCtx) });
 
+    // Course context — full course structure so tutor can teach without video too
+    if (state.courseMap) {
+      const cm = state.courseMap;
+      const courseTitle = cm.title || cm.course?.title || '';
+      const modules = cm.modules || [];
+      const lessons = cm.lessons || [];
+      const courseDesc = cm.course?.description || cm.description || '';
+
+      // Build a compact course outline
+      const outline = modules.map(mod => {
+        const modLessons = lessons.filter(l => l.module_id === mod.id).sort((a, b) => (a.order || 0) - (b.order || 0));
+        return `${mod.title}: ${modLessons.map(l => `"${l.title}" (lesson_id:${l.id}, ${l.duration || '?'}min)`).join(', ')}`;
+      }).join('\n');
+
+      items.push({
+        description: 'Course Content — full course structure (tutor can teach from this even without video)',
+        value: `Course: ${courseTitle}\n${courseDesc ? courseDesc + '\n' : ''}Modules & Lessons:\n${outline}`,
+      });
+    }
+
+    // Selected/playlist lessons — so tutor knows what the student plans to watch
+    if (state._videoPlaylist && state._videoPlaylist.length > 0) {
+      const playlistInfo = state._videoPlaylist.map((l, i) => {
+        const marker = l.id === state.video.lessonId ? ' [CURRENT]' : (i < (state._videoPlaylistIndex || 0) ? ' [WATCHED]' : '');
+        return `${i + 1}. "${l.title}" (lesson_id:${l.id})${marker}`;
+      }).join('\n');
+      items.push({
+        description: 'Video Playlist — lessons the student selected to watch',
+        value: `${state._videoPlaylist.length} lessons in playlist:\n${playlistInfo}`,
+      });
+    }
+
+    // Current lesson sections (skeleton) — so tutor knows what's in this lesson
+    if (state.video.sections && state.video.sections.length > 0) {
+      const sectionOutline = state.video.sections.map((s, i) =>
+        `${i + 1}. ${s.title || 'Section ' + (i + 1)} (${Math.round(s.start_seconds || 0)}s - ${Math.round(s.end_seconds || 0)}s)`
+      ).join('\n');
+      items.push({
+        description: 'Current Lesson Sections — structure of the video being watched',
+        value: `Lesson: "${state.video.lessonTitle}" sections:\n${sectionOutline}`,
+      });
+    }
+
     // Capture video frame if paused OR if agent requested capture
     if (state.video.isPaused || state.video._pendingFrame) {
       const frame = state.video._pendingFrame || vmCaptureFrame();
@@ -18680,6 +18723,23 @@ async function vmStartVideoForLesson(courseId, lessonId) {
       state.video.currentTimestamp = video.currentTime;
     }
   });
+
+  // ── Trigger tutor with full course context ──
+  const playlistInfo = state._videoPlaylist
+    ? state._videoPlaylist.map((l, i) => `${i + 1}. "${l.title}"`).join(', ')
+    : '';
+  const sectionInfo = (state.video.sections || []).slice(0, 8).map((s, i) => `${i + 1}. ${s.title || 'Section ' + (i + 1)}`).join(', ');
+  const courseTitle = state.courseMap?.title || state.courseMap?.course?.title || 'Course';
+
+  const trigger = `[SYSTEM] Video follow-along session started for course "${courseTitle}". ` +
+    `Current lesson: "${state.video.lessonTitle}" (lesson_id: ${state.video.lessonId}, course_id: ${courseId}). ` +
+    (sectionInfo ? `Lesson sections: ${sectionInfo}. ` : '') +
+    (playlistInfo ? `Playlist: ${playlistInfo}. ` : '') +
+    `You have full access to the course content via content_map/content_read/content_search tools. ` +
+    `Use get_transcript_context(timestamp) when the student pauses to see what the professor said. ` +
+    `You can also teach concepts from the course WITHOUT the video — draw on the board, explain, ask questions. ` +
+    `Greet the student briefly and let them know you're following along.`;
+  setTimeout(() => streamADK(trigger, true, true), 1200);
 }
 
 
