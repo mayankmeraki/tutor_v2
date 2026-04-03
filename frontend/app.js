@@ -2197,7 +2197,55 @@ const MAX_FRONTEND_MESSAGES = 30; // Backend handles windowing; this is a payloa
 
 function _windowMessages(messages) {
   if (messages.length <= MAX_FRONTEND_MESSAGES) return messages;
-  return messages.slice(-MAX_FRONTEND_MESSAGES);
+  let windowed = messages.slice(-MAX_FRONTEND_MESSAGES);
+
+  // Ensure the window doesn't start with a user message containing tool_results
+  // whose matching tool_use is in a message that got sliced off.
+  // If the first message is a user with tool_results, drop it.
+  while (windowed.length > 1) {
+    const first = windowed[0];
+    if (first.role === 'user' && Array.isArray(first.content)) {
+      const hasToolResult = first.content.some(b => typeof b === 'object' && b.type === 'tool_result');
+      if (hasToolResult) { windowed = windowed.slice(1); continue; }
+    }
+    // Also skip if first message is assistant with tool_use (no preceding user message)
+    if (first.role === 'assistant' && Array.isArray(first.content)) {
+      const hasToolUse = first.content.some(b => typeof b === 'object' && b.type === 'tool_use');
+      if (hasToolUse) { windowed = windowed.slice(1); continue; }
+    }
+    break;
+  }
+
+  // Strip any tool_result blocks from user messages where the tool_use_id
+  // doesn't exist in the preceding assistant message
+  for (let i = 0; i < windowed.length; i++) {
+    const msg = windowed[i];
+    if (msg.role === 'user' && Array.isArray(msg.content)) {
+      const toolResultIds = msg.content.filter(b => typeof b === 'object' && b.type === 'tool_result').map(b => b.tool_use_id);
+      if (toolResultIds.length === 0) continue;
+      // Find preceding assistant message
+      const prev = i > 0 ? windowed[i - 1] : null;
+      if (!prev || prev.role !== 'assistant') {
+        // No preceding assistant — strip all tool_results, keep text
+        windowed[i] = { ...msg, content: msg.content.filter(b => !(typeof b === 'object' && b.type === 'tool_result')) };
+        if (windowed[i].content.length === 0) windowed[i].content = [{ type: 'text', text: '[context trimmed]' }];
+        continue;
+      }
+      const prevContent = prev.content;
+      const existingToolUseIds = new Set();
+      if (Array.isArray(prevContent)) {
+        prevContent.forEach(b => { if (typeof b === 'object' && b.type === 'tool_use' && b.id) existingToolUseIds.add(b.id); });
+      }
+      const orphaned = toolResultIds.filter(id => !existingToolUseIds.has(id));
+      if (orphaned.length > 0) {
+        const orphanSet = new Set(orphaned);
+        windowed[i] = { ...msg, content: msg.content.filter(b => !(typeof b === 'object' && b.type === 'tool_result' && orphanSet.has(b.tool_use_id))) };
+        if (windowed[i].content.length === 0) windowed[i].content = [{ type: 'text', text: '[context trimmed]' }];
+      }
+    }
+  }
+
+  return windowed;
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -18563,6 +18611,7 @@ async function vmStartVideoForLesson(courseId, lessonId) {
   state.video.active = true;
   state.video.courseId = courseId;
   state.video.lessonId = lessonId;
+  state.teachingMode = 'voice'; // Voice mode so tutor speaks with <vb> beats
 
   // Load course map
   try {
@@ -18730,7 +18779,7 @@ async function vmStartBYOVideo(resourceId, collectionId, title, sourceUrl) {
   document.getElementById('teaching-layout').classList.remove('hidden');
   hidePlanSidebar();
   state._videoWatchAlong = true; // Prevent plan sidebar from showing
-  state.teachingMode = 'video_follow'; // Persisted to session for restore
+  state.teachingMode = 'voice'; // Use voice mode so tutor speaks with <vb> beats
   document.getElementById('teaching-layout').style.display = 'flex';
 
   // Session should already be created by the orchestrator
