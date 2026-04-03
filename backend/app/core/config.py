@@ -66,6 +66,7 @@ class Settings(BaseSettings):
 
     # ElevenLabs TTS
     ELEVENLABS_API_KEY: str = Field(default="")
+    SEARCHAPI_KEY: str = Field(default="")
 
     # PostgreSQL
     DB_HOST: str = Field(default="localhost")

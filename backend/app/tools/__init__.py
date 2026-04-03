@@ -20,9 +20,9 @@ TUTOR_TOOLS = [
     {
         "name": "search_images",
         "description": (
-            "Search Wikimedia Commons for educational images related to a topic. "
-            "Returns image URLs and captions that can be displayed with <teaching-image> tags. "
-            "Use when you need real-world photos, experimental setups, or historical images."
+            "Search Google Images for educational visuals. Returns image titles + URLs. "
+            "Embed results on the board with: <teaching-image src=\"URL\" caption=\"title\" /> "
+            "Use for diagrams, photos, experimental setups, or anything visual that helps explain."
         ),
         "input_schema": {
             "type": "object",

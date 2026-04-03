@@ -1,72 +1,78 @@
+"""Image search via SearchAPI (Google Images Light).
+
+Returns image titles + URLs that the tutor can embed on the board
+using <teaching-image src="..." caption="..." />.
+"""
+
 import logging
-import re
 
 import httpx
 
+from app.core.config import settings
+
 logger = logging.getLogger(__name__)
 
-_NON_LATIN_RE = re.compile(r"[^\u0000-\u024F\u1E00-\u1EFF\s.,;:!?()\-\d%°±×÷=<>+\/'\"\$€£#&@^~*]")
+SEARCHAPI_URL = "https://www.searchapi.io/api/v1/search"
 
 
 async def search_images(query: str, limit: int = 3) -> str:
+    """Search Google Images via SearchAPI. Returns titles + URLs for board embedding."""
     limit = max(1, min(limit, 5))
-    fetch_limit = min(limit * 3, 15)
-    logger.debug("search_images query=%r limit=%d", query, limit)
+    logger.info("search_images query=%r limit=%d", query, limit)
 
-    params = {
-        "action": "query",
-        "generator": "search",
-        "gsrsearch": f"filetype:bitmap {query}",
-        "gsrlimit": str(fetch_limit),
-        "gsrnamespace": "6",
-        "prop": "imageinfo",
-        "iiprop": "url|extmetadata",
-        "iiurlwidth": "800",
-        "iiextmetadatalanguage": "en",
-        "format": "json",
-        "uselang": "en",
-    }
+    api_key = settings.SEARCHAPI_KEY
+    if not api_key:
+        return "Image search not configured (missing SEARCHAPI_KEY)."
 
     try:
-        async with httpx.AsyncClient(
-            timeout=15,
-            headers={"User-Agent": "CapacityTutor/1.0 (educational; contact@capacity.dev)"},
-        ) as client:
-            resp = await client.get("https://commons.wikimedia.org/w/api.php", params=params)
+        async with httpx.AsyncClient(timeout=10) as client:
+            resp = await client.get(
+                SEARCHAPI_URL,
+                params={
+                    "engine": "google_images_light",
+                    "q": query,
+                    "num": str(limit + 2),  # fetch a few extra in case some are unusable
+                    "api_key": api_key,
+                },
+            )
+            if resp.status_code != 200:
+                logger.warning("SearchAPI returned %d: %s", resp.status_code, resp.text[:200])
+                return f"Image search failed (HTTP {resp.status_code}). Try a different query."
+
             data = resp.json()
 
-        pages = (data.get("query") or {}).get("pages") or {}
-        if not pages:
-            logger.info("search_images query=%r returned no pages", query)
-            return "No images found. Try a different search query."
+        images = data.get("images", [])
+        if not images:
+            return "No images found. Try a different or more specific query."
 
-        results: list[str] = []
-        for page in pages.values():
-            if len(results) >= limit:
-                break
-            info = (page.get("imageinfo") or [{}])[0]
-            thumb = info.get("thumburl", "")
-            if not thumb:
+        results = []
+        for img in images[:limit]:
+            title = img.get("title", "Image")
+            original = img.get("original", {})
+            url = original.get("link", "")
+            thumb = img.get("thumbnail", "")
+            # Prefer original, fall back to thumbnail
+            display_url = url or thumb
+            if not display_url:
                 continue
 
-            desc_raw = (info.get("extmetadata") or {}).get("ImageDescription", {}).get("value", "")
-            desc = re.sub(r"<[^>]+>", "", desc_raw)[:200].strip()
-            title = (page.get("title") or "").replace("File:", "")
-            label = desc or title
-
-            if label and _NON_LATIN_RE.search(label):
-                continue
-
-            safe_label = label.replace('"', "'")
+            safe_title = title.replace('"', "'")[:100]
             results.append(
-                f'- URL: {thumb}\n  Caption: {label}\n  Use: <teaching-image src="{thumb}" caption="{safe_label}" />'
+                f'- "{safe_title}"\n'
+                f'  URL: {display_url}\n'
+                f'  Embed: <teaching-image src="{display_url}" caption="{safe_title}" />'
             )
 
         if results:
             logger.info("search_images query=%r returned %d image(s)", query, len(results))
-            return f"Found {len(results)} image(s):\n" + "\n".join(results)
-        logger.warning("search_images query=%r found pages but no usable images", query)
-        return 'No images found. Try a different search query or add "english" to your query.'
+            return (
+                f"Found {len(results)} image(s) for \"{query}\":\n\n"
+                + "\n\n".join(results)
+                + "\n\nUse the <teaching-image> tag to embed any of these on the board."
+            )
+
+        return "No usable images found. Try a different query."
+
     except Exception as e:
-        logger.error("search_images failed query=%r", query, exc_info=True)
+        logger.error("search_images failed: %s", e, exc_info=True)
         return f"Image search failed: {e}"
