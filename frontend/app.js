@@ -5670,29 +5670,12 @@ function handleToolCallStart(event) {
     // For visible tools, show a user-friendly indicator
     removeStreamingIndicator();
     const friendlyNames = {
-      'search_images': 'Finding relevant images...',
-      'get_section_content': 'Reading course content...',
-      'content_read': 'Checking course material...',
-      'content_search': 'Searching across the course...',
-      'content_map': 'Loading course structure...',
-      'content_peek': 'Glancing at a section...',
-      'get_transcript_context': 'Checking what the professor said...',
-      'get_section_brief': 'Reading section summary...',
+      'search_images': 'Searching for images...',
+      'get_section_content': 'Reading course materials...',
       'get_simulation_details': 'Loading simulation...',
       'control_simulation': 'Adjusting simulation...',
-      'resume_video': 'Resuming video...',
-      'seek_video': 'Seeking to that moment...',
-      'web_search': 'Searching the web...',
-      'query_knowledge': 'Checking your progress...',
-      'byo_read': 'Reading your materials...',
-      'byo_list': 'Listing your content...',
     };
     const label = friendlyNames[toolName] || 'Working...';
-
-    // Voice mode: show in subtitle bar so student sees activity
-    if (state.teachingMode === 'voice' && typeof voiceShowSubtitle === 'function') {
-      voiceShowSubtitle(label);
-    }
     appendBlock('system', `
       <div class="tool-indicator active" id="tool-${toolId}">
         <span class="loading-spinner"></span>
@@ -16253,7 +16236,7 @@ document.addEventListener('DOMContentLoaded', () => {
 // Module 23: Voice Mode — TTS, Hand Cursor, Board Interaction
 // ═══════════════════════════════════════════════════════════
 
-const ELEVENLABS_VOICE_ID = 'T3neIJTiSaa1xHynBN21';
+const ELEVENLABS_VOICE_ID = 'UgBBYS2sOqTuMpoF3BR0';
 const ELEVENLABS_MODEL_DIALOGUE = 'eleven_v3'; // Text to Dialogue — natural emotion tags
 const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 
@@ -17355,6 +17338,9 @@ async function executeDraw(drawCmds) {
   // Show "Drawing on board..." indicator so students know the tutor is working
   if (typeof voiceShowIndicator === 'function') voiceShowIndicator('drawing');
 
+  // Show shimmer skeleton on the board while drawing
+  _showBoardDrawingShimmer();
+
   // Ensure board canvas exists
   if (!state.boardDraw.canvas) {
     openBoardDrawSpotlight('Board', null, { clear: true });
@@ -17373,8 +17359,34 @@ async function executeDraw(drawCmds) {
     await bdWaitForQueueDrain();
   }
 
-  // Hide drawing indicator
+  // Hide shimmer + indicator
+  _hideBoardDrawingShimmer();
   if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
+}
+
+/** Show a glowing shimmer overlay on the board while content is being drawn */
+function _showBoardDrawingShimmer() {
+  const board = document.getElementById('spotlight-content') || document.getElementById('bd-canvas-wrap');
+  if (!board) return;
+  // Don't add duplicate
+  if (board.querySelector('.bd-drawing-shimmer')) return;
+
+  const shimmer = document.createElement('div');
+  shimmer.className = 'bd-drawing-shimmer';
+  shimmer.innerHTML = `
+    <div class="bd-shimmer-bar"></div>
+    <div class="bd-shimmer-bar" style="animation-delay:.15s;width:65%"></div>
+    <div class="bd-shimmer-bar" style="animation-delay:.3s;width:45%"></div>
+    <div class="bd-shimmer-label">Drawing...</div>
+  `;
+  board.appendChild(shimmer);
+}
+
+function _hideBoardDrawingShimmer() {
+  document.querySelectorAll('.bd-drawing-shimmer').forEach(el => {
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 300);
+  });
 }
 
 // Wait for the command queue to fully drain (poll until isProcessing is false and queue is empty)
