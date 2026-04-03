@@ -18695,9 +18695,9 @@ async function vmStartVideoForLesson(courseId, lessonId) {
     ? state._videoPlaylist.map((l, i) => `${i + 1}. "${l.title}"`).join(', ')
     : '';
   const sectionInfo = (state.video.sections || []).slice(0, 8).map((s, i) => `${i + 1}. ${s.title || 'Section ' + (i + 1)}`).join(', ');
-  const courseTitle = state.courseMap?.title || state.courseMap?.course?.title || 'Course';
+  const _triggerCourseTitle = courseTitle; // reuse from earlier in this function
 
-  const trigger = `[SYSTEM] Video follow-along session started for course "${courseTitle}". ` +
+  const trigger = `[SYSTEM] Video follow-along session started for course "${_triggerCourseTitle}". ` +
     `Current lesson: "${state.video.lessonTitle}" (lesson_id: ${state.video.lessonId}, course_id: ${courseId}). ` +
     (sectionInfo ? `Lesson sections: ${sectionInfo}. ` : '') +
     (playlistInfo ? `Playlist: ${playlistInfo}. ` : '') +
