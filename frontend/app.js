@@ -1299,6 +1299,13 @@ function _wsNewTurn() {
 function wsConnect() {
   if (!_ws.enabled) return;
   const token = AuthManager?.getToken?.() || '';
+  // Don't connect without auth — prevents reconnect loops on unauthenticated pages
+  if (!token) return;
+  // Cap reconnect attempts to prevent infinite loops
+  if (_ws.retryCount > 10) {
+    console.warn('[WS] Max reconnect attempts reached, stopping');
+    return;
+  }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${proto}//${location.host}/ws/chat?token=${token}`;
   try {
@@ -1317,7 +1324,6 @@ function wsConnect() {
     };
     _ws.conn.onmessage = _wsOnMessage;
     _ws.conn.onclose = () => {
-      console.log('[WS] Disconnected — reconnecting...');
       if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
       _wsKillTurn('disconnect');
       const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 30000);
@@ -1756,6 +1762,20 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   showStreamingIndicator();
 
   // ── WebSocket path (voice mode with server-side TTS) ──
+  // Lazy connect: ensure WS is connected when voice mode needs it
+  if (_ws.enabled && state.teachingMode === 'voice' && (!_ws.conn || _ws.conn.readyState !== WebSocket.OPEN)) {
+    _ws.retryCount = 0;
+    wsConnect();
+    // Wait briefly for connection
+    await new Promise(r => {
+      let tries = 0;
+      const check = () => {
+        if ((_ws.conn && _ws.conn.readyState === WebSocket.OPEN) || tries > 25) r();
+        else { tries++; setTimeout(check, 100); }
+      };
+      check();
+    });
+  }
   if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN && state.teachingMode === 'voice') {
     console.log('[streamADK] Using WebSocket path');
     _eagerReset();
@@ -18624,15 +18644,8 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 // ── WebSocket connection (voice mode server-side TTS) ──
-document.addEventListener('DOMContentLoaded', () => {
-  // Connect after a short delay to let auth initialize
-  setTimeout(() => {
-    if (_ws.enabled) {
-      console.log('[WS] Initializing connection...');
-      wsConnect();
-    }
-  }, 1000);
-});
+// WS connects lazily from streamADK when voice mode session starts.
+// No auto-connect on page load to avoid reconnect spam.
 
 // Floating mic button — toggle click (not hold)
 document.addEventListener('DOMContentLoaded', () => {
