@@ -18886,8 +18886,14 @@ window.vmExitVideoSession = function() {
   document.getElementById('vm-vid-wrap')?.classList.remove('vm-mini');
 
   // DON'T navigate home — stay on the board with the playlist sidebar
-  // The student can pick another lesson from the playlist or continue on the board
   document.body.classList.remove('video-mode');
+
+  // Show the voice input bar so student can still interact with the tutor
+  const voiceFloat = document.getElementById('voice-mic-float');
+  if (voiceFloat) voiceFloat.classList.remove('hidden');
+  // Also show the vm-chat-wrap as fallback input
+  const chatWrap = document.getElementById('vm-chat-wrap');
+  if (chatWrap) chatWrap.classList.add('vm-show');
 
   // Notify tutor that video was closed
   try { streamADK('[Student closed the video]', true); } catch(e) {}
