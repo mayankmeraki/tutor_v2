@@ -3760,6 +3760,41 @@ async def _generate_for_turn(
                 "student_model": bool(session.student_model),
             })
 
+            # ── Auto-inject context for video follow-along ──
+            # Pre-fetch transcript + section content so tutor doesn't need tool calls
+            video_state_raw = context_data.get("videoState")
+            if video_state_raw:
+                try:
+                    import json as _vjson
+                    vs = _vjson.loads(video_state_raw) if isinstance(video_state_raw, str) else video_state_raw
+                    _vid_lesson = vs.get("lessonId")
+                    _vid_ts = vs.get("currentTimestamp", 0)
+                    _vid_section = vs.get("currentSectionIndex", 0)
+
+                    if _vid_lesson:
+                        import asyncio as _aio
+                        _fetch_tasks = []
+                        if _vid_ts > 0 and not context_data.get("_autoTranscript"):
+                            from app.tools.handlers import get_transcript_context as _gtc
+                            _fetch_tasks.append(_gtc(int(_vid_lesson), float(_vid_ts)))
+                        else:
+                            _fetch_tasks.append(_aio.sleep(0))
+
+                        if not context_data.get("_autoSectionContent"):
+                            from app.tools.handlers import get_section_content as _gsc
+                            _fetch_tasks.append(_gsc(int(_vid_lesson), int(_vid_section)))
+                        else:
+                            _fetch_tasks.append(_aio.sleep(0))
+
+                        results = await _aio.gather(*_fetch_tasks, return_exceptions=True)
+
+                        if not isinstance(results[0], (Exception, type(None))) and results[0]:
+                            context_data["_autoTranscript"] = results[0]
+                        if not isinstance(results[1], (Exception, type(None))) and results[1]:
+                            context_data["_autoSectionContent"] = results[1]
+                except Exception as _te:
+                    log.debug("Auto video context injection failed (ws): %s", _te)
+
             tutor_prompt = build_tutor_prompt({
                 **context_data,
                 "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,

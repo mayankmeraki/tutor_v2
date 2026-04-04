@@ -1299,6 +1299,11 @@ function _wsNewTurn() {
 function wsConnect() {
   if (!_ws.enabled) return;
   const token = AuthManager?.getToken?.() || '';
+  if (!token) {
+    // No token yet (not logged in or token cleared) — skip connecting,
+    // will be called again when a session starts or after login
+    return;
+  }
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${proto}//${location.host}/ws/chat?token=${token}`;
   try {
@@ -11117,6 +11122,7 @@ function initLoginForm() {
     try {
       await AuthManager.login(email, password);
       statusEl.textContent = '';
+      wsConnect();
       Router.navigate('/home');
     } catch (e) {
       statusEl.textContent = e.message || 'Login failed';
@@ -11157,6 +11163,7 @@ function initLoginForm() {
     try {
       await AuthManager.signup(name, email, password);
       signupStatus.textContent = '';
+      wsConnect();
       Router.navigate('/home');
     } catch (e) {
       signupStatus.textContent = e.message || 'Signup failed';
