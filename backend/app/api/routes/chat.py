@@ -976,6 +976,7 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
         pinned_first = old[0]
         old = old[1:]
     recent_tokens = _count_messages_tokens(recent)
+    pinned_tokens = _count_messages_tokens([pinned_first]) if pinned_first else 0
 
     result = []
 
@@ -1000,7 +1001,7 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     if uncovered_old:
         compressed = _compress_old_messages(uncovered_old)
         summary_tokens = _count_messages_tokens(result)
-        available = MESSAGES_TOKEN_BUDGET - recent_tokens - summary_tokens
+        available = MESSAGES_TOKEN_BUDGET - recent_tokens - summary_tokens - pinned_tokens
 
         if available > 500:
             # Fit as many compressed messages as budget allows (newest first)
