@@ -85,7 +85,7 @@ class Settings(BaseSettings):
 
     # Auth
     MOCKUP_JWT_SECRET: str = Field(default="")
-    MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=1440)
+    MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=43200)  # 30 days
 
     PORT: int = Field(default=3001)
 
