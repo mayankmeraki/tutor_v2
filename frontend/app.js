@@ -1344,7 +1344,7 @@ function wsConnect() {
 
 // ── Turn lifecycle ──────────────────────────────────────────
 
-function wsSendMessage(text, context, sessionId, isSessionStart, messages) {
+function wsSendMessage(text, context, sessionId, isSessionStart, messages, attachments) {
   if (!_ws.conn || _ws.conn.readyState !== WebSocket.OPEN) return false;
 
   _wsKillTurn('new_message');
@@ -1359,8 +1359,15 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages) {
   state.paused = false;
   setVoiceBarState('thinking');
 
-  console.log(`[WS] New turn gen=${_ws.generation}`);
-  _ws.conn.send(JSON.stringify({ type: 'MESSAGE', text, context, sessionId, isSessionStart, messages }));
+  const payload = { type: 'MESSAGE', text, context, sessionId, isSessionStart, messages };
+  if (attachments && attachments.length) {
+    payload.attachments = attachments.map(a => ({
+      filename: a.name, mime_type: a.type, data: a.base64,
+    }));
+  }
+
+  console.log(`[WS] New turn gen=${_ws.generation}${attachments?.length ? ` +${attachments.length} files` : ''}`);
+  _ws.conn.send(JSON.stringify(payload));
   return true;
 }
 
@@ -1777,12 +1784,16 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN && state.teachingMode === 'voice') {
     console.log('[streamADK] Using WebSocket path');
     _eagerReset();
+    // Grab pending attachments before sending
+    const wsAttachments = _eulerAttachments.length ? _eulerAttachments.slice() : null;
+    if (wsAttachments) { _eulerAttachments = []; _renderAttachPreview('euler-attach-preview'); }
     const sent = wsSendMessage(
       typeof userMessageContent === 'string' ? userMessageContent : '',
       context,
       state.sessionId,
       isSessionStart,
       windowedMessages,
+      wsAttachments,
     );
     if (sent) return; // WebSocket handles everything
     // If WS send failed, fall through to SSE
@@ -8424,13 +8435,8 @@ async function _openAidDetail(artifactId, type, title) {
 
 // ═══════════════════════════════════════════════════════════════
 
-let _eulerStream = null;       // current SSE connection
-let _eulerHistory = [];        // conversation history sent to backend [{role, content}]
 let _eulerBusy = false;
 let _eulerStarted = false;     // has conversation started?
-let _eulerCurrentResponse = ''; // accumulates current assistant response for history
-let _eulerActions = [];         // tracks tool actions taken this turn (for history enrichment)
-let _eulerSeenToolsSinceText = false; // tracks if tools ran since last text bubble
 let _eulerSuppressText = false; // suppress text after permission/session cards
 
 function _initEuler() {
@@ -8619,31 +8625,6 @@ function _eulerSend() {
     _startOnDemandSession(text);
     return;
   }
-
-  // Legacy orchestrator flow below — dead code, kept for compat
-
-  // Build attachment thumbnails for the message bubble
-  let attachHtml = '';
-  if (_eulerAttachments.length > 0) {
-    attachHtml = '<div class="euler-msg-attachments">' +
-      _eulerAttachments.map(a => {
-        if (a.type.startsWith('image/')) {
-          return `<div class="euler-msg-attach"><img src="${a.dataUrl}" alt="${_escHtml(a.name)}"></div>`;
-        }
-        return `<div class="euler-msg-attach euler-msg-attach-file"><span>&#128196;</span><span class="euler-msg-attach-name">${_escHtml(a.name)}</span></div>`;
-      }).join('') + '</div>';
-  }
-
-  // Add user message to UI + history
-  _eulerAddMessage('user', text + attachHtml);
-  _eulerHistory.push({ role: 'user', content: text });
-
-  // Clear input
-  input.value = '';
-  input.style.height = 'auto';
-
-  // Stream response from Euler
-  _eulerStreamResponse(text);
 }
 
 function _eulerAddMessage(role, content, extra) {
@@ -8899,80 +8880,7 @@ function _handleEulerAction(action, data) {
   }
 }
 
-async function _eulerStreamResponse(text) {
-  _eulerBusy = true;
-  const sendBtn = document.getElementById(_eulerStarted ? 'euler-send-btn-active' : 'euler-send-btn');
-  if (sendBtn) sendBtn.disabled = true;
-
-  // Show thinking indicator
-  _eulerAddMessage('thinking');
-
-  _eulerCurrentResponse = '';  // reset accumulator
-  _eulerActions = [];           // reset actions tracker
-  _eulerSeenToolsSinceText = false;
-  _eulerSuppressText = false;  // new message, allow text again
-
-  // Show processing indicator above input
-  _eulerShowProcessing('Euler is thinking...');
-
-  try {
-    // Include attachments as multimodal content
-    const attachments = _eulerAttachments.length > 0
-      ? _eulerAttachments.map(a => ({
-          filename: a.name,
-          mime_type: a.type,
-          data: a.base64,
-        }))
-      : undefined;
-
-    // Clear attachments after sending
-    _eulerAttachments = [];
-    _renderAttachPreview('euler-attach-preview');
-    _renderAttachPreview('euler-attach-preview-active');
-
-    const res = await fetch(`${state.apiUrl || ''}/api/euler`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ message: text, history: _eulerHistory, attachments }),
-    });
-
-    if (!res.ok) {
-      _eulerRemoveThinking();
-      _eulerAddMessage('euler', `Sorry, something went wrong (${res.status}).`);
-      return;
-    }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const evt = JSON.parse(line.slice(6));
-          _handleEulerEvent(evt);
-        } catch (e) { /* ignore parse errors */ }
-      }
-    }
-  } catch (e) {
-    _eulerRemoveThinking();
-    _eulerAddMessage('euler', 'Connection error. Please try again.');
-  } finally {
-    _eulerBusy = false;
-    if (sendBtn) sendBtn.disabled = false;
-    // Always clean up streaming cursors — prevents orphaned blinking cursors
-    // if stream ends without a DONE event (network error, early close, etc.)
-    _eulerRemoveStreamingCursors();
-  }
-}
+// _eulerStreamResponse removed — orchestrator flow replaced by direct session start
 
 /** Find or create the current assistant message's content column for inline inserts. */
 function _getOrCreateCurrentContentCol() {

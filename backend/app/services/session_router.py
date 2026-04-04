@@ -36,6 +36,7 @@ class SessionRouter:
         session_id: str | None,
         is_session_start: bool = False,
         messages: list | None = None,
+        attachments: list | None = None,
     ):
         """Handle a new student message — creates a new turn.
 
@@ -62,7 +63,7 @@ class SessionRouter:
 
         # Start producer (LLM stream → beat parser → TTS → events into queue)
         producer = asyncio.create_task(
-            self._run_turn(turn, text, context, session_id, is_session_start, messages)
+            self._run_turn(turn, text, context, session_id, is_session_start, messages, attachments)
         )
         turn.tasks.append(producer)
 
@@ -109,6 +110,7 @@ class SessionRouter:
         session_id: str | None,
         is_session_start: bool,
         messages: list | None,
+        attachments: list | None = None,
     ):
         """Run the tutor pipeline, intercept SSE events, add beat detection + TTS."""
         try:
@@ -139,6 +141,7 @@ class SessionRouter:
                 context=context,
                 is_session_start=is_session_start,
                 is_disconnected=lambda: turn.cancelled.is_set(),
+                attachments=attachments,
             ):
                 if turn.cancelled.is_set():
                     break

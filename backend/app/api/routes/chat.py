@@ -3608,6 +3608,7 @@ async def _generate_for_turn(
     context: dict | None = None,
     is_session_start: bool = False,
     is_disconnected=None,
+    attachments: list | None = None,
 ):
     """Yields SSE event strings using the existing chat() pipeline.
 
@@ -3647,6 +3648,33 @@ async def _generate_for_turn(
     await _maybe_generate_summary(session, claude_messages)
     windowed_messages = apply_context_window(session, claude_messages)
     claude_messages = windowed_messages
+
+    # ── Inject attachments as multimodal content blocks ──
+    # Converts attachments to OpenRouter image_url format with data URIs
+    if attachments and claude_messages:
+        last_user = None
+        for msg in reversed(claude_messages):
+            if msg.get("role") == "user":
+                last_user = msg
+                break
+        if last_user:
+            existing = last_user.get("content", "")
+            content_parts = []
+            # Keep existing text
+            if isinstance(existing, str):
+                content_parts.append({"type": "text", "text": existing})
+            elif isinstance(existing, list):
+                content_parts.extend(existing)
+            # Add attachments
+            for att in attachments:
+                mime = att.get("mime_type", "")
+                data = att.get("data", "")
+                if data and mime:
+                    content_parts.append({
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{data}"},
+                    })
+            last_user["content"] = content_parts
 
     user_email = _extract_user_email(context_data)
     slog = SessionLogger(log, session_id=sid, user=user_email or "")

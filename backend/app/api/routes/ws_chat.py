@@ -61,6 +61,7 @@ async def ws_chat(ws: WebSocket):
                     session_id=session_id,
                     is_session_start=is_start,
                     messages=raw.get("messages"),
+                    attachments=raw.get("attachments"),
                 )
 
             elif msg_type == "INTERRUPT":
