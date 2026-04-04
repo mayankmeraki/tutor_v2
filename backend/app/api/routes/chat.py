@@ -3672,32 +3672,11 @@ async def _generate_for_turn(
     windowed_messages = apply_context_window(session, claude_messages)
     claude_messages = windowed_messages
 
-    # ── Persist & inject attachments ──
-    # First turn with attachments: upload to GCS, store metadata on session
-    # Subsequent turns: fetch from GCS using stored metadata
-    effective_attachments = attachments
-    if attachments:
-        try:
-            from app.services.attachment_storage import upload_attachments
-            meta = await upload_attachments(sid, attachments)
-            if meta:
-                session.attachment_meta = meta  # store on in-memory session
-                # Also persist to MongoDB via session update
-                from app.services.session_service import update_session
-                await update_session(sid, {"attachments": meta})
-        except Exception as e:
-            log.warning("Attachment upload failed (using inline): %s", e)
-    elif not attachments and getattr(session, "attachment_meta", None):
-        # No new attachments but session has stored ones — fetch from GCS
-        try:
-            from app.services.attachment_storage import fetch_attachments
-            effective_attachments = await fetch_attachments(session.attachment_meta)
-        except Exception as e:
-            log.warning("Attachment fetch failed: %s", e)
-            effective_attachments = None
-
-    # Inject attachments as multimodal content blocks into first user message
-    if effective_attachments and claude_messages:
+    # ── Inject attachments on first turn, persist to GCS in background ──
+    # Attachments are baked into session.messages on injection. The pinned
+    # context window keeps the first multimodal message visible on all turns.
+    # No re-injection needed — just upload to GCS for long-term persistence.
+    if attachments and claude_messages:
         last_user = None
         for msg in reversed(claude_messages):
             if msg.get("role") == "user":
@@ -3710,7 +3689,7 @@ async def _generate_for_turn(
                 content_parts.append({"type": "text", "text": existing})
             elif isinstance(existing, list):
                 content_parts.extend(existing)
-            for att in effective_attachments:
+            for att in attachments:
                 mime = att.get("mime_type", "")
                 data = att.get("data", "")
                 fname = att.get("filename", "file")
@@ -3740,6 +3719,21 @@ async def _generate_for_turn(
                         "file": {"filename": fname, "file_data": f"data:{mime};base64,{data}"},
                     })
             last_user["content"] = content_parts
+
+            # Fire-and-forget: upload to GCS + persist metadata (non-blocking)
+            async def _bg_upload(session_id, attachments, session_obj):
+                try:
+                    from app.services.attachment_storage import upload_attachments
+                    meta = await upload_attachments(session_id, attachments)
+                    if meta:
+                        session_obj.attachment_meta = meta
+                        from app.services.session_service import update_session
+                        await update_session(session_id, {"attachments": meta})
+                except Exception as e:
+                    log.warning("Background attachment upload failed: %s", e)
+
+            import asyncio as _aio
+            _aio.create_task(_bg_upload(sid, attachments, session))
 
     user_email = _extract_user_email(context_data)
     slog = SessionLogger(log, session_id=sid, user=user_email or "")
