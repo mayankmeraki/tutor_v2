@@ -200,20 +200,25 @@ async def video_stream_url(
     yt_url = f"https://www.youtube.com/watch?v={video_id}"
 
     try:
-        proc = await asyncio.create_subprocess_exec(
-            "yt-dlp", "-f", "best[height<=720][ext=mp4]/best[height<=720]/best",
-            "--get-url", "--no-warnings", yt_url,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
+        # Use yt-dlp as Python library (more reliable than subprocess in containers)
+        import yt_dlp
+        ydl_opts = {
+            'format': 'best[height<=720][ext=mp4]/best[height<=720]/best',
+            'quiet': True,
+            'no_warnings': True,
+            'extract_flat': False,
+        }
+        loop = asyncio.get_event_loop()
+        def _extract():
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(yt_url, download=False)
+                return info.get('url') or info.get('webpage_url')
+        stream_url = await asyncio.wait_for(
+            loop.run_in_executor(None, _extract),
+            timeout=15,
         )
-        stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=15)
 
-        if proc.returncode != 0:
-            log.warning("yt-dlp failed: %s", stderr.decode()[:200])
-            raise HTTPException(status_code=502, detail="Could not extract video stream")
-
-        stream_url = stdout.decode().strip().split("\n")[0]
-        if not stream_url.startswith("http"):
+        if not stream_url or not stream_url.startswith("http"):
             raise HTTPException(status_code=502, detail="Invalid stream URL")
 
         return {"streamUrl": stream_url, "videoId": video_id}
