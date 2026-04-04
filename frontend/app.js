@@ -1478,7 +1478,7 @@ function _wsOnMessage(msg) {
       break;
 
     case 'PLAN_UPDATE':
-      if (typeof updatePlanSidebar === 'function') updatePlanSidebar(evt);
+      if (typeof handlePlanFromAgent === 'function') handlePlanFromAgent(evt.plan, evt.sessionObjective);
       break;
 
     case 'COST_UPDATE':
@@ -2943,6 +2943,19 @@ function cleanupActiveSession() {
 
   // ── 15. Session flags ──
   state._startingSession = false; state._resumingSession = false;
+
+  // ── 15b. Reset Euler input state (may have been disabled by _eulerSend) ──
+  _eulerBusy = false;
+  _eulerStarted = false;
+  const _eulerInput = document.getElementById('euler-input');
+  if (_eulerInput) { _eulerInput.disabled = false; _eulerInput.value = ''; }
+  const _eulerSendBtn = document.getElementById('euler-send-btn');
+  if (_eulerSendBtn) {
+    _eulerSendBtn.disabled = false;
+    _eulerSendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>';
+  }
+  // Re-enable chips
+  document.querySelectorAll('.euler-chip').forEach(c => { c.style.pointerEvents = ''; c.style.opacity = ''; });
 
   // ── 16. UI indicators ──
   if (typeof removeStreamingIndicator === 'function') removeStreamingIndicator();
@@ -7640,14 +7653,29 @@ function showScreen(screenName, param) {
       // Load home sections (sessions, courses, videos)
       _loadHomeSections();
       _fetchCourses();
-      // Check for pending prompt from landing page (saved before login redirect)
+      // Check for pending prompt + attachments from landing page (saved before login redirect)
       {
         const pendingPrompt = sessionStorage.getItem('capacity_pending_prompt');
         if (pendingPrompt) {
           sessionStorage.removeItem('capacity_pending_prompt');
+          // Restore attachments if any
+          const pendingAtt = sessionStorage.getItem('capacity_pending_attachments');
+          if (pendingAtt) {
+            sessionStorage.removeItem('capacity_pending_attachments');
+            try {
+              const atts = JSON.parse(pendingAtt);
+              _eulerAttachments = atts.map(a => ({
+                name: a.name, type: a.type, base64: a.base64,
+                dataUrl: `data:${a.type};base64,${a.base64}`,
+              }));
+            } catch(e) {}
+          }
           setTimeout(() => {
             const input = document.getElementById('euler-input');
             if (input) { input.value = pendingPrompt; }
+            if (_eulerAttachments.length) {
+              _renderAttachPreview('euler-attach-preview');
+            }
             _eulerSend();
           }, 600);
         }
@@ -11226,20 +11254,77 @@ async function initSetup() {
     AuthManager.isLoggedIn() ? Router.navigate('/home') : Router.navigate('/login');
   });
 
+  // ─── Landing page hero attachment wiring ──────────────────
+  let _lpAttachments = [];
+  const _lpAttachBtn = document.getElementById('lp-hero-attach');
+  const _lpFileInput = document.getElementById('lp-hero-file');
+  if (_lpAttachBtn && _lpFileInput) {
+    _lpAttachBtn.addEventListener('click', () => _lpFileInput.click());
+    _lpFileInput.addEventListener('change', (e) => {
+      if (!e.target.files?.length) return;
+      for (const file of e.target.files) {
+        if (_lpAttachments.length >= 5) break;
+        if (file.size > 20 * 1024 * 1024) continue; // 20MB max
+        const reader = new FileReader();
+        reader.onload = () => {
+          _lpAttachments.push({
+            name: file.name,
+            type: file.type,
+            dataUrl: reader.result,
+            base64: reader.result.split(',')[1],
+          });
+          _renderLpAttachPreview();
+        };
+        reader.readAsDataURL(file);
+      }
+      e.target.value = '';
+    });
+  }
+  function _renderLpAttachPreview() {
+    const preview = document.getElementById('lp-hero-attach-preview');
+    if (!preview) return;
+    preview.innerHTML = _lpAttachments.map((a, i) =>
+      `<div class="lp-hero-attach-item">${
+        a.type.startsWith('image/') ? `<img src="${a.dataUrl}" alt="">` : '<span>📄</span>'
+      }<span>${a.name.length > 20 ? a.name.slice(0, 17) + '...' : a.name}</span><span class="lp-hero-attach-remove" data-idx="${i}">&times;</span></div>`
+    ).join('');
+    preview.querySelectorAll('.lp-hero-attach-remove').forEach(btn => {
+      btn.addEventListener('click', () => {
+        _lpAttachments.splice(parseInt(btn.dataset.idx), 1);
+        _renderLpAttachPreview();
+      });
+    });
+  }
+
   // Try-it input on landing page — check auth, then send to Euler
   function _lpTryIt(prompt) {
     if (!prompt || !prompt.trim()) return;
     if (AuthManager.isLoggedIn()) {
-      // Go to home, fill Euler input, and send
+      // Go to home, fill Euler input, transfer attachments, and send
+      if (_lpAttachments.length) {
+        _eulerAttachments = _lpAttachments.slice();
+        _lpAttachments = [];
+        _renderLpAttachPreview();
+      }
       Router.navigate('/home');
       setTimeout(() => {
         const input = document.getElementById('euler-input');
         if (input) { input.value = prompt; }
+        if (_eulerAttachments.length) {
+          _renderAttachPreview('euler-attach-preview');
+        }
         _eulerSend();
       }, 300);
     } else {
-      // Save prompt, send to login, after login it'll auto-send
+      // Save prompt + attachments, send to login, after login it'll auto-send
       sessionStorage.setItem('capacity_pending_prompt', prompt);
+      if (_lpAttachments.length) {
+        sessionStorage.setItem('capacity_pending_attachments', JSON.stringify(
+          _lpAttachments.map(a => ({ name: a.name, type: a.type, base64: a.base64 }))
+        ));
+      }
+      _lpAttachments = [];
+      _renderLpAttachPreview();
       Router.navigate('/login');
     }
   }

@@ -111,16 +111,30 @@ body {
   -webkit-background-clip:text; -webkit-text-fill-color:transparent }
 .hero p { font-size:clamp(16px,1.3vw,18px); color:var(--text-muted); max-width:520px; margin:0 auto 36px; line-height:1.65 }
 .hero-actions { display:flex; flex-direction:column; gap:10px; align-items:flex-start }
-.lp-hero-input-wrap { display:flex; gap:8px; width:100% }
-.lp-hero-input { flex:1; padding:14px 18px; border-radius:14px; background:var(--bg-surface);
-  border:1px solid var(--border); color:var(--text); font-size:15px; outline:none;
-  transition:border-color .2s }
-.lp-hero-input:focus { border-color:var(--accent) }
+.lp-hero-input-wrap { display:flex; align-items:center; gap:0; width:100%;
+  background:var(--bg-surface); border:1px solid var(--border); border-radius:14px;
+  padding:4px 4px 4px 6px; transition:border-color .2s }
+.lp-hero-input-wrap:focus-within { border-color:var(--accent) }
+.lp-hero-attach { width:36px; height:36px; flex-shrink:0; display:flex; align-items:center;
+  justify-content:center; background:none; border:none; color:var(--text-dim); cursor:pointer;
+  border-radius:8px; transition:color .15s, background .15s }
+.lp-hero-attach:hover { color:var(--text); background:rgba(255,255,255,.06) }
+.lp-hero-input { flex:1; padding:10px 8px; border-radius:0; background:none;
+  border:none; color:var(--text); font-size:15px; outline:none }
 .lp-hero-input::placeholder { color:var(--text-dim) }
-.lp-hero-btn { padding:14px 24px; border-radius:14px; background:var(--accent); color:#000;
+.lp-hero-btn { padding:10px 22px; border-radius:10px; background:var(--accent); color:#000;
   font-size:15px; font-weight:600; border:none; cursor:pointer; white-space:nowrap;
-  transition:opacity .15s }
+  transition:opacity .15s; flex-shrink:0 }
 .lp-hero-btn:hover { opacity:.85 }
+.lp-hero-attach-preview { display:flex; gap:8px; flex-wrap:wrap; max-width:500px; margin:10px auto 0;
+  justify-content:center }
+.lp-hero-attach-preview:empty { display:none }
+.lp-hero-attach-item { position:relative; background:var(--bg-surface); border:1px solid var(--border);
+  border-radius:8px; padding:4px 8px; display:flex; align-items:center; gap:6px; font-size:12px;
+  color:var(--text-muted) }
+.lp-hero-attach-item img { height:28px; width:28px; object-fit:cover; border-radius:4px }
+.lp-hero-attach-remove { cursor:pointer; color:var(--text-dim); font-size:14px; margin-left:4px }
+.lp-hero-attach-remove:hover { color:#ef4444 }
 
 /* ═══ Landing Page ═══ */
 .lp-page { max-width:1100px; margin:0 auto; padding:0 24px }
@@ -6997,9 +7011,7 @@ body.assessment-mode #board-panel { flex: 1 !important; }
 .vm-vid-wrap.vm-mini .vm-vid-box { width: 300px; max-width: 300px; border-radius: 10px; box-shadow: 0 8px 28px rgba(0,0,0,0.7); }
 .vm-vid-box .plyr { width: 100%; border-radius: 0; }
 .vm-vid-box video { width: 100%; max-height: 80vh; background: #000; }
-.vm-vid-box iframe { width: 100%; aspect-ratio: 16/9; border: none; display: block; }
 .vm-vid-wrap.vm-mini .plyr__controls { display: none; }
-.vm-vid-wrap.vm-mini iframe { pointer-events: none; }
 
 .vm-chat-wrap { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); width: 500px; max-width: 80%; z-index: 9010; display: none; }
 .vm-chat-wrap.vm-show { display: block; }
