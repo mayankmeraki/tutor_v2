@@ -7640,6 +7640,18 @@ function showScreen(screenName, param) {
       // Load home sections (sessions, courses, videos)
       _loadHomeSections();
       _fetchCourses();
+      // Check for pending prompt from landing page (saved before login redirect)
+      {
+        const pendingPrompt = sessionStorage.getItem('capacity_pending_prompt');
+        if (pendingPrompt) {
+          sessionStorage.removeItem('capacity_pending_prompt');
+          setTimeout(() => {
+            const input = document.getElementById('euler-input');
+            if (input) { input.value = pendingPrompt; }
+            _eulerSend();
+          }, 600);
+        }
+      }
       break;
 
     case 'course':
