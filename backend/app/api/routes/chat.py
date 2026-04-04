@@ -3672,10 +3672,32 @@ async def _generate_for_turn(
     windowed_messages = apply_context_window(session, claude_messages)
     claude_messages = windowed_messages
 
-    # ── Inject attachments as multimodal content blocks ──
-    # Images: Anthropic format (type:"image") → converter transforms to image_url
-    # PDFs/files: OpenRouter format (type:"file") → converter passes through
-    if attachments and claude_messages:
+    # ── Persist & inject attachments ──
+    # First turn with attachments: upload to GCS, store metadata on session
+    # Subsequent turns: fetch from GCS using stored metadata
+    effective_attachments = attachments
+    if attachments:
+        try:
+            from app.services.attachment_storage import upload_attachments
+            meta = await upload_attachments(sid, attachments)
+            if meta:
+                session.attachment_meta = meta  # store on in-memory session
+                # Also persist to MongoDB via session update
+                from app.services.session_service import update_session
+                await update_session(sid, {"attachments": meta})
+        except Exception as e:
+            log.warning("Attachment upload failed (using inline): %s", e)
+    elif not attachments and getattr(session, "attachment_meta", None):
+        # No new attachments but session has stored ones — fetch from GCS
+        try:
+            from app.services.attachment_storage import fetch_attachments
+            effective_attachments = await fetch_attachments(session.attachment_meta)
+        except Exception as e:
+            log.warning("Attachment fetch failed: %s", e)
+            effective_attachments = None
+
+    # Inject attachments as multimodal content blocks into first user message
+    if effective_attachments and claude_messages:
         last_user = None
         for msg in reversed(claude_messages):
             if msg.get("role") == "user":
@@ -3684,59 +3706,38 @@ async def _generate_for_turn(
         if last_user:
             existing = last_user.get("content", "")
             content_parts = []
-            # Keep existing text
             if isinstance(existing, str):
                 content_parts.append({"type": "text", "text": existing})
             elif isinstance(existing, list):
                 content_parts.extend(existing)
-            # Add each attachment in the right format per OpenRouter docs
-            for att in attachments:
+            for att in effective_attachments:
                 mime = att.get("mime_type", "")
                 data = att.get("data", "")
                 fname = att.get("filename", "file")
                 if not data or not mime:
                     continue
                 if mime.startswith("image/"):
-                    # Images → Anthropic format, converter transforms to image_url
                     content_parts.append({
                         "type": "image",
-                        "source": {
-                            "type": "base64",
-                            "media_type": mime,
-                            "data": data,
-                        },
+                        "source": {"type": "base64", "media_type": mime, "data": data},
                     })
                 elif mime.startswith("audio/"):
-                    # Audio → OpenRouter input_audio format
-                    # Derive format from mime (audio/wav → wav, audio/mpeg → mp3)
                     fmt = mime.split("/")[-1]
-                    if fmt == "mpeg":
-                        fmt = "mp3"
-                    elif fmt == "x-wav":
-                        fmt = "wav"
+                    if fmt == "mpeg": fmt = "mp3"
+                    elif fmt == "x-wav": fmt = "wav"
                     content_parts.append({
                         "type": "input_audio",
-                        "input_audio": {
-                            "data": data,
-                            "format": fmt,
-                        },
+                        "input_audio": {"data": data, "format": fmt},
                     })
                 elif mime.startswith("video/"):
-                    # Video → OpenRouter video_url with data URI
                     content_parts.append({
                         "type": "video_url",
-                        "video_url": {
-                            "url": f"data:{mime};base64,{data}",
-                        },
+                        "video_url": {"url": f"data:{mime};base64,{data}"},
                     })
                 else:
-                    # PDFs and other files → OpenRouter file format
                     content_parts.append({
                         "type": "file",
-                        "file": {
-                            "filename": fname,
-                            "file_data": f"data:{mime};base64,{data}",
-                        },
+                        "file": {"filename": fname, "file_data": f"data:{mime};base64,{data}"},
                     })
             last_user["content"] = content_parts
 

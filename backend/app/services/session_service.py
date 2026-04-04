@@ -494,6 +494,7 @@ async def sync_backend_state(session_id: str, session) -> None:
         "summaryCoverCount": session.summary_covers_through,
         "assetRegistry": session.asset_registry,
         "messages": session.messages,
+        "attachmentMeta": session.attachment_meta,
     }
 
     if session.assessment_result:

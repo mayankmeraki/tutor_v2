@@ -92,6 +92,9 @@ class Session:
     asset_registry: list[dict] = field(default_factory=list)  # [{id, type, title, turn}]
     messages: list[dict] = field(default_factory=list)  # Server-side source of truth for conversation
 
+    # ── Session attachments (uploaded files persisted in GCS) ──
+    attachment_meta: list[dict] = field(default_factory=list)  # [{filename, mime_type, gcs_path}]
+
     # ── LLM cost tracking ──
     llm_cost_cents: float = 0.0         # Accumulated cost in cents
     llm_total_input_tokens: int = 0     # Total input tokens across all calls
@@ -233,6 +236,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
             summary_covers_through=bs.get("summaryCoverCount", 0),
             asset_registry=bs.get("assetRegistry", []),
             messages=bs.get("messages", []),
+            attachment_meta=bs.get("attachmentMeta", []),
         )
 
         # Restore in-flight delegation state
