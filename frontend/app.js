@@ -19091,11 +19091,17 @@ async function vmStartVideoForLesson(courseId, lessonId) {
               }, 2000);
             },
             onStateChange: (e) => {
-              if (e.data === YT.PlayerState.PAUSED) {
-                state.video.isPaused = true;
+              if (e.data === YT.PlayerState.PAUSED && state.video.active) {
                 state.video.currentTimestamp = e.target.getCurrentTime();
-              } else if (e.data === YT.PlayerState.PLAYING) {
-                state.video.isPaused = false;
+                setTimeout(() => {
+                  try {
+                    if (e.target.getPlayerState() === YT.PlayerState.PAUSED && state.video.active) {
+                      _vmOnPause();
+                    }
+                  } catch(x) {}
+                }, 300);
+              } else if (e.data === YT.PlayerState.PLAYING && state.video.isPaused) {
+                _vmOnResume();
               }
             },
           },
