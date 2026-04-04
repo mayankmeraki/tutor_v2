@@ -928,6 +928,7 @@ body {
   border-radius:16px; background:var(--bg-surface); border:1px solid var(--border);
   transition:border-color .2s, box-shadow .2s }
 .euler-input-bar:focus-within { border-color:var(--accent); box-shadow:0 0 0 3px rgba(52,211,153,.08) }
+.euler-input-bar.drag-over, .lp-hero-input-wrap.drag-over { border-color:var(--accent); box-shadow:0 0 0 3px rgba(52,211,153,.15); background:rgba(52,211,153,.04) }
 .euler-avatar { width:28px; height:28px; border-radius:8px; background:linear-gradient(135deg,#34d399,#06b6d4);
   color:#000; font-weight:700; font-size:13px; display:grid; place-items:center; flex-shrink:0; margin-bottom:2px }
 .euler-input { flex:1; background:none; border:none; outline:none; color:var(--text);

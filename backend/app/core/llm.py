@@ -394,10 +394,10 @@ def _convert_messages_openrouter(
                             })
                     elif (
                         isinstance(block, dict)
-                        and block.get("type") == "file"
+                        and block.get("type") in ("file", "input_audio", "video_url")
                     ):
-                        # OpenRouter file format — PDFs, docs, etc.
-                        # Pass through as-is for the API call
+                        # OpenRouter native formats — pass through as-is
+                        # file: PDFs, docs | input_audio: wav/mp3 | video_url: mp4/webm
                         image_parts.append(block)
                     elif (
                         isinstance(block, ContentBlock)

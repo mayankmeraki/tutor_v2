@@ -8531,6 +8531,18 @@ function _wireAttachments(btnId, fileInputId, previewId) {
     if (e.target.files?.length) _handleEulerAttachFiles(e.target.files, previewId);
     e.target.value = '';
   });
+
+  // Drag-and-drop on the input bar container
+  const bar = btn.closest('.euler-input-bar') || btn.closest('.lp-hero-input-wrap');
+  if (bar) {
+    bar.addEventListener('dragover', (e) => { e.preventDefault(); bar.classList.add('drag-over'); });
+    bar.addEventListener('dragleave', () => bar.classList.remove('drag-over'));
+    bar.addEventListener('drop', (e) => {
+      e.preventDefault();
+      bar.classList.remove('drag-over');
+      if (e.dataTransfer?.files?.length) _handleEulerAttachFiles(e.dataTransfer.files, previewId);
+    });
+  }
 }
 
 const MAX_ATTACHMENTS = 5;

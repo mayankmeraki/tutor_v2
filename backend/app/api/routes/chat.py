@@ -943,10 +943,22 @@ async def _maybe_generate_summary(session, messages: list[dict]) -> None:
         log.warning("Summary generation failed: %s", e)
 
 
+def _has_multimodal(msg: dict) -> bool:
+    """Check if a message contains multimodal content (images, files, audio, video)."""
+    content = msg.get("content")
+    if not isinstance(content, list):
+        return False
+    return any(
+        isinstance(b, dict) and b.get("type") in ("image", "image_url", "file", "input_audio", "video_url")
+        for b in content
+    )
+
+
 def apply_context_window(session, messages: list[dict]) -> list[dict]:
     """Apply conversation windowing to fit within token budget.
 
     Strategy:
+    0. Always preserve the first message if it has multimodal content (attachments)
     1. Keep last RECENT_MESSAGE_COUNT messages in full (board-draw content intact)
     2. Prepend conversation summary (replaces oldest messages)
     3. Between summary and recent: compressed messages (JSONL stripped) that fit budget
@@ -957,6 +969,12 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
 
     recent = messages[-RECENT_MESSAGE_COUNT:]
     old = messages[:-RECENT_MESSAGE_COUNT]
+
+    # Preserve first message if it has attachments (images/PDFs/audio/video)
+    pinned_first = None
+    if old and _has_multimodal(old[0]):
+        pinned_first = old[0]
+        old = old[1:]
     recent_tokens = _count_messages_tokens(recent)
 
     result = []
@@ -999,12 +1017,17 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     # 3. Recent messages in full
     result.extend(recent)
 
+    # 4. Pin first message with attachments at the front (always visible to LLM)
+    if pinned_first:
+        result.insert(0, pinned_first)
+
     final_tokens = _count_messages_tokens(result)
     log.info(
         "Context window applied",
         extra={
             "msg_count": len(result),
             "token_count": final_tokens,
+            "pinned_attachments": bool(pinned_first),
         },
     )
 
@@ -3666,7 +3689,7 @@ async def _generate_for_turn(
                 content_parts.append({"type": "text", "text": existing})
             elif isinstance(existing, list):
                 content_parts.extend(existing)
-            # Add each attachment in the right format
+            # Add each attachment in the right format per OpenRouter docs
             for att in attachments:
                 mime = att.get("mime_type", "")
                 data = att.get("data", "")
@@ -3674,13 +3697,36 @@ async def _generate_for_turn(
                 if not data or not mime:
                     continue
                 if mime.startswith("image/"):
-                    # Images → Anthropic format, converter handles transformation
+                    # Images → Anthropic format, converter transforms to image_url
                     content_parts.append({
                         "type": "image",
                         "source": {
                             "type": "base64",
                             "media_type": mime,
                             "data": data,
+                        },
+                    })
+                elif mime.startswith("audio/"):
+                    # Audio → OpenRouter input_audio format
+                    # Derive format from mime (audio/wav → wav, audio/mpeg → mp3)
+                    fmt = mime.split("/")[-1]
+                    if fmt == "mpeg":
+                        fmt = "mp3"
+                    elif fmt == "x-wav":
+                        fmt = "wav"
+                    content_parts.append({
+                        "type": "input_audio",
+                        "input_audio": {
+                            "data": data,
+                            "format": fmt,
+                        },
+                    })
+                elif mime.startswith("video/"):
+                    # Video → OpenRouter video_url with data URI
+                    content_parts.append({
+                        "type": "video_url",
+                        "video_url": {
+                            "url": f"data:{mime};base64,{data}",
                         },
                     })
                 else:

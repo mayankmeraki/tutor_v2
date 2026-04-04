@@ -1,0 +1,22 @@
+{
+  "name": "capacity-e2e-tests",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "npx playwright test",
+    "test:headed": "npx playwright test --headed",
+    "test:ui": "npx playwright test --ui",
+    "test:debug": "npx playwright test --debug",
+    "test:auth": "npx playwright test auth.spec.js",
+    "test:landing": "npx playwright test landing.spec.js",
+    "test:home": "npx playwright test home.spec.js",
+    "test:course": "npx playwright test course.spec.js",
+    "test:session": "npx playwright test session.spec.js",
+    "test:video": "npx playwright test video.spec.js",
+    "test:nav": "npx playwright test navigation.spec.js",
+    "test:errors": "npx playwright test errors.spec.js"
+  },
+  "dependencies": {
+    "@playwright/test": "^1.59.1"
+  }
+}
