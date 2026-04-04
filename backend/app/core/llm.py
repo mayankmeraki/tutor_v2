@@ -393,6 +393,13 @@ def _convert_messages_openrouter(
                                 "image_url": {"url": source.get("url", "")},
                             })
                     elif (
+                        isinstance(block, dict)
+                        and block.get("type") == "file"
+                    ):
+                        # OpenRouter file format — PDFs, docs, etc.
+                        # Pass through as-is for the API call
+                        image_parts.append(block)
+                    elif (
                         isinstance(block, ContentBlock)
                         and block.type == "text"
                     ):

@@ -3650,9 +3650,8 @@ async def _generate_for_turn(
     claude_messages = windowed_messages
 
     # ── Inject attachments as multimodal content blocks ──
-    # Uses Anthropic image format (type: "image" + source.type: "base64")
-    # because _convert_messages_openrouter() transforms these into
-    # OpenRouter image_url format. Direct image_url blocks get dropped.
+    # Images: Anthropic format (type:"image") → converter transforms to image_url
+    # PDFs/files: OpenRouter format (type:"file") → converter passes through
     if attachments and claude_messages:
         last_user = None
         for msg in reversed(claude_messages):
@@ -3667,17 +3666,30 @@ async def _generate_for_turn(
                 content_parts.append({"type": "text", "text": existing})
             elif isinstance(existing, list):
                 content_parts.extend(existing)
-            # Add attachments in Anthropic image format
+            # Add each attachment in the right format
             for att in attachments:
                 mime = att.get("mime_type", "")
                 data = att.get("data", "")
-                if data and mime:
+                fname = att.get("filename", "file")
+                if not data or not mime:
+                    continue
+                if mime.startswith("image/"):
+                    # Images → Anthropic format, converter handles transformation
                     content_parts.append({
                         "type": "image",
                         "source": {
                             "type": "base64",
                             "media_type": mime,
                             "data": data,
+                        },
+                    })
+                else:
+                    # PDFs and other files → OpenRouter file format
+                    content_parts.append({
+                        "type": "file",
+                        "file": {
+                            "filename": fname,
+                            "file_data": f"data:{mime};base64,{data}",
                         },
                     })
             last_user["content"] = content_parts
