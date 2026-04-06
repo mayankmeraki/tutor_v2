@@ -37,6 +37,7 @@ class SessionRouter:
         is_session_start: bool = False,
         messages: list | None = None,
         attachments: list | None = None,
+        client_gen: int | None = None,
     ):
         """Handle a new student message — creates a new turn.
 
@@ -55,9 +56,12 @@ class SessionRouter:
             asyncio.create_task(old_turn.cleanup())
 
         self.generation += 1
+        # Use client's generation if provided — ensures event gen matches
+        # what the client expects (client gen is page-scoped, never resets)
+        effective_gen = client_gen if client_gen is not None else self.generation
         turn = TurnQueue(
             turn_id=uuid4().hex[:8],
-            generation=self.generation,
+            generation=effective_gen,
         )
         self.active_turn = turn
 
