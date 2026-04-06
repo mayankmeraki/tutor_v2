@@ -37,6 +37,7 @@ class SessionRouter:
         is_session_start: bool = False,
         messages: list | None = None,
         attachments: list | None = None,
+        client_gen: int | None = None,
     ):
         """Handle a new student message — creates a new turn.
 
@@ -57,7 +58,6 @@ class SessionRouter:
         self.generation += 1
         # Use client's generation if provided — ensures event gen matches
         # what the client expects (client gen is page-scoped, never resets)
-        client_gen = context.get("_clientGen") if isinstance(context, dict) else None
         effective_gen = client_gen if client_gen is not None else self.generation
         turn = TurnQueue(
             turn_id=uuid4().hex[:8],

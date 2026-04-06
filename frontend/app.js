@@ -1427,11 +1427,7 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
   state.paused = false;
   setVoiceBarState('thinking');
 
-  // Inject client generation into context so backend echoes it on events
-  if (!context) context = {};
-  context._clientGen = _ws.generation;
-
-  const payload = { type: 'MESSAGE', text, context, sessionId, isSessionStart, messages };
+  const payload = { type: 'MESSAGE', text, context, sessionId, isSessionStart, messages, gen: _ws.generation };
   if (attachments && attachments.length) {
     payload.attachments = attachments.map(a => ({
       filename: a.name, mime_type: a.type, data: a.base64,
