@@ -186,6 +186,66 @@ async def _evict_stale_sessions() -> None:
             log.info("Evicted session (cap): %s", sid[:8])
 
 
+def _validate_restored_messages(messages: list[dict]) -> list[dict]:
+    """Validate tool_use/tool_result integrity in restored messages.
+
+    Ensures every tool_use has a matching tool_result and vice versa.
+    Fixes: duplicate IDs, orphaned tool_use, orphaned tool_result.
+    """
+    if not messages:
+        return messages
+
+    import uuid as _uuid
+
+    # Pass 1: Deduplicate tool_use IDs
+    seen_ids = set()
+    for msg in messages:
+        content = msg.get("content")
+        if msg.get("role") == "assistant" and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tid = block.get("id")
+                    if tid and tid in seen_ids:
+                        new_id = f"toolu_{_uuid.uuid4().hex[:24]}"
+                        # Update matching tool_result
+                        for later in messages[messages.index(msg) + 1:]:
+                            lc = later.get("content")
+                            if later.get("role") == "user" and isinstance(lc, list):
+                                for rb in lc:
+                                    if isinstance(rb, dict) and rb.get("tool_use_id") == tid:
+                                        rb["tool_use_id"] = new_id
+                                break
+                        block["id"] = new_id
+                        tid = new_id
+                    if tid:
+                        seen_ids.add(tid)
+
+    # Pass 2: Ensure every tool_use has a tool_result
+    result = []
+    for i, msg in enumerate(messages):
+        result.append(msg)
+        content = msg.get("content")
+        if msg.get("role") != "assistant" or not isinstance(content, list):
+            continue
+        tool_ids = [b["id"] for b in content if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")]
+        if not tool_ids:
+            continue
+        # Check next message for matching results
+        nxt = messages[i + 1] if i + 1 < len(messages) else None
+        found_ids = set()
+        if nxt and nxt.get("role") == "user" and isinstance(nxt.get("content"), list):
+            found_ids = {b.get("tool_use_id") for b in nxt["content"] if isinstance(b, dict) and b.get("type") == "tool_result"}
+        missing = [tid for tid in tool_ids if tid not in found_ids]
+        if missing:
+            filler = [{"type": "tool_result", "tool_use_id": tid, "content": "[interrupted]"} for tid in missing]
+            if nxt and nxt.get("role") == "user" and isinstance(nxt.get("content"), list):
+                nxt["content"] = list(nxt["content"]) + filler
+            else:
+                result.append({"role": "user", "content": filler})
+
+    return result
+
+
 async def _try_restore_session(session_id: str) -> Session | None:
     """Attempt to restore session state from MongoDB."""
     try:
@@ -235,7 +295,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
             conversation_summary=bs.get("conversationSummary"),
             summary_covers_through=bs.get("summaryCoverCount", 0),
             asset_registry=bs.get("assetRegistry", []),
-            messages=bs.get("messages", []),
+            messages=_validate_restored_messages(bs.get("messages", [])),
             attachment_meta=bs.get("attachmentMeta", []),
         )
 

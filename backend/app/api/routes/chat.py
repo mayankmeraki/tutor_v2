@@ -1048,8 +1048,18 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     if len(messages) <= RECENT_MESSAGE_COUNT:
         return messages
 
-    recent = messages[-RECENT_MESSAGE_COUNT:]
-    old = messages[:-RECENT_MESSAGE_COUNT]
+    # Find the split point — but never split a tool_use/tool_result pair.
+    # If the first "recent" message is a user message with tool_results,
+    # pull the preceding assistant message into recent too.
+    split = len(messages) - RECENT_MESSAGE_COUNT
+    if split > 0 and split < len(messages):
+        first_recent = messages[split]
+        if (first_recent.get("role") == "user"
+            and isinstance(first_recent.get("content"), list)
+            and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in first_recent["content"])):
+            split = max(0, split - 1)  # pull preceding assistant msg into recent
+    recent = messages[split:]
+    old = messages[:split]
 
     # Preserve first message if it has attachments (images/PDFs/audio/video)
     pinned_first = None
