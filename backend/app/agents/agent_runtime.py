@@ -74,7 +74,7 @@ class DelegationState:
 @dataclass
 class AssessmentState:
     """Active assessment checkpoint — the assessment agent is in control."""
-    system_prompt: str              # Assessment agent's full system prompt
+    system_prompt: str = ""         # Assessment agent's full system prompt (built lazily if empty)
     tools: list[dict] = field(default_factory=list)
     brief: dict = field(default_factory=dict)   # Tutor's handoff brief
     section_title: str = ""
