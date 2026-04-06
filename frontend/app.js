@@ -1490,8 +1490,15 @@ function _wsOnMessage(msg) {
   let evt;
   try { evt = JSON.parse(msg.data); } catch { return; }
 
-  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED') {
-    if (!turn || (evt.gen !== undefined && evt.gen !== turn.gen)) return;
+  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE') {
+    if (!turn) {
+      console.warn(`[WS] Event ${evt.type} dropped — no active turn (gen=${evt.gen} wsGen=${_ws.generation})`);
+      return;
+    }
+    if (evt.gen !== undefined && evt.gen !== turn.gen) {
+      console.warn(`[WS] Event ${evt.type} dropped — gen mismatch (evt=${evt.gen} turn=${turn.gen})`);
+      return;
+    }
   }
 
   switch (evt.type) {
@@ -1504,10 +1511,13 @@ function _wsOnMessage(msg) {
       break;
 
     case 'VOICE_BEAT': {
-      if (!turn) break;
+      if (!turn) {
+        console.error(`[WS] VOICE_BEAT #${evt.beat} DROPPED — no active turn! gen=${evt.gen} wsGen=${_ws.generation} connId=${_ws.connId}`);
+        break;
+      }
       const beat = evt.data || {};
       beat._beatNum = evt.beat;
-      console.log(`[WS] Beat #${evt.beat} "${(beat.say||'').slice(0,40)}"`);
+      console.log(`[WS] Beat #${evt.beat} "${(beat.say||'').slice(0,40)}" gen=${turn.gen} execRunning=${turn.executorRunning}`);
       turn.beats[evt.beat] = turn.beats[evt.beat] || {};
       turn.beats[evt.beat].data = beat;
       turn.beats[evt.beat].text = beat.say || '';
