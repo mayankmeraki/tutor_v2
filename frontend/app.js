@@ -1274,11 +1274,13 @@ let _streamGeneration = 0;  // Increments on each new stream — prevents old cl
 const _ws = {
   conn: null,           // WebSocket connection
   enabled: true,        // feature flag — set to false to fall back to SSE
-  generation: 0,        // increments ONCE per turn — single source of truth
+  generation: 0,        // monotonically increasing — NEVER reset. Single source of truth.
+  connId: 0,            // increments on each new connection — filters events from dead connections
   accumulatedText: '',  // full text for message history
   reconnectTimer: null,
   retryCount: 0,
   pingInterval: null,   // keepalive ping timer
+  state: 'idle',        // 'idle' | 'connecting' | 'open' | 'closed'
 };
 
 // Per-turn state — completely replaced on each new turn.
@@ -1289,6 +1291,7 @@ function _wsNewTurn() {
   const gen = _ws.generation;
   return {
     gen,                   // which generation this turn belongs to
+    connId: _ws.connId,    // which connection this turn belongs to
     beats: {},             // beatNum → { text, audio (ArrayBuffer), skip, _resolver, _timeout, _blobUrl }
     executorRunning: false, // is the executor loop active for THIS turn
     executorExited: false,  // has the executor finished (prevents restart)
@@ -1296,23 +1299,57 @@ function _wsNewTurn() {
   };
 }
 
+function _wsCleanupConnection() {
+  // Kill any pending reconnect timer
+  if (_ws.reconnectTimer) { clearTimeout(_ws.reconnectTimer); _ws.reconnectTimer = null; }
+  // Kill keepalive
+  if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
+  // Kill current turn
+  _wsKillTurn('connection_cleanup');
+  // Reset streaming state to idle
+  state.isStreaming = false;
+  state._stopRequested = false;
+  state.paused = false;
+  // Close socket — suppress handlers to prevent recursive reconnect
+  if (_ws.conn) {
+    _ws.conn.onclose = null;
+    _ws.conn.onmessage = null;
+    _ws.conn.onerror = null;
+    try { _ws.conn.close(); } catch (e) {}
+    _ws.conn = null;
+  }
+  _ws.state = 'closed';
+}
+
 function wsConnect() {
   if (!_ws.enabled) return;
   const token = AuthManager?.getToken?.() || '';
-  if (!token) {
-    // No token yet (not logged in or token cleared) — skip connecting,
-    // will be called again when a session starts or after login
-    return;
+  if (!token) return;
+
+  // Clean up any existing connection first — prevents dual connections
+  if (_ws.conn && _ws.conn.readyState !== WebSocket.CLOSED) {
+    _wsCleanupConnection();
   }
+
+  _ws.connId++;
+  const thisConnId = _ws.connId;
+  _ws.state = 'connecting';
+
   const proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const url = `${proto}//${location.host}/ws/chat?token=${token}`;
   try {
-    _ws.conn = new WebSocket(url);
-    _ws.conn.binaryType = 'arraybuffer';
-    _ws.conn.onopen = () => {
-      console.log('[WS] Connected');
+    const sock = new WebSocket(url);
+    sock.binaryType = 'arraybuffer';
+    sock._connId = thisConnId;
+
+    sock.onopen = () => {
+      // Stale connection opened after a newer one was created — kill it
+      if (_ws.connId !== thisConnId) { try { sock.close(); } catch(e) {} return; }
+      console.log(`[WS] Connected (connId=${thisConnId})`);
+      _ws.conn = sock;
+      _ws.state = 'open';
       _ws.retryCount = 0;
-      // Keepalive ping every 30s to prevent Cloud Run / proxy idle timeout
+      // Keepalive ping every 30s
       if (_ws.pingInterval) clearInterval(_ws.pingInterval);
       _ws.pingInterval = setInterval(() => {
         if (_ws.conn?.readyState === WebSocket.OPEN) {
@@ -1320,11 +1357,23 @@ function wsConnect() {
         }
       }, 30000);
     };
-    _ws.conn.onmessage = _wsOnMessage;
-    _ws.conn.onclose = (evt) => {
+
+    sock.onmessage = (msg) => {
+      // Drop events from stale connections
+      if (sock._connId !== _ws.connId) return;
+      _wsOnMessage(msg);
+    };
+
+    sock.onclose = (evt) => {
+      // Stale connection closed — ignore
+      if (sock._connId !== _ws.connId) return;
       if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
       _wsKillTurn('disconnect');
-      // Auth failure (4001) or token expired — don't reconnect, redirect to login
+      state.isStreaming = false;
+      _ws.state = 'closed';
+      _ws.conn = null;
+
+      // Auth failure — redirect to login
       if (evt.code === 4001 || _ws._authFailed) {
         console.warn('[WS] Auth failed — redirecting to login');
         _ws._authFailed = false;
@@ -1332,32 +1381,28 @@ function wsConnect() {
         Router.navigate('/login', { replace: true });
         return;
       }
-      // Normal disconnect — reconnect with fresh token
-      console.log('[WS] Disconnected — reconnecting...');
+
+      // Normal disconnect — reconnect with backoff
+      console.log('[WS] Disconnected — will reconnect...');
+      setVoiceBarState('idle');
       const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 30000);
       _ws.retryCount++;
       _ws.reconnectTimer = setTimeout(wsConnect, delay);
     };
-    _ws.conn.onerror = () => {};
-  } catch (e) { console.warn('[WS] Connect failed:', e); }
+
+    sock.onerror = () => {};
+  } catch (e) {
+    console.warn('[WS] Connect failed:', e);
+    _ws.state = 'closed';
+  }
 }
 
 function wsReconnect() {
-  // Close existing connection cleanly and open a fresh one.
-  // Called at session start so each session gets a clean WS.
-  if (_ws.reconnectTimer) { clearTimeout(_ws.reconnectTimer); _ws.reconnectTimer = null; }
-  if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
-  _wsKillTurn('reconnect');
-  _ws.generation = 0;
+  // Full cleanup + fresh connection. Called at session start.
+  _wsCleanupConnection();
   _ws.accumulatedText = '';
   _ws.retryCount = 0;
-  if (_ws.conn) {
-    // Suppress the onclose handler so it doesn't auto-reconnect
-    _ws.conn.onclose = null;
-    _ws.conn.onerror = null;
-    try { _ws.conn.close(); } catch (e) {}
-    _ws.conn = null;
-  }
+  // generation is NEVER reset — monotonic across entire page lifecycle
   console.log('[WS] Reconnecting for new session...');
   wsConnect();
 }
@@ -1365,7 +1410,10 @@ function wsReconnect() {
 // ── Turn lifecycle ──────────────────────────────────────────
 
 function wsSendMessage(text, context, sessionId, isSessionStart, messages, attachments) {
-  if (!_ws.conn || _ws.conn.readyState !== WebSocket.OPEN) return false;
+  if (!_ws.conn || _ws.conn.readyState !== WebSocket.OPEN) {
+    console.warn('[WS] Cannot send — not connected');
+    return false;
+  }
 
   _wsKillTurn('new_message');
   _ws.generation++;
@@ -1386,7 +1434,7 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
     }));
   }
 
-  console.log(`[WS] New turn gen=${_ws.generation}${attachments?.length ? ` +${attachments.length} files` : ''}`);
+  console.log(`[WS] Send gen=${_ws.generation} connId=${_ws.connId}`);
   _ws.conn.send(JSON.stringify(payload));
   return true;
 }
@@ -1540,13 +1588,14 @@ function _wsOnMessage(msg) {
     case 'INTERRUPTED':
     case 'CANCELLED':
       console.log(`[WS] ${evt.type} gen=${evt.gen} current_gen=${_ws.generation}`);
-      // Only reset streaming state if this is for the CURRENT generation.
-      // Stale INTERRUPTED from old turn must NOT clobber new turn's state.
-      if (!_wsTurn || (evt.gen !== undefined && evt.gen >= _ws.generation)) {
-        state.isStreaming = false;
-        setVoiceBarState('idle');
-        // Keep last subtitle visible — it's often the question. Cleared on next subtitle.
+      // Only reset if this matches the CURRENT generation exactly.
+      // Stale events from old turns (gen < current) are silently dropped.
+      if (evt.gen !== undefined && evt.gen !== _ws.generation) {
+        console.warn(`[WS] Stale ${evt.type} gen=${evt.gen} (current=${_ws.generation}) — ignoring`);
+        break;
       }
+      state.isStreaming = false;
+      setVoiceBarState('idle');
       break;
 
     case 'RUN_ERROR':
@@ -1555,11 +1604,10 @@ function _wsOnMessage(msg) {
       if (evt.message && (evt.message.includes('Signature has expired') || evt.message.includes('Auth failed'))) {
         _ws._authFailed = true;
       }
-      // Only affect state if this is for the current turn
-      if (!_wsTurn || (evt.gen !== undefined && evt.gen >= _ws.generation)) {
-        state.isStreaming = false;
-        setVoiceBarState('idle');
-      }
+      // Only affect state if this is for the current generation
+      if (evt.gen !== undefined && evt.gen !== _ws.generation) break;
+      state.isStreaming = false;
+      setVoiceBarState('idle');
       break;
 
     default:
