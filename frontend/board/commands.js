@@ -57,14 +57,24 @@ export async function runCommand(cmd) {
 async function renderText(cmd) {
   const el = createStyledElement('div', cmd, 'bd-text');
   placeElement(el, cmd.placement, cmd);
-  await animateText(el, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(el, cmd.text)) {
+    await animateText(el, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 // ── EQUATION ─────────────────────────────────────────
 
+const _LATEX_RE = /\\(?:frac|left|right|hbar|alpha|beta|gamma|delta|lambda|omega|sigma|theta|pi|phi|psi|sqrt|sum|int|prod|lim|infty|partial|nabla|cdot|times|approx|equiv|neq|leq|geq|text|mathrm|mathbf|vec|hat|bar|dot|ddot|overline|underline|begin|end)\b|\\[{()}[\]]|\^\{|\$\$/;
+
+function _looksLikeLatex(text) {
+  return text && _LATEX_RE.test(text);
+}
+
 function _tryKatex(el, latex) {
   /** Render LaTeX into el via KaTeX. Returns true if successful. */
   if (typeof katex === 'undefined' || !latex) return false;
+  // Only attempt if it looks like LaTeX
+  if (!_looksLikeLatex(latex)) return false;
   try {
     katex.render(latex, el, { throwOnError: false, displayMode: true });
     return true;
@@ -162,7 +172,9 @@ async function renderStep(cmd) {
   el.appendChild(text);
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 // ── CHECK / CROSS ────────────────────────────────────
@@ -188,7 +200,9 @@ async function renderCallout(cmd) {
   el.appendChild(text);
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 // ── LIST ─────────────────────────────────────────────
@@ -248,7 +262,10 @@ async function renderResult(cmd) {
   }
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  // Result text is often LaTeX — try KaTeX first
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 // ── COLUMNS (grid layout zone) ───────────────────────
