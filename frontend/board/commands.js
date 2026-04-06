@@ -25,6 +25,11 @@ export async function runCommand(cmd) {
 
   switch (cmd.cmd) {
     case 'text':     await renderText(cmd); break;
+    case 'h1':       await renderText({ ...cmd, size: 'h1' }); break;
+    case 'h2':       await renderText({ ...cmd, size: 'h2' }); break;
+    case 'h3':       await renderText({ ...cmd, size: 'h3' }); break;
+    case 'gap':      renderGap(cmd); break;
+    case 'note':     await renderText({ ...cmd, size: 'small', color: cmd.color || 'dim' }); break;
     case 'latex':    await renderEquation(cmd); break;
     case 'equation': await renderEquation(cmd); break;
     case 'compare':  await renderCompare(cmd); break;
@@ -227,6 +232,16 @@ async function renderList(cmd) {
     if (board.cancelFlag) break;
     await animateText(listItems[i], items[i], { charDelay: 25 });
   }
+}
+
+// ── GAP (vertical spacing) ───────────────────────────
+
+function renderGap(cmd) {
+  const el = document.createElement('div');
+  el.className = 'bd-el bd-gap';
+  el.style.height = (cmd.height || 20) + 'px';
+  if (cmd.id) el.id = cmd.id;
+  placeElement(el, cmd.placement, cmd);
 }
 
 // ── DIVIDER ──────────────────────────────────────────

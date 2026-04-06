@@ -2963,6 +2963,9 @@ function cleanupActiveSession() {
 
   // ── 6. Board engine — full cleanup (JS state + DOM) ──
   if (typeof BoardEngine !== 'undefined') BoardEngine.cleanup();
+  // Clear board DOM so next session gets a fresh board
+  const bdContent = document.getElementById('bd-board-content');
+  if (bdContent) bdContent.innerHTML = '';
   // Reset board canvas ref so next session triggers fresh BoardEngine.init
   if (state.boardDraw) {
     state.boardDraw.canvas = null;
@@ -2981,6 +2984,10 @@ function cleanupActiveSession() {
     state.boardDraw.drawingEnabled = false;
     _sceneSnapshots.length = 0;
   }
+  // Reset spotlight panel state
+  state.spotlightActive = false;
+  const _spotC = document.getElementById('spotlight-content');
+  if (_spotC) _spotC.innerHTML = '';
 
   // ── 7. Video mode — close player, hide overlay ──
   if (state.video?.active || document.body.classList.contains('video-mode')) {
