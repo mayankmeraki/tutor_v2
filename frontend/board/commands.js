@@ -25,7 +25,7 @@ export async function runCommand(cmd) {
 
   switch (cmd.cmd) {
     case 'text':     await renderText(cmd); break;
-    case 'latex':    await renderText(cmd); break;
+    case 'latex':    await renderEquation(cmd); break;
     case 'equation': await renderEquation(cmd); break;
     case 'compare':  await renderCompare(cmd); break;
     case 'step':     await renderStep(cmd); break;
@@ -62,6 +62,18 @@ async function renderText(cmd) {
 
 // ── EQUATION ─────────────────────────────────────────
 
+function _tryKatex(el, latex) {
+  /** Render LaTeX into el via KaTeX. Returns true if successful. */
+  if (typeof katex === 'undefined' || !latex) return false;
+  try {
+    katex.render(latex, el, { throwOnError: false, displayMode: true });
+    return true;
+  } catch (e) {
+    console.warn('[Board] KaTeX render failed:', e.message);
+    return false;
+  }
+}
+
 async function renderEquation(cmd) {
   const el = createElement('div', cmd, 'bd-equation');
   el.classList.add(colorClass(cmd.color));
@@ -78,7 +90,11 @@ async function renderEquation(cmd) {
   }
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(main, cmd.text, { charDelay: cmd.charDelay });
+
+  // Try KaTeX first, fall back to character animation for plain text
+  if (!_tryKatex(main, cmd.text)) {
+    await animateText(main, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 // ── COMPARE ──────────────────────────────────────────

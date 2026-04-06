@@ -17762,8 +17762,16 @@ async function executeDraw(drawCmds) {
   }
 
   // Queue commands via BoardEngine + accumulate JSONL for session persistence
-  for (const origCmd of drawCmds) {
-    if (!origCmd || !origCmd.cmd) continue;
+  for (let origCmd of drawCmds) {
+    if (!origCmd) continue;
+    // Handle _raw fallback from backend when JSON parse failed
+    if (!origCmd.cmd && origCmd._raw) {
+      try { origCmd = JSON.parse(origCmd._raw); } catch (e) {
+        console.warn('[VoiceScene] Failed to parse _raw draw command:', origCmd._raw?.slice(0, 100));
+        continue;
+      }
+    }
+    if (!origCmd.cmd) continue;
     BoardEngine.queueCommand({ ...origCmd });
     // Accumulate raw JSONL so activeBoardDrawContent gets saved for session restore
     const jsonLine = JSON.stringify(origCmd);

@@ -59,6 +59,7 @@ def _extract_draw_json(attr_str: str) -> str | None:
         return m.group(1) if m else None
 
     # Bracket-match to find closing }
+    # Tracks both " and ' strings (animation code has JS with single quotes)
     depth = 0
     in_str = False
     str_char = ''
@@ -77,9 +78,9 @@ def _extract_draw_json(attr_str: str) -> str | None:
             if ch == str_char:
                 in_str = False
             continue
-        if ch == '"':
+        if ch in ('"', "'"):
             in_str = True
-            str_char = '"'
+            str_char = ch
             continue
         if ch == '{':
             depth += 1
