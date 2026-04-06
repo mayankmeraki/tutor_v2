@@ -50,8 +50,14 @@ def voice_clean_text(text: str) -> str:
     s = re.sub(r'\$(.+?)\$', r'\1', s)
     # Strip [bracketed] annotations
     s = re.sub(r'\[[^\]]*\]\s*', '', s)
+    # Replace em-dashes and multi-hyphens with natural pauses (commas)
+    # TTS engines mispronounce "--" and "—" as literal characters
+    s = re.sub(r'\s*[—–]\s*', ', ', s)   # em-dash / en-dash → comma pause
+    s = re.sub(r'\s*-{2,}\s*', ', ', s)  # -- or --- → comma pause
     # Collapse whitespace
     s = re.sub(r'\s+', ' ', s).strip()
+    # Clean up double commas from replacements
+    s = re.sub(r',\s*,', ',', s)
     # Filter out "(no text)" placeholder from backend serialization
     if s == "(no text)":
         return ""
