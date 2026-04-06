@@ -1342,6 +1342,26 @@ function wsConnect() {
   } catch (e) { console.warn('[WS] Connect failed:', e); }
 }
 
+function wsReconnect() {
+  // Close existing connection cleanly and open a fresh one.
+  // Called at session start so each session gets a clean WS.
+  if (_ws.reconnectTimer) { clearTimeout(_ws.reconnectTimer); _ws.reconnectTimer = null; }
+  if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
+  _wsKillTurn('reconnect');
+  _ws.generation = 0;
+  _ws.accumulatedText = '';
+  _ws.retryCount = 0;
+  if (_ws.conn) {
+    // Suppress the onclose handler so it doesn't auto-reconnect
+    _ws.conn.onclose = null;
+    _ws.conn.onerror = null;
+    try { _ws.conn.close(); } catch (e) {}
+    _ws.conn = null;
+  }
+  console.log('[WS] Reconnecting for new session...');
+  wsConnect();
+}
+
 // ── Turn lifecycle ──────────────────────────────────────────
 
 function wsSendMessage(text, context, sessionId, isSessionStart, messages, attachments) {
@@ -1493,19 +1513,28 @@ function _wsOnMessage(msg) {
       break;
 
     case 'DONE':
-      console.log(`[WS] DONE gen=${evt.gen}`);
+      // Validate generation — stale DONE from old turn must not kill current turn
+      if (evt.gen !== undefined && turn && evt.gen !== turn.gen) {
+        console.warn(`[WS] Stale DONE gen=${evt.gen} (current=${turn.gen}) — ignoring`);
+        break;
+      }
+      console.log(`[WS] DONE gen=${evt.gen} executorRunning=${turn?.executorRunning}`);
       state.isStreaming = false;
       _ws.accumulatedText = evt.fullText || _ws.accumulatedText;
       if (_ws.accumulatedText) {
         state.messages.push({ id: state.currentMessageId || generateId(), role: 'assistant', content: _ws.accumulatedText, timestamp: Date.now() });
         state.totalAssistantTurns++;
-        // Record to session transcript (for persistence + restoration)
         if (typeof SessionManager !== 'undefined') {
           SessionManager.recordMessage('assistant', _ws.accumulatedText);
           SessionManager.saveSession();
         }
       }
-      if (!turn?.executorRunning) setVoiceBarState('idle');
+      if (!turn?.executorRunning) {
+        setVoiceBarState('idle');
+      } else {
+        // Executor still playing beats — signal it to go idle when it finishes
+        turn._doneReceived = true;
+      }
       break;
 
     case 'INTERRUPTED':
@@ -1541,8 +1570,10 @@ function _wsOnMessage(msg) {
 // ── Executor ────────────────────────────────────────────────
 
 function _wsEnsureExecutor(turn) {
-  if (turn.executorRunning || turn.executorExited) return;
+  // Allow restart if executor exited but new beats arrived
+  if (turn.executorRunning) return;
   turn.executorRunning = true;
+  turn.executorExited = false;
   _eager.running = true;
   _wsRunExecutor(turn);
 }
@@ -1550,41 +1581,51 @@ function _wsEnsureExecutor(turn) {
 async function _wsRunExecutor(turn) {
   const TIMEOUT = 120000;
   const t0 = Date.now();
-  console.log(`[WS Exec] Start gen=${turn.gen} q=${_eager.queue.length}`);
+  console.log(`[WS Exec] Start gen=${turn.gen} q=${_eager.queue.length} streaming=${state.isStreaming}`);
 
   try {
     while (true) {
-      if (turn.executorExited || state._stopRequested || _wsTurn !== turn) break;
-      if (Date.now() - t0 > TIMEOUT) break;
+      if (state._stopRequested || _wsTurn !== turn) break;
+      if (Date.now() - t0 > TIMEOUT) {
+        console.warn(`[WS Exec] Timeout after ${TIMEOUT}ms — exiting`);
+        break;
+      }
 
-      while (state.paused && !state._stopRequested && !turn.executorExited) {
+      while (state.paused && !state._stopRequested) {
         await new Promise(r => setTimeout(r, 100));
       }
-      if (state._stopRequested || turn.executorExited) break;
+      if (state._stopRequested) break;
 
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
         if (_vbState === 'thinking') setVoiceBarState('speaking');
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
         if (beat.question) break;
-      } else if (state.isStreaming) {
+      } else if (state.isStreaming || _eager.queue.length > 0) {
+        // Still streaming or beats may arrive — wait
         await new Promise(r => setTimeout(r, 80));
       } else {
+        // Streaming done AND queue empty — exit
         break;
       }
     }
   } finally {
-    console.log(`[WS Exec] Exit gen=${turn.gen}`);
+    console.log(`[WS Exec] Exit gen=${turn.gen} q=${_eager.queue.length} doneReceived=${!!turn._doneReceived}`);
     turn.executorRunning = false;
     turn.executorExited = true;
     if (_wsTurn === turn || _wsTurn === null) {
       _eager.running = false;
-      setTimeout(() => {
-        if (!_eager.running && !(_wsTurn?.audioEl)) {
-          if (typeof safeTransitionToIdle === 'function') safeTransitionToIdle();
-          else setVoiceBarState('idle');
-        }
-      }, 300);
+      // If DONE was received while executor was running, go idle now
+      if (turn._doneReceived) {
+        setVoiceBarState('idle');
+      } else {
+        setTimeout(() => {
+          if (!_eager.running && !(_wsTurn?.audioEl)) {
+            if (typeof safeTransitionToIdle === 'function') safeTransitionToIdle();
+            else setVoiceBarState('idle');
+          }
+        }, 300);
+      }
     }
   }
 }
@@ -1675,13 +1716,21 @@ async function _wsPlayAudio(beat, beatNum, turn) {
       resolve();
     };
     audio.onended = () => done('ended');
-    audio.onerror = () => done('error');
-    audio.play().then(() => console.log(`[WS Audio] Beat #${beatNum} started playing`)).catch(() => {
-      // Retry once after short delay — autoplay may have been unlocked by now
-      setTimeout(() => {
-        audio.play().then(() => console.log(`[WS Audio] Beat #${beatNum} started playing (retry)`)).catch(() => done('autoplay-blocked'));
-      }, 200);
-    });
+    audio.onerror = (e) => { console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
+    audio.play()
+      .then(() => console.log(`[WS Audio] Beat #${beatNum} playing`))
+      .catch((err) => {
+        console.warn(`[WS Audio] Beat #${beatNum} play failed:`, err.message);
+        // Retry once after short delay — autoplay may have been unlocked
+        setTimeout(() => {
+          audio.play()
+            .then(() => console.log(`[WS Audio] Beat #${beatNum} playing (retry)`))
+            .catch((err2) => {
+              console.error(`[WS Audio] Beat #${beatNum} autoplay blocked — skipping:`, err2.message);
+              done('autoplay-blocked');
+            });
+        }, 200);
+      });
   });
 
   if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
@@ -11446,6 +11495,10 @@ async function startNewSession(name, courseId, intent, scenario) {
   // Clean up any active session (board, agents, streaming)
   if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
   state._startingSession = true; // re-set after cleanup cleared it
+
+  // Fresh WebSocket for each session — prevents stale generation counters,
+  // orphaned executor state, and audio context issues from prior sessions
+  wsReconnect();
 
   // Show loading state on button
   const startBtn = $('#btn-start-session');
