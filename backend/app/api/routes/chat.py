@@ -3559,6 +3559,22 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
         elif name == "request_board_image":
             return "Board image requested — student's board state will be included on next turn."
 
+        elif name == "complete_triage":
+            session.triage_result = {
+                "diagnosed_gaps": inp.get("diagnosed_gaps", []),
+                "confirmed_strong": inp.get("confirmed_strong", []),
+                "student_level": inp.get("student_level", ""),
+                "recommended_start": inp.get("recommended_start", ""),
+                "content_refs": inp.get("content_refs", []),
+            }
+            session.phase = SessionPhase.TEACHING
+            slog.info("Triage complete → TEACHING", extra=session.triage_result)
+            return (
+                "Triage complete. You now have a clear picture of the student. "
+                "Start teaching — use the board, draw, explain. "
+                "Do NOT repeat the diagnostic to the student."
+            )
+
         elif name == "session_signal":
             session.last_signals = inp or {}
             slog.info("Session signal", extra=inp or {})
@@ -3786,6 +3802,38 @@ async def _generate_for_turn(
             if is_session_start and not is_video_mode:
                 _init_session_phase(session, context_data, slog)
 
+            # ── Triage phase: inject triage overlay into tutor prompt ──
+            if session.phase == SessionPhase.TRIAGE:
+                triage_ctx = {}
+                # Resolve content brief so triage knows what's available
+                if not session.triage_result and session.student_intent:
+                    try:
+                        from app.services.content_resolver import resolve_content, format_content_brief
+                        from app.core.database import get_mongo_db
+                        brief = await resolve_content(session.student_intent)
+                        triage_ctx["contentBrief"] = format_content_brief(brief)
+                        if not hasattr(session, '_content_brief'):
+                            session._content_brief = brief
+                    except Exception as e:
+                        slog.warning("Content resolve for triage failed: %s", e)
+                # Upcoming topics
+                if session.current_topics and session.current_topic_index >= 0:
+                    upcoming = session.current_topics[session.current_topic_index:][:5]
+                    if upcoming:
+                        triage_ctx["upcomingTopics"] = "\n".join(
+                            f"  - {t.get('title', '?')}" for t in upcoming
+                        )
+                # Last assessment
+                if session.last_assessment_summary:
+                    la = session.last_assessment_summary
+                    score = la.get("score", {})
+                    triage_ctx["lastAssessment"] = (
+                        f"Score: {score.get('correct',0)}/{score.get('total',0)} ({score.get('pct',0)}%)"
+                    )
+                context_data["triageContext"] = triage_ctx
+                context_data["sessionPhase"] = "triage"
+                slog.info("Phase TRIAGE: injecting triage overlay into tutor prompt (ws)")
+
             # Plan setup
             if is_session_start and not is_video_mode:
                 if session.current_plan:
@@ -3920,9 +3968,13 @@ async def _generate_for_turn(
             # content_map always removed — course map is already in context
             _removed_tools.add("content_map")
 
+            # complete_triage only available during triage phase
+            if session.phase != SessionPhase.TRIAGE:
+                _removed_tools.add("complete_triage")
+
             # First 3 turns: remove ALL content tools — tutor should teach from
             # plan + course map context, not fetch content. Teaches immediately.
-            if session.assistant_turn_count < 3:
+            if session.assistant_turn_count < 3 and session.phase != SessionPhase.TRIAGE:
                 _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek"}
 
             if is_video_mode:
