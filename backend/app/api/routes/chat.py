@@ -173,7 +173,88 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
 
         cleaned.append(msg)
 
-    return cleaned
+    # ── Tool pairing validation ──
+    # Anthropic requires:
+    # - Every tool_use ID is unique across all messages
+    # - Every tool_use has a matching tool_result in the next user message
+    # - Every tool_result has a matching tool_use in the preceding assistant message
+    #
+    # Violations happen when:
+    # - Turn interrupted after tool_use appended but before tool_results (orphan tool_use)
+    # - Messages duplicated during serialization/restore (duplicate IDs)
+    # - tool_result message lost during context windowing (orphan tool_use)
+
+    import uuid as _uuid
+
+    # Pass 1: Fix duplicate tool_use IDs (reassign, update matching results)
+    seen_tool_ids = set()
+    for i, msg in enumerate(cleaned):
+        content = msg.get("content")
+        if msg.get("role") == "assistant" and isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "tool_use":
+                    tid = block.get("id")
+                    if tid and tid in seen_tool_ids:
+                        new_id = f"toolu_{_uuid.uuid4().hex[:24]}"
+                        old_id = tid
+                        log.warning("Reassigning duplicate tool_use id %s → %s", old_id, new_id)
+                        block["id"] = new_id
+                        # Update matching tool_result
+                        for k in range(i + 1, len(cleaned)):
+                            sub = cleaned[k].get("content")
+                            if cleaned[k].get("role") == "user" and isinstance(sub, list):
+                                for rb in sub:
+                                    if isinstance(rb, dict) and rb.get("type") == "tool_result" and rb.get("tool_use_id") == old_id:
+                                        rb["tool_use_id"] = new_id
+                                        break
+                                break
+                        tid = new_id
+                    if tid:
+                        seen_tool_ids.add(tid)
+
+    # Pass 2: Ensure every tool_use has a matching tool_result
+    # If an assistant message has tool_use blocks but the next message
+    # doesn't have matching tool_results (interrupted turn), inject them.
+    final = []
+    for i, msg in enumerate(cleaned):
+        final.append(msg)
+        content = msg.get("content")
+        if msg.get("role") != "assistant" or not isinstance(content, list):
+            continue
+
+        # Collect tool_use IDs in this assistant message
+        tool_use_ids = [
+            b["id"] for b in content
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("id")
+        ]
+        if not tool_use_ids:
+            continue
+
+        # Check if next message has matching tool_results
+        next_msg = cleaned[i + 1] if i + 1 < len(cleaned) else None
+        next_result_ids = set()
+        if next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list):
+            next_result_ids = {
+                b.get("tool_use_id") for b in next_msg["content"]
+                if isinstance(b, dict) and b.get("type") == "tool_result"
+            }
+
+        # Find tool_use IDs without matching results
+        missing = [tid for tid in tool_use_ids if tid not in next_result_ids]
+        if missing:
+            log.warning("Injecting %d missing tool_results for interrupted tool calls", len(missing))
+            missing_results = [
+                {"type": "tool_result", "tool_use_id": tid, "content": "[interrupted — tool execution was cancelled]"}
+                for tid in missing
+            ]
+            if next_msg and next_msg.get("role") == "user" and isinstance(next_msg.get("content"), list):
+                # Append to existing user message
+                next_msg["content"] = list(next_msg["content"]) + missing_results
+            else:
+                # Insert a new user message with the missing results
+                final.append({"role": "user", "content": missing_results})
+
+    return final
 
 
 def _clean_partial_content(text: str) -> str:
