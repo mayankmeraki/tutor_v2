@@ -658,13 +658,10 @@ def _should_skip_triage(session, context_data: dict) -> bool:
 
 
 def _init_session_phase(session, context_data: dict, slog):
-    """Set the initial session phase based on intent + student model."""
-    if _should_skip_triage(session, context_data):
-        session.phase = SessionPhase.TEACHING
-        slog.info("Phase: skip triage → TEACHING", extra={"reason": "clear_intent_or_rich_model"})
-    else:
-        session.phase = SessionPhase.TRIAGE
-        slog.info("Phase: starting with TRIAGE", extra={"intent": (session.student_intent or "")[:50]})
+    """Set the initial session phase. Always TEACHING — triage is now
+    embedded in the per-topic READ-CHECK-TEACH-VERIFY cycle."""
+    session.phase = SessionPhase.TEACHING
+    slog.info("Phase: TEACHING (diagnostic embedded in teaching cycle)")
 
 
 def _check_phase_transition(session, agent_output: dict) -> SessionPhase | None:
@@ -1181,13 +1178,8 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
     if getattr(session, '_planner_spawned', False):
         return
 
-    # Check readiness: enough turns AND enough student observations
-    turn_count = session.assistant_turn_count
-    student_notes = (session.student_model or {}).get("notes", {})
-    note_count = len(student_notes)
-
-    if turn_count < 4 or note_count < 2:
-        return
+    # Spawn on first turn — planner runs in background while tutor starts teaching.
+    # No need to wait for observations — the planner has intent + student model + course content.
 
     try:
         intent = session.student_intent or "general study session"
