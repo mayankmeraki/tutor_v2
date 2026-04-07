@@ -29,7 +29,8 @@
   --bd-font: 'Pangolin', 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
   /* Chalk colors */
-  --bd-white: #e8e8e0;
+  --bd-white: #EBF5ED;       /* body text */
+  --bd-header: #F8F5EF;      /* h1/h2/h3 headers */
   --bd-yellow: #f5d97a;
   --bd-gold: #fbbf24;
   --bd-green: #7ed99a;
@@ -339,18 +340,21 @@
   font-size: var(--bd-h1);
   font-weight: 600;
   line-height: 1.4;
+  color: var(--bd-header);
 }
 
 .bd-size-h2 {
   font-size: var(--bd-h2);
   font-weight: 500;
   line-height: 1.5;
+  color: var(--bd-header);
 }
 
 .bd-size-h3 {
   font-size: var(--bd-h3);
   font-weight: 500;
   line-height: 1.5;
+  color: var(--bd-header);
 }
 
 .bd-size-text {
