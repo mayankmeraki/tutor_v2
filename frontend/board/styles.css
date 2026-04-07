@@ -28,16 +28,17 @@
   --bd-grid-spacing: 40px;
   --bd-font: 'Pangolin', 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
-  /* Chalk colors — unified neutral palette */
-  --bd-white: #EBF5ED;       /* body text */
-  --bd-header: #F8F5EF;      /* h1/h2/h3 headers */
-  --bd-yellow: #F8F5EF;      /* unified — was bright yellow */
-  --bd-gold: #F8F5EF;        /* unified — was bright gold */
-  --bd-green: #EBF5ED;       /* unified — was bright green */
-  --bd-green-alt: #EBF5ED;   /* unified — was emerald */
-  --bd-cyan: #EBF5ED;        /* unified — was bright cyan */
+  /* Brand palette */
+  --bd-header: #8BD282;      /* h1/h2/h3 — topic headers (mint green) */
+  --bd-white: #65C2B6;       /* body text + bullet points (teal) */
+  --bd-accent: #337A71;      /* secondary accent (dark teal) */
+  --bd-yellow: #8BD282;      /* unified to header green */
+  --bd-gold: #8BD282;        /* unified to header green */
+  --bd-green: #65C2B6;       /* unified to body teal */
+  --bd-green-alt: #8BD282;   /* unified to header green */
+  --bd-cyan: #65C2B6;        /* unified to body teal */
   --bd-red: #ff6b6b;         /* kept for actual error/warning emphasis */
-  --bd-dim: #b0bec5;         /* kept for muted secondary text */
+  --bd-dim: #337A71;         /* now uses brand accent */
 
   /* Chalk glow — applied via text-shadow */
   --bd-glow: 0 0 3px currentColor;
