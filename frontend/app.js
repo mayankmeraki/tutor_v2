@@ -293,10 +293,20 @@ const SessionManager = (() => {
     // If a save is already in flight, mark pending and return immediately
     if (_saveInFlight) { _savePending = true; return; }
 
-    // Build snapshot synchronously (fast — just reads state)
+    // ── Time tracking with idle cap ──
+    // Cap each "since last activity" segment at IDLE_CAP_SEC.
+    // Activity = any tutor/student turn or save tick (last visible state).
+    // This prevents idle/AFK time from inflating the duration.
+    const IDLE_CAP_SEC = 300; // 5 minutes max without activity counts
     if (state.sessionStartTime) {
-      const currentSegment = Math.floor((Date.now() - state.sessionStartTime) / 1000);
-      session.durationSec = (state._accumulatedDuration || 0) + currentSegment;
+      const now = Date.now();
+      const lastTick = state._lastActivityAt || state.sessionStartTime;
+      const sinceLast = Math.floor((now - lastTick) / 1000);
+      // Only count up to IDLE_CAP_SEC of "since last tick" — caps idle drift
+      const counted = Math.min(sinceLast, IDLE_CAP_SEC);
+      state._accumulatedDuration = (state._accumulatedDuration || 0) + counted;
+      state._lastActivityAt = now;
+      session.durationSec = state._accumulatedDuration;
     }
     session.metrics.totalTurns = session.transcript.length;
     session.metrics.studentResponses = session.transcript.filter(m => m.role === 'user').length;
@@ -388,9 +398,14 @@ const SessionManager = (() => {
     if (!session) return;
     session.status = 'complete';
     session.endedAt = now();
+    // Final duration: include only capped activity time (idle excluded)
+    const IDLE_CAP_SEC = 300;
     if (state.sessionStartTime) {
-      const currentSegment = Math.floor((Date.now() - state.sessionStartTime) / 1000);
-      session.durationSec = (state._accumulatedDuration || 0) + currentSegment;
+      const lastTick = state._lastActivityAt || state.sessionStartTime;
+      const sinceLast = Math.floor((Date.now() - lastTick) / 1000);
+      const counted = Math.min(sinceLast, IDLE_CAP_SEC);
+      state._accumulatedDuration = (state._accumulatedDuration || 0) + counted;
+      session.durationSec = state._accumulatedDuration;
     }
     // Fire-and-forget — don't block UI on archive
     apiPatch(`/${session.sessionId}`, {
@@ -7295,13 +7310,19 @@ let timerInterval = null;
 function startTimer() {
   if (timerInterval) clearInterval(timerInterval);
   state.sessionStartTime = Date.now();
+  state._lastActivityAt = Date.now();
+  // Don't reset _accumulatedDuration here — it may have been seeded
+  // from a restored session at line 11755.
+  if (state._accumulatedDuration == null) state._accumulatedDuration = 0;
   timerInterval = setInterval(updateTimer, 1000);
   updateTimer();
 }
 
 function updateTimer() {
   if (!state.sessionStartTime) return;
-  const elapsed = Math.floor((Date.now() - state.sessionStartTime) / 1000);
+  // Use accumulated (capped) duration so the displayed time never inflates
+  // due to idle/AFK gaps. _accumulatedDuration is updated by saveSession().
+  const elapsed = state._accumulatedDuration || 0;
   const min = Math.floor(elapsed / 60);
   const sec = elapsed % 60;
   const timeStr = `${min}:${sec.toString().padStart(2, '0')}`;
