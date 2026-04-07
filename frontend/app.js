@@ -17974,7 +17974,7 @@ function setVoiceBarState(newState) {
       if (field) field.placeholder = 'Your answer...';
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
-      voiceHideSubtitle();
+      // Keep last subtitle visible — it persists until next turn starts (thinking)
       break;
 
     case 'thinking':
@@ -17986,6 +17986,8 @@ function setVoiceBarState(newState) {
       if (status) { status.className = 'vb-status active thinking'; status.textContent = 'Euler is thinking...'; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
+      // Clear previous turn's last subtitle when new turn starts
+      voiceHideSubtitle();
       break;
 
     case 'speaking':
