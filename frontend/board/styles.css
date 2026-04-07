@@ -28,18 +28,18 @@
   --bd-grid-spacing: 40px;
   --bd-font: 'Pangolin', 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
-  /* Brand palette */
-  --bd-header: #8BD282;      /* h1 — topic headers (mint green) */
-  --bd-h2-color: #EBF5ED;    /* h2 / h3 — section headers (off-white) */
-  --bd-white: #F8F5EF;       /* body text (warm white) */
-  --bd-accent: #337A71;      /* secondary accent (dark teal) */
-  --bd-yellow: #8BD282;      /* unified to header green */
-  --bd-gold: #8BD282;        /* unified to header green */
-  --bd-green: #65C2B6;       /* bullet points (teal) */
-  --bd-green-alt: #8BD282;   /* unified to header green */
-  --bd-cyan: #65C2B6;        /* bullet points (teal) */
-  --bd-red: #ff6b6b;         /* kept for actual error/warning emphasis */
-  --bd-dim: #337A71;         /* dark teal accent */
+  /* Two-color palette: headings vs everything else */
+  --bd-header: #EBF5ED;      /* h1/h2/h3 — all headings */
+  --bd-h2-color: #EBF5ED;    /* same as h1 */
+  --bd-white: #F8F5EF;       /* body text + bullets + everything else */
+  --bd-accent: #F8F5EF;
+  --bd-yellow: #F8F5EF;
+  --bd-gold: #F8F5EF;
+  --bd-green: #F8F5EF;
+  --bd-green-alt: #F8F5EF;
+  --bd-cyan: #F8F5EF;
+  --bd-red: #ff6b6b;         /* kept only for actual error/warning */
+  --bd-dim: #F8F5EF;
 
   /* Chalk glow — applied via text-shadow */
   --bd-glow: 0 0 3px currentColor;
