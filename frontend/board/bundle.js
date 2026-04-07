@@ -521,13 +521,31 @@ function sanitizeCode(code) {
   code = code.replace(/^```(?:javascript|js)?\s*/i, '').replace(/\s*```\s*$/, '');
 
   var stack = [];
-  var inStr = false, esc = false;
+  var strChar = null;  // null = not in string; otherwise the quote char that opened it
+  var esc = false;
+  var inLineComment = false;
+  var inBlockComment = false;
   for (var i = 0; i < code.length; i++) {
     var ch = code[i];
+    var next = code[i + 1];
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') { inBlockComment = false; i++; }
+      continue;
+    }
     if (esc) { esc = false; continue; }
-    if (ch === '\\') { esc = true; continue; }
-    if (ch === "'" || ch === '"' || ch === '`') { inStr = !inStr; continue; }
-    if (inStr) continue;
+    if (strChar) {
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === strChar) { strChar = null; }
+      continue;
+    }
+    // Not in string
+    if (ch === '/' && next === '/') { inLineComment = true; i++; continue; }
+    if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+    if (ch === "'" || ch === '"' || ch === '`') { strChar = ch; continue; }
     if (ch === '{') stack.push('}');
     else if (ch === '(') stack.push(')');
     else if (ch === '[') stack.push(']');
@@ -883,7 +901,12 @@ async function runCommand(cmd) {
 
   switch (cmd.cmd) {
     case 'text':     await renderText(cmd); break;
-    case 'latex':    await renderText(cmd); break;
+    case 'h1':       await renderText(Object.assign({}, cmd, { size: 'h1' })); break;
+    case 'h2':       await renderText(Object.assign({}, cmd, { size: 'h2' })); break;
+    case 'h3':       await renderText(Object.assign({}, cmd, { size: 'h3' })); break;
+    case 'gap':      renderGap(cmd); break;
+    case 'note':     await renderText(Object.assign({}, cmd, { size: 'small', color: cmd.color || 'dim' })); break;
+    case 'latex':    await renderEquation(cmd); break;
     case 'equation': await renderEquation(cmd); break;
     case 'compare':  await renderCompare(cmd); break;
     case 'step':     await renderStep(cmd); break;
@@ -1894,10 +1917,39 @@ async function renderDiagram(cmd) {
   }
 }
 
+// LaTeX detection + KaTeX rendering
+var _LATEX_RE = /\\(?:frac|left|right|hbar|alpha|beta|gamma|delta|lambda|omega|sigma|theta|pi|phi|psi|sqrt|sum|int|prod|lim|infty|partial|nabla|cdot|times|approx|equiv|neq|leq|geq|text|mathrm|mathbf|vec|hat|bar|dot|ddot|overline|underline|begin|end)\b|\^\{|\$\$/;
+
+function _looksLikeLatex(text) {
+  return text && _LATEX_RE.test(text);
+}
+
+function _tryKatex(el, latex) {
+  if (typeof katex === 'undefined' || !latex) return false;
+  if (!_looksLikeLatex(latex)) return false;
+  try {
+    katex.render(latex, el, { throwOnError: false, displayMode: true });
+    return true;
+  } catch (e) {
+    console.warn('[Board] KaTeX render failed:', e.message);
+    return false;
+  }
+}
+
 async function renderText(cmd) {
   var el = createStyledElement('div', cmd, 'bd-text');
   placeElement(el, cmd.placement, cmd);
-  await animateText(el, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(el, cmd.text)) {
+    await animateText(el, cmd.text, { charDelay: cmd.charDelay });
+  }
+}
+
+function renderGap(cmd) {
+  var el = document.createElement('div');
+  el.className = 'bd-el bd-gap';
+  el.style.height = (cmd.height || 20) + 'px';
+  if (cmd.id) el.id = cmd.id;
+  placeElement(el, cmd.placement, cmd);
 }
 
 async function renderEquation(cmd) {
@@ -2038,7 +2090,9 @@ async function renderStep(cmd) {
   el.appendChild(text);
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 async function renderCheckCross(cmd, isCheck) {
@@ -2049,7 +2103,9 @@ async function renderCheckCross(cmd, isCheck) {
   el.appendChild(text);
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay || 25 });
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay || 25 });
+  }
 }
 
 async function renderCallout(cmd) {
@@ -2060,7 +2116,9 @@ async function renderCallout(cmd) {
   el.appendChild(text);
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 async function renderList(cmd) {
@@ -2112,7 +2170,9 @@ async function renderResult(cmd) {
   }
 
   placeElement(el, cmd.placement, cmd);
-  await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  if (!_tryKatex(text, cmd.text)) {
+    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
+  }
 }
 
 function renderStrikeout(cmd) {
