@@ -28,16 +28,16 @@
   --bd-grid-spacing: 40px;
   --bd-font: 'Pangolin', 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
-  /* Chalk colors */
+  /* Chalk colors — unified neutral palette */
   --bd-white: #EBF5ED;       /* body text */
   --bd-header: #F8F5EF;      /* h1/h2/h3 headers */
-  --bd-yellow: #f5d97a;
-  --bd-gold: #fbbf24;
-  --bd-green: #7ed99a;
-  --bd-green-alt: #34d399;
-  --bd-cyan: #53d8fb;
-  --bd-red: #ff6b6b;
-  --bd-dim: #b0bec5;
+  --bd-yellow: #F8F5EF;      /* unified — was bright yellow */
+  --bd-gold: #F8F5EF;        /* unified — was bright gold */
+  --bd-green: #EBF5ED;       /* unified — was bright green */
+  --bd-green-alt: #EBF5ED;   /* unified — was emerald */
+  --bd-cyan: #EBF5ED;        /* unified — was bright cyan */
+  --bd-red: #ff6b6b;         /* kept for actual error/warning emphasis */
+  --bd-dim: #b0bec5;         /* kept for muted secondary text */
 
   /* Chalk glow — applied via text-shadow */
   --bd-glow: 0 0 3px currentColor;
