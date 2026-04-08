@@ -22,21 +22,24 @@
 /* ─── Custom Properties (Color Palette) ─────────────────── */
 
 :root {
-  --bd-bg: #1a1d2e;
+  --bd-bg: #060e11;
   --bd-bg-dark: rgba(0, 0, 0, 0.25);
   --bd-grid-line: rgba(255, 255, 255, 0.025);
   --bd-grid-spacing: 40px;
-  --bd-font: 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
+  --bd-font: 'Pangolin', 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
-  /* Chalk colors */
-  --bd-white: #e8e8e0;
-  --bd-yellow: #f5d97a;
-  --bd-gold: #fbbf24;
-  --bd-green: #7ed99a;
-  --bd-green-alt: #34d399;
-  --bd-cyan: #53d8fb;
-  --bd-red: #ff6b6b;
-  --bd-dim: #b0bec5;
+  /* Two-color palette: headings vs everything else */
+  --bd-header: #EBF5ED;      /* h1/h2/h3 — all headings */
+  --bd-h2-color: #EBF5ED;    /* same as h1 */
+  --bd-white: #F8F5EF;       /* body text + bullets + everything else */
+  --bd-accent: #F8F5EF;
+  --bd-yellow: #F8F5EF;
+  --bd-gold: #F8F5EF;
+  --bd-green: #F8F5EF;
+  --bd-green-alt: #F8F5EF;
+  --bd-cyan: #F8F5EF;
+  --bd-red: #ff6b6b;         /* kept only for actual error/warning */
+  --bd-dim: #F8F5EF;
 
   /* Chalk glow — applied via text-shadow */
   --bd-glow: 0 0 3px currentColor;
@@ -339,18 +342,21 @@
   font-size: var(--bd-h1);
   font-weight: 600;
   line-height: 1.4;
+  color: var(--bd-header);   /* mint green #8BD282 */
 }
 
 .bd-size-h2 {
   font-size: var(--bd-h2);
   font-weight: 500;
   line-height: 1.5;
+  color: var(--bd-h2-color); /* #EBF5ED */
 }
 
 .bd-size-h3 {
   font-size: var(--bd-h3);
   font-weight: 500;
   line-height: 1.5;
+  color: var(--bd-h2-color); /* #EBF5ED — same as H2 */
 }
 
 .bd-size-text {

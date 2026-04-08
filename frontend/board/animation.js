@@ -28,15 +28,34 @@ function sanitizeCode(code) {
   code = code.replace(/\u00A0/g, ' ');
   code = code.replace(/^```(?:javascript|js)?\s*/i, '').replace(/\s*```\s*$/, '');
 
-  // Balance brackets
+  // Balance brackets — track strings and comments correctly
+  // (broken version flipped inStr on any quote, ignoring which char opened it,
+  //  causing parens inside strings to be miscounted and extra ')' appended)
   const stack = [];
-  let inStr = false, esc = false;
+  let strChar = null;
+  let esc = false;
+  let inLineComment = false;
+  let inBlockComment = false;
   for (let i = 0; i < code.length; i++) {
     const ch = code[i];
+    const next = code[i + 1];
+    if (inLineComment) {
+      if (ch === '\n') inLineComment = false;
+      continue;
+    }
+    if (inBlockComment) {
+      if (ch === '*' && next === '/') { inBlockComment = false; i++; }
+      continue;
+    }
     if (esc) { esc = false; continue; }
-    if (ch === '\\') { esc = true; continue; }
-    if (ch === "'" || ch === '"' || ch === '`') { inStr = !inStr; continue; }
-    if (inStr) continue;
+    if (strChar) {
+      if (ch === '\\') { esc = true; continue; }
+      if (ch === strChar) { strChar = null; }
+      continue;
+    }
+    if (ch === '/' && next === '/') { inLineComment = true; i++; continue; }
+    if (ch === '/' && next === '*') { inBlockComment = true; i++; continue; }
+    if (ch === "'" || ch === '"' || ch === '`') { strChar = ch; continue; }
     if (ch === '{') stack.push('}');
     else if (ch === '(') stack.push(')');
     else if (ch === '[') stack.push(']');
