@@ -1190,6 +1190,8 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
 
     # Spawn on first turn — planner runs in background while tutor starts teaching.
     # No need to wait for observations — the planner has intent + student model + course content.
+    turn_count = session.assistant_turn_count
+    note_count = len((session.student_model or {}).get("notes", {}))
 
     try:
         intent = session.student_intent or "general study session"
