@@ -167,6 +167,8 @@ class AgentRuntime:
             coro = self._run_enrichment_agent(task, context)
         elif agent_type == "visual_gen":
             coro = self._run_visual_gen_agent(task, context)
+        elif agent_type == "concept_research":
+            coro = self._run_concept_research_agent(task, context)
         else:
             # "research", "content", "problem_gen", or any custom type
             # All go through the generic LLM agent
@@ -645,6 +647,204 @@ class AgentRuntime:
             task.agent_id, rounds, len(result_text),
         )
         return result_text.strip() or "(no enrichment needed)"
+
+    # ── Concept research agent ───────────────────────────────────────────
+
+    async def _run_concept_research_agent(self, task: AgentTask, context: dict) -> dict:
+        """Per-concept teaching research — generates the substantive material
+        the tutor needs to teach a concept properly.
+
+        Output (JSON dict):
+            {
+              "concept": str,                # the concept name
+              "calibration_question": str,   # SPECIFIC diagnostic question
+              "tier_rubric": {                # how to map student answers → tier
+                "tier_1_signal": str,
+                "tier_2_signal": str,
+                "tier_3_signal": str
+              },
+              "mechanism": str,              # WHY this works (causal, ≤120 words)
+              "counterfactual": str,         # WHY NOT alternatives (≤120 words)
+              "applications": [              # 3 graded by surprise
+                {"name": str, "summary": str, "kind": "direct"|"indirect"|"surprising"},
+                ...
+              ],
+              "discrimination_problems": [   # 2-3 disguised situations
+                {"setup": str, "answer": str},
+                ...
+              ]
+            }
+
+        Spawned per concept-topic by the teaching pipeline. Result is stored
+        on the topic in session.current_topics so it isn't re-researched.
+        """
+        system_prompt = (
+            "You are a teaching research agent. Your job is to generate the "
+            "raw material a tutor needs to teach ONE concept properly.\n\n"
+            "The tutor will use your output to:\n"
+            "  1. CALIBRATE the student with a specific diagnostic question\n"
+            "  2. TEACH the four substantive things: theory, mechanism, "
+            "counterfactual, applications\n"
+            "  3. DISCRIMINATE — show situations where the concept hides\n\n"
+            "GUIDING PRINCIPLES:\n"
+            "  • Calibration question MUST be SPECIFIC (computable, diagnostic). "
+            "Never open-ended like 'have you seen X?'. Use a question whose "
+            "answer reveals the student's level in one shot.\n"
+            "  • Mechanism is CAUSAL, not historical. Skip dates and inventors. "
+            "Explain WHY the math/logic works the way it does.\n"
+            "  • Counterfactual reveals WHY NOT the alternative — what's the "
+            "problem with the obvious other approach?\n"
+            "  • Applications are graded by SURPRISE: direct (textbook), "
+            "indirect (different domain, same skeleton), surprising (the "
+            "student would never guess this is the same concept). The "
+            "surprising one is the most important — find a NON-OBVIOUS use.\n"
+            "  • Discrimination problems are 2-3 problems whose surface looks "
+            "completely different but whose underlying skeleton is the same "
+            "concept. The student should NOT see the connection at first.\n\n"
+            "USE TOOLS to find non-obvious applications. Don't invent from "
+            "your weights alone — use web_search and content_search to find "
+            "real, vivid, surprising uses of the concept.\n\n"
+            "OUTPUT: Reply with ONE valid JSON object matching the schema "
+            "below. No prose before or after. No markdown code fences.\n\n"
+            "{\n"
+            '  "concept": "<concept name>",\n'
+            '  "calibration_question": "<one specific diagnostic question, ≤200 chars>",\n'
+            '  "tier_rubric": {\n'
+            '    "tier_1_signal": "<what a tier-1 (blank) answer looks like>",\n'
+            '    "tier_2_signal": "<what a tier-2 (knows procedure) answer looks like>",\n'
+            '    "tier_3_signal": "<what a tier-3 (fluent) answer looks like>"\n'
+            '  },\n'
+            '  "mechanism": "<≤120 words: causal, intuitive WHY>",\n'
+            '  "counterfactual": "<≤120 words: WHY NOT the alternative>",\n'
+            '  "applications": [\n'
+            '    {"name": "<short name>", "summary": "<≤80 words>", "kind": "direct"},\n'
+            '    {"name": "...",          "summary": "...",          "kind": "indirect"},\n'
+            '    {"name": "...",          "summary": "...",          "kind": "surprising"}\n'
+            '  ],\n'
+            '  "discrimination_problems": [\n'
+            '    {"setup": "<problem statement, ≤100 words>", "answer": "<which concept/why, ≤30 words>"},\n'
+            '    ...\n'
+            '  ]\n'
+            "}"
+        )
+
+        # Provide course context if available
+        for key in ("courseMap", "concepts"):
+            val = context.get(key)
+            if val:
+                system_prompt += f"\n\n[{key}]\n{str(val)[:1500]}"
+
+        # Tools the research agent can use
+        research_tools = []
+        from app.tools import TUTOR_TOOLS
+        for t in TUTOR_TOOLS:
+            if t["name"] in ("web_search", "content_search", "get_section_content"):
+                research_tools.append(t)
+
+        # Build the request from task instructions (which should contain the
+        # concept name + any extra context like the topic's teaching notes)
+        messages = [{"role": "user", "content": task.instructions}]
+
+        model = settings.medium_model  # Sonnet — better discrimination quality
+        rounds = 0
+        max_rounds = 4
+        final_response = None
+
+        while rounds < max_rounds:
+            rounds += 1
+
+            async def _call():
+                kwargs = {
+                    "model": model,
+                    "max_tokens": 3000,
+                    "system": system_prompt,
+                    "messages": messages,
+                    "metadata": self._meta("concept_research", task.agent_id),
+                }
+                if research_tools and rounds <= 3:
+                    kwargs["tools"] = research_tools
+                return await llm_call(**kwargs)
+
+            response = await _retry_api_call(
+                _call, label=f"ConceptResearch[{task.agent_id}]"
+            )
+            task.track_usage(response)
+            final_response = response
+
+            tool_blocks = [b for b in response.content if b.type == "tool_use"]
+            if not tool_blocks:
+                break
+
+            # Execute tools in parallel (same pattern as enrichment)
+            import asyncio as _aio
+            from app.tools import execute_tutor_tool
+
+            async def _exec_tool(block):
+                try:
+                    return block.id, await execute_tutor_tool(block.name, block.input)
+                except Exception as e:
+                    log.warning("ConceptResearch tool %s failed: %s", block.name, e)
+                    return block.id, f"Error: {e}"
+
+            tool_tasks = [_exec_tool(b) for b in tool_blocks]
+            tool_outputs = await _aio.gather(*tool_tasks)
+
+            tool_results = []
+            for tool_id, output in tool_outputs:
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_id,
+                    "content": str(output)[:3000] if output else "(no result)",
+                })
+
+            messages.append({
+                "role": "assistant",
+                "content": [b.to_dict() if hasattr(b, "to_dict") else b for b in response.content],
+            })
+            messages.append({"role": "user", "content": tool_results})
+
+        # Extract JSON from final response text
+        text_out = ""
+        if final_response is not None:
+            for block in final_response.content:
+                if hasattr(block, "text") and block.text:
+                    text_out += block.text
+
+        text_out = text_out.strip()
+        # Strip code fences if model added them despite instructions
+        if text_out.startswith("```"):
+            text_out = text_out.lstrip("`")
+            if text_out.lower().startswith("json"):
+                text_out = text_out[4:]
+            text_out = text_out.rstrip("`").strip()
+
+        try:
+            research = json.loads(text_out)
+        except (json.JSONDecodeError, ValueError) as e:
+            log.warning(
+                "ConceptResearch agent %s returned non-JSON: %s — falling back",
+                task.agent_id, str(e)[:200],
+            )
+            # Fallback: return a minimal structure so the tutor doesn't fail
+            research = {
+                "concept": task.description,
+                "calibration_question": "",
+                "tier_rubric": {},
+                "mechanism": "",
+                "counterfactual": "",
+                "applications": [],
+                "discrimination_problems": [],
+                "_error": "Research generation failed; tutor must improvise.",
+            }
+
+        log.info(
+            "ConceptResearch %s done — %d rounds, concept=%r, %d apps, %d disc",
+            task.agent_id, rounds,
+            research.get("concept", "?"),
+            len(research.get("applications", [])),
+            len(research.get("discrimination_problems", [])),
+        )
+        return research
 
     # ── Visual generation agent ──────────────────────────────────────────
 

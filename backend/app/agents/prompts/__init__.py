@@ -431,6 +431,15 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         parts.append("\n[CURRENT TOPIC — Execute these steps now]\n")
         parts.append(current_topic)
 
+    concept_research = context_data.get("conceptResearch")
+    if concept_research:
+        parts.append(
+            "\n[CONCEPT RESEARCH — pre-generated material for this topic. "
+            "Use as ground truth: the calibration question, mechanism, "
+            "counterfactual, applications, and discrimination problems.]\n"
+        )
+        parts.append(concept_research)
+
     completed_topics = context_data.get("completedTopics")
     if completed_topics:
         parts.append(f"\n[COMPLETED TOPICS]\n{completed_topics}\n")

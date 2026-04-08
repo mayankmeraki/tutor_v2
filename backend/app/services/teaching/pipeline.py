@@ -1306,6 +1306,85 @@ def _spawn_enrichment_agent(session, runtime, context_data: dict, slog, is_initi
         slog.warning("Failed to spawn enrichment agent: %s", e)
 
 
+def _auto_spawn_concept_research_if_needed(session, runtime, context_data: dict, slog) -> None:
+    """Spawn the concept_research agent for the CURRENT topic if it's a
+    concept-type topic and doesn't already have research attached.
+
+    Result lands in topic["_research"] via _promote_concept_research() when the
+    next turn pops completed agents. Persisted on the session, so re-research
+    is never triggered for the same topic.
+    """
+    if not runtime:
+        return
+    if not session.current_topics:
+        return
+    if not (0 <= session.current_topic_index < len(session.current_topics)):
+        return
+
+    topic = session.current_topics[session.current_topic_index]
+    topic_type = (topic.get("type") or "concept").lower()
+    if topic_type not in ("concept", "concept_topic"):
+        return  # Skill / review / drill topics don't need research
+
+    if topic.get("_research"):
+        return  # Already researched
+
+    # Idempotency: avoid spawning twice for the same topic in flight
+    spawned_key = f"_research_spawned_topic_{session.current_topic_index}"
+    if getattr(session, spawned_key, False):
+        return
+
+    concept = topic.get("title") or topic.get("name") or "(unknown concept)"
+    teaching_notes = topic.get("teaching_notes") or topic.get("notes") or ""
+
+    instructions = (
+        f"Generate teaching research for the concept: {concept}\n\n"
+        f"Topic context: {teaching_notes[:1200]}\n\n"
+        f"Student intent: {(session.student_intent or '')[:300]}\n\n"
+        "Output the JSON object as instructed in your system prompt. Use "
+        "tools to find a NON-OBVIOUS surprising application — don't settle "
+        "for the textbook example."
+    )
+
+    try:
+        runtime.spawn(
+            "concept_research",
+            f"ConceptResearch: {concept[:50]}",
+            instructions,
+            context_data,
+        )
+        setattr(session, spawned_key, True)
+        slog.info("Spawned concept_research agent", extra={"concept": concept[:60]})
+    except Exception as e:
+        slog.warning("Failed to spawn concept_research agent: %s", e)
+
+
+def _promote_concept_research(session, research: dict) -> None:
+    """Attach a completed concept_research result to the matching topic.
+
+    Matches by concept name (case-insensitive). If no match, drops it.
+    """
+    if not isinstance(research, dict):
+        return
+    concept = (research.get("concept") or "").strip().lower()
+    if not concept:
+        return
+    if not session.current_topics:
+        return
+    for i, topic in enumerate(session.current_topics):
+        title = (topic.get("title") or topic.get("name") or "").strip().lower()
+        if not title:
+            continue
+        if title == concept or concept in title or title in concept:
+            topic["_research"] = research
+            # Clear the in-flight flag now that research is here
+            try:
+                delattr(session, f"_research_spawned_topic_{i}")
+            except AttributeError:
+                pass
+            return
+
+
 # ── Plan promotion helpers ──────────────────────────────────────────────────
 
 def _promote_plan(session, plan_data: dict) -> None:
@@ -2439,6 +2518,8 @@ async def _generate_for_turn(
                     result = agent["result"]
                     session.generated_visuals[result.get("visual_id", "")] = {"html": result.get("html", ""), "title": result.get("title", "")}
                     yield _sse({"type": "VISUAL_READY", "id": result.get("visual_id", ""), "title": result.get("title", ""), "html": result.get("html", "")})
+                elif agent["type"] == "concept_research" and agent["status"] == "complete" and agent.get("result"):
+                    _promote_concept_research(session, agent["result"])
 
             agent_results_str = _format_agent_results(completed) if completed else None
 
@@ -2510,6 +2591,16 @@ async def _generate_for_turn(
                     if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
                     else None
                 ),
+                "conceptResearch": (
+                    json.dumps(
+                        session.current_topics[session.current_topic_index].get("_research"),
+                        indent=2,
+                    )
+                    if session.current_topics
+                    and 0 <= session.current_topic_index < len(session.current_topics)
+                    and session.current_topics[session.current_topic_index].get("_research")
+                    else None
+                ),
                 "completedTopics": _format_completed(session.completed_topics),
                 "sessionScope": _format_session_scope(session),
                 "agentResults": agent_results_str,
@@ -2517,6 +2608,10 @@ async def _generate_for_turn(
                 "checkpointAndPace": _build_checkpoint_and_pace(session),
                 "_housekeepingDue": _housekeeping_due,
             })
+
+            # Spawn concept_research for the current topic if needed (runs
+            # in parallel with the tutor's response — result lands next turn).
+            _auto_spawn_concept_research_if_needed(session, runtime, context_data, slog)
 
             # Track topic dwell time for pace nudges
             _track_topic_dwell(session)
