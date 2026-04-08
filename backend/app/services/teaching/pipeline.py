@@ -632,7 +632,7 @@ def _extract_user_email(context_data: dict) -> str | None:
         return None
 
 
-CONTENT_TOOL_NAMES = {"content_map", "content_read", "content_peek", "content_search"}
+CONTENT_TOOL_NAMES = {"content_read", "content_peek", "content_search"}
 
 
 # ── Session Phase Controller ──────────────────────────────────────────────────
@@ -2095,9 +2095,9 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
 async def _execute_tool_block(*, block, session, session_id, context_data, runtime, request, slog):
     """Execute a single tool call block and return the result string.
 
-    Handles the most common tutor tools.  For tools that need streaming events
-    (like spawn_agent, handoff_to_assessment), those are handled inline
-    in _generate_for_turn() — this function handles the simpler content tools.
+    Handles the small set of tools the main tutor still calls directly.
+    Plan management, agent orchestration, signals, notes, handoffs, and
+    delegations are all handled via housekeeping tags now — not tool calls.
     """
     name = block.name
     inp = block.input or {}
@@ -2119,116 +2119,6 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             result = await get_simulation_details(sim_id)
             return result or f"No simulation found: {sim_id}"
 
-        elif name == "update_student_model":
-            notes = inp.get("notes", [])
-            # Model sometimes sends notes as a JSON string — parse it
-            if isinstance(notes, str):
-                try:
-                    notes = json.loads(notes)
-                except (json.JSONDecodeError, TypeError):
-                    notes = [{"concepts": ["_general"], "note": notes}]
-            # Backward compat: observations field
-            if not notes and inp.get("observations"):
-                notes = [{"concepts": ["_profile"], "note": inp["observations"]}]
-            # Update in-memory session model
-            if not session.student_model:
-                session.student_model = {"notes": {}}
-            model_notes = session.student_model.setdefault("notes", {})
-            for entry in notes:
-                concepts = entry.get("concepts", [])
-                primary = concepts[0] if concepts else "_uncategorized"
-                model_notes[primary] = {
-                    "concepts": concepts,
-                    "note": entry.get("note", ""),
-                }
-            # Persist notes
-            _sm_course_id, _ = _extract_student_info(context_data)
-            _sm_email = _extract_user_email(context_data)
-            if _sm_course_id and _sm_email:
-                from app.services.knowledge.knowledge_state import upsert_concept_note
-                for entry in notes:
-                    try:
-                        await upsert_concept_note(
-                            _sm_course_id, _sm_email, session_id,
-                            concepts=entry.get("concepts", ["_uncategorized"]),
-                            note_text=entry.get("note", ""),
-                            lesson=entry.get("lesson"),
-                        )
-                    except Exception as e:
-                        slog.warning("Failed to upsert student note: %s", e)
-            return "Student model updated. Continue teaching — do not mention this update to the student."
-
-        elif name == "advance_topic":
-            # Mark current topic complete, move to next
-            if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics):
-                current = session.current_topics[session.current_topic_index]
-                session.completed_topics.append(current.get("title", "Unknown"))
-                session.current_topic_index += 1
-            session.pre_assessment_note = None
-            return "Advanced to next topic"
-
-        elif name == "handoff_to_assessment":
-            from app.agents.agent_runtime import AssessmentState
-            section_title = inp.get("section_title", "")
-            concepts = inp.get("concepts", [])
-            session.assessment = AssessmentState(
-                section_title=section_title,
-                concepts_tested=concepts,
-            )
-            session.pre_assessment_note = {
-                "section": section_title,
-                "concepts": concepts,
-                "tutorNote": inp.get("tutor_note", ""),
-            }
-            return f"Assessment checkpoint started for: {section_title}"
-
-        elif name == "delegate_teaching":
-            from app.agents.agent_runtime import DelegationState
-            topic = inp.get("topic", "")
-            instructions = inp.get("instructions", "")
-            session.delegation = DelegationState(
-                topic=topic,
-                instructions=instructions,
-            )
-            return f"Teaching delegated for topic: {topic}"
-
-        elif name == "modify_plan":
-            action = inp.get("action")
-            if action == "insert_topic" and inp.get("topic"):
-                idx = session.current_topic_index + 1
-                session.current_topics.insert(idx, inp["topic"])
-                return f"Inserted topic at position {idx}"
-            elif action == "skip_topic":
-                if session.current_topics and session.current_topic_index < len(session.current_topics):
-                    skipped = session.current_topics[session.current_topic_index]
-                    session.current_topic_index += 1
-                    return f"Skipped topic: {skipped.get('title', '?')}"
-            return "Plan modified"
-
-        elif name == "reset_plan":
-            session.current_plan = None
-            session.current_topics = []
-            session.current_topic_index = 0
-            session._planner_spawned = False  # allow re-spawn on next eligible turn
-            return "Plan reset — new planner will spawn when ready"
-
-        elif name == "spawn_agent":
-            agent_type = inp.get("type", "research")
-            task_desc = inp.get("task", "")
-            # Skip duplicate planning spawn
-            if agent_type == "planning" and getattr(session, '_planner_spawned', False):
-                session._planner_spawned = False
-                return "Planning agent already running in background."
-            agent_id = runtime.spawn(agent_type=agent_type, task=task_desc, context=context_data)
-            return f"Agent spawned: {agent_id} (type={agent_type})"
-
-        elif name == "check_agents":
-            completed = runtime.pop_completed() if runtime else []
-            return json.dumps([{"type": a.get("type"), "status": a.get("status")} for a in completed]) if completed else "No completed agents."
-
-        elif name == "request_board_image":
-            return "Board image requested — student's board state will be included on next turn."
-
         elif name == "complete_triage":
             session.triage_result = {
                 "diagnosed_gaps": inp.get("diagnosed_gaps", []),
@@ -2244,14 +2134,6 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
                 "Start teaching — use the board, draw, explain. "
                 "Do NOT repeat the diagnostic to the student."
             )
-
-        elif name == "session_signal":
-            session.last_signals = inp or {}
-            slog.info("Session signal", extra=inp or {})
-            new_phase = _check_phase_transition(session, {})
-            if new_phase and new_phase != session.phase:
-                session.phase = new_phase
-            return "Signal received. (terminal — no further rounds needed)"
 
         elif name == "control_simulation":
             return json.dumps({"status": "ok", "action": inp.get("action", "unknown")})
@@ -2617,29 +2499,28 @@ async def _generate_for_turn(
             _track_topic_dwell(session)
 
             # ── Tool filtering ──────────────────────────────────
-            # Remove tools that are tag-based, deterministic, or cause unnecessary LLM rounds.
-            # spawn_agent/check_agents: enrichment handled by shadow agent in background
-            # session_signal/update_student_model/advance_topic: tag-based (housekeeping)
+            # The schema includes tools used by sub-agents (assessment,
+            # delegation, planner, enrichment) — strip those out for the
+            # main tutor. Plan/agent/notes/handoff control all happens via
+            # housekeeping tags now, not tool calls — those tools are gone
+            # from the schema entirely.
             _removed_tools = {
-                "update_student_model", "advance_topic", "session_signal",
-                "spawn_agent", "check_agents",
-                "modify_plan", "reset_plan",
-                "handoff_to_assessment", "delegate_teaching",
                 "web_search", "search_images",  # disabled — not working reliably
+                "query_knowledge",              # student model already in context
+                "byo_read", "byo_list", "byo_transcript_context",  # sub-agents only
+                "update_student_model",         # tutor uses <notes> housekeeping tag
             }
             is_first_turn = (session.assistant_turn_count == 0)
-
-            # content_map always removed — course map is already in context
-            _removed_tools.add("content_map")
 
             # complete_triage only available during triage phase
             if session.phase != SessionPhase.TRIAGE:
                 _removed_tools.add("complete_triage")
 
-            # First 3 turns: remove ALL content tools — tutor should teach from
-            # plan + course map context, not fetch content. Teaches immediately.
+            # First 3 turns: remove ALL content lookup tools — tutor should
+            # teach from plan + course map context, not fetch content. Teaches
+            # immediately. Re-enabled from turn 4 onwards.
             if session.assistant_turn_count < 3 and session.phase != SessionPhase.TRIAGE:
-                _removed_tools |= {"content_search", "get_section_content", "query_knowledge", "content_read", "content_peek"}
+                _removed_tools |= {"content_search", "get_section_content", "content_read", "content_peek"}
 
             if is_video_mode:
                 # Determine if this is a NEW pause (fresh timestamp) or a follow-up at same spot

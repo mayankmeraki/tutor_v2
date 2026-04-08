@@ -277,7 +277,7 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
                 f"Course: {course_title}\n"
                 f"{course_desc[:300]}\n"
                 f"Structure:\n" + "\n".join(outline_lines) + "\n"
-                f"\nYou have FULL access to this course content via content_map/content_read/content_search tools.\n"
+                f"\nYou have FULL access to this course content via content_read/content_peek/content_search tools.\n"
                 f"You can teach ANY topic from this course on the board — even without the video playing.\n"
                 f"═══════════════════════════════════════════\n"
             )
@@ -314,8 +314,8 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
     # ─── COURSE CONTEXT ── REMOVED from per-turn injection ─────
     # Course map, concepts, simulations are NO LONGER sent every turn.
-    # The planner gets them at session start. The tutor uses content_map tool on demand.
-    # This saves ~1700 tokens per turn (~34,000 tokens per 20-turn session).
+    # The planner gets them at session start. The tutor uses content_read/
+    # content_search on demand. This saves ~1700 tokens per turn.
 
     # ─── SECTION 2: STUDENT CONTEXT ─────────────────────────────
     # Who this student is and what they know — persists across sessions.
@@ -546,8 +546,8 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
             "If the assessment was weak (<60%), do NOT end the session — "
             "propose continuing with a different approach. Give the student "
             "agency: offer to try a simulation, board-draw, or new angle. "
-            "When discussion is complete and the student is ready, call "
-            "advance_topic to resume teaching.\n"
+            "When discussion is complete and the student is ready, emit "
+            "<signal progress=\"complete\" .../> in housekeeping to advance.\n"
         )
         parts.append(pre_assessment_note)
 
@@ -716,7 +716,7 @@ web_search(query, limit)
   Supplementary info for question grounding (rare — prefer course content).
 
 TOOLS YOU DO NOT HAVE (assessment is focused):
-  spawn_agent, check_agents, delegate_teaching, advance_topic, reset_plan,
-  control_simulation, request_board_image
+  Plan/agent control (handled by main tutor via housekeeping tags).
+  Use complete_assessment / handback_to_tutor to return control.
 
 Keep it simple: read content → ask question → evaluate → log."""
