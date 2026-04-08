@@ -1182,10 +1182,15 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
     The planner gets: intent + student model + course map + grounding tools
     (content_read, web_search). Uses Sonnet for high-quality plans.
     """
+    slog.info("[PLANNER_SPAWN] called — current_plan=%s _planner_spawned=%s",
+              bool(session.current_plan),
+              getattr(session, '_planner_spawned', False))
     # Guard: don't spawn if plan already exists or planner already running
     if session.current_plan:
+        slog.info("[PLANNER_SPAWN] skipped — plan already exists")
         return
     if getattr(session, '_planner_spawned', False):
+        slog.info("[PLANNER_SPAWN] skipped — already spawned")
         return
 
     # Spawn on first turn — planner runs in background while tutor starts teaching.
@@ -1272,17 +1277,17 @@ Include pre-fetched content summaries for each topic so the tutor can teach with
 Output a single JSON object (not JSONL).
 """
 
-        runtime.spawn(
+        agent_id = runtime.spawn(
             agent_type="planning",
             description=f"Plan session: {intent[:60]}",
             instructions=plan_instructions,
             context={**context_data},
         )
         session._planner_spawned = True
-        slog.info("Auto-spawned planner at turn %d (%d student observations)",
-                   turn_count, note_count, extra={"intent": intent[:80]})
+        slog.info("[PLANNER_SPAWN] spawned agent_id=%s intent=%s", agent_id, intent[:80])
     except Exception as e:
-        slog.warning("Failed to auto-spawn planner: %s", e)
+        import traceback
+        slog.error("[PLANNER_SPAWN] FAILED: %s\n%s", e, traceback.format_exc())
 
 
 def _auto_spawn_enrichment(session, runtime, context_data: dict, slog):

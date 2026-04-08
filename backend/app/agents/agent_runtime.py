@@ -277,7 +277,13 @@ class AgentRuntime:
                 # sent the next turn yet.
                 event["plan"] = result
                 event["session_objective"] = result.get("session_objective", "")
+                log.info("[PLANNER_COMPLETE] agent=%s sections=%d pushing event with plan",
+                         task.agent_id,
+                         len(result.get("sections", [])) if isinstance(result.get("sections"), list) else 0)
             self._push_event(event)
+            if task.type == "planning":
+                log.info("[PLANNER_COMPLETE] event pushed to queue (queue_size=%d)",
+                         self.event_queue.qsize())
         except asyncio.TimeoutError:
             task.status = "error"
             task.error = f"Agent timed out after {AGENT_TIMEOUT}s"
