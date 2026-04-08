@@ -1271,8 +1271,6 @@ function generateId() {
   return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2);
 }
 
-let _streamGeneration = 0;  // Increments on each new stream — prevents old cleanup from interfering
-
 // ══════════════════════════════════════════════════════════════
 //   WebSocket Streaming (Server-Side TTS)
 //
@@ -1608,6 +1606,30 @@ function _wsOnMessage(msg) {
         // Executor still playing beats — signal it to go idle when it finishes
         turn._doneReceived = true;
       }
+      // Handle deferred board capture request from tutor tool
+      if (state.pendingBoardCaptureRequest) {
+        state.pendingBoardCaptureRequest = false;
+        setTimeout(() => {
+          if (state.boardDraw.canvas) {
+            const combinedUrl = bdCaptureBoard();
+            if (combinedUrl) {
+              const bd = state.boardDraw;
+              const parts = [];
+              if (bd.tutorSnapshot) {
+                const tutorB64 = bd.tutorSnapshot.split(',')[1];
+                parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: tutorB64 } });
+                parts.push({ type: 'text', text: '[IMAGE 1 — TUTOR ORIGINAL] This is what YOU drew originally.' });
+              }
+              const combinedB64 = combinedUrl.split(',')[1];
+              parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: combinedB64 } });
+              parts.push({ type: 'text', text: bd.tutorSnapshot
+                ? '[IMAGE 2 — COMBINED] Your drawing + student additions. Compare with IMAGE 1 to see what the student added.'
+                : '[Board capture] Current state of the shared board.' });
+              streamADK(parts, true);
+            }
+          }
+        }, 200);
+      }
       break;
 
     case 'INTERRUPTED':
@@ -1831,9 +1853,7 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   state.isStreaming = true;
   state._stopRequested = false;
   state.paused = false;
-  state._streamReader = null;
   state._lastSSETimestamp = Date.now();
-  const thisGen = ++_streamGeneration;
 
   // Set voice bar to thinking state
   setVoiceBarState('thinking');
@@ -1902,11 +1922,9 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
 
   showStreamingIndicator();
 
-  // ── WebSocket path (voice mode with server-side TTS) ──
-  if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN && state.teachingMode === 'voice') {
-    console.log('[streamADK] Using WebSocket path');
+  // ── WebSocket is the only path (voice mode hardcoded) ──
+  if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN) {
     _eagerReset();
-    // Grab pending attachments before sending
     const wsAttachments = _eulerAttachments.length ? _eulerAttachments.slice() : null;
     if (wsAttachments) { _eulerAttachments = []; _renderAttachPreview('euler-attach-preview'); }
     const sent = wsSendMessage(
@@ -1917,147 +1935,21 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
       windowedMessages,
       wsAttachments,
     );
-    if (sent) return; // WebSocket handles everything
-    // If WS send failed, fall through to SSE
-    console.warn('[streamADK] WS send failed — falling back to SSE');
+    if (sent) return;
+    console.warn('[streamADK] WS send failed');
   }
 
-  try {
-    const res = await fetch(`${state.apiUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        ...AuthManager.authHeaders(),
-      },
-      body: JSON.stringify(body),
-    });
-
-    if (!res.ok) {
-      const errText = await res.text();
-      throw new Error(`API ${res.status}: ${errText.slice(0, 200)}`);
-    }
-
-    const reader = res.body.getReader();
-    state._streamReader = reader;
-    const decoder = new TextDecoder();
-    let buffer = '';
-
-    state.accumulatedText = '';
-    state.currentMessageId = null;
-
-    while (true) {
-      if (state._stopRequested) {
-        reader.cancel();
-        break;
-      }
-      const { done, value } = await reader.read();
-      if (done) break;
-
-      buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop();
-
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const jsonStr = line.slice(6).trim();
-        if (!jsonStr) continue;
-
-        try {
-          const event = JSON.parse(jsonStr);
-          if (!state._stopRequested) handleSSEEvent(event);
-        } catch (e) {
-          // Skip unparseable events
-        }
-      }
-    }
-
-    if (!state._stopRequested && buffer.startsWith('data: ')) {
-      try {
-        const event = JSON.parse(buffer.slice(6).trim());
-        handleSSEEvent(event);
-      } catch (e) {}
-    }
-  } catch (err) {
-    if (!state._stopRequested) {
-      removeStreamingIndicator();
-      removeAssessmentTransition();
-      hideSessionPrep(); // Dismiss loading overlay on error
-      renderAIError(err.message);
-      console.error('[Stream] Error:', err.message);
-    }
-  }
-
-  // Clean up after stop or normal completion
-  // Only if this is still the active stream (prevents stale cleanup from killing a new stream)
-  if (_streamGeneration !== thisGen) return;
-  const wasStopped = state._stopRequested;
+  // WS unavailable — surface a clear error so the student knows to refresh
+  console.error('[streamADK] WebSocket not connected');
   state.isStreaming = false;
-  state._streamReader = null;
-  state._stopRequested = false;
-  _clearSafetyTimeout();
+  removeStreamingIndicator();
+  removeAssessmentTransition();
   hideSessionPrep();
-  // Re-enable quick actions
+  setVoiceBarState('idle');
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = false);
-
-  // Voice mode: reset thinking state and show input
-  if (state.teachingMode === 'voice') {
-    if (wasStopped) {
-      // Stop requested: discard the streaming message, remove from history
-      removeStreamingIndicator();
-      removeAssessmentTransition();
-      const streamMsg = document.getElementById('ai-stream-msg');
-      if (streamMsg) streamMsg.remove();
-      if (state.messages.length && state.messages[state.messages.length - 1].role === 'assistant') {
-        state.messages.pop();
-      }
-      setVoiceBarState('idle');
-    } else {
-      // Natural completion — transition to idle after voice finishes
-      setTimeout(() => {
-        const voiceInput = $('#voice-bar-input');
-        const isTyping = voiceInput && voiceInput === document.activeElement && voiceInput.value.trim();
-        if (!isTyping) {
-          try { voiceHandleRunFinished(); } catch (e) {
-            console.warn('voiceHandleRunFinished failed:', e);
-          }
-        }
-        // Set idle after voice scene finishes (eager executor may still be running)
-        if (!state.isStreaming && !_eager.running) {
-          setVoiceBarState('idle');
-        }
-      }, 500);
-    }
-  } else {
-    setVoiceBarState('idle');
-  }
-
-  SessionManager.saveSession();
-
-  // Handle deferred board capture request from tutor tool
-  if (state.pendingBoardCaptureRequest) {
-    state.pendingBoardCaptureRequest = false;
-    setTimeout(() => {
-      if (state.boardDraw.canvas) {
-        const combinedUrl = bdCaptureBoard();
-        if (combinedUrl) {
-          const bd = state.boardDraw;
-          const parts = [];
-          if (bd.tutorSnapshot) {
-            const tutorB64 = bd.tutorSnapshot.split(',')[1];
-            parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: tutorB64 } });
-            parts.push({ type: 'text', text: '[IMAGE 1 — TUTOR ORIGINAL] This is what YOU drew originally.' });
-          }
-          const combinedB64 = combinedUrl.split(',')[1];
-          parts.push({ type: 'image', source: { type: 'base64', media_type: 'image/png', data: combinedB64 } });
-          parts.push({ type: 'text', text: bd.tutorSnapshot
-            ? '[IMAGE 2 — COMBINED] Your drawing + student additions. Compare with IMAGE 1 to see what the student added.'
-            : '[Board capture] Current state of the shared board.' });
-          streamADK(parts, true);
-        }
-      }
-    }, 200);
-  }
+  renderAIError('Connection lost. Please refresh the page to continue.');
+  // Try to reconnect for next turn
+  try { wsReconnect(); } catch (e) { console.warn('[streamADK] reconnect failed:', e); }
 }
 
 function handleSSEEvent(event) {
@@ -14939,85 +14831,6 @@ function bdAnimGiveUp(entry, container, retryKey) {
   }
 }
 
-async function bdSilentAnimRetry(errors) {
-  const bd = state.boardDraw;
-  if (!bd.canvas || bd.cancelFlag) return;
-  if (bd._retryInFlight) return;
-  bd._retryInFlight = true;
-
-  const errorDescs = errors.map((e, i) => {
-    const c = e.cmd;
-    return `Animation ${i + 1} at (x:${c.x},y:${c.y},w:${c.w},h:${c.h}):\n` +
-      `  Error: ${e.error}\n  Code: ${(c.code || '').slice(0, 600)}`;
-  }).join('\n\n');
-
-  const repairPrompt =
-    `[SYSTEM — HIDDEN FROM STUDENT]\n` +
-    `Your board animation code had JavaScript errors and failed to run.\n` +
-    `Fix ONLY the broken animation commands and return them as JSONL lines ` +
-    `(one {"cmd":"animation",...} per line). Return NOTHING else — no text, no XML tags, ` +
-    `just the corrected JSONL animation commands.\n\n` +
-    `ERRORS:\n${errorDescs}`;
-
-  try {
-    const res = await fetch(`${state.apiUrl}/api/chat`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Accept: 'text/event-stream',
-        ...AuthManager.authHeaders(),
-      },
-      body: JSON.stringify({
-        messages: [
-          ...state.messages,
-          { id: generateId(), role: 'user', content: repairPrompt },
-        ],
-        context: buildContext(),
-        sessionId: state.sessionId,
-      }),
-    });
-
-    if (!res.ok) { bd._retryInFlight = false; return; }
-
-    const reader = res.body.getReader();
-    const decoder = new TextDecoder();
-    let fullText = '';
-
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = decoder.decode(value, { stream: true });
-      for (const line of chunk.split('\n')) {
-        if (!line.startsWith('data: ')) continue;
-        try {
-          const evt = JSON.parse(line.slice(6).trim());
-          if (evt.type === 'TEXT_MESSAGE_CONTENT' && evt.delta) fullText += evt.delta;
-          else if (evt.type === 'TEXT_DELTA' && evt.text) fullText += evt.text;
-        } catch (e) {}
-      }
-    }
-
-    const corrected = [];
-    for (const ln of fullText.split('\n')) {
-      const trimmed = ln.trim();
-      if (!trimmed || !trimmed.startsWith('{')) continue;
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (parsed.cmd === 'animation' && parsed.code) corrected.push(parsed);
-      } catch (e) {}
-    }
-
-    bd._animErrors = null; // clear so retried failures don't re-trigger
-    for (const cmd of corrected) {
-      if (bd.cancelFlag || !bd.canvas) break;
-      BoardEngine.queueCommand(cmd);
-    }
-  } catch (e) {
-    console.warn('Silent animation retry failed:', e.message);
-  }
-  bd._retryInFlight = false;
-}
-
 // ── Skeleton placeholder + Haiku code fix ──
 
 function bdShowAnimSkeleton(layer, x, y, w, h, s, cmd, origCode, errorMsg, controlBridge, isWebGL) {
@@ -15809,8 +15622,6 @@ function bdCleanup() {
   bd.studentDrawing = false;
   bd.rawContent = null;
   bd.tutorSnapshot = null;
-  bd._animErrors = null;
-  bd._retryInFlight = false;
   bd._pendingAnimLines = null;
 }
 

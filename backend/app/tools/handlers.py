@@ -5,7 +5,7 @@ import math
 
 logger = logging.getLogger(__name__)
 
-from app.services.content_service import (
+from app.services.content.content_service import (
     get_learning_tool_by_id,
     get_section_full,
     get_sections_for_lesson,

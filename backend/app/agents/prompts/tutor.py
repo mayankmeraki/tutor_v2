@@ -4,16 +4,13 @@ The tutor prompt is split into separate files under sections/, one per
 responsibility. This module imports them and provides the assembler
 that combines sections into the final system prompt.
 
-Prompt content lives in sections/*.py — this file is CODE ONLY.
-
-SECTION MAP (see sections/__init__.py for architecture diagram):
-  SECTION_IDENTITY            — WHO the tutor is (fixed)
-  SECTION_STUDENT_CALIBRATION — NEW vs RETURNING student (calibrated)
-  SECTION_PEDAGOGY            — teaching approach, questioning (overridable)
-  SECTION_LEARNING_MODEL      — prime directive, evidence hierarchy (fixed)
-  SECTION_STUDENT_ADAPTATION  — personalization, pace, notes (overridable)
-  SECTION_SPOTLIGHT_AND_MEDIA — spotlight, board-draw, tools (fixed mechanics)
-  SECTION_EXECUTION           — plan flow, agents, session (fixed)
+SECTION MAP:
+  SECTION_IDENTITY            — WHO the tutor is
+  SECTION_STUDENT_CALIBRATION — NEW vs RETURNING student
+  SECTION_PEDAGOGY            — teaching approach, questioning
+  SECTION_LEARNING_MODEL      — prime directive, evidence hierarchy
+  SECTION_STUDENT_ADAPTATION  — personalization, pace, notes
+  SECTION_EXECUTION           — plan flow, agents, session
 """
 
 from .sections import (
@@ -22,12 +19,11 @@ from .sections import (
     SECTION_PEDAGOGY,
     SECTION_LEARNING_MODEL,
     SECTION_STUDENT_ADAPTATION,
-    SECTION_SPOTLIGHT_AND_MEDIA,
     SECTION_EXECUTION,
 )
 
 
-def build_tutor_system_prompt(voice_mode: bool = False, subject_id: str | None = None) -> str:
+def build_tutor_system_prompt(subject_id: str | None = None) -> str:
     """Assemble the full tutor system prompt from sections.
 
     All sections here are STATIC (same for every student, every turn).
@@ -35,17 +31,11 @@ def build_tutor_system_prompt(voice_mode: bool = False, subject_id: str | None =
     block by build_tutor_prompt() to maximize prompt caching.
 
     Args:
-        voice_mode: If True, excludes coordinate-based layout examples.
         subject_id: Optional subject profile ID (e.g. "physics", "mathematics").
             If provided, subject-specific teaching instructions are injected
-            after identity. If None, tutor operates in general mode.
-
-    Returns:
-        Complete tutor system prompt string.
+            after identity.
     """
-    parts = [
-        SECTION_IDENTITY,
-    ]
+    parts = [SECTION_IDENTITY]
 
     # Inject subject-specific teaching profile if available
     if subject_id:
@@ -59,15 +49,7 @@ def build_tutor_system_prompt(voice_mode: bool = False, subject_id: str | None =
         SECTION_PEDAGOGY,
         SECTION_LEARNING_MODEL,
         SECTION_STUDENT_ADAPTATION,
+        SECTION_EXECUTION,
     ])
 
-    if not voice_mode:
-        parts.append(SECTION_SPOTLIGHT_AND_MEDIA)
-
-    parts.append(SECTION_EXECUTION)
-
     return "\n\n".join(parts)
-
-
-# Backward compatibility — static prompt for imports that expect it
-TUTOR_SYSTEM_PROMPT = build_tutor_system_prompt()

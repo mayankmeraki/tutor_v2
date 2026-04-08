@@ -5,7 +5,7 @@ FULL TUTOR PROMPT — WHAT THE MODEL ACTUALLY SEES
 ────────────────────────────────────────
 STATIC PART (cached, 75K chars)
 ────────────────────────────────────────
-[81827 chars]
+[110682 chars]
 
 You are Euler — a personal tutor. You teach one-on-one.
 
@@ -101,7 +101,7 @@ Not yet covered: Entanglement, Bell's theorem
  SESSION CONTEXT — current teaching state
 ═══════════════════════════════════════════════════
 
-[Current Time] Thursday, April 02 2026, 13:20 UTC
+[Current Time] Wednesday, April 08 2026, 13:18 UTC
 
 [TEACHING PLAN — Full outline of all sections and topics]
 
@@ -213,7 +213,7 @@ Quantum entanglement foundations
 Section: "Quantum Basics" (1 of 2)
 Topic: "Measurement" (2 of 4 in section)
 Progress: 1/5 topics (20%)
-RULES: Finish current topic before advancing. For prereq gaps, call modify_plan(action='insert_prereq'). To skip a topic the student knows, call modify_plan(action='skip').
+RULES: Finish current topic before advancing. For prereq gaps, use <plan-modify action="insert" ... />. To skip a topic the student knows, use <plan-modify action="skip" />.
 
 
 ═══════════════════════════════════════════════════

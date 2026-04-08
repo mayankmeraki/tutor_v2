@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 
-from app.api.routes import artifacts, auth, chat, content, events, learning_tools, sessions
+from app.api.routes import artifacts, auth, content, events, learning_tools, sessions
 
 log = logging.getLogger(__name__)
 
@@ -29,14 +29,14 @@ async def lifespan(app: FastAPI):
     os.makedirs(RENDERED_DIR, exist_ok=True)
 
     # Ensure MongoDB indexes
-    from app.services.user_service import ensure_indexes
+    from app.services.session.user_service import ensure_indexes
     try:
         await ensure_indexes()
     except Exception as e:
         log.warning("Failed to ensure user indexes (MongoDB may be unreachable): %s", e)
 
     # Ensure session indexes
-    from app.services.session_service import ensure_session_indexes
+    from app.services.session.session_service import ensure_session_indexes
     try:
         await ensure_session_indexes()
     except Exception as e:
@@ -80,7 +80,6 @@ async def lifespan(app: FastAPI):
     log.info("Mockup Teaching Agent — Python Backend")
     log.info("Server:         http://0.0.0.0:%s", settings.PORT)
     log.info("Tutor Model:    %s", settings.tutor_model)
-    log.info("Euler Model:    %s", settings.euler_model)
     log.info("Fast Model:     %s", settings.MODEL_FAST)
     log.info("LLM Provider:   %s", settings.LLM_PROVIDER)
     _key = settings.OPENROUTER_API_KEY if settings.LLM_PROVIDER == "openrouter" else settings.ANTHROPIC_API_KEY
@@ -375,15 +374,10 @@ app.include_router(content.router)
 app.include_router(learning_tools.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
-app.include_router(chat.router)
 
 # WebSocket chat endpoint (voice beats + audio streaming)
 from app.api.routes.ws_chat import ws_chat
 app.add_api_websocket_route("/ws/chat", ws_chat)
-
-# Euler (Orchestrator) — Home screen agent
-from app.orchestrator.api import router as euler_router
-app.include_router(euler_router)
 
 # BYO — Student materials upload
 try:
@@ -489,7 +483,7 @@ async def backfill_vectors(request: Request):
     POST /api/admin/backfill-vectors?dry_run=true  — preview what would be synced
     POST /api/admin/backfill-vectors               — actually run the backfill
     """
-    from app.services.knowledge_state import backfill_vector_index
+    from app.services.knowledge.knowledge_state import backfill_vector_index
     from app.api.routes.auth import get_current_user
 
     # Require auth

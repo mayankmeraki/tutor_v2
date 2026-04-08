@@ -1,0 +1,17 @@
+"""Tool schemas for the Tutor and sub-agents."""
+
+from .tutor import TUTOR_TOOLS
+from .delegation import DELEGATION_TOOLS, RETURN_TO_TUTOR_TOOL
+from .assessment import ASSESSMENT_TOOLS, COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL
+from .video import VIDEO_FOLLOW_TOOLS, VIDEO_CONTROL_TOOLS
+
+__all__ = [
+    "TUTOR_TOOLS",
+    "DELEGATION_TOOLS",
+    "RETURN_TO_TUTOR_TOOL",
+    "ASSESSMENT_TOOLS",
+    "COMPLETE_ASSESSMENT_TOOL",
+    "HANDBACK_TO_TUTOR_TOOL",
+    "VIDEO_FOLLOW_TOOLS",
+    "VIDEO_CONTROL_TOOLS",
+]

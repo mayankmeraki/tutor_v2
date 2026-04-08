@@ -1,6 +1,7 @@
 """WebSocket chat endpoint — streams voice beats + audio to the client.
 
-Replaces the SSE-based /api/chat for voice mode.
+The only entry point for tutor turns. SessionRouter manages per-connection
+TurnQueue isolation and dispatches into services/teaching/pipeline.py.
 """
 
 from __future__ import annotations
@@ -10,7 +11,7 @@ import logging
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
 from app.core.logging_config import SessionLogger
-from app.services.session_router import SessionRouter
+from app.services.session.session_router import SessionRouter
 
 log = logging.getLogger(__name__)
 

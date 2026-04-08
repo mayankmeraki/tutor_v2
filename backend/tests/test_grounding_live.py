@@ -84,7 +84,7 @@ async def main():
     log("  Returns: matching courses/lessons with scores")
 
     try:
-        from app.services.content_service import search_content
+        from app.services.content.content_service import search_content
         for intent in STUDENT_INTENTS:
             r, ms = await timed_call(search_content, intent, limit=5)
             result("content_search", intent, r, ms)
@@ -97,7 +97,7 @@ async def main():
     log("  Returns: matched courses, lessons, gaps")
 
     try:
-        from app.services.content_resolver import resolve_content, format_content_brief
+        from app.services.content.content_resolver import resolve_content, format_content_brief
         for intent in STUDENT_INTENTS:
             r, ms = await timed_call(resolve_content, intent)
             result("resolve_content", intent, json.dumps(r, indent=2, default=str) if isinstance(r, dict) else r, ms)
@@ -114,7 +114,7 @@ async def main():
     log("  How: Returns full course hierarchy — what the tutor sees as structure")
 
     try:
-        from app.services.content_providers import create_adapter
+        from app.services.content.providers import create_adapter
         # Try course IDs 1, 2
         for cid in [1, 2]:
             try:
@@ -214,7 +214,7 @@ async def main():
     log("  How: Vector/text search on student_concept_mastery collection")
 
     try:
-        from app.services.knowledge_state import hybrid_search_notes
+        from app.services.knowledge.knowledge_state import hybrid_search_notes
         knowledge_queries = [
             "superposition understanding",
             "entanglement concepts",
@@ -257,7 +257,7 @@ async def main():
     log("  How: Fetches full content or brief for a given ref")
 
     try:
-        from app.services.content_providers import create_adapter
+        from app.services.content.providers import create_adapter
         adapter = create_adapter(2, db_session=None)  # course 2 = MIT QM
 
         refs_to_test = ["lesson:1", "lesson:2", "lesson:1:section:0", "lesson:2:section:0"]

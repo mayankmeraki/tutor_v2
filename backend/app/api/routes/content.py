@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.routes.auth import get_optional_user
 from app.core.database import get_db
-from app.services.content_service import (
+from app.services.content.content_service import (
     get_course_concepts,
     get_course_with_hierarchy,
     get_lesson_sections_lightweight,
@@ -106,7 +106,7 @@ async def resolve_course(q: str = Query(""), db: AsyncSession = Depends(get_db),
     Returns a content brief: matched courses with relevant lessons,
     primary courseId, and gaps (topics with no matching content).
     """
-    from app.services.content_resolver import resolve_content
+    from app.services.content.content_resolver import resolve_content
 
     brief = await resolve_content(q, db_session=db)
     return {

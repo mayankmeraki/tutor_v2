@@ -1,19 +1,7 @@
 """Subject-specific teaching profiles.
 
-Each subject provides:
-- identity: how the tutor introduces itself for this domain
-- teaching_guide: how to approach teaching this subject (pedagogy tips)
-- examples: example equations, topics, board-draw patterns
-- misconceptions: common student mistakes to watch for
-- vocabulary: domain terms and how to use them
-
-The core teaching system (board mechanics, pedagogy framework, execution flow,
-assessment, planning) is SUBJECT-NEUTRAL. These profiles add domain flavor.
-
-Usage:
-    from app.agents.prompts.subjects import get_subject_profile
-    profile = get_subject_profile("physics")
-    # profile.identity, profile.teaching_guide, profile.examples
+The core teaching system (board mechanics, pedagogy, execution flow,
+assessment, planning) is SUBJECT-NEUTRAL. Profiles add domain flavor.
 """
 
 from __future__ import annotations
@@ -37,17 +25,8 @@ class SubjectProfile:
 _PROFILES: dict[str, SubjectProfile] = {}
 
 
-def register_profile(profile: SubjectProfile):
+def _register_profile(profile: SubjectProfile):
     _PROFILES[profile.id] = profile
-
-
-def get_subject_profile(subject_id: str) -> SubjectProfile | None:
-    """Look up a subject profile by ID. Returns None for unknown subjects."""
-    return _PROFILES.get(subject_id)
-
-
-def get_all_profiles() -> dict[str, SubjectProfile]:
-    return dict(_PROFILES)
 
 
 def get_subject_prompt_section(subject_id: str | None) -> str:
@@ -84,4 +63,4 @@ from app.agents.prompts.subjects.business import PROFILE as _business
 from app.agents.prompts.subjects.computer_science import PROFILE as _cs
 
 for _p in [_physics, _math, _chemistry, _biology, _business, _cs]:
-    register_profile(_p)
+    _register_profile(_p)

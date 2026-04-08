@@ -134,8 +134,8 @@ def mock_mongodb():
     _fake_tutor_db = FakeDatabase()
 
     with patch("app.core.mongodb.get_tutor_db", _mock_get_tutor_db), \
-         patch("app.services.user_service.get_tutor_db", _mock_get_tutor_db), \
-         patch("app.services.session_service.get_tutor_db", _mock_get_tutor_db):
+         patch("app.services.session.user_service.get_tutor_db", _mock_get_tutor_db), \
+         patch("app.services.session.session_service.get_tutor_db", _mock_get_tutor_db):
         yield _fake_tutor_db
 
 

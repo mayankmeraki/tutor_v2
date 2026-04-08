@@ -1,26 +1,10 @@
-from .tutor import TUTOR_SYSTEM_PROMPT, build_tutor_system_prompt
+from .tutor import build_tutor_system_prompt
 from .planning import PLANNING_SYSTEM_PROMPT, build_planning_prompt as _build_planning_prompt_base
 from .toolkit import TOOLKIT_PROMPT
 from .tags import TAGS_PROMPT
 from .assessment import ASSESSMENT_SYSTEM_PROMPT
 from .teaching_delegate import build_delegation_prompt
 from .voice import build_voice_mode_prompt
-from .scenarios.course_follow import SKILL_COURSE
-from .scenarios.exam import SKILL_EXAM_FULL
-from .scenarios.exam_topic import SKILL_EXAM_TOPIC
-from .scenarios.conceptual import SKILL_CONCEPTUAL
-from .scenarios.curiosity import SKILL_FREE
-from .scenarios.video_follow import SKILL_VIDEO_FOLLOW
-
-SKILL_MAP: dict[str, str | None] = {
-    "course": SKILL_COURSE,
-    "exam_full": SKILL_EXAM_FULL,
-    "exam_topic": SKILL_EXAM_TOPIC,
-    "problem": None,
-    "conceptual": SKILL_CONCEPTUAL,
-    "free": SKILL_FREE,
-    "video_follow": SKILL_VIDEO_FOLLOW,
-}
 
 
 # ── Subject detection ──────────────────────────────────────────────────
@@ -257,22 +241,15 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     # Compile per-student teaching overrides from _profile notes
     teaching_overrides = _compile_teaching_overrides(context_data)
 
-    # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students in same mode)
-    teaching_mode = context_data.get("teachingMode", "text")
-    is_voice = teaching_mode == "voice"
+    # STATIC: tutor instructions + toolkit + tags (cacheable — identical for all students)
 
     # Detect subject from course metadata or session context
     subject_id = _detect_subject(context_data)
-    tutor_prompt = build_tutor_system_prompt(voice_mode=is_voice, subject_id=subject_id)
+    tutor_prompt = build_tutor_system_prompt(subject_id=subject_id)
     static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
-    scenario_skill = context_data.get("scenarioSkill")
-    if scenario_skill:
-        static_parts.append(scenario_skill)
-
-    # Voice mode instructions go in STATIC block (mode is locked for entire session)
-    if is_voice:
-        static_parts.append(_get_voice_mode_prompt())
+    # Voice mode instructions (locked for entire session — voice is the only mode)
+    static_parts.append(_get_voice_mode_prompt())
 
     # Video follow-along: inject course map into STATIC block (cacheable across turns)
     # This gives the tutor full course context so it can teach even without the video

@@ -5,7 +5,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.api.routes.auth import get_current_user, get_optional_user
-from app.services.session_service import (
+from app.services.session.session_service import (
     create_session,
     get_session,
     get_sessions_for_student,
@@ -41,7 +41,7 @@ async def all_my_sessions(user: dict = Depends(get_optional_user)):
     """Get all sessions for the authenticated user across all courses, newest first."""
     import asyncio
     from app.core.mongodb import get_tutor_db
-    from app.services.session_service import _enrich_sessions_with_headlines
+    from app.services.session.session_service import _enrich_sessions_with_headlines
     db = get_tutor_db()
 
     # Only fetch light fields — NO transcript (huge, slow to transfer)
@@ -66,7 +66,7 @@ async def all_my_sessions(user: dict = Depends(get_optional_user)):
     course_names = {}
     if course_ids:
         try:
-            from app.services.content_service import get_course_title_cached
+            from app.services.content.content_service import get_course_title_cached
             # Fetch all course names in parallel
             results = await asyncio.gather(
                 *[get_course_title_cached(cid) for cid in course_ids[:10]],

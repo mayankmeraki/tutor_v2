@@ -12,7 +12,6 @@ from fastapi import HTTPException, Request
 
 # ── Configuration ────────────────────────────────────────
 
-RATE_LIMIT_CHAT = int(os.getenv("RATE_LIMIT_CHAT", "10"))       # chat requests per window
 RATE_LIMIT_TTS = int(os.getenv("RATE_LIMIT_TTS", "30"))         # TTS requests per window
 RATE_LIMIT_AUTH = int(os.getenv("RATE_LIMIT_AUTH", "10"))        # login/signup per window
 RATE_LIMIT_GENERAL = int(os.getenv("RATE_LIMIT_GENERAL", "60")) # other API calls per window
@@ -65,19 +64,6 @@ def _get_client_ip(request: Request) -> str:
     return request.client.host if request.client else "unknown"
 
 
-def _get_user_key(request: Request) -> str | None:
-    """Extract user email from auth token if present (for per-user limits)."""
-    auth = request.headers.get("Authorization", "")
-    if auth.startswith("Bearer "):
-        try:
-            from app.api.routes.auth import decode_mockup_token
-            claims = decode_mockup_token(auth[7:])
-            return f"user:{claims.get('sub', '')}"
-        except Exception:
-            pass
-    return None
-
-
 # ── Rate Limit Dependencies ──────────────────────────────
 
 async def check_rate_limit(request: Request):
@@ -85,17 +71,6 @@ async def check_rate_limit(request: Request):
     ip = _get_client_ip(request)
     if not _buckets.check(f"gen:{ip}", RATE_LIMIT_GENERAL):
         raise HTTPException(status_code=429, detail="Too many requests. Please wait a moment.")
-
-
-async def check_rate_limit_chat(request: Request):
-    """Chat rate limit — 10 req/min per IP AND per user."""
-    ip = _get_client_ip(request)
-    if not _buckets.check(f"chat:{ip}", RATE_LIMIT_CHAT):
-        raise HTTPException(status_code=429, detail="Too many chat requests. Please slow down.")
-    # Also per-user limit (prevents multi-tab abuse)
-    user_key = _get_user_key(request)
-    if user_key and not _buckets.check(f"chat:{user_key}", RATE_LIMIT_CHAT):
-        raise HTTPException(status_code=429, detail="Too many chat requests from this account.")
 
 
 async def check_rate_limit_tts(request: Request):

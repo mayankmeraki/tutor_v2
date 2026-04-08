@@ -10,8 +10,8 @@ import os
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.agents.prompts import build_tutor_prompt, SKILL_MAP
-from app.api.routes.chat import (
+from app.agents.prompts import build_tutor_prompt
+from app.services.teaching.pipeline import (
     _build_plan_accountability,
     _format_completed,
     _format_session_scope,

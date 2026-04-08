@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.routes.auth import get_optional_user
-from app.services.content_service import (
+from app.services.content.content_service import (
     get_learning_tool_by_id,
     get_learning_tools_for_course,
 )

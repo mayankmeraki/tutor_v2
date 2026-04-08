@@ -2,7 +2,7 @@
 
 The Tutor spawns background agents that run as asyncio tasks. Results land
 in completed_queue and are injected into the Tutor's system prompt on
-the next POST /api/chat request.
+the next WebSocket turn.
 
 Retry logic: transient errors (rate limits, overloaded, connection) are
 retried with exponential backoff. Permanent errors fail immediately.

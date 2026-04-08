@@ -10,7 +10,6 @@ Session phases: TRIAGE → PLAN → TEACH → ASSESS (→ loop)
 
 from __future__ import annotations
 
-import asyncio
 import enum
 import logging
 import time
@@ -117,14 +116,6 @@ class Session:
 
 
 _sessions: dict[str, Session] = {}
-_session_locks: dict[str, asyncio.Lock] = {}
-
-
-def get_session_lock(session_id: str) -> asyncio.Lock:
-    """Return (or create) a per-session asyncio lock for concurrent request safety."""
-    if session_id not in _session_locks:
-        _session_locks[session_id] = asyncio.Lock()
-    return _session_locks[session_id]
 
 
 async def get_or_create_session(session_id: str | None) -> tuple[Session, str]:
@@ -160,7 +151,7 @@ async def _evict_stale_sessions() -> None:
         if not session:
             continue  # Already evicted by another coroutine
         try:
-            from app.services.session_service import sync_backend_state
+            from app.services.session.session_service import sync_backend_state
             await sync_backend_state(sid, session)
         except Exception as e:
             log.warning("Failed to sync stale session %s before eviction: %s", sid[:8], e)
@@ -177,7 +168,7 @@ async def _evict_stale_sessions() -> None:
             if not session:
                 continue
             try:
-                from app.services.session_service import sync_backend_state
+                from app.services.session.session_service import sync_backend_state
                 await sync_backend_state(sid, session)
             except Exception as e:
                 log.warning("Failed to sync capped session %s before eviction: %s", sid[:8], e)
@@ -249,7 +240,7 @@ def _validate_restored_messages(messages: list[dict]) -> list[dict]:
 async def _try_restore_session(session_id: str) -> Session | None:
     """Attempt to restore session state from MongoDB."""
     try:
-        from app.services.session_service import load_backend_state
+        from app.services.session.session_service import load_backend_state
         from app.agents.agent_runtime import DelegationState, AssessmentState
 
         doc = await load_backend_state(session_id)

@@ -82,7 +82,7 @@ class TestWebSearch:
 class TestVoiceCleanText:
 
     def test_various_inputs(self):
-        from app.services.tts_service import voice_clean_text
+        from app.services.teaching.tts_service import voice_clean_text
 
         samples = [
             ("Normal text", "Normal text"),
@@ -147,7 +147,7 @@ class TestContentTools:
     async def test_content_search(self):
         """Search course content."""
         try:
-            from app.services.content_service import search_content
+            from app.services.content.content_service import search_content
             result = await search_content("quantum entanglement", limit=3)
             _print_result("content_search('quantum entanglement')", result)
         except Exception as e:
@@ -194,7 +194,7 @@ class TestKnowledgeQuery:
     async def test_query_knowledge(self):
         """Search student knowledge notes."""
         try:
-            from app.services.knowledge_state import hybrid_search_notes
+            from app.services.knowledge.knowledge_state import hybrid_search_notes
             result = await hybrid_search_notes(
                 course_id=1,
                 user_email="test@test.com",
@@ -216,7 +216,7 @@ class TestFullContextAssembly:
     def test_full_prompt_with_all_context(self):
         """Build a complete prompt with all context and show what the tutor sees."""
         from app.agents.prompts import build_tutor_prompt
-        from app.api.routes.chat import _build_plan_accountability, _format_completed
+        from app.services.teaching.pipeline import _build_plan_accountability, _format_completed
 
         # Mock session state
         plan = {

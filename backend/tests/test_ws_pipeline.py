@@ -14,15 +14,15 @@ import pytest
 # Add backend to path
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-from app.services.beat_parser import (
+from app.services.teaching.beat_parser import (
     StreamingBeatDetector,
     parse_beat_attrs,
     VB_TAG_RE,
     SCENE_OPEN_RE,
     SCENE_CLOSE_RE,
 )
-from app.services.tts_service import voice_clean_text
-from app.services.turn_queue import TurnQueue
+from app.services.teaching.tts_service import voice_clean_text
+from app.services.teaching.turn_queue import TurnQueue
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -455,7 +455,7 @@ class TestInterruptScenarios:
 class TestHousekeepingParsing:
 
     def test_strip_tag(self):
-        from app.api.routes.chat import _strip_housekeeping_tag
+        from app.services.teaching.pipeline import _strip_housekeeping_tag
 
         text = 'Teaching content.\n<teaching-housekeeping><signal progress="complete"/></teaching-housekeeping>'
         result = _strip_housekeeping_tag(text)
@@ -463,7 +463,7 @@ class TestHousekeepingParsing:
         assert "Teaching content." in result
 
     def test_strip_preserves_other_tags(self):
-        from app.api.routes.chat import _strip_housekeeping_tag
+        from app.services.teaching.pipeline import _strip_housekeeping_tag
 
         text = '<teaching-voice-scene title="X"><vb say="Hi"/></teaching-voice-scene>\n<teaching-housekeeping><signal/></teaching-housekeeping>'
         result = _strip_housekeeping_tag(text)
@@ -471,7 +471,7 @@ class TestHousekeepingParsing:
         assert "<teaching-housekeeping>" not in result
 
     def test_signal_regex(self):
-        from app.api.routes.chat import _SIGNAL_RE
+        from app.services.teaching.pipeline import _SIGNAL_RE
 
         m = _SIGNAL_RE.search('<signal progress="complete" student="engaged" />')
         assert m
@@ -479,7 +479,7 @@ class TestHousekeepingParsing:
         assert m.group(2) == "engaged"
 
     def test_plan_modify_regex(self):
-        from app.api.routes.chat import _PLAN_MODIFY_RE
+        from app.services.teaching.pipeline import _PLAN_MODIFY_RE
 
         m = _PLAN_MODIFY_RE.search('<plan-modify action="append" title="EPR" concept="epr" reason="asked" />')
         assert m
@@ -488,7 +488,7 @@ class TestHousekeepingParsing:
         assert m.group(3) == "epr"
 
     def test_handoff_assessment_regex(self):
-        from app.api.routes.chat import _HANDOFF_RE
+        from app.services.teaching.pipeline import _HANDOFF_RE
 
         m = _HANDOFF_RE.search('<handoff type="assessment" section="Basics" concepts="a,b,c" />')
         assert m
@@ -497,7 +497,7 @@ class TestHousekeepingParsing:
         assert m.group(3) == "a,b,c"
 
     def test_handoff_delegate_regex(self):
-        from app.api.routes.chat import _HANDOFF_RE
+        from app.services.teaching.pipeline import _HANDOFF_RE
 
         m = _HANDOFF_RE.search('<handoff type="delegate" topic="QFT" instructions="Focus" />')
         assert m
@@ -513,13 +513,13 @@ class TestHousekeepingParsing:
 class TestCleanPartialContent:
 
     def test_strips_interrupted_marker(self):
-        from app.api.routes.chat import _clean_partial_content
+        from app.services.teaching.pipeline import _clean_partial_content
 
         text = "Hello\n\n[Student interrupted — tutor stopped here]"
         assert "[Student interrupted" not in _clean_partial_content(text)
 
     def test_truncates_unclosed_voice_scene(self):
-        from app.api.routes.chat import _clean_partial_content
+        from app.services.teaching.pipeline import _clean_partial_content
 
         text = 'Some text<teaching-voice-scene title="X"><vb say="Hello'
         result = _clean_partial_content(text)
@@ -527,21 +527,21 @@ class TestCleanPartialContent:
         assert "interrupted" in result
 
     def test_truncates_unclosed_board_draw(self):
-        from app.api.routes.chat import _clean_partial_content
+        from app.services.teaching.pipeline import _clean_partial_content
 
         text = 'Text here<teaching-board-draw title="T">{"cmd":"text"'
         result = _clean_partial_content(text)
         assert "interrupted mid-board-draw" in result
 
     def test_preserves_complete_content(self):
-        from app.api.routes.chat import _clean_partial_content
+        from app.services.teaching.pipeline import _clean_partial_content
 
         text = '<teaching-voice-scene title="X"><vb say="Hi" /></teaching-voice-scene>'
         result = _clean_partial_content(text)
         assert "</teaching-voice-scene>" in result
 
     def test_empty_returns_interrupted(self):
-        from app.api.routes.chat import _clean_partial_content
+        from app.services.teaching.pipeline import _clean_partial_content
 
         assert _clean_partial_content("") == "(interrupted)"
         assert _clean_partial_content("   ") == "(interrupted)"
