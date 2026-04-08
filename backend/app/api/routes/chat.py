@@ -1164,13 +1164,14 @@ def _extract_orchestrator_plan(context_data: dict) -> dict | None:
 
 
 def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> None:
-    """Auto-spawn planning agent when tutor has enough context (~turn 4+).
+    """Auto-spawn planning agent on turn 1 (BEFORE the tutor responds).
 
-    Triggers when: turn_count >= 4 AND student_model has >= 2 concept observations.
-    The planner gets FULL context: conversation history, student model, course map,
-    and grounding tools (content_read, web_search, etc.) to build a rich plan.
+    The planner takes 10-30 seconds. To make it feel responsive, we spawn it
+    BEFORE the LLM call so it runs in parallel with the tutor's first response.
+    This way the plan is often ready by the time turn 2 starts.
 
-    Uses Sonnet for high-quality, tool-grounded plans.
+    The planner gets: intent + student model + course map + grounding tools
+    (content_read, web_search). Uses Sonnet for high-quality plans.
     """
     # Guard: don't spawn if plan already exists or planner already running
     if session.current_plan:
@@ -3926,6 +3927,12 @@ async def _generate_for_turn(
                     if orchestrator_plan:
                         _promote_plan(session, orchestrator_plan)
                         yield _sse({"type": "PLAN_UPDATE", "plan": orchestrator_plan, "sessionObjective": orchestrator_plan.get("session_objective", "")})
+
+            # ── Spawn planner BEFORE LLM call so it runs in parallel with the tutor ──
+            # The planner takes 10-30s. By spawning before the tutor responds,
+            # we give it the entire turn duration to complete.
+            if not is_video_mode and not session.current_plan:
+                _auto_spawn_planner_if_ready(session, runtime, context_data, slog)
 
             # Step 3: Assessment / delegation routing
             if session.assessment:
