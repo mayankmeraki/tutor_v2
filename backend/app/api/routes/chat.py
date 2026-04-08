@@ -525,6 +525,15 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
             session.current_topics.insert(idx, new_topic)
             slog.debug("Plan: inserted topic", extra={"title": title, "at": idx, "reason": reason})
 
+        elif action == "replan":
+            # Tutor signaled the plan is fundamentally wrong — clear it so
+            # the planner re-spawns on the next turn with updated context.
+            session.current_plan = None
+            session.current_topics = []
+            session.current_topic_index = -1
+            session._planner_spawned = False  # allow re-spawn
+            slog.info("Plan: replan triggered", extra={"reason": reason})
+
     # Parse handoff tags (assessment or delegation)
     handoff_match = _HANDOFF_RE.search(hk_content)
     if handoff_match:

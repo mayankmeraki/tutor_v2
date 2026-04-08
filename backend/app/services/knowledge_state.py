@@ -568,29 +568,57 @@ def format_knowledge_state(knowledge_state: dict) -> str:
         lines.append("")
 
     if notes:
-        concept_notes = {}
+        # Group notes by concept — count occurrences (times observed)
+        # and keep the MOST RECENT note as the snippet.
+        concept_groups = {}  # primary → {count, latest_text, latest_at, tags, lesson}
         for note in notes:
             tags = _normalize_tags(note.get("tags", []))
             text = note.get("text", "")
             primary = tags[0] if tags else "_uncategorized"
             if primary.startswith("_"):
                 continue
-            concept_notes[primary] = {
-                "text": text,
-                "tags": tags,
-                "lesson": note.get("lesson", ""),
-                "courseId": note.get("courseId"),
-            }
+            at = note.get("at", "")
+            existing = concept_groups.get(primary)
+            if existing is None:
+                concept_groups[primary] = {
+                    "count": 1,
+                    "latest_text": text,
+                    "latest_at": at,
+                    "tags": tags,
+                    "lesson": note.get("lesson", ""),
+                }
+            else:
+                existing["count"] += 1
+                # Keep the most recent note as the displayed snippet
+                if at > existing["latest_at"]:
+                    existing["latest_text"] = text
+                    existing["latest_at"] = at
+                    existing["tags"] = tags
+                    existing["lesson"] = note.get("lesson", "")
 
-        if concept_notes:
-            lines.append(f"[Student Concept Mastery — {len(concept_notes)} concepts]")
-            for concept, data in concept_notes.items():
-                text = data["text"]
+        if concept_groups:
+            lines.append(f"[Student Concept Mastery — {len(concept_groups)} concepts]")
+            # Sort by count desc so revisited concepts are top of mind
+            sorted_concepts = sorted(
+                concept_groups.items(),
+                key=lambda kv: (-kv[1]["count"], kv[0]),
+            )
+            for concept, data in sorted_concepts:
+                text = data["latest_text"]
                 snippet = text if len(text) <= 200 else text[:200] + "..."
                 other_tags = [t for t in data["tags"] if t != concept]
                 related = f" (also: {', '.join(other_tags)})" if other_tags else ""
                 lesson = f" [L:{data['lesson']}]" if data.get("lesson") else ""
-                lines.append(f"  {concept}{related}{lesson}: {snippet}")
+                # Show times-observed counter — critical for "don't repeat
+                # the same approach if seen 2+ times" rule
+                count = data["count"]
+                if count == 1:
+                    counter = ""
+                elif count == 2:
+                    counter = " [seen 2x]"
+                else:
+                    counter = f" [seen {count}x — IF STILL STRUGGLING, USE A DIFFERENT APPROACH]"
+                lines.append(f"  {concept}{related}{lesson}{counter}: {snippet}")
 
     if not lines:
         lines.append("No student notes yet — this is a new student.")
