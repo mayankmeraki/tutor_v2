@@ -3172,7 +3172,16 @@ function handleAgentCompletion(event) {
     state.generatedVisuals[event.visual_id] = { title: event.title, html: event.html };
   }
 
-  // Only auto-trigger for visual_gen (planning/asset are consumed silently on next turn)
+  // For planning: render the plan IMMEDIATELY when it arrives — don't wait
+  // for the next turn. The student might be reading the tutor's first
+  // response when the planner finishes — we want them to see the plan now.
+  if (event.agent_type === 'planning' && event.plan) {
+    console.log('[AgentEvents] Planning agent completed — rendering plan');
+    handlePlanFromAgent(event.plan, event.session_objective);
+    return;
+  }
+
+  // Only auto-trigger for visual_gen (other agents are consumed on next turn)
   if (event.agent_type !== 'visual_gen') return;
 
   // Don't trigger if a chat stream is already active — results will be picked up naturally

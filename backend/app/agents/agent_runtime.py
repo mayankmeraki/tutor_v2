@@ -271,6 +271,12 @@ class AgentRuntime:
                 event["visual_id"] = result.get("visual_id")
                 event["title"] = result.get("title")
                 event["html"] = result.get("html")
+            elif task.type == "planning" and isinstance(result, dict):
+                # Include the full plan so the frontend can render it
+                # immediately — even if the user is mid-read and hasn't
+                # sent the next turn yet.
+                event["plan"] = result
+                event["session_objective"] = result.get("session_objective", "")
             self._push_event(event)
         except asyncio.TimeoutError:
             task.status = "error"
