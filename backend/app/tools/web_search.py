@@ -27,7 +27,9 @@ async def web_search(query: str, limit: int = 5) -> str:
     results: list[str] = []
 
     try:
-        async with httpx.AsyncClient(timeout=12, follow_redirects=True) as client:
+        # Short timeout — if DuckDuckGo is unreachable, fail fast and let
+        # the agent continue without web results instead of blocking 12s+.
+        async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
             # ── Phase 1: DuckDuckGo Instant Answer API ──
             resp = await client.get(
                 "https://api.duckduckgo.com/",
@@ -87,6 +89,11 @@ async def web_search(query: str, limit: int = 5) -> str:
                             url = unquote(real_url_match.group(1))
                     results.append(f"**{title}**\n{snippet[:300]}\nURL: {url}")
 
+    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
+        # Network failures are non-fatal — caller continues without web results
+        logger.warning("web_search timeout/network: %s (query=%r)", type(e).__name__, query)
+        if not results:
+            return f"Web search unavailable (network timeout). Use other knowledge sources."
     except Exception as e:
         logger.error("web_search failed query=%r", query, exc_info=True)
         if not results:
