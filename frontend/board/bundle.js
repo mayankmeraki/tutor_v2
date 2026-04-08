@@ -556,6 +556,12 @@ function sanitizeCode(code) {
   code = code.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
   code = code.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
 
+  // Force transparent canvas — replace p.background(...) and background(...)
+  // with p.clear() so the board background shows through.
+  // Matches: p.background('#xxx'), p.background(0), p.background(0,0,0,255), background('#xxx')
+  code = code.replace(/\bp\.background\s*\([^;)]*(?:\([^)]*\)[^;)]*)*\)/g, 'p.clear()');
+  code = code.replace(/(?<![\w.])background\s*\([^;)]*(?:\([^)]*\)[^;)]*)*\)/g, 'p.clear()');
+
   // Fix "Function statements require a function name" —
   // LLM sometimes wraps code in function(p,W,H){...} which is invalid
   // as a statement. Convert to IIFE or strip the wrapper.
@@ -584,13 +590,8 @@ function buildControlBridge(scale, isWebGL) {
     '      if (isHighlighted) { p.strokeWeight(sStroke(3)); p.drawingContext.shadowColor = color || \'#34d399\'; p.drawingContext.shadowBlur = 18 * S; }\n' +
     '      else { p.strokeWeight(sStroke(1.5)); p.drawingContext.shadowBlur = 0; }\n' +
     '    }\n' +
-    '    // Force transparent canvas — board shows through\n' +
-    '    var _origSetup = p.setup;\n' +
-    '    p.setup = function() {\n' +
-    '      if (_origSetup) _origSetup.apply(p, arguments);\n' +
-    '      try { p.clear(); } catch(e) {}\n' +
-    '    };\n' +
-    '    // Override background() to clear instead of fill — keeps canvas transparent\n' +
+    '    // Force transparent canvas — board background shows through.\n' +
+    '    // (sanitizeCode also rewrites p.background(...) → p.clear() in the LLM code)\n' +
     '    p.background = function() { try { p.clear(); } catch(e) {} };\n' +
     '    [\'setLineDash\',\'getLineDash\',\'setTransform\',\'resetTransform\',\'clip\',\'clearRect\',\n' +
     '     \'createLinearGradient\',\'createRadialGradient\',\'measureText\',\'fillRect\',\'strokeRect\'].forEach(function(m) {\n' +

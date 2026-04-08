@@ -67,6 +67,11 @@ function sanitizeCode(code) {
   code = code.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
   code = code.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
 
+  // Force transparent canvas — replace p.background(...) and background(...)
+  // with p.clear() so the board background shows through.
+  code = code.replace(/\bp\.background\s*\([^;)]*(?:\([^)]*\)[^;)]*)*\)/g, 'p.clear()');
+  code = code.replace(/(?<![\w.])background\s*\([^;)]*(?:\([^)]*\)[^;)]*)*\)/g, 'p.clear()');
+
   return code;
 }
 
