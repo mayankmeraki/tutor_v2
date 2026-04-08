@@ -183,6 +183,28 @@ between elements, not just by saying it.
   Action: annotate target=slope-arrow text="↔" color=cyan
           (visually connects slope-arrow to line-1)
 
+── LATEX vs PLAIN TEXT — never mix English prose into a math equation ──
+
+The `equation` and `latex` commands render with KaTeX. KaTeX treats every
+letter as a math variable (italic) and removes spaces. So if you put English
+words in a LaTeX equation, they come out mashed together as italic gibberish.
+
+  BAD (English words inside LaTeX — KaTeX mangles this):
+    equation | The best fit line ALWAYS passes through (\bar{x}, \bar{y})
+    Renders as: "Thebestfit lineALWAYSpassesthrough(x̄,ȳ)" (italic, no spaces)
+
+  GOOD (option 1): Split English and math into separate commands:
+    text | KEY FACT:
+    text | The best-fit line ALWAYS passes through:
+    equation | (\bar{x}, \bar{y})
+
+  GOOD (option 2): Wrap English in \text{} inside LaTeX:
+    equation | \text{The best-fit line ALWAYS passes through } (\bar{x}, \bar{y})
+
+  RULE: equation/latex commands are for FORMULAS ONLY (math symbols, variables,
+  Greek letters). For sentences, use the text command. For mixed content
+  (a sentence with one formula in it), use TWO commands.
+
 ══════════════════════════════════════════════════════════════════════════
 
 ═══ BOARD PEDAGOGY — DRAW FIRST, SCAFFOLD, ENGAGE ═══

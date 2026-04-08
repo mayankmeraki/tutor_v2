@@ -75,13 +75,26 @@ function _looksLikeLatex(text) {
   return text && _LATEX_RE.test(text);
 }
 
+// Heuristic: if the text has runs of English words not wrapped in \text{},
+// auto-wrap them so KaTeX doesn't mash them into italic math letters.
+function _autoWrapTextRuns(latex) {
+  if (/\\text\s*\{/.test(latex)) return latex;
+  return latex.replace(/\b([A-Za-z]{2,}(?:\s+[A-Za-z]{2,}){1,})\b/g, function(match) {
+    if (/^(?:frac|left|right|sqrt|sum|int|prod|lim|sin|cos|tan|log|ln|exp|min|max)$/.test(match)) {
+      return match;
+    }
+    return '\\text{' + match + '}';
+  });
+}
+
 function _tryKatex(el, latex) {
   /** Render LaTeX into el via KaTeX. Returns true if successful. */
   if (typeof katex === 'undefined' || !latex) return false;
   // Only attempt if it looks like LaTeX
   if (!_looksLikeLatex(latex)) return false;
   try {
-    katex.render(latex, el, { throwOnError: false, displayMode: true });
+    const processed = _autoWrapTextRuns(latex);
+    katex.render(processed, el, { throwOnError: false, displayMode: true });
     return true;
   } catch (e) {
     console.warn('[Board] KaTeX render failed:', e.message);

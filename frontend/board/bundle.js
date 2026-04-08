@@ -1933,11 +1933,29 @@ function _looksLikeLatex(text) {
   return text && _LATEX_RE.test(text);
 }
 
+// Heuristic: if the text has many English words (3+) without being wrapped
+// in \text{}, it's mixed content and KaTeX will mash the words together as
+// math variables. Auto-wrap the English runs in \text{}.
+function _autoWrapTextRuns(latex) {
+  // Skip if the text is already mostly LaTeX commands or already uses \text
+  if (/\\text\s*\{/.test(latex)) return latex;
+  // Match runs of 2+ consecutive ASCII words separated by spaces (English prose)
+  // Don't touch math symbols, backslash commands, braces, parens
+  return latex.replace(/\b([A-Za-z]{2,}(?:\s+[A-Za-z]{2,}){1,})\b/g, function(match) {
+    // Don't wrap if the word looks like a LaTeX command name
+    if (/^(?:frac|left|right|sqrt|sum|int|prod|lim|sin|cos|tan|log|ln|exp|min|max)$/.test(match)) {
+      return match;
+    }
+    return '\\text{' + match + '}';
+  });
+}
+
 function _tryKatex(el, latex) {
   if (typeof katex === 'undefined' || !latex) return false;
   if (!_looksLikeLatex(latex)) return false;
   try {
-    katex.render(latex, el, { throwOnError: false, displayMode: true });
+    var processed = _autoWrapTextRuns(latex);
+    katex.render(processed, el, { throwOnError: false, displayMode: true });
     return true;
   } catch (e) {
     console.warn('[Board] KaTeX render failed:', e.message);
