@@ -584,6 +584,14 @@ function buildControlBridge(scale, isWebGL) {
     '      if (isHighlighted) { p.strokeWeight(sStroke(3)); p.drawingContext.shadowColor = color || \'#34d399\'; p.drawingContext.shadowBlur = 18 * S; }\n' +
     '      else { p.strokeWeight(sStroke(1.5)); p.drawingContext.shadowBlur = 0; }\n' +
     '    }\n' +
+    '    // Force transparent canvas — board shows through\n' +
+    '    var _origSetup = p.setup;\n' +
+    '    p.setup = function() {\n' +
+    '      if (_origSetup) _origSetup.apply(p, arguments);\n' +
+    '      try { p.clear(); } catch(e) {}\n' +
+    '    };\n' +
+    '    // Override background() to clear instead of fill — keeps canvas transparent\n' +
+    '    p.background = function() { try { p.clear(); } catch(e) {} };\n' +
     '    [\'setLineDash\',\'getLineDash\',\'setTransform\',\'resetTransform\',\'clip\',\'clearRect\',\n' +
     '     \'createLinearGradient\',\'createRadialGradient\',\'measureText\',\'fillRect\',\'strokeRect\'].forEach(function(m) {\n' +
     '      p[m] = function() {\n' +

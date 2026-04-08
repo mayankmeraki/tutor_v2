@@ -654,7 +654,7 @@
   display: flex;
   align-items: center;
   gap: 8px;
-  background: rgba(255,255,255,0.02);
+  background: transparent;
 }
 
 /* Legend bar — sans-serif, inside the figure frame */
@@ -668,7 +668,7 @@
   font-size: 11px;
   font-weight: 500;
   color: rgba(255,255,255,0.55);
-  background: rgba(255,255,255,0.02);
+  background: transparent;
 }
 .bd-anim-legend-item {
   display: flex;
@@ -687,15 +687,16 @@
 .bd-anim-box {
   display: block;
   overflow: hidden;
-  background: transparent;
+  background: transparent !important;
   position: relative;
   min-height: 220px;
   aspect-ratio: 4 / 3;
   padding: 8px;
 }
-/* Ensure p5 canvas fills the box */
+/* Ensure p5 canvas is transparent + fills the box */
 .bd-anim-box canvas {
   display: block;
+  background: transparent !important;
   width: 100% !important;
   height: 100% !important;
 }
