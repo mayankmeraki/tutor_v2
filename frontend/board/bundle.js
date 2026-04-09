@@ -221,6 +221,29 @@ function placeElement(element, placement, cmd) {
     registerElement(cmd.id, element);
   }
 
+  // ── FIGURE NARRATION ROUTING ──
+  // placement="figure:<id>" routes any content into the matching figure's
+  // narration column. Lets the model put a mix of headings/text/lists/
+  // callouts beside an animation without inventing per-type commands.
+  if (typeof placement === 'string' && placement.indexOf('figure:') === 0) {
+    var figId = placement.slice('figure:'.length);
+    var fig = document.getElementById(figId);
+    if (fig && fig.classList.contains('bd-figure')) {
+      var narrationCol = fig.querySelector('.bd-figure-narration');
+      if (narrationCol) {
+        narrationCol.appendChild(element);
+        // Auto-scroll the narration column so the newest line is visible
+        requestAnimationFrame(function() {
+          narrationCol.scrollTop = narrationCol.scrollHeight;
+        });
+        return;
+      }
+    }
+    // Figure not found — fall through to normal below placement so the
+    // content still appears somewhere instead of being silently dropped.
+    placement = 'below';
+  }
+
   // ── PERCENTAGE-BASED ABSOLUTE POSITIONING ──
   // If cmd has x/y (0-100), position absolutely within the scene.
   // This gives the LLM free spatial control like a real chalkboard.
@@ -902,6 +925,69 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
 }
 
 // ═══════════════════════════════════════════════════════════════
+// FIGURE — animation on the left + narration column on the right.
+// Each subsequent cmd:"narrate" with target=<figure id> appends one
+// line into the narration column, animated char-by-char.
+// ═══════════════════════════════════════════════════════════════
+
+async function renderFigure(cmd) {
+  if (!cmd.id) {
+    console.warn('[Board] cmd:figure requires an id so cmd:narrate can target it');
+    cmd.id = 'fig-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  // Wrapper row holding [animation | narration]
+  var wrapper = document.createElement('div');
+  wrapper.className = 'bd-el bd-figure';
+  wrapper.id = cmd.id;
+  wrapper.dataset.cmd = 'figure';
+
+  var animSlot = document.createElement('div');
+  animSlot.className = 'bd-figure-anim';
+  wrapper.appendChild(animSlot);
+
+  var narration = document.createElement('div');
+  narration.className = 'bd-figure-narration';
+  if (cmd.title) {
+    var head = document.createElement('div');
+    head.className = 'bd-figure-narration-title';
+    head.textContent = cmd.title;
+    narration.appendChild(head);
+  }
+  wrapper.appendChild(narration);
+
+  // Place wrapper into the scene FIRST so child layout can measure
+  placeElement(wrapper, cmd.placement || 'below', cmd);
+
+  // Now create the animation INSIDE the left slot. createAnimation calls
+  // placeElement(figure, cmd.placement, cmd) which writes into board.liveScene,
+  // so we temporarily swap liveScene to the anim slot. We also strip cmd.id
+  // (already used by the wrapper) and force placement to 'below' so the
+  // anim figure just appends.
+  var savedScene = board.liveScene;
+  board.liveScene = animSlot;
+  try {
+    var animCmd = Object.assign({}, cmd, { id: cmd.id + '-anim', placement: 'below' });
+    await createAnimation(animCmd);
+  } finally {
+    board.liveScene = savedScene;
+  }
+}
+
+// cmd:"narrate" is a thin convenience alias — equivalent to
+// cmd:"text" placement:"figure:<target>". It exists so older prompts and
+// the figure pattern doc still work. Internally it routes through
+// renderText, which picks up the placement and lands the line inside the
+// figure's narration column.
+async function renderNarrate(cmd) {
+  if (!cmd.target || !cmd.text) return;
+  await renderText(Object.assign({}, cmd, {
+    placement: 'figure:' + cmd.target,
+    target: undefined,
+  }));
+}
+
+// ═══════════════════════════════════════════════════════════════
 // 8. COMMANDS
 // ═══════════════════════════════════════════════════════════════
 
@@ -914,8 +1000,8 @@ async function runCommand(cmd) {
   if (board.cancelFlag) return;
   if (!board.liveScene) return;
 
-  var contentCmds = ['text', 'latex', 'animation', 'equation', 'compare', 'step',
-    'check', 'cross', 'callout', 'list', 'divider', 'result', 'mermaid', 'diagram',
+  var contentCmds = ['text', 'latex', 'animation', 'figure', 'equation', 'step',
+    'check', 'cross', 'callout', 'list', 'divider', 'mermaid', 'diagram',
     'line', 'arrow', 'rect', 'fillrect', 'circle', 'arc', 'dot', 'dashed'];
   if (!cmd.placement && contentCmds.includes(cmd.cmd)) {
     cmd.placement = 'below';
@@ -930,7 +1016,6 @@ async function runCommand(cmd) {
     case 'note':     await renderText(Object.assign({}, cmd, { size: 'small', color: cmd.color || 'dim' })); break;
     case 'latex':    await renderEquation(cmd); break;
     case 'equation': await renderEquation(cmd); break;
-    case 'compare':  await renderCompare(cmd); break;
     case 'step':     await renderStep(cmd); break;
     case 'check':    await renderCheckCross(cmd, true); break;
     case 'cross':    await renderCheckCross(cmd, false); break;
@@ -939,8 +1024,9 @@ async function runCommand(cmd) {
     case 'mermaid':  await renderMermaid(cmd); break;
     case 'list':     await renderList(cmd); break;
     case 'divider':  renderDivider(cmd); break;
-    case 'result':   await renderResult(cmd); break;
     case 'animation': await createAnimation(cmd); break;
+    case 'figure':   await renderFigure(cmd); break;
+    case 'narrate':  await renderNarrate(cmd); break;
     case 'diagram':  await renderDiagram(cmd); break;
     case 'columns':  renderColumns(cmd); break;
     case 'columns-end': renderColumnsEnd(); break;
@@ -2062,61 +2148,6 @@ async function renderEquation(cmd) {
   }
 }
 
-async function renderCompare(cmd) {
-  var el = createElement('div', cmd, 'bd-compare');
-  var left = cmd.left || {};
-  var right = cmd.right || {};
-
-  var leftCol = document.createElement('div');
-  leftCol.className = 'bd-compare-col ' + colorClass(left.color);
-
-  var sep = document.createElement('div');
-  sep.className = 'bd-compare-sep';
-
-  var rightCol = document.createElement('div');
-  rightCol.className = 'bd-compare-col ' + colorClass(right.color);
-
-  el.appendChild(leftCol);
-  el.appendChild(sep);
-  el.appendChild(rightCol);
-
-  placeElement(el, cmd.placement, cmd);
-
-  // Animate titles first, then items one-by-one, alternating left/right
-  if (left.title) {
-    var h = document.createElement('div');
-    h.className = 'bd-compare-col-label ' + sizeClass('h2');
-    leftCol.appendChild(h);
-    await animateText(h, left.title);
-  }
-  if (right.title) {
-    var h = document.createElement('div');
-    h.className = 'bd-compare-col-label ' + sizeClass('h2');
-    rightCol.appendChild(h);
-    await animateText(h, right.title);
-  }
-
-  // Animate items alternating left/right for natural feel
-  var leftItems = left.items || [];
-  var rightItems = right.items || [];
-  var maxLen = Math.max(leftItems.length, rightItems.length);
-
-  for (var i = 0; i < maxLen; i++) {
-    if (i < leftItems.length) {
-      var li = document.createElement('div');
-      li.className = 'bd-compare-item ' + sizeClass('text');
-      leftCol.appendChild(li);
-      await animateText(li, '\u2022 ' + leftItems[i]);
-    }
-    if (i < rightItems.length) {
-      var li = document.createElement('div');
-      li.className = 'bd-compare-item ' + sizeClass('text');
-      rightCol.appendChild(li);
-      await animateText(li, '\u2022 ' + rightItems[i]);
-    }
-  }
-}
-
 async function renderStep(cmd) {
   var el = createElement('div', cmd, 'bd-step', colorClass(cmd.color || 'cyan'));
 
@@ -2186,33 +2217,6 @@ function renderDivider(cmd) {
   el.className = 'bd-el bd-divider';
   if (cmd.id) el.id = cmd.id;
   placeElement(el, cmd.placement, cmd);
-}
-
-async function renderResult(cmd) {
-  var el = createElement('div', cmd, 'bd-result', colorClass(cmd.color || 'gold'));
-
-  if (cmd.label) {
-    var label = document.createElement('span');
-    label.className = 'bd-result-label';
-    label.textContent = cmd.label;
-    el.appendChild(label);
-  }
-
-  var text = document.createElement('span');
-  text.className = 'bd-result-text ' + sizeClass(cmd.size);
-  el.appendChild(text);
-
-  if (cmd.note) {
-    var note = document.createElement('span');
-    note.className = 'bd-result-note bd-chalk-dim ' + sizeClass('small');
-    note.textContent = '\u2190 ' + cmd.note;
-    el.appendChild(note);
-  }
-
-  placeElement(el, cmd.placement, cmd);
-  if (!_tryKatex(text, cmd.text)) {
-    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
-  }
 }
 
 function renderStrikeout(cmd) {

@@ -96,10 +96,6 @@ BOARD USAGE FOR BIOLOGY:
     "\Delta G = \Delta G^\circ + RT\ln Q" — Gibbs free energy in biochemistry
     "6CO_2 + 6H_2O \xrightarrow{h\nu} C_6H_{12}O_6 + 6O_2" — photosynthesis
 
-  COMPARE PATTERN (very common in biology):
-    left: "Prokaryote" — no nucleus, circular DNA, 70S ribosomes
-    right: "Eukaryote" — nucleus, linear DNA, 80S ribosomes
-
 QUESTIONING IN BIOLOGY:
   - "What would happen to the organism if this system failed?" (pathology reveals function)
   - "Why would evolution select for this?" (every trait has a cost-benefit)
@@ -116,7 +112,8 @@ Enzyme kinetics:
   animation: interactive Michaelis-Menten curve with Km and Vmax labeled
   equation: "V = \frac{V_{max}[S]}{K_m + [S]}" with note "hyperbolic"
   callout: "Km = substrate concentration at half-max velocity. Low Km = high affinity."
-  compare: left "Competitive inhibitor: Km increases" vs right "Non-competitive: Vmax decreases"
+  text: "Competitive inhibitor: Km increases ↑"
+  text: "Non-competitive: Vmax decreases ↓"
 
 DNA replication:
   mermaid: flowchart Origin → Helicase unwinds → SSB stabilizes → Primase adds primer
@@ -129,7 +126,7 @@ Natural selection:
   step 2: "Some variants survive/reproduce better" → shade one tail
   step 3: "Offspring inherit favorable traits" → shift bell curve
   step 4: "Over generations: adaptation" → show curve shifted
-  result: "No planning, no goal — just differential survival and inheritance"
+  callout: "No planning, no goal — just differential survival and inheritance"
 """,
 
     misconceptions="""

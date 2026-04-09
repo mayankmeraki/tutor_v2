@@ -422,32 +422,6 @@
   padding-left: 8px;
 }
 
-/* ── Compare: two columns side by side with separator ── */
-.bd-compare {
-  display: flex;
-  gap: 0;
-  align-items: stretch;
-}
-
-.bd-compare-col {
-  flex: 1;
-  min-width: 0;
-  padding: 8px 16px;
-}
-
-.bd-compare-col:first-child {
-  border-right: 1px solid rgba(255, 255, 255, 0.08);
-}
-
-.bd-compare-col-label {
-  font-size: var(--bd-label);
-  text-transform: uppercase;
-  letter-spacing: 1px;
-  color: var(--bd-dim);
-  margin-bottom: 8px;
-  text-shadow: var(--bd-glow);
-}
-
 /* ── Step: numbered step with circled number ── */
 .bd-step {
   display: flex;
@@ -526,61 +500,6 @@
   border-left-color: var(--bd-dim);
 }
 
-/* ── Result: bordered box with a label, label on top, value below ──
-   Previously the label was an absolutely-positioned badge sitting above
-   the box (top: -10px). That sat outside the parent's padding box and
-   got visually clipped by stacking siblings / overflow contexts. The
-   in-flow flex column variant never clips. */
-.bd-result {
-  display: inline-flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 4px;
-  border: 1.5px solid rgba(168, 230, 207, 0.35);
-  border-radius: 8px;
-  padding: 14px 20px 12px;
-  position: relative;
-  margin-top: 20px;
-  margin-left: auto;
-  margin-right: auto;
-  background: rgba(168, 230, 207, 0.04);
-  font-family: var(--bd-font-mono);
-  color: var(--bd-math);
-}
-
-.bd-result-label {
-  position: static;
-  font-family: var(--bd-font);
-  font-size: 11px;
-  text-transform: uppercase;
-  letter-spacing: 1.6px;
-  color: var(--bd-math);
-  opacity: 0.65;
-  font-weight: 500;
-  margin-bottom: 2px;
-  background: transparent;
-  padding: 0;
-  text-shadow: none;
-}
-
-.bd-result.bd-chalk-green {
-  border-color: rgba(126, 217, 154, 0.35);
-  background: rgba(126, 217, 154, 0.03);
-}
-
-.bd-result.bd-chalk-green .bd-result-label {
-  color: var(--bd-green);
-}
-
-.bd-result.bd-chalk-cyan {
-  border-color: rgba(83, 216, 251, 0.35);
-  background: rgba(83, 216, 251, 0.03);
-}
-
-.bd-result.bd-chalk-cyan .bd-result-label {
-  color: var(--bd-cyan);
-}
-
 /* ── List: styled items with markers ── */
 .bd-list {
   list-style: none;
@@ -657,6 +576,173 @@
 /* SVG shape primitives — inline SVG elements for lines, circles, arrows, rects */
 .bd-svg-shape { margin-top: var(--bd-el-gap); }
 .bd-svg-shape svg { filter: drop-shadow(0 0 2px rgba(255,255,255,0.1)); }
+
+/* ═══════════════════════════════════════════════════════════
+   6.5. Figure (animation + narration column)
+
+   Layout: animation on the LEFT (60%), narration column on the
+   RIGHT (40%). The narration column is filled by cmd:"narrate" or
+   any content command with placement="figure:<id>" — text, h3,
+   list, callout, equation all work. The whole row is a single
+   bd-el that fills the available width and reserves enough height
+   for the animation to actually breathe.
+   ═══════════════════════════════════════════════════════════ */
+.bd-figure {
+  display: flex;
+  align-items: stretch;
+  gap: 32px;
+  width: 100%;
+  min-height: 420px;
+  margin-top: var(--bd-el-gap);
+}
+.bd-figure-anim {
+  flex: 1 1 58%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+/* Override the standalone .bd-anim-figure sizing — inside a figure the
+   animation should grow to fill the entire left slot, not sit in a
+   220px-tall box anchored to the top. */
+.bd-figure-anim > .bd-anim-figure {
+  margin-top: 0;
+  width: 100%;
+  height: 100%;
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+}
+.bd-figure-anim > .bd-anim-figure > .bd-anim-box {
+  flex: 1 1 auto;
+  min-height: 360px;
+  aspect-ratio: auto;
+  width: 100%;
+}
+.bd-figure-narration {
+  flex: 1 1 42%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  /* Vertically center the key points beside the animation, so the right
+     column reads as a balanced caption rather than top-anchored notes. */
+  justify-content: center;
+  gap: 14px;
+  padding: 8px 4px 8px 24px;
+  border-left: none;
+  background: transparent;
+  overflow-y: auto;
+  max-height: 100%;
+}
+/* The optional column header is suppressed — the figure already has its
+   own title in the animation panel; a second header here is redundant
+   noise and breaks the uniform-bullet feel of the column. */
+.bd-figure-narration-title {
+  display: none;
+}
+/* Content nested inside the narration column reads as a uniform bulleted
+   note — same font size everywhere, bullet markers in front of every line,
+   consistent rhythm. No mix of big titles and tiny body. No huge callouts.
+   The look should feel like a teacher's chalk-side notes column. */
+.bd-figure-narration > .bd-el {
+  margin-top: 0;
+  position: relative;
+  padding-left: 18px;
+  font-size: 15px;
+  line-height: 1.55;
+  font-family: var(--bd-font);
+  color: var(--bd-white);
+  text-shadow: var(--bd-glow);
+}
+/* Bullet marker — small dim dot, sits at the same baseline as the text */
+.bd-figure-narration > .bd-el::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  top: 0;
+  font-size: 15px;
+  line-height: 1.55;
+  color: rgba(255, 255, 255, 0.45);
+}
+/* Force every text-style child to the same uniform size — even if the model
+   passes size:"h3" or size:"h2", we override it inside the narration column
+   so the column reads as a balanced list rather than headings + body. */
+.bd-figure-narration .bd-text,
+.bd-figure-narration .bd-text.bd-size-h1,
+.bd-figure-narration .bd-text.bd-size-h2,
+.bd-figure-narration .bd-text.bd-size-h3,
+.bd-figure-narration .bd-text.bd-size-text,
+.bd-figure-narration .bd-text.bd-size-small {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+  margin: 0;
+}
+/* Callouts inside the narration collapse to a plain bullet too — same
+   font size as text, no gold border bar, no extra padding. The model is
+   instructed not to use callouts here, but if one slips through it
+   shouldn't visually dominate the column. */
+.bd-figure-narration .bd-callout {
+  border-left: none;
+  padding-left: 0;
+  margin-left: 0;
+  width: auto;
+}
+.bd-figure-narration .bd-callout .bd-callout-text,
+.bd-figure-narration .bd-callout .bd-callout-text.bd-size-text,
+.bd-figure-narration .bd-callout .bd-callout-text.bd-size-h1,
+.bd-figure-narration .bd-callout .bd-callout-text.bd-size-h2,
+.bd-figure-narration .bd-callout .bd-callout-text.bd-size-h3 {
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1.55;
+}
+/* Lists inside the narration use the column's own bullet markers, not
+   the default list bullets — we suppress the inner ones. */
+.bd-figure-narration .bd-list {
+  padding-left: 0;
+}
+.bd-figure-narration .bd-list li::before {
+  content: '';
+}
+
+.bd-figure-narration-line {
+  font-family: var(--bd-font);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--bd-white);
+  text-shadow: var(--bd-glow);
+}
+
+/* When the narration column has no real content (no children, or only the
+   optional title), hide it entirely so the animation gets the full row.
+   The flex: 1 1 58% on the anim slot lets it grow to fill the freed space. */
+.bd-figure-narration:empty,
+.bd-figure-narration:not(:has(> *:not(.bd-figure-narration-title))) {
+  display: none;
+}
+
+/* Stack vertically on narrow viewports */
+@media (max-width: 900px) {
+  .bd-figure {
+    flex-direction: column;
+    gap: 16px;
+    min-height: 0;
+  }
+  .bd-figure-anim,
+  .bd-figure-narration {
+    flex: 1 1 auto;
+    width: 100%;
+  }
+  .bd-figure-anim > .bd-anim-figure > .bd-anim-box {
+    min-height: 280px;
+  }
+  .bd-figure-narration {
+    border: none;
+    padding: 16px 0 0 0;
+    max-height: none;
+    justify-content: flex-start;
+  }
+}
 
 /* ═══════════════════════════════════════════════════════════
    7. Animation Figure (self-contained: title + canvas + legend)
@@ -988,16 +1074,6 @@
 
   .bd-equation {
     gap: 10px;
-  }
-
-  .bd-compare {
-    flex-direction: column;
-  }
-
-  .bd-compare-col:first-child {
-    border-right: none;
-    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
-    padding-bottom: 12px;
   }
 }
 

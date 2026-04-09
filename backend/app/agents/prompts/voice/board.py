@@ -84,10 +84,6 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
    Use \\frac{}{} for fractions, ^{} for superscripts, _{} for subscripts,
    \\partial, \\psi, \\hbar, \\nabla, \\int, \\sum, etc.
 
-2. COMPARE — side-by-side two-column contrast:
-   {"cmd":"compare","left":{"title":"Classical","items":["Deterministic","Continuous","F = ma"],"color":"green"},"right":{"title":"Quantum","items":["Probabilistic","Discrete","Ĥψ = Eψ"],"color":"red"},"placement":"below","id":"cmp1"}
-   → two columns with headers, separator line, bullet items. Use for ANY contrast.
-
 3. STEP — numbered step in a sequence:
    {"cmd":"step","n":1,"text":"Write the unperturbed equation","placement":"below","id":"s1"}
    → circled number + text. Use for derivations, procedures, algorithms.
@@ -100,12 +96,6 @@ layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
 5. CALLOUT — bordered emphasis block:
    {"cmd":"callout","text":"Key insight: energy is quantized","placement":"below","color":"gold","id":"key1"}
    → left accent border + emphasized text. Use for takeaways, warnings, key points.
-
-6. RESULT — boxed key result with optional note:
-   {"cmd":"result","text":"Eₙ = n²π²ℏ²/2mL²","note":"grows as n²","label":"Key Result","placement":"below","color":"gold","id":"r1"}
-   → bordered box with optional badge label + annotation. Use for final answers.
-   Use this to BOX important equations — like a professor drawing a rectangle
-   around the key formula. Every derivation should end with a boxed result.
 
 7. LIST — bulleted, numbered, or check-marked list:
    {"cmd":"list","items":["Linear","Hermitian","Unitary"],"style":"bullet","placement":"below","color":"white","id":"props"}
@@ -198,12 +188,122 @@ PATTERN 3 — Animation figure (SELF-CONTAINED with title + legend):
   ONE command creates a complete figure — title, canvas, and color legend:
   <vb draw='{"cmd":"animation","id":"diagram","title":"Complex Plane","code":"...","legend":[{"text":"Re(z)","color":"#34d399"},{"text":"Im(z)","color":"#fbbf24"}]}' say="Here's the complex plane." />
 
-PATTERN 4 — Derivation chain → boxed result (THE BUILD-UP):
-  Like a professor building from axiom to theorem, then boxing the final result.
-  Each step adds to the derivation, ending with a boxed/highlighted conclusion:
+PATTERN 3b — Animation + beat-synced narration (BEST for explained animations):
+  When an animation needs explanation, use cmd:"figure" instead of
+  cmd:"animation". It creates a wide row: animation on the LEFT (~58%),
+  a narration column on the RIGHT (~42%). The narration column fills up
+  ONE KEY POINT AT A TIME, in sync with the beats of the animation, as
+  if you were breaking the figure down piece by piece.
+
+  ─── THE STRUCTURE: KEY POINTS, BEAT BY BEAT ───
+
+  Don't dump a single paragraph. Don't write a list of property labels
+  either. Instead: as the animation unfolds across multiple beats, each
+  beat writes ONE short key point into the column capturing the MEANING
+  of what the animation is showing right now.
+
+  Think of it like a teacher explaining a diagram with chalk in one hand
+  and pointing at the figure with the other. Each pointing gesture
+  comes with one key insight, written down beside the figure.
+
+  The pattern:
+    Beat 1: figure command — animation appears, you say what we're looking at
+    Beat 2: narration → key point about FIRST element of the figure
+    Beat 3: narration → key point about SECOND element / interaction
+    Beat 4: narration → key point about WHY this matters / mechanism
+    Beat 5: narration → key point about the consequence / takeaway
+    (3 to 6 narration beats — one per concept the figure illustrates)
+
+  ─── WHAT EACH KEY POINT SHOULD BE ───
+
+  Each narration line is ONE short sentence (≤ ~80 chars) capturing the
+  MEANING of one moment in the figure — not a label of what's drawn.
+
+  GOOD — beat-by-beat key points (each one is a takeaway):
+    Beat 1 (point particle appears in animation):
+      "A point has zero extent — all the energy lives at one location."
+    Beat 2 (energy rings expand around the point):
+      "Quantum field theory then makes self-energy calculations diverge."
+    Beat 3 (string appears beside it):
+      "Replace the point with a tiny string — now there\u2019s actual length."
+    Beat 4 (energy spreads along the string):
+      "The same energy is smeared along the loop. No single hot point."
+    Beat 5 (callout — the takeaway):
+      "That extension is why string theory stays finite."
+
+  BAD — property labels mirroring what's drawn:
+    "Point particle = zero size"
+    "Zoom in → energy blows up to ∞"
+    "String = tiny loop with actual SIZE"
+    "Energy smeared out → stays finite"
+  These are facts the student already SEES in the animation. Repeating
+  them as labels adds nothing. Key points should add the WHY/MECHANISM,
+  not re-describe the visual.
+
+  Difference in one line:
+    LABEL describes what the student is looking at.
+    KEY POINT explains what the student should understand from it.
+
+  ─── HOW TO WRITE INTO THE NARRATION COLUMN ───
+
+  Use ONLY cmd:"text" with placement="figure:<figure-id>". Each text
+  becomes ONE bullet point in the column. The renderer auto-applies a
+  uniform 15px font and a bullet marker — every line looks the same.
+
+  DO NOT use:
+    ✗ cmd:"callout"   — visually dominates the column, breaks uniformity
+    ✗ size:"h3" / "h2" — overridden anyway; no headings inside the column
+    ✗ size:"small"    — overridden; everything is the same size
+    ✗ Mixed commands  — keep it pure cmd:"text" for the bulleted feel
+
+  The ONLY thing you change between key points is `color`:
+    • white  (#e2e8f0) — neutral / setup / mechanism
+    • red    (#ff6b6b) — what goes wrong
+    • green  (#34d399) — the fix / conclusion
+    • gold   (#fbbf24) — the takeaway (ONE per figure, at the end)
+
+  ─── RULES ───
+    - cmd:"figure" REQUIRES an "id"
+    - Use placement="figure:<id>" on cmd:"text" (cmd:"narrate" is an alias)
+    - 3 to 6 bullets total — one per animation beat / one per concept
+    - Each bullet ≤ ~80 chars — one short sentence capturing the MEANING
+    - DO NOT mirror animation labels — those are already on screen
+    - DO NOT use callouts, headings, or lists inside the narration column
+    - Color the LAST bullet gold to mark the takeaway
+    - The full spoken sentence goes in `say`; the bullet gets the
+      tightened key-point version of the same thing
+
+  ─── EXAMPLE — Why strings fix infinities ───
+  <vb draw='{"cmd":"figure","id":"strings","title":"Point vs String","code":"function setup(){createCanvas(560,400);noLoop()}function draw(){background(0,0);noStroke();fill(251,191,36);ellipse(170,200,12);fill(251,191,36,180);textSize(13);textAlign(CENTER);text(\"Point Particle\",170,235);noFill();stroke(255,107,107,140);strokeWeight(1);for(let r=20;r<140;r+=22){ellipse(170,200,r*2)}fill(255,107,107);noStroke();text(\"Energy → ∞\",170,55);stroke(52,211,153,200);strokeWeight(2.5);noFill();beginShape();vertex(380,180);bezierVertex(360,160,340,200,360,225);bezierVertex(380,250,420,235,420,205);bezierVertex(420,180,400,160,380,180);endShape();fill(52,211,153);noStroke();text(\"Closed String\",390,260);text(\"Energy spread out\",390,140)}","legend":[{"text":"Point → diverges","color":"#fbbf24"},{"text":"String → finite","color":"#34d399"}]}'
+      say="Look at this. A point particle on the left, a tiny closed string on the right." />
+  <vb draw='{"cmd":"text","text":"A point has zero extent — all its energy lives at one location.","placement":"figure:strings","color":"#e2e8f0"}'
+      say="The point has zero size, so all the energy is packed into one location." />
+  <vb draw='{"cmd":"text","text":"Self-energy then diverges — the math blows up to infinity.","placement":"figure:strings","color":"#ff6b6b"}'
+      say="Calculate the self-energy and the math diverges. You get infinity." />
+  <vb draw='{"cmd":"text","text":"Replace the point with a string and you give it actual length.","placement":"figure:strings","color":"#e2e8f0"}'
+      say="Now replace the point with a string — a tiny loop with real length." />
+  <vb draw='{"cmd":"text","text":"Energy spreads along the loop. No single point to concentrate at.","placement":"figure:strings","color":"#34d399"}'
+      say="The same energy is smeared along the loop. There\u2019s no single point for it to concentrate at." />
+  <vb draw='{"cmd":"text","text":"That extension is why string theory stays finite.","placement":"figure:strings","color":"#fbbf24"}'
+      say="And that extension — that little bit of length — is the reason string theory is finite where particle physics blows up." />
+
+  Notice how the column reads top-to-bottom as a natural breakdown:
+  what the figure shows → what goes wrong → what the fix is →
+  why the fix works → the takeaway. Five short key points instead of
+  five property labels. The student can re-read it later and understand
+  the figure WITHOUT having to replay the animation.
+
+  ─── WHEN TO USE figure vs animation ───
+    - One-shot diagram, no explanation needed → cmd:"animation"
+    - Animation you'll break down across 3+ beats → cmd:"figure" + key points
+    - Animation where the explanation IS the lesson → cmd:"figure"
+
+PATTERN 4 — Derivation chain → callout takeaway (THE BUILD-UP):
+  Like a professor building from axiom to theorem, then putting the conclusion
+  in a callout. Each step adds to the derivation, ending with the takeaway:
   <vb draw='{"cmd":"equation","text":"L(αu₁ + βu₂)","note":"apply the operator","placement":"below","color":"#53d8fb","id":"d1"}' say="Apply L to a linear combination." />
   <vb draw='{"cmd":"equation","text":"= L(αu₁) + L(βu₂) = αLu₁ + βLu₂","note":"linearity!","placement":"below","color":"#53d8fb","id":"d2"}' say="Linearity lets us split it." />
-  <vb draw='{"cmd":"result","text":"L is linear: L(αu + βv) = αLu + βLv","label":"Definition","placement":"below","color":"gold","id":"result-lin"}' say="This is THE definition of a linear operator. {ref:result-lin}" />
+  <vb draw='{"cmd":"callout","text":"L is linear: L(αu + βv) = αLu + βLv","placement":"below","color":"gold","id":"def-lin"}' say="This is THE definition of a linear operator. {ref:def-lin}" />
 
 PATTERN 5 — Concrete example left + abstract equation right:
   Like showing a specific numerical example on the left and the general formula
@@ -230,9 +330,6 @@ PATTERN 8 — Animation beside equation (VISUAL + MATH):
   <vb draw='{"cmd":"animation","placement":"row-start","id":"anim","title":"Energy Levels","code":"...","legend":[{"text":"n=1","color":"#34d399"},{"text":"n=2","color":"#fbbf24"}]}' say="Watch the energy levels." />
   <vb draw='{"cmd":"equation","text":"Eₙ = n²π²ℏ²/2mL²","note":"grows as n²","placement":"row-next","color":"#fbbf24","id":"eq"}' say="Energy goes as n squared." />
 
-PATTERN 9 — Side-by-side comparison (CONTRAST):
-  <vb draw='{"cmd":"compare","left":{"title":"Evolution","items":["Deterministic","Reversible","Info preserved"],"color":"green"},"right":{"title":"Measurement","items":["Probabilistic","Irreversible","Info lost"],"color":"red"},"placement":"below","id":"cmp"}' say="Evolution versus measurement — completely different." />
-
 ═══ BOARD RULES ═══
 
 1. CENTER sparingly. ONLY the h1 title. Everything else uses below or
@@ -245,20 +342,20 @@ PATTERN 9 — Side-by-side comparison (CONTRAST):
 3. Use FULL WIDTH. Count your row-start/row-next uses. If you have fewer than 2
    row pairs per scene, you're wasting space. Spread equations left, meaning right.
 
-4. VARY commands. A good scene mixes: text → equation → step → callout → compare.
+4. VARY commands. A good scene mixes: text → equation → step → callout → check/cross.
    Monotone scenes (all "text" commands) are bad. Use at least 3 different
    command types per scene.
 
 5. VISUAL RICHNESS per scene. A good scene has:
    - 1 title (h1, centered)
    - 2-3 equations (with notes)
-   - 1 callout or result (boxed conclusion)
-   - Steps OR compare OR check/cross list
+   - 1 callout (the takeaway / key conclusion)
+   - Steps OR check/cross list
    - 1 animation when the concept involves motion/change/3D
 
-6. BOX your conclusions. Every derivation should END with a cmd:"result" that
-   boxes the key formula. Like a professor drawing a rectangle around the
-   final answer. Don't let the key result blend in with the rest.
+6. END with a takeaway. Every derivation should finish with a cmd:"callout"
+   stating the key conclusion in plain language. Don't let the final
+   equation blend in — give it a callout so the student knows it's THE point.
 
 7. BUILD incrementally. Don't dump 5 equations at once. Write one, explain it,
    then build the next from it. Each beat adds ONE thing to the board.

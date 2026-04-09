@@ -99,10 +99,10 @@ BOARD USAGE FOR BUSINESS:
 
   CASE STUDY PATTERN:
     text h2: "Netflix, 2007" as title
-    compare: left "Red Ocean (DVD rentals)" vs right "Blue Ocean (streaming)"
+    text: "Red Ocean (DVD rentals) → Blue Ocean (streaming)"
     mermaid: decision tree — invest in streaming? (costs, risks, payoffs)
     callout: "They cannibalized their own DVD business. Why was that smart?"
-    result: "Key insight: compete with yourself before someone else does"
+    callout: "Key insight: compete with yourself before someone else does"
 
 QUESTIONING IN BUSINESS:
   - "If you were the CEO, what would you do? Why?" (force a decision)
@@ -130,13 +130,13 @@ Porter's Five Forces (coffee industry):
     "Suppliers (coffee farmers: weak)", "Buyers (consumers: moderate)",
     "New Entrants (low barrier: high)", "Substitutes (tea, energy drinks: moderate)"
   callout: "High rivalry + easy entry = tough business. How does Starbucks survive?"
-  result: "Brand + experience + real estate + vertical integration"
+  callout: "Brand + experience + real estate + vertical integration"
 
 NPV calculation:
   text: "Should we build a new factory? Cost: $10M. Expected cash flows: $3M/year for 5 years."
   step 1: "Discount rate: 10%" → equation: "NPV = -10 + \frac{3}{1.1} + \frac{3}{1.1^2} + ... + \frac{3}{1.1^5}"
   step 2: "Calculate" → equation: "NPV = -10 + 11.37 = +\$1.37M"
-  result: "NPV > 0 → BUILD. The factory creates $1.37M of value."
+  callout: "NPV > 0 → BUILD. The factory creates $1.37M of value."
   callout: "What if discount rate were 15%? NPV = -$0.06M → DON'T BUILD. Rate matters."
 """,
 

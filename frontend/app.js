@@ -1360,21 +1360,25 @@ function _hideBoardDrawingSkeleton() {
   }, 260);
 }
 
-// Re-evaluate whether a draw command is currently being streamed.
-// Show the skeleton if there's an unclosed <vb tag in the accumulated text.
+// Re-evaluate whether the tutor is currently streaming a draw command.
+//
+// CONTRACT: the skeleton is visible during the SILENT GAP — from the moment
+// the model starts streaming text until the first VOICE_BEAT begins playing
+// audio. The previous "count opens vs closes" approach was wrong: it hid the
+// skeleton as soon as the first <vb /> tag finished streaming, but the silent
+// gap continues PAST that point — until the audio starts. Result was a
+// 200ms flash, not a steady indicator.
+//
+// New rule: while we're in 'thinking' state AND any text has streamed in,
+// show the skeleton. The hide happens in setVoiceBarState() the moment we
+// transition to 'speaking' (right before the first beat plays).
 function _checkDrawingInProgress() {
-  const text = _ws.accumulatedText || '';
-  // Count <vb opens (word-boundary so we don't catch <vboard etc.)
-  const openMatches = text.match(/<vb\s/g);
-  const opens = openMatches ? openMatches.length : 0;
-  // Count <vb ... /> self-closes (one /> per beat)
-  const closeMatches = text.match(/<vb\s[^>]*\/>/g);
-  const closes = closeMatches ? closeMatches.length : 0;
-
-  if (opens > closes) {
-    _showBoardDrawingSkeleton();
-  } else {
+  if (_vbState === 'speaking' || _vbState === 'idle') {
     _hideBoardDrawingSkeleton();
+    return;
+  }
+  if (_ws.accumulatedText && _ws.accumulatedText.length > 0) {
+    _showBoardDrawingSkeleton();
   }
 }
 

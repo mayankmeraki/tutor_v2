@@ -86,7 +86,7 @@ BOARD USAGE FOR CHEMISTRY:
     step 1: "Nucleophile identifies electrophilic carbon"
     step 2: "Arrow from lone pair → C" (draw curly arrow on board)
     step 3: "Leaving group departs" (draw arrow from bond → leaving group)
-    result: "Product formed — inversion of stereochemistry (SN2)"
+    callout: "Product formed — inversion of stereochemistry (SN2)"
 
 QUESTIONING IN CHEMISTRY:
   - "What type of bond is this? How do you know?" (ionic vs covalent)
@@ -105,7 +105,7 @@ Acid-base equilibrium:
   callout: "Ka tells you HOW MUCH dissociates"
   equation: "K_a = \frac{[H^+][A^-]}{[HA]}" with note "large Ka = strong acid"
   animation: bar chart showing [HA], [H+], [A-] changing with dilution
-  result: "pH = pK_a + \log\frac{[A^-]}{[HA]}" with note "Henderson-Hasselbalch"
+  callout: "pH = pK_a + log([A⁻]/[HA])  ← Henderson-Hasselbalch"
 
 Organic mechanism (SN2):
   step 1: draw substrate with leaving group
@@ -113,12 +113,12 @@ Organic mechanism (SN2):
   step 3: curly arrow from nucleophile to carbon
   step 4: curly arrow from C-LG bond to leaving group
   animation: 3D view showing Walden inversion (stereochemistry flip)
-  result: "SN2: one step, backside attack, inversion"
+  callout: "SN2: one step, backside attack, inversion"
 
 Periodic trends:
   animation: periodic table heatmap showing atomic radius trend
   callout: "Left→right: smaller (more protons, same shell). Top→bottom: larger (more shells)"
-  compare: left "Li (152pm)" vs right "F (64pm)" — "Same period, huge difference"
+  text: "Li (152pm) → F (64pm)" with note "Same period, huge difference"
 """,
 
     misconceptions="""

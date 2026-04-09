@@ -74,7 +74,7 @@ BOARD USAGE FOR PHYSICS:
   Derivation pattern:
     equation: "F = ma" → step: "substitute F = -kx" → equation: "ma = -kx"
     → step: "divide by m" → equation: "a = -\frac{k}{m}x = -\omega^2 x"
-    → result: "Simple harmonic motion with \omega = \sqrt{k/m}"
+    → callout: "Simple harmonic motion with \omega = \sqrt{k/m}"
 
 QUESTIONING IN PHYSICS:
   - "Before I solve this — what do you think happens? Faster or slower? More or less?"
@@ -94,7 +94,7 @@ Newton's laws problem:
   step 1: "Draw free body diagram" → draw N, mg, friction, components
   step 2: "Sum forces parallel to ramp" → equation: "mg\sin\theta - \mu N = ma"
   step 3: "Sum forces perpendicular" → equation: "N = mg\cos\theta"
-  step 4: "Substitute and solve" → result: "a = g(\sin\theta - \mu\cos\theta)"
+  step 4: "Substitute and solve" → callout: "a = g(\sin\theta - \mu\cos\theta)"
   callout: "Sanity check: if μ=0, a = g sin30° = 4.9 m/s². Makes sense — pure ramp."
 
 Energy conservation:

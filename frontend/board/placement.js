@@ -25,6 +25,25 @@ export function placeElement(element, placement, cmd) {
     registerElement(cmd.id, element);
   }
 
+  // ── FIGURE NARRATION ROUTING ──
+  // placement="figure:<id>" routes the element into the matching figure's
+  // narration column. Lets any content command (text, h3, list, callout,
+  // equation) write into the column beside an animation.
+  if (typeof placement === 'string' && placement.startsWith('figure:')) {
+    const figId = placement.slice('figure:'.length);
+    const fig = document.getElementById(figId);
+    if (fig && fig.classList.contains('bd-figure')) {
+      const narrationCol = fig.querySelector('.bd-figure-narration');
+      if (narrationCol) {
+        narrationCol.appendChild(element);
+        requestAnimationFrame(() => { narrationCol.scrollTop = narrationCol.scrollHeight; });
+        return;
+      }
+    }
+    // Figure not found — fall through to normal below placement.
+    placement = 'below';
+  }
+
   // ── If inside a columns grid, append there instead of scene ──
   if (board.currentColumns && placement === 'below') {
     board.currentColumns.appendChild(element);

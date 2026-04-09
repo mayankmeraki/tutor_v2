@@ -79,7 +79,7 @@ BOARD USAGE FOR COMPUTER SCIENCE:
       step 3: "Split: [38, 27] | [43, 3] | [9, 82] | [10]"
       step 4: "Merge: [27, 38] | [3, 43] | [9, 82] | [10]"
       step 5: "Merge: [3, 27, 38, 43] | [9, 10, 82]"
-      result: "[3, 9, 10, 27, 38, 43, 82]"
+      callout: "Sorted: [3, 9, 10, 27, 38, 43, 82]"
 
   Use cmd:"animation" EXTENSIVELY:
     - Sorting algorithms: bars rearranging (color-code comparisons and swaps)
@@ -139,21 +139,21 @@ Binary search:
   step 1: "lo=0, hi=9, mid=4 → arr[4]=16 < 23 → search RIGHT"
   step 2: "lo=5, hi=9, mid=7 → arr[7]=56 > 23 → search LEFT"
   step 3: "lo=5, hi=6, mid=5 → arr[5]=23 = target → FOUND at index 5"
-  result: "3 comparisons instead of 6 (linear). For 1M items: 20 vs 1,000,000."
+  callout: "3 comparisons instead of 6 (linear). For 1M items: 20 vs 1,000,000."
   equation: "O(\log_2 n)" with note "halving each time"
 
 Hash table collision:
   animation: array of buckets, keys hashing to indices, collision chains forming
   callout: "Load factor = n/m. When it exceeds 0.75, resize and rehash."
-  compare: left "Chaining: linked list at each bucket" vs right "Open addressing: probe for next empty"
+  text: "Chaining: linked list at each bucket"
+  text: "Open addressing: probe for next empty"
 
 Dynamic programming (Fibonacci):
-  compare:
-    left "Naive recursion" — "fib(5) calls fib(4) and fib(3). fib(4) calls fib(3) again!"
-    right "DP with memo" — "fib(3) computed once, stored, reused"
+  text: "Naive recursion: fib(5) calls fib(4) and fib(3). fib(4) calls fib(3) again!"
+  text: "DP with memo: fib(3) computed once, stored, reused"
   animation: recursive call tree (left, exponential) vs linear table fill (right)
   equation: "T(n) = O(2^n) \to O(n)" with note "memoization transforms exponential → linear"
-  result: "Same answer. Wildly different speed. That's DP."
+  callout: "Same answer. Wildly different speed. That's DP."
 """,
 
     misconceptions="""

@@ -66,7 +66,7 @@ BOARD USAGE FOR MATHEMATICS:
       step 2: "Find critical points: f'(x) = 3x² - 3 = 0"
       step 3: "Solve: x² = 1, so x = ±1"
       step 4: "Classify: f''(x) = 6x → f''(1)>0 (min), f''(-1)<0 (max)"
-      result: "Local max at (-1, 3), local min at (1, -1)"
+      callout: "Local max at (-1, 3), local min at (1, -1)"
 
   VISUALISATION — make abstract concrete:
     Use cmd:"animation" for:
@@ -104,18 +104,19 @@ Chain rule:
   callout: "Outer function: sin(□). Inner function: x²"
   step 1: "Derivative of outer: cos(□)" → equation: "\frac{d}{du}\sin(u) = \cos(u)"
   step 2: "Derivative of inner: 2x" → equation: "\frac{d}{dx}(x^2) = 2x"
-  step 3: "Chain rule: multiply" → result: "f'(x) = \cos(x^2) \cdot 2x"
+  step 3: "Chain rule: multiply" → callout: "f'(x) = \cos(x^2) \cdot 2x"
   callout: "Pattern: (outside derivative) × (inside derivative)"
 
 Integration by parts:
   equation: "\int u\,dv = uv - \int v\,du" with note "LIATE to choose u"
   step 1: "u = x, dv = eˣdx" → step 2: "du = dx, v = eˣ"
-  result: "\int xe^x\,dx = xe^x - e^x + C"
+  callout: "\int xe^x\,dx = xe^x - e^x + C"
 
 Eigenvalues visual:
   animation: 2D transformation showing vectors rotating/stretching, eigenvectors staying on their line
   equation: "A\vec{v} = \lambda\vec{v}" with note "v doesn't change direction"
-  compare: left "Eigenvector: direction preserved" vs right "Other vectors: rotated/skewed"
+  text: "Eigenvector: direction preserved"
+  text: "Other vectors: rotated/skewed"
 """,
 
     misconceptions="""

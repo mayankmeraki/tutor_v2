@@ -17,8 +17,8 @@ export async function runCommand(cmd) {
   if (!board.liveScene) return;
 
   // Default placement
-  const contentCmds = ['text', 'latex', 'animation', 'equation', 'compare', 'step',
-    'check', 'cross', 'callout', 'list', 'divider', 'result'];
+  const contentCmds = ['text', 'latex', 'animation', 'figure', 'equation', 'step',
+    'check', 'cross', 'callout', 'list', 'divider'];
   if (!cmd.placement && contentCmds.includes(cmd.cmd)) {
     cmd.placement = 'below';
   }
@@ -32,15 +32,15 @@ export async function runCommand(cmd) {
     case 'note':     await renderText({ ...cmd, size: 'small', color: cmd.color || 'dim' }); break;
     case 'latex':    await renderEquation(cmd); break;
     case 'equation': await renderEquation(cmd); break;
-    case 'compare':  await renderCompare(cmd); break;
     case 'step':     await renderStep(cmd); break;
     case 'check':    await renderCheckCross(cmd, true); break;
     case 'cross':    await renderCheckCross(cmd, false); break;
     case 'callout':  await renderCallout(cmd); break;
     case 'list':     await renderList(cmd); break;
     case 'divider':  renderDivider(cmd); break;
-    case 'result':   await renderResult(cmd); break;
     case 'animation': await renderAnimation(cmd); break;
+    case 'figure':   await renderFigure(cmd); break;
+    case 'narrate':  await renderNarrate(cmd); break;
     case 'columns':  renderColumns(cmd); break;
     case 'columns-end': renderColumnsEnd(); break;
     case 'annotate': renderAnnotate(cmd); break;
@@ -123,56 +123,6 @@ async function renderEquation(cmd) {
   if (!_tryKatex(main, cmd.text)) {
     await animateText(main, cmd.text, { charDelay: cmd.charDelay });
   }
-}
-
-// ── COMPARE ──────────────────────────────────────────
-
-async function renderCompare(cmd) {
-  const el = createElement('div', cmd, 'bd-compare');
-  const left = cmd.left || {};
-  const right = cmd.right || {};
-
-  // Left column
-  const leftCol = document.createElement('div');
-  leftCol.className = `bd-compare-col ${colorClass(left.color)}`;
-  if (left.title) {
-    const h = document.createElement('div');
-    h.className = `bd-compare-col-label ${sizeClass('h2')}`;
-    h.textContent = left.title;
-    leftCol.appendChild(h);
-  }
-  (left.items || []).forEach(item => {
-    const li = document.createElement('div');
-    li.className = `bd-compare-item ${sizeClass('text')}`;
-    li.textContent = `• ${item}`;
-    leftCol.appendChild(li);
-  });
-
-  // Separator
-  const sep = document.createElement('div');
-  sep.className = 'bd-compare-sep';
-
-  // Right column
-  const rightCol = document.createElement('div');
-  rightCol.className = `bd-compare-col ${colorClass(right.color)}`;
-  if (right.title) {
-    const h = document.createElement('div');
-    h.className = `bd-compare-col-label ${sizeClass('h2')}`;
-    h.textContent = right.title;
-    rightCol.appendChild(h);
-  }
-  (right.items || []).forEach(item => {
-    const li = document.createElement('div');
-    li.className = `bd-compare-item ${sizeClass('text')}`;
-    li.textContent = `• ${item}`;
-    rightCol.appendChild(li);
-  });
-
-  el.appendChild(leftCol);
-  el.appendChild(sep);
-  el.appendChild(rightCol);
-
-  placeElement(el, cmd.placement, cmd);
 }
 
 // ── STEP ─────────────────────────────────────────────
@@ -266,36 +216,6 @@ function renderDivider(cmd) {
   placeElement(el, cmd.placement, cmd);
 }
 
-// ── RESULT ───────────────────────────────────────────
-
-async function renderResult(cmd) {
-  const el = createElement('div', cmd, 'bd-result', colorClass(cmd.color || 'gold'));
-
-  if (cmd.label) {
-    const label = document.createElement('span');
-    label.className = 'bd-result-label';
-    label.textContent = cmd.label;
-    el.appendChild(label);
-  }
-
-  const text = document.createElement('span');
-  text.className = `bd-result-text ${sizeClass(cmd.size)}`;
-  el.appendChild(text);
-
-  if (cmd.note) {
-    const note = document.createElement('span');
-    note.className = `bd-result-note bd-chalk-dim ${sizeClass('small')}`;
-    note.textContent = `← ${cmd.note}`;
-    el.appendChild(note);
-  }
-
-  placeElement(el, cmd.placement, cmd);
-  // Result text is often LaTeX — try KaTeX first
-  if (!_tryKatex(text, cmd.text)) {
-    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
-  }
-}
-
 // ── COLUMNS (grid layout zone) ───────────────────────
 
 function renderColumns(cmd) {
@@ -363,6 +283,60 @@ async function renderAnimation(cmd) {
   // Lazy import to avoid circular deps
   const { createAnimation } = await import('./animation.js');
   await createAnimation(cmd);
+}
+
+// ── FIGURE (animation + narration column) ───────────
+//
+// Creates a row holding the animation on the left and an empty narration
+// column on the right. Subsequent cmd:"narrate" commands with target=<id>
+// append one line at a time into the narration column, animated.
+
+async function renderFigure(cmd) {
+  if (!cmd.id) {
+    console.warn('[Board] cmd:figure requires an id so cmd:narrate can target it');
+    cmd.id = 'fig-' + Math.random().toString(36).slice(2, 8);
+  }
+
+  const wrapper = document.createElement('div');
+  wrapper.className = 'bd-el bd-figure';
+  wrapper.id = cmd.id;
+  wrapper.dataset.cmd = 'figure';
+
+  const animSlot = document.createElement('div');
+  animSlot.className = 'bd-figure-anim';
+  wrapper.appendChild(animSlot);
+
+  const narration = document.createElement('div');
+  narration.className = 'bd-figure-narration';
+  if (cmd.title) {
+    const head = document.createElement('div');
+    head.className = 'bd-figure-narration-title';
+    head.textContent = cmd.title;
+    narration.appendChild(head);
+  }
+  wrapper.appendChild(narration);
+
+  placeElement(wrapper, cmd.placement || 'below', cmd);
+
+  // Inject the animation into the left slot. createAnimation calls
+  // placeElement(figure, cmd.placement, cmd) which writes into board.liveScene,
+  // so we temporarily swap liveScene to the anim slot.
+  const { createAnimation } = await import('./animation.js');
+  const savedScene = board.liveScene;
+  board.liveScene = animSlot;
+  try {
+    const animCmd = { ...cmd, id: cmd.id + '-anim', placement: 'below' };
+    await createAnimation(animCmd);
+  } finally {
+    board.liveScene = savedScene;
+  }
+}
+
+// cmd:"narrate" is a convenience alias for cmd:"text" + placement="figure:<target>".
+// It exists so older prompts and the figure pattern doc still work.
+async function renderNarrate(cmd) {
+  if (!cmd.target || !cmd.text) return;
+  await renderText({ ...cmd, placement: `figure:${cmd.target}`, target: undefined });
 }
 
 // ── EDITING COMMANDS ─────────────────────────────────

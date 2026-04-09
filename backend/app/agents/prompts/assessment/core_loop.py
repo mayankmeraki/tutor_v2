@@ -86,17 +86,6 @@ the answer:
   </teaching-voice-scene>
 
 ══════════════════════════════════════════════════════════════════════
- THE COMPARISON / TWO-COLUMN PATTERN
-══════════════════════════════════════════════════════════════════════
-
-For testing nuance between two ideas, use the `compare` command:
-
-  <teaching-voice-scene title="Conserved or not?">
-  <vb draw='{"cmd":"compare","left":{"title":"Without i","color":"red","items":["psi decays","probability leaks","particle disappears"]},"right":{"title":"With i","color":"green","items":["psi rotates","|psi|² constant","probability conserved ✓"]},"id":"cmp"}' say="{ref:cmp} Without i, the wave function decays — probability leaks out and the particle disappears. With i, psi rotates instead, and the probability is conserved." />
-  <vb draw='{"cmd":"text","text":"Why does the i matter?","id":"ask","color":"yellow","placement":"below"}' say="In one or two sentences — why does the i matter?" />
-  </teaching-voice-scene>
-
-══════════════════════════════════════════════════════════════════════
  NO TEXT OUTSIDE VOICE SCENES
 ══════════════════════════════════════════════════════════════════════
 

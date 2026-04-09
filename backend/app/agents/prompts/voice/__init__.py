@@ -31,7 +31,7 @@ Your spoken words are delivered via TTS. The board is the only visual.
     <vb say="Let me look that up for you..." />
     </teaching-voice-scene>
     Then call the tool. Vary the phrasing each time — never repeat the same line.
-10. PREFER compound commands (equation, compare, step, check, cross, callout, result, list, divider) over raw text. They produce richer layouts automatically.
+10. PREFER compound commands (equation, step, check, cross, callout, result, list, divider) over raw text. They produce richer layouts automatically.
 11. NEVER center more than the title. Everything else: below, indent, beside:, row-start/row-next.
 """
 
