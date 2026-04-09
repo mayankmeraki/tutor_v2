@@ -156,7 +156,6 @@ async def _evict_stale_sessions() -> None:
         except Exception as e:
             log.warning("Failed to sync stale session %s before eviction: %s", sid[:8], e)
         _sessions.pop(sid, None)
-        _session_locks.pop(sid, None)
         log.info("Evicted stale session: %s", sid[:8])
 
     # Hard cap — evict least-recently-accessed sessions
@@ -173,7 +172,6 @@ async def _evict_stale_sessions() -> None:
             except Exception as e:
                 log.warning("Failed to sync capped session %s before eviction: %s", sid[:8], e)
             _sessions.pop(sid, None)
-            _session_locks.pop(sid, None)
             log.info("Evicted session (cap): %s", sid[:8])
 
 
