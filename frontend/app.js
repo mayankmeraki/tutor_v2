@@ -1312,6 +1312,72 @@ function _wsNewTurn() {
   };
 }
 
+// ── Drawing-in-progress skeleton ────────────────────────────
+//
+// Shows a small "preparing" indicator on the board while the LLM is
+// mid-stream of a <vb> tag (between <vb and the closing />).  Hides
+// as soon as the parsed beat arrives via VOICE_BEAT (or when the
+// closing /> is seen in the accumulated text, whichever is first).
+// Driven by counting opens vs closes in _ws.accumulatedText.
+
+function _showBoardDrawingSkeleton() {
+  // Contract: the skeleton is ONLY for the silent gap before the tutor's
+  // voice begins. Once we've transitioned to 'speaking' for this turn, the
+  // student is hearing the tutor — the skeleton must never reappear, even
+  // if a later beat is mid-stream in the accumulated text.
+  if (_vbState === 'speaking' || _vbState === 'idle') return;
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap) return;
+  let el = document.getElementById('bd-drawing-skeleton');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'bd-drawing-skeleton';
+    el.className = 'bd-drawing-skeleton';
+    el.innerHTML = `
+      <div class="bd-drawing-bars">
+        <div class="bd-drawing-bar"></div>
+        <div class="bd-drawing-bar"></div>
+        <div class="bd-drawing-bar"></div>
+      </div>
+      <div class="bd-drawing-text">Euler is drawing</div>
+    `;
+    wrap.appendChild(el);
+  }
+  // Force reflow then add visible class for fade-in
+  void el.offsetWidth;
+  el.classList.add('bd-drawing-visible');
+}
+
+function _hideBoardDrawingSkeleton() {
+  const el = document.getElementById('bd-drawing-skeleton');
+  if (!el) return;
+  el.classList.remove('bd-drawing-visible');
+  // Remove from DOM after fade-out so we don't accumulate stale nodes
+  setTimeout(() => {
+    if (el.parentNode && !el.classList.contains('bd-drawing-visible')) {
+      el.parentNode.removeChild(el);
+    }
+  }, 260);
+}
+
+// Re-evaluate whether a draw command is currently being streamed.
+// Show the skeleton if there's an unclosed <vb tag in the accumulated text.
+function _checkDrawingInProgress() {
+  const text = _ws.accumulatedText || '';
+  // Count <vb opens (word-boundary so we don't catch <vboard etc.)
+  const openMatches = text.match(/<vb\s/g);
+  const opens = openMatches ? openMatches.length : 0;
+  // Count <vb ... /> self-closes (one /> per beat)
+  const closeMatches = text.match(/<vb\s[^>]*\/>/g);
+  const closes = closeMatches ? closeMatches.length : 0;
+
+  if (opens > closes) {
+    _showBoardDrawingSkeleton();
+  } else {
+    _hideBoardDrawingSkeleton();
+  }
+}
+
 function _wsCleanupConnection() {
   // Kill any pending reconnect timer
   if (_ws.reconnectTimer) { clearTimeout(_ws.reconnectTimer); _ws.reconnectTimer = null; }
@@ -1431,6 +1497,7 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
   _wsKillTurn('new_message');
   _ws.generation++;
   _ws.accumulatedText = '';
+  _hideBoardDrawingSkeleton();
   _wsTurn = _wsNewTurn();
 
   _eagerReset();
@@ -1473,6 +1540,7 @@ function _wsKillTurn(reason) {
   turn.executorExited = true;
   _wsTurn = null;
   _eager.running = false;
+  _hideBoardDrawingSkeleton();
 }
 
 function wsCancel() {
@@ -1520,7 +1588,11 @@ function _wsOnMessage(msg) {
       _eagerReset();
       _eagerInitBoard(evt.title || 'Teaching');
       state._voiceSceneActive = true;
-      if (_vbState === 'thinking') setVoiceBarState('speaking');
+      // Do NOT transition to 'speaking' here — the scene tag arrives BEFORE
+      // any beat is parsed and BEFORE any audio plays. If we set 'speaking'
+      // now, the drawing skeleton is blocked from ever showing during the
+      // silent gap. The legitimate transitions happen in _wsRunExecutor
+      // (when about to play a beat) and the TTS playback function.
       break;
 
     case 'VOICE_BEAT': {
@@ -1537,6 +1609,9 @@ function _wsOnMessage(msg) {
       _eager.parsedCount = evt.beat;
       _eager.queue.push(beat);
       _wsEnsureExecutor(turn);
+      // Beat arrived — re-evaluate skeleton (a beat completing usually means
+      // opens == closes, so this hides it if there's no new draw streaming).
+      _checkDrawingInProgress();
       break;
     }
 
@@ -1573,6 +1648,7 @@ function _wsOnMessage(msg) {
 
     case 'TEXT_DELTA':
       _ws.accumulatedText += (evt.delta || '');
+      _checkDrawingInProgress();
       break;
 
     case 'PLAN_UPDATE':
@@ -1591,6 +1667,7 @@ function _wsOnMessage(msg) {
       }
       console.log(`[WS] DONE gen=${evt.gen} executorRunning=${turn?.executorRunning}`);
       state.isStreaming = false;
+      _hideBoardDrawingSkeleton();
       _ws.accumulatedText = evt.fullText || _ws.accumulatedText;
       if (_ws.accumulatedText) {
         state.messages.push({ id: state.currentMessageId || generateId(), role: 'assistant', content: _ws.accumulatedText, timestamp: Date.now() });
@@ -1642,6 +1719,7 @@ function _wsOnMessage(msg) {
         break;
       }
       state.isStreaming = false;
+      _hideBoardDrawingSkeleton();
       setVoiceBarState('idle');
       break;
 
@@ -1654,6 +1732,7 @@ function _wsOnMessage(msg) {
       // Only affect state if this is for the current generation
       if (evt.gen !== undefined && evt.gen !== _ws.generation) break;
       state.isStreaming = false;
+      _hideBoardDrawingSkeleton();
       setVoiceBarState('idle');
       break;
 
@@ -3286,12 +3365,24 @@ function handlePlanFromAgent(plan, sessionObjective) {
     return;
   }
 
-  // Append or replace sections
+  // Append or replace sections — dedupe by section title.
+  // The planner can re-fire on the same plan (e.g., after replan / retry),
+  // so naive append produces duplicates. Skip new sections whose title
+  // matches an existing one.
   const hasExistingSections = state.plan.length > 0 && state.plan.some(s => s.status === 'done' || s.status === 'active');
   if (hasExistingSections && newSections.length > 0) {
-    const maxN = Math.max(...state.plan.map(s => s.n));
-    newSections.forEach((sec, i) => { sec.n = maxN + 1 + i; });
-    state.plan.push(...newSections);
+    const existingTitles = new Set(
+      state.plan.map(s => (s.title || '').trim().toLowerCase()).filter(Boolean)
+    );
+    const trulyNew = newSections.filter(
+      s => !existingTitles.has((s.title || '').trim().toLowerCase())
+    );
+    if (trulyNew.length > 0) {
+      const maxN = Math.max(...state.plan.map(s => s.n));
+      trulyNew.forEach((sec, i) => { sec.n = maxN + 1 + i; });
+      state.plan.push(...trulyNew);
+    }
+    // If trulyNew.length === 0, this is a re-fire of an existing plan — no-op.
   } else {
     state.plan = newSections;
   }
@@ -3324,9 +3415,20 @@ function handlePlanFromAgent(plan, sessionObjective) {
   updateHeadingBar();
   updatePlanSidebar({ sections: state.plan });
 
-  // Cancel auto-collapse and fully show the sidebar when plan arrives
+  // Cancel any prior auto-collapse and fully show the sidebar when plan arrives
   if (_planAutoCollapseTimer) { clearTimeout(_planAutoCollapseTimer); _planAutoCollapseTimer = null; }
   showPlanSidebar();
+
+  // Auto-collapse the plan sidebar 10 seconds after it appears so it
+  // doesn't permanently take up real estate. Student can re-open it
+  // anytime via the toggle.
+  _planAutoCollapseTimer = setTimeout(() => {
+    _planAutoCollapseTimer = null;
+    const sb = document.getElementById('plan-sidebar');
+    if (sb && !sb.classList.contains('hidden')) {
+      sb.classList.add('collapsed');
+    }
+  }, 10000);
 
   state.planCallCount++;
 }
@@ -3431,34 +3533,9 @@ function startAIMessageStream() {
   stream.scrollTop = stream.scrollHeight;
 }
 
-function showBoardLoadingSkeleton(type) {
-  const content = $('#spotlight-content');
-  const empty = $('#board-empty-state');
-  if (!content) return;
-  if (empty) empty.style.display = 'none';
-  // Don't duplicate
-  if (document.getElementById('board-loading-skeleton')) return;
-  const label = type === 'widget' ? 'Building interactive...'
-    : type === '3d' ? 'Rendering 3D scene...'
-    : type === 'code' ? 'Writing code...'
-    : 'Drawing on the board...';
-  const skeleton = document.createElement('div');
-  skeleton.id = 'board-loading-skeleton';
-  skeleton.className = 'board-skeleton';
-  skeleton.innerHTML = `
-    <div class="board-skeleton-glow"></div>
-    <div class="board-skeleton-content">
-      <div class="board-skeleton-line w60"></div>
-      <div class="board-skeleton-line w80"></div>
-      <div class="board-skeleton-block"></div>
-      <div class="board-skeleton-line w40"></div>
-      <div class="board-skeleton-line w70"></div>
-    </div>
-    <div class="board-skeleton-label">${label}</div>
-  `;
-  content.appendChild(skeleton);
-}
-
+// Legacy text-mode board skeleton — replaced by _showBoardDrawingSkeleton
+// in voice mode. The hide function stays as a defensive no-op for the few
+// callers that still try to clear a skeleton; it's harmless if missing.
 function hideBoardLoadingSkeleton() {
   const skel = document.getElementById('board-loading-skeleton');
   if (skel) skel.remove();
@@ -3470,17 +3547,9 @@ function updateAIMessageStream(text) {
   const el = container?.querySelector('#ai-stream-text') || $('#ai-stream-text');
   if (!el) return;
 
-  // Show board loading skeleton when a visual tag is detected but not yet rendered
-  if (!state.boardDraw.active && text.includes('<teaching-board-draw')) {
-    showBoardLoadingSkeleton('board');
-  }
-  if (!state.widget?.ready && text.includes('<teaching-widget') && !text.includes('<teaching-widget-update')) {
-    showBoardLoadingSkeleton('widget');
-  }
-  // Also show skeleton for voice scenes (which render on the board)
-  if (!state.boardDraw.active && text.includes('<teaching-voice-scene') && !text.includes('</teaching-voice-scene')) {
-    showBoardLoadingSkeleton('board');
-  }
+  // Legacy text-mode loading skeleton paths removed.
+  // Voice mode uses _showBoardDrawingSkeleton (driven by per-beat detection
+  // in _checkDrawingInProgress, hooked into TEXT_DELTA / VOICE_BEAT).
 
   // Eager voice beat detection — parse and execute beats as they stream in
   if (state.teachingMode === 'voice' && text.includes('<vb ')) {
@@ -3496,17 +3565,8 @@ function updateAIMessageStream(text) {
 
   let displayHtml = renderMarkdownBasic(stripTeachingTags(text));
 
-  // Add focus indicator when board is drawing (appended, not replacing)
-  if (boardActive || widgetLoading) {
-    const label = widgetLoading ? 'Building interactive...' : 'Drawing on the board...';
-    // Only show if not already in the HTML
-    if (!displayHtml.includes('board-focus-indicator')) {
-      displayHtml += `<div class="board-focus-indicator">
-        <div class="board-focus-arrow">\u2192</div>
-        <div class="board-focus-text">${label}</div>
-      </div>`;
-    }
-  }
+  // Legacy "Drawing on the board..." chat-side indicator removed.
+  // Voice mode shows _showBoardDrawingSkeleton on the canvas itself.
 
   // Show generating indicator when widget is streaming
   if (widgetLoading) {
@@ -17784,6 +17844,11 @@ window.stopGeneration = stopAll;
  */
 function setVoiceBarState(newState) {
   _vbState = newState;
+  // Hide the drawing skeleton as soon as the tutor starts speaking (or goes idle).
+  // The skeleton only makes sense during the 'thinking' window before audio plays.
+  if (newState !== 'thinking') {
+    try { _hideBoardDrawingSkeleton(); } catch (e) {}
+  }
   // Only apply to teaching session voice bar — not Euler chat
   const field = document.getElementById('voice-bar-input');
   if (!field) return; // voice bar doesn't exist in this context

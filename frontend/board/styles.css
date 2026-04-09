@@ -26,23 +26,27 @@
   --bd-bg-dark: rgba(0, 0, 0, 0.25);
   --bd-grid-line: rgba(255, 255, 255, 0.025);
   --bd-grid-spacing: 40px;
-  --bd-font: 'Pangolin', 'ChalkBoard', 'CoalhandLuke', 'Caveat', cursive;
 
-  /* Two-color palette: headings vs everything else */
-  --bd-header: #EBF5ED;      /* h1/h2/h3 — all headings */
-  --bd-h2-color: #EBF5ED;    /* same as h1 */
-  --bd-white: #F8F5EF;       /* body text + bullets + everything else */
-  --bd-accent: #F8F5EF;
-  --bd-yellow: #F8F5EF;
-  --bd-gold: #F8F5EF;
-  --bd-green: #F8F5EF;
-  --bd-green-alt: #F8F5EF;
-  --bd-cyan: #F8F5EF;
+  /* Fonts: Lexend for prose, JetBrains Mono for math/data/equations */
+  --bd-font: 'Lexend', -apple-system, BlinkMacSystemFont, sans-serif;
+  --bd-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
+
+  /* Three-color palette: headers / body / math */
+  --bd-header: #F5F5F5;      /* h1/h2/h3 — all headings */
+  --bd-h2-color: #F5F5F5;    /* same as h1 */
+  --bd-white: #E0E0E0;       /* body text + bullets + everything else */
+  --bd-math: #A8E6CF;        /* numbers, equations, data, symbols */
+  --bd-accent: #E0E0E0;
+  --bd-yellow: #E0E0E0;
+  --bd-gold: #E0E0E0;
+  --bd-green: #E0E0E0;
+  --bd-green-alt: #E0E0E0;
+  --bd-cyan: #A8E6CF;        /* equations/data lean on cyan slot */
   --bd-red: #ff6b6b;         /* kept only for actual error/warning */
-  --bd-dim: #F8F5EF;
+  --bd-dim: #E0E0E0;
 
-  /* Chalk glow — applied via text-shadow */
-  --bd-glow: 0 0 3px currentColor;
+  /* No chalk glow — Lexend reads better without text-shadow */
+  --bd-glow: none;
 
   /* Sizing scale — larger for board readability */
   --bd-h1: 44px;
@@ -164,9 +168,21 @@
   margin-top: 0;
 }
 
-/* KaTeX rendered math inherits chalk styling */
+/* KaTeX rendered math — use JetBrains Mono for symbols + mint color */
 .bd-el .katex {
   font-size: 1.1em;
+  color: var(--bd-math);
+}
+.bd-el .katex .mathnormal,
+.bd-el .katex .mord,
+.bd-el .katex .mbin,
+.bd-el .katex .mrel,
+.bd-el .katex .mopen,
+.bd-el .katex .mclose,
+.bd-el .katex .mpunct,
+.bd-el .katex .minner,
+.bd-el .katex .mop {
+  color: var(--bd-math);
 }
 
 .bd-el .katex-display {
@@ -340,21 +356,21 @@
 
 .bd-size-h1 {
   font-size: var(--bd-h1);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1.4;
   color: var(--bd-header);   /* mint green #8BD282 */
 }
 
 .bd-size-h2 {
   font-size: var(--bd-h2);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.5;
   color: var(--bd-h2-color); /* #EBF5ED */
 }
 
 .bd-size-h3 {
   font-size: var(--bd-h3);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.5;
   color: var(--bd-h2-color); /* #EBF5ED — same as H2 */
 }
@@ -384,14 +400,19 @@
   align-items: baseline;
   gap: 10px;
   flex-wrap: nowrap;
+  font-family: var(--bd-font-mono);
+  color: var(--bd-math);
 }
 
 .bd-equation .bd-eq-main {
   flex-shrink: 0;
+  font-family: var(--bd-font-mono);
+  color: var(--bd-math);
 }
 
 .bd-equation .bd-eq-note {
   color: var(--bd-dim);
+  font-family: var(--bd-font);
   font-style: italic;
   font-size: 0.8em;
   text-shadow: none;
@@ -444,7 +465,7 @@
   align-items: center;
   justify-content: center;
   font-size: var(--bd-small);
-  font-weight: 600;
+  font-weight: 500;
   line-height: 1;
   margin-top: 2px;
   opacity: 0.7;
@@ -466,7 +487,7 @@
 .bd-check::before {
   content: '\2713';  /* checkmark */
   color: var(--bd-green);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 1.1em;
   flex-shrink: 0;
   text-shadow: 0 0 4px var(--bd-green);
@@ -475,7 +496,7 @@
 .bd-cross::before {
   content: '\2717';  /* ballot X */
   color: var(--bd-red);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 1.1em;
   flex-shrink: 0;
   text-shadow: 0 0 4px var(--bd-red);
@@ -505,33 +526,41 @@
   border-left-color: var(--bd-dim);
 }
 
-/* ── Result: bordered box with a label badge, CENTERED ── */
+/* ── Result: bordered box with a label, label on top, value below ──
+   Previously the label was an absolutely-positioned badge sitting above
+   the box (top: -10px). That sat outside the parent's padding box and
+   got visually clipped by stacking siblings / overflow contexts. The
+   in-flow flex column variant never clips. */
 .bd-result {
-  border: 1.5px solid rgba(251, 191, 36, 0.35);
-  border-radius: 6px;
-  padding: 12px 20px;
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  border: 1.5px solid rgba(168, 230, 207, 0.35);
+  border-radius: 8px;
+  padding: 14px 20px 12px;
   position: relative;
   margin-top: 20px;
-  display: inline-flex;
-  align-items: baseline;
-  gap: 16px;
   margin-left: auto;
   margin-right: auto;
-  background: rgba(251, 191, 36, 0.03);
+  background: rgba(168, 230, 207, 0.04);
+  font-family: var(--bd-font-mono);
+  color: var(--bd-math);
 }
 
 .bd-result-label {
-  position: absolute;
-  top: -10px;
-  left: 12px;
-  background: var(--bd-bg);
-  padding: 0 8px;
-  font-size: var(--bd-label);
+  position: static;
+  font-family: var(--bd-font);
+  font-size: 11px;
   text-transform: uppercase;
-  letter-spacing: 1.2px;
-  color: var(--bd-gold);
-  font-weight: 600;
-  text-shadow: var(--bd-glow);
+  letter-spacing: 1.6px;
+  color: var(--bd-math);
+  opacity: 0.65;
+  font-weight: 500;
+  margin-bottom: 2px;
+  background: transparent;
+  padding: 0;
+  text-shadow: none;
 }
 
 .bd-result.bd-chalk-green {
@@ -648,7 +677,7 @@
   border-bottom: none;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 13px;
-  font-weight: 600;
+  font-weight: 500;
   letter-spacing: -0.2px;
   color: var(--bd-cyan);
   display: flex;
@@ -666,7 +695,7 @@
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 11px;
-  font-weight: 500;
+  font-weight: 400;
   color: rgba(255,255,255,0.55);
   background: transparent;
 }
@@ -798,7 +827,7 @@
 .bd-shimmer-label {
   font-size: 11px;
   color: rgba(52,211,153,.35);
-  font-weight: 500;
+  font-weight: 400;
   font-family: -apple-system, BlinkMacSystemFont, sans-serif;
   animation: bdShimmerPulse 2s ease-in-out infinite;
 }
@@ -1092,7 +1121,7 @@
 .bd-submit-btn {
   padding: 10px 26px; border-radius: 10px;
   background: var(--bd-green); color: #0a0d0b;
-  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 600;
+  font-family: 'Inter', sans-serif; font-size: 13px; font-weight: 500;
   border: none; cursor: pointer; transition: all 0.15s;
 }
 .bd-submit-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(52, 211, 153, 0.2); }
@@ -1108,7 +1137,7 @@
   margin: 10px 0; overflow: hidden; max-width: 600px; }
 .bd-code-header { display: flex; justify-content: space-between; align-items: center;
   padding: 6px 12px; background: rgba(255,255,255,.02); border-bottom: 1px solid #1e2733; }
-.bd-code-lang { font-size: 10px; font-weight: 600; color: #8b949e; text-transform: uppercase;
+.bd-code-lang { font-size: 10px; font-weight: 500; color: #8b949e; text-transform: uppercase;
   letter-spacing: .5px; font-family: Inter, sans-serif; }
 .bd-code-file { font-size: 11px; color: #a1a1aa; font-family: 'JetBrains Mono', monospace; }
 .bd-code-body { padding: 10px 14px; overflow-x: auto; font-family: 'JetBrains Mono', monospace;
@@ -1140,3 +1169,86 @@
   height: 100%; gap: 8px; color: #52525b; font-size: 12px; font-family: Inter, sans-serif; }
 .bd-3d-fallback-icon { font-size: 36px; opacity: 0.3; }
 .bd-3d-fallback-sub { font-size: 10px; color: #3f3f46; }
+
+/* ─── Drawing-in-progress skeleton ──────────────────────────
+   Shown while the LLM is mid-stream of a <vb> draw command —
+   gives the student feedback that something is being prepared
+   before the parsed beat actually arrives.
+
+   Pinned with position:fixed so it stays at the bottom of the
+   visible viewport regardless of board scroll position. Sits
+   above the voice bar (which lives at bottom: ~80px in voice mode).
+*/
+.bd-drawing-skeleton {
+  position: fixed;
+  bottom: 140px;
+  left: 50%;
+  transform: translateX(-50%) translateY(8px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 18px 28px;
+  background: rgba(6, 14, 17, 0.85);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(168, 230, 207, 0.22);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.35);
+  pointer-events: none;
+  z-index: 950;
+  opacity: 0;
+  transition: opacity 0.2s ease, transform 0.25s ease;
+}
+.bd-drawing-skeleton.bd-drawing-visible {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+.bd-drawing-bars {
+  display: flex;
+  flex-direction: column;
+  gap: 9px;
+  align-items: stretch;
+  width: 240px;
+}
+.bd-drawing-bar {
+  height: 11px;
+  border-radius: 4px;
+  background: linear-gradient(
+    90deg,
+    rgba(168, 230, 207, 0.06) 0%,
+    rgba(168, 230, 207, 0.28) 50%,
+    rgba(168, 230, 207, 0.06) 100%
+  );
+  background-size: 200% 100%;
+  animation: bd-drawing-shimmer 1.4s ease-in-out infinite;
+}
+.bd-drawing-bar:nth-child(1) { width: 100%; }
+.bd-drawing-bar:nth-child(2) { width: 78%; animation-delay: 0.18s; }
+.bd-drawing-bar:nth-child(3) { width: 92%; animation-delay: 0.36s; }
+.bd-drawing-text {
+  font-family: var(--bd-font);
+  font-size: 13px;
+  color: var(--bd-white);
+  opacity: 0.55;
+  letter-spacing: 0.4px;
+}
+.bd-drawing-text::after {
+  content: '';
+  display: inline-block;
+  width: 1ch;
+  text-align: left;
+  animation: bd-drawing-dots 1.4s steps(4, end) infinite;
+}
+@keyframes bd-drawing-shimmer {
+  0%   { background-position: 200% 0;  opacity: 0.55; }
+  50%  { opacity: 1; }
+  100% { background-position: -200% 0; opacity: 0.55; }
+}
+@keyframes bd-drawing-dots {
+  0%   { content: ''; }
+  25%  { content: '.'; }
+  50%  { content: '..'; }
+  75%  { content: '...'; }
+  100% { content: ''; }
+}

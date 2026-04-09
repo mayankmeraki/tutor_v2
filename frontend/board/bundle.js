@@ -132,6 +132,19 @@ async function animateText(parentEl, text, options) {
   options = options || {};
   if (!text) return;
 
+  // Normalize literal escape sequences from model JSON. The model
+  // sometimes emits "\\n" inside `draw='{...}'` attribute strings, which
+  // JSON.parse turns into the literal 2 chars `\n` (backslash + n) instead
+  // of a real newline byte. Same for \r and \t. Convert them all here so
+  // multi-line text always renders as line breaks regardless of how the
+  // model escaped its output.
+  if (typeof text === 'string' && text.indexOf('\\') !== -1) {
+    text = text
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t');
+  }
+
   var queueLen = board.commandQueue.length;
   var animCount = board.animations.length;
   var instant = options.instant || board.replayMode || queueLen > 5 || animCount > 4;
