@@ -2607,6 +2607,15 @@ async def _generate_for_turn(
                                 "role": "assistant",
                                 "content": cleaned + "\n[interrupted]",
                             })
+                            # Parse housekeeping from whatever the LLM produced
+                            # before cancellation. The regex requires closing tags
+                            # so an incomplete block is a safe no-op. If the model
+                            # had already emitted </teaching-housekeeping> we still
+                            # want to honor the handoff/notes/signal/plan-modify.
+                            try:
+                                _process_housekeeping_tags(session, partial, context_data, sid, slog)
+                            except Exception as _hk_err:
+                                slog.warning("Housekeeping parse on cancel failed: %s", _hk_err)
                             await sync_backend_state(sid, session)
                         return
                     except Exception as e:
@@ -2632,6 +2641,14 @@ async def _generate_for_turn(
                             "role": "assistant",
                             "content": cleaned + "\n[interrupted]",
                         })
+                        # Parse housekeeping from the partial — if the LLM had
+                        # already emitted </teaching-housekeeping> before the
+                        # disconnect, we still want to honor the handoff /
+                        # notes / signal / plan-modify.
+                        try:
+                            _process_housekeeping_tags(session, partial, context_data, sid, slog)
+                        except Exception as _hk_err:
+                            slog.warning("Housekeeping parse on disconnect failed: %s", _hk_err)
                         await sync_backend_state(sid, session)
                     return
 
