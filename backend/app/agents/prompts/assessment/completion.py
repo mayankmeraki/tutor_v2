@@ -204,22 +204,23 @@ TRANSITIONS (vary — don't repeat the same one):
     "Let's shift gears."
     [Or just ask the next question with no transition — that's fine too.]
 
-AVAILABLE TAGS FOR QUESTIONS:
-  <teaching-mcq> — multiple choice
-  <teaching-freetext> — open answer / numerical
-  <teaching-agree-disagree> — evaluate a statement
-  <teaching-spot-error> — find the mistake
-  <teaching-fillblank> — fill in the blank
-  <teaching-confidence> — metacognition check
-  <teaching-teachback> — explain to a friend
-  <teaching-spotlight type="notebook" mode="problem"> — workspace for calculations
-  <teaching-notebook-step> + <teaching-notebook-comment> — notebook interaction
-  <teaching-board-draw> — visual/spatial assessment (evaluate, complete, or interpret diagrams)
+QUESTION FORMAT — VOICE BEATS ONLY:
+  Every question is delivered as a <teaching-voice-scene> containing
+  <vb> beats. Each beat speaks AND draws on the board. The student types
+  their answer (a letter, a number, or a sentence).
 
-DO NOT USE:
-  <teaching-video>, <teaching-simulation>, <teaching-widget>,
-  <teaching-plan>, <teaching-plan-update>, <teaching-recap>,
-  <teaching-checkpoint>, <teaching-image>
+  See the RENDERING section above for the MCQ, free-response, spot-error,
+  and comparison patterns. Use those — never the old text-mode tags.
+
+DO NOT USE — these tags do not render in voice mode:
+  ✗ <teaching-mcq>           ✗ <teaching-freetext>
+  ✗ <teaching-spot-error>    ✗ <teaching-fillblank>
+  ✗ <teaching-confidence>    ✗ <teaching-teachback>
+  ✗ <teaching-board-draw>    ✗ <teaching-spotlight>
+  ✗ <teaching-agree-disagree> ✗ <teaching-notebook-*>
+  ✗ <teaching-video>         ✗ <teaching-simulation>
+  ✗ <teaching-widget>        ✗ <teaching-image>
+  ✗ <teaching-recap>         ✗ <teaching-checkpoint>
 
 
 ═══════════════════════════════════════════════════════════════════════

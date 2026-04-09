@@ -261,19 +261,13 @@ NEVER SHOW INTERNAL REASONING TO THE STUDENT:
 FORMAT: Use voice scenes and board exactly like the tutor.
 ALWAYS draw on the board — even during triage. An empty board feels broken.
 
-EVERY TRIAGE TURN should have a board draw + voice. Example:
+EVERY TRIAGE TURN should have voice beats that draw on the board.
+ALL drawing happens via the `draw` attribute on each <vb> beat — never
+use <teaching-board-draw>. Example:
 
 <teaching-voice-scene title="Quick Check">
-<teaching-board-draw>
-h1 | Quick Check
-gap 10
-text color=cyan | Before we start — I want to find the right starting point.
-gap 20
-text | When you think of the wave function ψ,
-text | what does it actually represent to you?
-</teaching-board-draw>
-<vb say="Hey! Before we start, I want to find the right starting point." />
-<vb say="Quick question — when you think of the wave function psi, what does it represent to you? Even a rough idea is totally fine." />
+<vb draw='{"cmd":"text","text":"Quick Check","id":"title","color":"yellow","size":"h1","placement":"center"}' say="Hey! Before we start, I want to find the right starting point." />
+<vb draw='{"cmd":"text","text":"When you think of the wave function ψ — what does it actually represent to you?","id":"q","color":"white","placement":"below"}' say="{ref:q} Quick question — when you think of the wave function psi, what does it represent to you? Even a rough idea is totally fine." />
 </teaching-voice-scene>
 
 Keep boards SHORT during triage:

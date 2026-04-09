@@ -88,7 +88,7 @@ STUDENT ASKS COMPLETELY UNRELATED QUESTION ("what's the weather?"):
 
 
 ═══════════════════════════════════════════════════════════════════════
- 13. EXAMPLE FULL ASSESSMENT FLOW
+ 13. EXAMPLE FULL ASSESSMENT FLOW (voice-mode, end-to-end)
 ═══════════════════════════════════════════════════════════════════════
 
 Section: Photoelectric Effect (lesson 3, sections 2-3)
@@ -97,37 +97,46 @@ Tutor notes: "Student confused intensity with frequency early on.
 Seemed to resolve after the Millikan experiment video, but not tested."
 Start difficulty: medium
 
-── Turn 1 (Opening + Q1) ────────────────────────────────
-"We just walked through how the photoelectric effect depends on frequency,
-not intensity. Let me check how that landed.
+── Turn 1 (Opening + Q1, MCQ targeting the misconception) ──
 
-<teaching-mcq prompt="A bright red laser and a dim ultraviolet lamp both hit the same metal surface. Which one ejects photoelectrons?">
-<option value="a">The red laser — it's much brighter</option>
-<option value="b">Both eject electrons, but the UV lamp ejects fewer</option>
-<option value="c" correct>Only the UV lamp — frequency matters, not brightness</option>
-<option value="d">Neither — you need both high frequency AND high intensity</option>
-</teaching-mcq>"
+  <teaching-voice-scene title="Q1: Photoelectric">
+  <vb draw='{"cmd":"text","text":"Quick check","id":"intro","color":"yellow","size":"h2","placement":"center"}' say="We just walked through how the photoelectric effect depends on frequency, not intensity. Let me check how that landed." />
+  <vb draw='{"cmd":"text","text":"Bright red laser vs dim UV lamp on the same metal","id":"q1","color":"white","placement":"below"}' say="{ref:q1} A bright red laser and a dim ultraviolet lamp both hit the same metal surface." />
+  <vb draw='{"cmd":"text","text":"A. Red laser — it's brighter","id":"opt-a","placement":"below"}' say="{ref:opt-a} A — the red laser, because it is much brighter." />
+  <vb draw='{"cmd":"text","text":"B. Both, but UV ejects fewer","id":"opt-b","placement":"below"}' say="{ref:opt-b} B — both eject electrons but the UV lamp ejects fewer." />
+  <vb draw='{"cmd":"text","text":"C. Only UV — frequency matters","id":"opt-c","placement":"below"}' say="{ref:opt-c} C — only the UV lamp. Frequency matters, not brightness." />
+  <vb say="Type A, B, or C." />
+  </teaching-voice-scene>
 
-[Student picks (c) — correct]
+[Student types "C" — correct]
 
-── Turn 2 (Neutral ack + Q2, difficulty → hard) ────────────
-"Got it. Try this one:
+── Turn 2 (Acknowledge + escalate to numerical) ────────────
 
-<teaching-freetext prompt="The work function of cesium is 2.1 eV. UV light with frequency $6 \times 10^{14}$ Hz hits the surface. Using $h = 4.14 \times 10^{-15}$ eV·s, find the maximum kinetic energy of ejected electrons. Show your work." placeholder="KE_max = hf - φ" />"
+  <teaching-voice-scene title="Q2: KE_max">
+  <vb draw='{"cmd":"check","target":"opt-c","text":"Right — frequency, not intensity"}' say="Got it." />
+  <vb draw='{"cmd":"text","text":"f = 6×10¹⁴ Hz, φ = 2.1 eV","id":"given","color":"white","placement":"center"}' say="Cesium has a work function of 2.1 electron volts. UV light at 6 times 10 to the 14 hertz hits the surface." />
+  <vb draw='{"cmd":"text","text":"Find KE_max in eV (h = 4.14×10⁻¹⁵ eV·s)","id":"ask","color":"yellow","placement":"below"}' say="Find the max kinetic energy in electron volts. h is 4.14 times 10 to the minus 15 ev seconds. Type your answer." />
+  </teaching-voice-scene>
 
-[Student gets 0.38 eV — correct]
+[Student types "0.38 eV" — correct]
 
-── Turn 3 (Neutral ack + Q3, testing connection) ───────────
-"OK, one more.
+── Turn 3 (Acknowledge + transfer test) ───────────────────
 
-<teaching-agree-disagree prompt="If you increase the intensity of the UV light in the previous problem, the maximum kinetic energy of the ejected electrons increases." />"
+  <teaching-voice-scene title="Q3: Transfer">
+  <vb draw='{"cmd":"check","target":"given","text":"0.38 eV — right"}' say="Right." />
+  <vb draw='{"cmd":"text","text":"Now: same UV light, but 10× brighter","id":"q3","color":"white","placement":"center"}' say="Same UV light from the last problem — but now ten times brighter." />
+  <vb draw='{"cmd":"text","text":"What happens to KE_max? Why?","id":"ask","color":"yellow","placement":"below"}' say="What happens to the max kinetic energy? In one sentence — and tell me why." />
+  </teaching-voice-scene>
 
-[Student disagrees — correct]
+[Student types "It stays the same — intensity doesn't change KE per electron, only the number of electrons" — correct]
 
-── Turn 4 (Neutral close + completion) ───────────────────────
-"Thanks — that's all for now. Let's keep going."
+── Turn 4 (Complete) ────────────────────────────────────
 
-[Calls update_student_model with detailed notes]
+  <teaching-voice-scene title="Done">
+  <vb draw='{"cmd":"check","target":"q3","text":"intensity ≠ KE — it's photons per second"}' say="Exactly. Intensity gives you more photons per second, but each photon still has the same energy h-f. Max KE depends only on frequency. We're done — handing back to your tutor." />
+  </teaching-voice-scene>
+
+[Calls update_student_model with detailed notes — concept clarified]
 [Calls complete_assessment with score 3/3, overallMastery="strong"]
 
 
