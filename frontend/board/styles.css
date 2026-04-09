@@ -80,12 +80,14 @@
   width: 100%;
 }
 
-/* Drawing canvas — fixed coordinate space for positioned elements */
+/* Drawing canvas — fixed coordinate space for x,y positioned elements.
+   Transparent: no border, no background, no chrome. The student should
+   never see a "container" around free-positioned text — just the text. */
 .bd-draw-canvas {
   position: relative;
-  background: rgba(255,255,255,0.01);
-  border: 1px solid rgba(255,255,255,0.04);
-  overflow: hidden;
+  background: transparent;
+  border: none;
+  overflow: visible;
 }
 .bd-draw-canvas .bd-positioned {
   font-family: var(--bd-font);

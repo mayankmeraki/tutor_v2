@@ -248,16 +248,16 @@ function placeElement(element, placement, cmd) {
   // If cmd has x/y (0-100), position absolutely within the scene.
   // This gives the LLM free spatial control like a real chalkboard.
   if (typeof cmd.x === 'number' && typeof cmd.y === 'number') {
-    // ── Fixed drawing canvas: all positioned elements live in a constrained area ──
-    // The canvas is a fixed-aspect-ratio box (800x500 logical units) inside the scene.
-    // x,y are 0-100 percentages of this canvas, NOT the scene.
+    // ── Free coordinate space for x,y positioned elements ──
+    // The canvas is a transparent reference container — no border, no
+    // background, no chrome. x,y are 0-100 percentages of this canvas.
+    // Aspect ratio is preserved so coordinates land predictably.
     var canvas = scene.querySelector('.bd-draw-canvas');
     if (!canvas) {
       canvas = document.createElement('div');
       canvas.className = 'bd-draw-canvas';
-      // Fixed aspect ratio container — all positioned content goes here
       canvas.style.cssText = 'position:relative;width:100%;max-width:800px;margin:8px auto;' +
-        'aspect-ratio:8/5;min-height:400px;border-radius:8px;';
+        'aspect-ratio:8/5;min-height:400px;';
       scene.appendChild(canvas);
     }
 
@@ -2180,16 +2180,31 @@ async function renderCheckCross(cmd, isCheck) {
 }
 
 async function renderCallout(cmd) {
-  var el = createElement('div', cmd, 'bd-callout', colorClass(cmd.color || 'gold'));
+  // Callouts are PROSE (warnings, takeaways, "always do X"). They are NOT
+  // equations and must never run through KaTeX — Python expressions like
+  // "mid+1 or mid-1" or "lo + (hi-lo)/2" trip the heuristic and get
+  // rendered as italic LaTeX, which mangles the message.
+  //
+  // Callouts also flow top-to-bottom in the scene; they must never honor
+  // x,y positioning. The model sometimes passes coordinates as a soft
+  // "above/below" hint, but width:100% + position:absolute makes two
+  // x,y'd callouts overlap by 80%. Strip x,y before placement.
+  var safeCmd = cmd;
+  if (typeof cmd.x === 'number' || typeof cmd.y === 'number') {
+    safeCmd = Object.assign({}, cmd);
+    delete safeCmd.x;
+    delete safeCmd.y;
+    if (!safeCmd.placement) safeCmd.placement = 'below';
+  }
+
+  var el = createElement('div', safeCmd, 'bd-callout', colorClass(safeCmd.color || 'gold'));
 
   var text = document.createElement('div');
-  text.className = 'bd-callout-text ' + sizeClass(cmd.size);
+  text.className = 'bd-callout-text ' + sizeClass(safeCmd.size);
   el.appendChild(text);
 
-  placeElement(el, cmd.placement, cmd);
-  if (!_tryKatex(text, cmd.text)) {
-    await animateText(text, cmd.text, { charDelay: cmd.charDelay });
-  }
+  placeElement(el, safeCmd.placement, safeCmd);
+  await animateText(text, safeCmd.text, { charDelay: safeCmd.charDelay });
 }
 
 async function renderList(cmd) {

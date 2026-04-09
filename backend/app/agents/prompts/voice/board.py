@@ -53,15 +53,23 @@ SPATIAL GRID — THE BOARD IS 100x100. RESPECT THESE ZONES:
   Result: y:80  (centered: x:20)
 
 CRITICAL RULES:
+  - x,y is ONLY for diagram annotations on visual figures — labels on an
+    animation, points on a graph, equation captions BESIDE a drawing.
+    NEVER use x,y on these flow commands: callout, step, list, check,
+    cross, divider, h1/h2/h3, note, code. Those flow top-to-bottom in
+    the scene with `placement:"below"`. The renderer will strip x,y from
+    callouts to prevent overlap, but the others may collide silently.
+  - x,y on text/equation is fine ONLY for short diagram labels (≤30
+    chars). For longer prose use placement, not coordinates.
   - NEVER split one equation into multiple positioned pieces. Use cmd:"equation"
     which automatically places equation LEFT + note RIGHT in one element.
-  - Use x,y to position DIFFERENT concepts relative to each other — NOT to
-    arrange parts of the same expression.
-  - GOOD: equation at x:3,y:18 and a separate callout at x:3,y:30
+  - GOOD: equation at x:3,y:18 (label on a diagram) and a separate
+    callout with placement:"below" (NOT positioned).
   - BAD:  "iℏ∂ψ/∂t" at x:5, "=" at x:40, "Ĥψ" at x:55 (split equation!)
-  - Elements are placed EXACTLY where you put them — there is NO automatic
-    repositioning. If you place two elements at the same x,y they WILL overlap.
-    YOU are responsible for spacing.
+  - BAD:  callout at x:55,y:62 AND callout at x:55,y:69 — they will
+    overlap because callouts are 100% wide.
+  - Elements positioned via x,y are placed EXACTLY where you put them.
+    YOU are responsible for spacing. There is NO collision avoidance.
 
 CONNECTION ARROWS (draw relationships):
   {"cmd":"connect","from":"eq1","to":"eq2","label":"implies","color":"gold"}
