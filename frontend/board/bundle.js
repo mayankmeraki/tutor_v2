@@ -2741,7 +2741,11 @@ function _tryKatex(el, latex) {
   if (typeof katex === 'undefined' || !latex) return false;
   if (!_looksLikeLatex(latex)) return false;
   try {
-    var processed = _autoWrapTextRuns(latex);
+    var src = latex.trim();
+    // Strip $$ ... $$ or $ ... $ delimiters — KaTeX expects bare LaTeX
+    if (src.startsWith('$$') && src.endsWith('$$')) src = src.slice(2, -2).trim();
+    else if (src.startsWith('$') && src.endsWith('$')) src = src.slice(1, -1).trim();
+    var processed = _autoWrapTextRuns(src);
     katex.render(processed, el, { throwOnError: false, displayMode: true });
     return true;
   } catch (e) {
