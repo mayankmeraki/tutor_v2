@@ -1591,7 +1591,7 @@ async function _runStudentCode(id) {
 // Run the code once, capture stdout/stderr, return {status, stdout, stderr}.
 async function _runOnce(py, code) {
   py.runPython([
-    'import sys, io',
+    'import sys, io, traceback',
     '_capture_stdout = io.StringIO()',
     '_capture_stderr = io.StringIO()',
     'sys.stdout = _capture_stdout',
@@ -1603,16 +1603,42 @@ async function _runOnce(py, code) {
     var stderr = py.runPython('_capture_stderr.getvalue()');
     return { status: 'success', stdout: stdout, stderr: stderr };
   } catch (err) {
-    var stderrMsg = err && err.message ? err.message : String(err);
-    var lineMatch = stderrMsg.match(/line (\d+)/);
+    // Capture any stdout/stderr written BEFORE the crash — the student
+    // might have print() calls that ran before the error line.
+    var capturedStdout = '', capturedStderr = '';
+    try {
+      capturedStdout = py.runPython('_capture_stdout.getvalue()');
+      capturedStderr = py.runPython('_capture_stderr.getvalue()');
+    } catch (e) { /* ignore — capture buffers may be unavailable */ }
+
+    // Extract the FULL traceback from the Pyodide PythonError.
+    // err.message may be just "PythonError" (the JS wrapper type).
+    // The actual Python traceback is usually in the longer of
+    // err.message vs String(err). Some Pyodide versions also expose
+    // err.type (the Python exception class name).
+    var errMsg = String(err);
+    if (err && err.message && err.message.length > errMsg.length) {
+      errMsg = err.message;
+    }
+    // Strip the "PythonError: " prefix if present — the traceback
+    // itself is more useful than the JS wrapper class name.
+    errMsg = errMsg.replace(/^PythonError:\s*/i, '');
+
+    // Combine captured stderr (from explicit stderr writes) with the
+    // traceback from the exception.
+    var fullStderr = capturedStderr
+      ? capturedStderr.trim() + '\n\n' + errMsg
+      : errMsg;
+
+    var lineMatch = fullStderr.match(/line (\d+)/);
     return {
       status: 'error',
-      stdout: '',
-      stderr: stderrMsg,
+      stdout: capturedStdout,
+      stderr: fullStderr,
       errorLine: lineMatch ? parseInt(lineMatch[1], 10) : null,
     };
   } finally {
-    py.runPython('sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__');
+    try { py.runPython('sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__'); } catch (e) {}
   }
 }
 
@@ -1632,11 +1658,14 @@ async function _runWithTests(py, code, testSpec) {
   try {
     await py.runPythonAsync(code);
   } catch (err) {
-    defineErr = err && err.message ? err.message : String(err);
+    var errStr = String(err);
+    if (err && err.message && err.message.length > errStr.length) errStr = err.message;
+    defineErr = errStr.replace(/^PythonError:\s*/i, '');
   }
 
-  var stdoutAfterDefine = py.runPython('_capture_stdout.getvalue()');
-  py.runPython('sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__');
+  var stdoutAfterDefine = '';
+  try { stdoutAfterDefine = py.runPython('_capture_stdout.getvalue()'); } catch (e) {}
+  try { py.runPython('sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__'); } catch (e) {}
 
   if (defineErr) {
     return { status: 'error', stdout: stdoutAfterDefine, stderr: defineErr, testResults: null };
