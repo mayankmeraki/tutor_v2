@@ -1084,6 +1084,14 @@ async function runCommand(cmd) {
 // State for editable/runnable variants lives in board.codeRunners[id]
 // and gets shipped to the tutor via buildContext() on the next message.
 async function renderCode(cmd) {
+  // Auto-generate an id if the model forgot — editable/runnable runners
+  // MUST have an id so the registry can track them and buildContext()
+  // can ship the state to the tutor. Without an id the runner is invisible.
+  if ((cmd.editable || cmd.runnable) && !cmd.id) {
+    cmd.id = 'code-' + Math.random().toString(36).slice(2, 8);
+    console.warn('[CodeRunner] Auto-generated id:', cmd.id, '— model should set id explicitly for editable/runnable code blocks.');
+  }
+
   var el = createElement('div', cmd, 'bd-code-block');
   var isEditable = !!cmd.editable;
   var isRunnable = !!cmd.runnable;

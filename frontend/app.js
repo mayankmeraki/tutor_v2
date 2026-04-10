@@ -2472,6 +2472,7 @@ function buildContext() {
         }
         summary[id] = entry;
       }
+      console.log('[Context] Code Runners injected:', runnerIds.length, 'runners:', Object.keys(summary));
       items.push({
         description: 'Code Runners — interactive cmd:"code" blocks on the board. Read the currentCode + lastRun + tests to react to the student edit/run state. NO tool call needed; this is the latest snapshot.',
         value: JSON.stringify(summary),
