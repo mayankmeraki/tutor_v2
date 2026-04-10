@@ -2717,7 +2717,12 @@ async function renderDiagram(cmd) {
 var _LATEX_RE = /\\(?:frac|left|right|hbar|alpha|beta|gamma|delta|lambda|omega|sigma|theta|pi|phi|psi|sqrt|sum|int|prod|lim|infty|partial|nabla|cdot|times|approx|equiv|neq|leq|geq|text|mathrm|mathbf|vec|hat|bar|dot|ddot|overline|underline|begin|end)\b|\^\{|\$\$/;
 
 function _looksLikeLatex(text) {
-  return text && _LATEX_RE.test(text);
+  if (!text) return false;
+  // Explicit $...$ or $$...$$ wrapping = always treat as LaTeX
+  var t = text.trim();
+  if (t.length > 2 && t[0] === '$' && t[t.length - 1] === '$') return true;
+  // Backslash commands
+  return _LATEX_RE.test(text);
 }
 
 // Heuristic: if the text has many English words (3+) without being wrapped
