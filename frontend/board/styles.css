@@ -675,31 +675,25 @@
   max-width: 500px;
 }
 
-/* ── QUESTION — centered, visually distinct ── */
+/* ── QUESTION — 4 visual variants, picked by the renderer ──
+   Prevents the board from looking templated when multiple questions
+   appear in one session. Each variant has a different layout/accent. */
+
+/* Shared base */
 .bd-question-block {
-  text-align: center;
-  margin: 32px auto;
-  max-width: 620px;
-}
-.bd-question-block::before {
-  content: '';
-  display: block;
-  width: 4px; height: 4px;
-  border-radius: 50%;
-  background: var(--bd-cyan);
-  box-shadow: 0 0 12px var(--bd-cyan);
-  margin: 0 auto 20px;
+  margin: 28px 0;
+  max-width: 680px;
 }
 .bd-question-ctx {
   font-family: var(--bd-font);
   font-size: 14px;
   color: var(--bd-dim);
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   line-height: 1.5;
 }
 .bd-question-text {
   font-family: var(--bd-font);
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 400;
   color: var(--bd-white);
   line-height: 1.5;
@@ -708,9 +702,62 @@
   font-family: var(--bd-font);
   font-size: 13px;
   color: var(--bd-dim);
-  margin-top: 16px;
+  margin-top: 14px;
   font-style: italic;
 }
+
+/* V1 — Centered with cyan dot beacon */
+.bd-qv-1 {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+}
+.bd-qv-1::before {
+  content: '';
+  display: block;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--bd-cyan);
+  box-shadow: 0 0 12px var(--bd-cyan);
+  margin: 0 auto 18px;
+}
+
+/* V2 — Left-aligned with cyan accent bar */
+.bd-qv-2 {
+  text-align: left;
+  padding-left: 20px;
+  border-left: 2px solid rgba(83,216,251,0.35);
+}
+.bd-qv-2 .bd-question-text { font-size: 19px; }
+
+/* V3 — Right-aligned, italic question, gold accent */
+.bd-qv-3 {
+  text-align: right;
+  margin-left: auto;
+  padding-right: 20px;
+  border-right: 2px solid rgba(251,191,36,0.3);
+}
+.bd-qv-3 .bd-question-text {
+  font-size: 19px;
+  font-style: italic;
+  color: var(--bd-gold);
+  font-weight: 300;
+}
+.bd-qv-3 .bd-question-ctx { text-align: right; }
+.bd-qv-3 .bd-question-hint { text-align: right; }
+
+/* V4 — Full-width top/bottom rule, centered, smaller text */
+.bd-qv-4 {
+  text-align: center;
+  margin-left: auto;
+  margin-right: auto;
+  max-width: 600px;
+  padding: 20px 0;
+  border-top: 1px solid rgba(255,255,255,0.06);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.bd-qv-4 .bd-question-text { font-size: 18px; }
+.bd-qv-4 .bd-question-ctx { font-size: 13px; }
 
 /* ── List: styled items with markers ── */
 .bd-list {

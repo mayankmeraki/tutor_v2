@@ -3159,9 +3159,13 @@ async function renderDiff(cmd) {
   }
 }
 
-// ── QUESTION — centered, visually distinct from teaching ───
+// ── QUESTION — visually distinct from teaching, RANDOM style ───
+// 4 visual variants picked randomly so the board doesn't feel templated
+// when multiple questions appear in one session.
+var _questionVariantCounter = 0;
 async function renderQuestion(cmd) {
-  var el = createElement('div', cmd, 'bd-question-block');
+  var variant = cmd.style || ((_questionVariantCounter++ % 4) + 1);
+  var el = createElement('div', cmd, 'bd-question-block', 'bd-qv-' + variant);
 
   if (cmd.context) {
     var ctx = document.createElement('div');
@@ -3181,7 +3185,6 @@ async function renderQuestion(cmd) {
 
   placeElement(el, cmd.placement, cmd);
 
-  // Animate in sequence: context → question → hint
   if (cmd.context) await animateText(ctx, cmd.context, { charDelay: 16 });
   await animateText(text, cmd.text || '', { charDelay: 20 });
   if (cmd.hint) await animateText(hint, cmd.hint, { charDelay: 16 });
