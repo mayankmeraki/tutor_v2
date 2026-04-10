@@ -1183,12 +1183,10 @@ async function renderCode(cmd) {
   placeElement(el, cmd.placement, cmd);
 
   // Animate the body content char-by-char like the rest of the board.
-  // Default is 50ms/char (~20 chars/sec) — slightly faster than speech
-  // (~13-15 chars/sec) so the line finishes typing just before the tutor
-  // stops narrating it. The model can override with cmd.charDelay.
+  // Default is 20ms/char (~50 chars/sec): a 40-char line types in ~0.8s.
   // For editable runners, suppress the input listener while typing so
   // the listener doesn't fire 200 times during the animation.
-  var typingDelay = cmd.charDelay !== undefined ? cmd.charDelay : 50;
+  var typingDelay = cmd.charDelay !== undefined ? cmd.charDelay : 20;
   body._suppressInput = true;
   await animateText(body, text, { charDelay: typingDelay });
   body._suppressInput = false;
@@ -1326,10 +1324,16 @@ async function _animateAppend(parentEl, text, opts) {
   for (var i = 0; i < text.length; i++) {
     if (board.cancelFlag) break;
     node.appendData(text[i]);
+    // Auto-scroll the code body so new lines stay visible as they type
+    if (text[i] === '\n') {
+      parentEl.scrollTop = parentEl.scrollHeight;
+    }
     if (delay > 0) {
       await new Promise(function(r) { setTimeout(r, delay); });
     }
   }
+  // Final scroll to bottom after the last char
+  parentEl.scrollTop = parentEl.scrollHeight;
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2920,7 +2924,7 @@ async function renderUpdate(cmd) {
       // doesn't translate <br> back. If rawText isn't set (legacy),
       // fall back to textContent.
       var existing = body.dataset.rawText || body.textContent || '';
-      var charDelay = cmd.charDelay !== undefined ? cmd.charDelay : 50;
+      var charDelay = cmd.charDelay !== undefined ? cmd.charDelay : 20;
 
       // Flatten any highlight markup before appending so the new chars
       // land as plain text. We re-highlight the whole body once done.

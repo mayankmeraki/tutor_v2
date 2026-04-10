@@ -1288,10 +1288,16 @@
 .bd-code-btn-run:hover { background: rgba(52,211,153,0.2); }
 .bd-code-btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
 
-/* Body — same shell for read-only <pre> and editable <div> */
+/* Body — same shell for read-only <pre> and editable <pre contenteditable>.
+   max-height + overflow-y: auto makes the body scroll internally when
+   code grows beyond the visible area — the header stays pinned at the
+   top (it's a sibling above the body, not inside it). New lines type
+   in at the bottom and the body auto-scrolls to keep them visible. */
 .bd-code-body {
   padding: 12px 16px;
   overflow-x: auto;
+  overflow-y: auto;
+  max-height: 420px;
   font-family: 'JetBrains Mono', monospace;
   font-size: 13px;
   line-height: 1.7;
