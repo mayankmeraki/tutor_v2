@@ -1210,21 +1210,226 @@
 .bd-prog-dot.bd-prog-done { background: var(--bd-green); }
 .bd-prog-dot.bd-prog-active { background: rgba(255, 255, 255, 0.3); }
 
-/* ── Code block on board ─── */
-.bd-code-block { background: #0d1117; border: 1px solid #1e2733; border-radius: 10px;
-  margin: 10px 0; overflow: hidden; max-width: 600px; }
-.bd-code-header { display: flex; justify-content: space-between; align-items: center;
-  padding: 6px 12px; background: rgba(255,255,255,.02); border-bottom: 1px solid #1e2733; }
-.bd-code-lang { font-size: 10px; font-weight: 500; color: #8b949e; text-transform: uppercase;
-  letter-spacing: .5px; font-family: Inter, sans-serif; }
-.bd-code-file { font-size: 11px; color: #a1a1aa; font-family: 'JetBrains Mono', monospace; }
-.bd-code-body { padding: 10px 14px; overflow-x: auto; font-family: 'JetBrains Mono', monospace;
-  font-size: 13px; line-height: 1.7; color: #e6edf3; white-space: pre; }
+/* ── Mixed text + code (markdown fences inside cmd:"text") ─── */
+.bd-text-mixed {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: var(--bd-el-gap);
+}
+.bd-text-mixed > .bd-text-segment {
+  margin: 0;
+}
+.bd-text-mixed > .bd-text-code-segment {
+  margin: 4px 0;
+}
+
+/* ── Code block — read-only OR editable OR runnable ─── */
+.bd-code-block {
+  background: #0d1117;
+  border: 1px solid #1e2733;
+  border-radius: 10px;
+  margin: 14px 0;
+  overflow: hidden;
+  width: 100%;
+  max-width: 820px;
+}
+.bd-code-block.bd-code-runner {
+  box-shadow: 0 0 0 1px rgba(168,230,207,0.04);
+  border-color: rgba(168,230,207,0.15);
+}
+.bd-code-header {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,.025);
+  border-bottom: 1px solid #1e2733;
+}
+.bd-code-block.bd-code-runner .bd-code-header {
+  background: rgba(168,230,207,0.04);
+}
+.bd-code-lang {
+  font-size: 10px; font-weight: 600;
+  color: #A8E6CF;
+  text-transform: uppercase;
+  letter-spacing: .8px;
+  font-family: 'Lexend', system-ui, sans-serif;
+}
+.bd-code-file {
+  font-size: 11px; color: #94a3b8;
+  font-family: 'JetBrains Mono', monospace;
+}
+.bd-code-prompt {
+  font-size: 11px;
+  color: #A8E6CF;
+  font-weight: 500;
+}
+.bd-code-prompt::before { content: '✎ '; margin-right: 2px; }
+.bd-code-actions {
+  margin-left: auto;
+  display: flex; gap: 8px;
+}
+.bd-code-btn {
+  font-family: 'Lexend', system-ui, sans-serif;
+  font-size: 11px;
+  padding: 5px 12px;
+  border-radius: 6px;
+  border: 1px solid rgba(255,255,255,0.1);
+  background: transparent;
+  color: #E0E0E0;
+  cursor: pointer;
+  font-weight: 500;
+}
+.bd-code-btn:hover { background: rgba(255,255,255,0.05); }
+.bd-code-btn-run {
+  background: rgba(52,211,153,0.12);
+  color: #34d399;
+  border-color: rgba(52,211,153,0.3);
+}
+.bd-code-btn-run:hover { background: rgba(52,211,153,0.2); }
+.bd-code-btn-run:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Body — same shell for read-only <pre> and editable <div> */
+.bd-code-body {
+  padding: 12px 16px;
+  overflow-x: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 13px;
+  line-height: 1.7;
+  color: #e6edf3;
+  white-space: pre;
+  outline: none;
+  tab-size: 4;
+  -moz-tab-size: 4;
+  min-height: 1.7em;
+}
+.bd-code-body[contenteditable="true"] {
+  cursor: text;
+  caret-color: #A8E6CF;
+}
+.bd-code-body[contenteditable="true"]:focus {
+  background: rgba(168,230,207,0.015);
+}
+
+/* Old line-number / highlight markup — kept for back-compat */
 .bd-cl { display: block; padding: 1px 0; }
-.bd-cl-hi { background: rgba(52,211,153,.07); border-left: 3px solid #34d399;
-  padding-left: 11px; margin-left: -14px; margin-right: -14px; padding-right: 14px; }
-.bd-ln { display: inline-block; width: 24px; text-align: right; margin-right: 14px;
-  color: #484f58; user-select: none; font-size: 11px; }
+.bd-cl-hi {
+  background: rgba(52,211,153,.07);
+  border-left: 3px solid #34d399;
+  padding-left: 11px;
+  margin-left: -14px;
+  margin-right: -14px;
+  padding-right: 14px;
+}
+.bd-ln {
+  display: inline-block;
+  width: 24px;
+  text-align: right;
+  margin-right: 14px;
+  color: #484f58;
+  user-select: none;
+  font-size: 11px;
+}
+
+/* Test cases panel */
+.bd-code-tests {
+  border-top: 1px solid #1e2733;
+  background: rgba(255,255,255,0.015);
+  padding: 12px 16px;
+}
+.bd-code-tests-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: #94a3b8;
+  margin-bottom: 8px;
+  font-weight: 500;
+  font-family: 'Lexend', system-ui, sans-serif;
+  display: flex; align-items: center; gap: 8px;
+}
+.bd-code-tests-summary {
+  margin-left: auto;
+  font-family: 'JetBrains Mono', monospace;
+  font-weight: 600;
+  font-size: 11px;
+}
+.bd-code-tests-summary.idle { color: #94a3b8; font-weight: 400; font-style: italic; }
+.bd-code-tests-summary.ok { color: #34d399; }
+.bd-code-tests-summary.err { color: #ff6b6b; }
+.bd-code-tests-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+}
+.bd-code-tests-table th,
+.bd-code-tests-table td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid rgba(255,255,255,0.04);
+  color: #E0E0E0;
+}
+.bd-code-tests-table th {
+  font-family: 'Lexend', system-ui, sans-serif;
+  font-weight: 500;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: #94a3b8;
+}
+.bd-code-tests-table tr:last-child td { border-bottom: none; }
+.bd-code-tests-table .bd-code-tests-status { width: 18px; color: #94a3b8; }
+.bd-code-tests-table tr.pass-row { background: rgba(52,211,153,0.03); }
+.bd-code-tests-table tr.pass-row .bd-code-tests-status { color: #34d399; }
+.bd-code-tests-table tr.pass-row .bd-code-tests-actual { color: #34d399; }
+.bd-code-tests-table tr.fail-row { background: rgba(255,107,107,0.04); }
+.bd-code-tests-table tr.fail-row .bd-code-tests-status { color: #ff6b6b; }
+.bd-code-tests-table tr.fail-row .bd-code-tests-actual { color: #ff6b6b; }
+
+/* Output panel */
+.bd-code-output {
+  border-top: 1px solid #1e2733;
+  background: rgba(0,0,0,0.3);
+  padding: 12px 16px;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 220px;
+  overflow-y: auto;
+}
+.bd-code-output-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-bottom: 6px;
+  font-family: 'Lexend', system-ui, sans-serif;
+  font-weight: 500;
+  display: flex; align-items: center; gap: 8px;
+}
+.bd-code-output.bd-code-output-empty {
+  background: transparent;
+  padding: 12px 16px;
+  font-style: italic;
+  color: #94a3b8;
+  font-family: 'Lexend', system-ui, sans-serif;
+  font-size: 11px;
+}
+.bd-code-output-empty-text { font-style: italic; }
+.bd-code-output.bd-code-output-ok { color: #c8e6c9; }
+.bd-code-output.bd-code-output-err { color: #ffcdd2; }
+.bd-code-output.bd-code-output-ok .bd-code-output-header { color: #34d399; }
+.bd-code-output.bd-code-output-err .bd-code-output-header { color: #ff6b6b; }
+.bd-code-output-status-dot {
+  width: 7px; height: 7px; border-radius: 50%;
+  display: inline-block;
+}
+.bd-code-output-status-dot.ok { background: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.6); }
+.bd-code-output-status-dot.err { background: #ff6b6b; box-shadow: 0 0 8px rgba(255,107,107,.6); }
+.bd-code-output-status-dot.running { background: #fbbf24; animation: bdRunningPulse 1s infinite; }
+@keyframes bdRunningPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
 
 /* ── Three.js 3D scene on board ─── */
 .bd-scene3d { margin: 10px 0; position: relative; }

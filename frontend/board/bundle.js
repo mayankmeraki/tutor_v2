@@ -28,6 +28,10 @@ const board = {
   zoom: 1,
   animRetries: new Map(),
   apiUrl: '',
+  // Interactive code runners — populated by renderCode when editable/runnable
+  // is set. Each entry tracks current code, last run output, and test results.
+  // Shipped to the tutor via buildContext() on the next student MESSAGE.
+  codeRunners: {},
 };
 
 function resetState() {
@@ -1058,6 +1062,7 @@ async function runCommand(cmd) {
     case 'voice':    break;
     case 'pause':    break;
     case 'code':     await renderCode(cmd); break;
+    case 'run':      _runStudentCode(cmd.target); break;
     case 'scene3d':  await renderScene3D(cmd); break;
     default:
       console.warn('[Board] Unknown command:', cmd.cmd);
@@ -1066,31 +1071,600 @@ async function runCommand(cmd) {
   autoScroll();
 }
 
-// ── Code block (syntax-highlighted, read-only) ──────────────────────
+// ── Code block — read-only OR editable OR runnable+tests ───────────
+//
+// One command, three modes (chosen by flags):
+//
+//   {cmd:"code", lang:"python", text:"..."}                   → read-only
+//   {cmd:"code", ..., editable:true}                          → worksheet (no run)
+//   {cmd:"code", ..., editable:true, runnable:true,           → full runner
+//                     tests:[{in,out},...]}
+//
+// State for editable/runnable variants lives in board.codeRunners[id]
+// and gets shipped to the tutor via buildContext() on the next message.
 async function renderCode(cmd) {
   var el = createElement('div', cmd, 'bd-code-block');
+  var isEditable = !!cmd.editable;
+  var isRunnable = !!cmd.runnable;
+  var hasTests = Array.isArray(cmd.tests) && cmd.tests.length > 0;
+  if (isEditable || isRunnable || hasTests) el.classList.add('bd-code-runner');
+
+  // Header — language pill, optional filename, action buttons
   var header = document.createElement('div');
   header.className = 'bd-code-header';
-  header.innerHTML = '<span class="bd-code-lang">' + (cmd.lang || 'code').toUpperCase() + '</span>';
-  if (cmd.filename) header.innerHTML += '<span class="bd-code-file">' + cmd.filename + '</span>';
+  var langText = (cmd.lang || 'text').toUpperCase();
+  var headerInner = '<span class="bd-code-lang">' + escapeHtml(langText) + '</span>';
+  if (cmd.filename) headerInner += '<span class="bd-code-file">' + escapeHtml(cmd.filename) + '</span>';
+  if (isEditable && !isRunnable) headerInner += '<span class="bd-code-prompt">edit me</span>';
+  if (isRunnable) headerInner += '<span class="bd-code-prompt">edit and run</span>';
+  header.innerHTML = headerInner;
+
+  // Action buttons (Reset, Run) for interactive variants. The actual
+  // wiring happens after el is fully built so the buttons can find the
+  // body element via querySelector.
+  var resetBtn = null, runBtn = null;
+  if (isEditable || isRunnable) {
+    var actions = document.createElement('div');
+    actions.className = 'bd-code-actions';
+    resetBtn = document.createElement('button');
+    resetBtn.className = 'bd-code-btn bd-code-btn-reset';
+    resetBtn.textContent = '↺ Reset';
+    actions.appendChild(resetBtn);
+    if (isRunnable) {
+      runBtn = document.createElement('button');
+      runBtn.className = 'bd-code-btn bd-code-btn-run';
+      runBtn.textContent = '▶ Run';
+      actions.appendChild(runBtn);
+    }
+    header.appendChild(actions);
+  }
   el.appendChild(header);
 
+  // Normalize literal escape sequences. The model often double-escapes
+  // newlines inside the JSON `text` field — JSON.parse hands us the
+  // 2-char string \n (backslash + n) instead of a real newline. Convert
+  // them all so split('\n') works no matter how the model escaped them.
+  var text = cmd.text || '';
+  if (typeof text === 'string' && text.indexOf('\\') !== -1) {
+    text = text
+      .replace(/\\n/g, '\n')
+      .replace(/\\r/g, '\r')
+      .replace(/\\t/g, '\t');
+  }
+
+  // Body — always a <pre>, even for editable variants. Using <div> causes
+  // newlines to collapse when highlight.js sets innerHTML with span markup
+  // (the HTML parser treats \n as inter-element whitespace in a div, but
+  // preserves it in a pre). <pre contenteditable="true"> works in all
+  // browsers and preserves whitespace correctly.
   var body = document.createElement('pre');
   body.className = 'bd-code-body';
-  var lines = (cmd.text || '').split('\n');
-  var highlight = cmd.highlight || [];
-  body.innerHTML = lines.map(function(line, i) {
-    var lineNum = i + 1;
-    var cls = highlight.includes(lineNum) ? 'bd-cl bd-cl-hi' : 'bd-cl';
-    return '<span class="' + cls + '"><span class="bd-ln">' + lineNum + '</span>' + escapeHtml(line) + '</span>';
-  }).join('\n');
   el.appendChild(body);
+  if (isEditable) {
+    body.setAttribute('contenteditable', 'true');
+    body.setAttribute('spellcheck', 'false');
+    body.dataset.codeId = cmd.id || '';
+  }
+
+  // Tests panel — placeholder rows; status fills in after Run
+  if (hasTests) {
+    var testsBlock = document.createElement('div');
+    testsBlock.className = 'bd-code-tests';
+    var testsHeader = document.createElement('div');
+    testsHeader.className = 'bd-code-tests-header';
+    testsHeader.innerHTML = 'Test cases <span class="bd-code-tests-summary idle" data-tests-summary>not run yet</span>';
+    testsBlock.appendChild(testsHeader);
+    var table = document.createElement('table');
+    table.className = 'bd-code-tests-table';
+    table.innerHTML = '<thead><tr><th></th><th>Input</th><th>Expected</th><th>Got</th></tr></thead>';
+    var tbody = document.createElement('tbody');
+    cmd.tests.forEach(function(t, i) {
+      var row = document.createElement('tr');
+      row.dataset.testIdx = String(i);
+      row.innerHTML = '<td class="bd-code-tests-status">·</td>' +
+                      '<td>' + escapeHtml(String(t.in || '')) + '</td>' +
+                      '<td>' + escapeHtml(String(t.out || '')) + '</td>' +
+                      '<td class="bd-code-tests-actual">—</td>';
+      tbody.appendChild(row);
+    });
+    table.appendChild(tbody);
+    testsBlock.appendChild(table);
+    el.appendChild(testsBlock);
+  }
+
+  // Output panel — empty by default for runnable, populated on Run
+  if (isRunnable) {
+    var output = document.createElement('div');
+    output.className = 'bd-code-output bd-code-output-empty';
+    output.innerHTML = '<span class="bd-code-output-empty-text">Click <strong>Run</strong> to execute · last result: never</span>';
+    el.appendChild(output);
+  }
 
   placeElement(el, cmd.placement, cmd);
+
+  // Animate the body content char-by-char like the rest of the board.
+  // Default is 50ms/char (~20 chars/sec) — slightly faster than speech
+  // (~13-15 chars/sec) so the line finishes typing just before the tutor
+  // stops narrating it. The model can override with cmd.charDelay.
+  // For editable runners, suppress the input listener while typing so
+  // the listener doesn't fire 200 times during the animation.
+  var typingDelay = cmd.charDelay !== undefined ? cmd.charDelay : 50;
+  body._suppressInput = true;
+  await animateText(body, text, { charDelay: typingDelay });
+  body._suppressInput = false;
+
+  // Syntax highlight after the typing animation completes. For editable
+  // blocks we highlight ONCE on first render — re-highlighting on every
+  // keystroke would break the cursor position in contenteditable.
+  _highlightCodeBody(body, cmd.lang);
+
+  // Wire the editable listeners AFTER the typing animation completes,
+  // so the student can immediately start editing without the listener
+  // having fired hundreds of times during the type-on.
+  if (isEditable) {
+    body.addEventListener('input', function() {
+      if (body._suppressInput) return;
+      var id = body.dataset.codeId;
+      if (!id || !board.codeRunners[id]) return;
+      board.codeRunners[id].currentCode = body.innerText.replace(/\u00a0/g, ' ');
+      board.codeRunners[id].lastInteractedAt = Date.now();
+    });
+    // Tab key inserts 4 spaces instead of jumping focus
+    body.addEventListener('keydown', function(e) {
+      if (e.key === 'Tab') {
+        e.preventDefault();
+        document.execCommand('insertText', false, '    ');
+      }
+    });
+    // Re-highlight when the student clicks away. While typing, the
+    // highlight spans get stale (cursor would jump if we re-tokenized
+    // mid-edit), but on blur it's safe to refresh the colors.
+    body.addEventListener('blur', function() {
+      var id = body.dataset.codeId;
+      var entry = id && board.codeRunners[id];
+      if (!entry) return;
+      // Snapshot text first (in case highlight rebuilds the DOM)
+      entry.currentCode = body.innerText.replace(/\u00a0/g, ' ');
+      body.classList.remove('hljs');
+      _highlightCodeBody(body, entry.lang);
+    });
+  }
+
+  // Register the runner in board.codeRunners. buildContext() reads from
+  // here on every student MESSAGE event and ships the snapshot to the
+  // tutor — no separate WS event, no tool call.
+  if ((isEditable || isRunnable) && cmd.id) {
+    board.codeRunners = board.codeRunners || {};
+    board.codeRunners[cmd.id] = {
+      id: cmd.id,
+      lang: cmd.lang || 'text',
+      editable: isEditable,
+      runnable: isRunnable,
+      originalCode: text,
+      currentCode: text,
+      tests: cmd.tests ? { spec: cmd.tests, results: null } : null,
+      lastRun: null,
+      lastInteractedAt: Date.now(),
+      element: el,
+    };
+  }
+
+  // Wire the Reset button — restore the original tutor-provided code.
+  if (resetBtn) {
+    resetBtn.addEventListener('click', function() {
+      var entry = board.codeRunners && board.codeRunners[cmd.id];
+      if (!entry) return;
+      body.textContent = entry.originalCode;
+      body.classList.remove('hljs');
+      _highlightCodeBody(body, entry.lang);
+      entry.currentCode = entry.originalCode;
+      entry.lastRun = null;
+      if (entry.tests) entry.tests.results = null;
+      entry.lastInteractedAt = Date.now();
+      // Reset visible test/output panels too
+      _resetCodeRunnerPanels(el);
+    });
+  }
+
+  // Wire the Run button — Step 3 plugs in actual execution. For now,
+  // just flash a "running…" state and leave the panels reset.
+  if (runBtn) {
+    runBtn.addEventListener('click', function() {
+      _runStudentCode(cmd.id);
+    });
+  }
+}
+
+// Reset the visible tests/output panels of a runner element to their
+// "no run yet" state. Used by Reset button and at the start of each Run.
+function _resetCodeRunnerPanels(el) {
+  var output = el.querySelector('.bd-code-output');
+  if (output) {
+    output.className = 'bd-code-output bd-code-output-empty';
+    output.innerHTML = '<span class="bd-code-output-empty-text">Click <strong>Run</strong> to execute · last result: never</span>';
+  }
+  var summary = el.querySelector('[data-tests-summary]');
+  if (summary) {
+    summary.className = 'bd-code-tests-summary idle';
+    summary.textContent = 'not run yet';
+  }
+  var rows = el.querySelectorAll('.bd-code-tests-table tbody tr');
+  rows.forEach(function(row) {
+    row.classList.remove('pass-row', 'fail-row');
+    var status = row.querySelector('.bd-code-tests-status');
+    if (status) status.textContent = '·';
+    var actual = row.querySelector('.bd-code-tests-actual');
+    if (actual) actual.textContent = '—';
+  });
+}
+
+// Append-only char-by-char animator for code-block growth.
+// Unlike animateText (which clobbers parentEl at the end), this APPENDS
+// new characters into the parent without touching existing content. Used
+// when cmd:"update" extends code line by line — the previously-typed
+// lines must stay put while the new suffix types in below them.
+async function _animateAppend(parentEl, text, opts) {
+  if (!text) return;
+  var delay = (opts && opts.charDelay !== undefined) ? opts.charDelay : 8;
+  // Strip any highlight markup off the existing content first, so the
+  // new chars land as plain text alongside plain text. We re-highlight
+  // the whole body once the append is done.
+  if (parentEl.classList.contains('hljs')) {
+    parentEl.textContent = parentEl.textContent;
+    parentEl.classList.remove('hljs');
+  }
+  // Append a text node, then mutate it char-by-char. Faster than
+  // creating a new node per character and produces the same visual.
+  var node = document.createTextNode('');
+  parentEl.appendChild(node);
+  for (var i = 0; i < text.length; i++) {
+    if (board.cancelFlag) break;
+    node.appendData(text[i]);
+    if (delay > 0) {
+      await new Promise(function(r) { setTimeout(r, delay); });
+    }
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SYNTAX HIGHLIGHTING via highlight.js (lazy-loaded on first code).
+// ~30 KB core from CDN, language definitions are bundled with the
+// "common" build so we get Python, JS, Java, C++, SQL, Go, Rust,
+// TypeScript, etc. out of the box. Theme is injected inline below
+// so it matches the chalkboard palette without a second CDN load.
+// ═══════════════════════════════════════════════════════════════
+
+var _hljsLoading = null;
+function _loadHighlightJs() {
+  if (typeof hljs !== 'undefined') return Promise.resolve(hljs);
+  if (_hljsLoading) return _hljsLoading;
+  _hljsLoading = new Promise(function(resolve, reject) {
+    var s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/gh/highlightjs/cdn-release@11.10.0/build/highlight.min.js';
+    s.onload = function() {
+      _injectHighlightTheme();
+      // eslint-disable-next-line no-undef
+      resolve(typeof hljs !== 'undefined' ? hljs : null);
+    };
+    s.onerror = function() { reject(new Error('Failed to load highlight.js')); };
+    document.head.appendChild(s);
+  });
+  return _hljsLoading;
+}
+
+// Custom theme — matches the chalkboard palette (mint/gold/cyan/red on
+// dark grey). Injected once after highlight.js loads. Avoids a second
+// CDN round-trip for a stylesheet.
+function _injectHighlightTheme() {
+  if (document.getElementById('bd-hljs-theme')) return;
+  var style = document.createElement('style');
+  style.id = 'bd-hljs-theme';
+  style.textContent = [
+    '.bd-code-body .hljs { color: #e6edf3; background: transparent; padding: 0; }',
+    '.bd-code-body .hljs-comment, .bd-code-body .hljs-quote { color: #6272a4; font-style: italic; }',
+    '.bd-code-body .hljs-keyword, .bd-code-body .hljs-selector-tag, .bd-code-body .hljs-built_in,',
+    '.bd-code-body .hljs-name, .bd-code-body .hljs-tag, .bd-code-body .hljs-meta { color: #ff79c6; }',
+    '.bd-code-body .hljs-string, .bd-code-body .hljs-title.class_, .bd-code-body .hljs-attr,',
+    '.bd-code-body .hljs-symbol, .bd-code-body .hljs-bullet, .bd-code-body .hljs-addition { color: #f1fa8c; }',
+    '.bd-code-body .hljs-number, .bd-code-body .hljs-literal { color: #bd93f9; }',
+    '.bd-code-body .hljs-title, .bd-code-body .hljs-section, .bd-code-body .hljs-title.function_ { color: #50fa7b; }',
+    '.bd-code-body .hljs-variable, .bd-code-body .hljs-template-variable, .bd-code-body .hljs-attribute { color: #f8f8f2; }',
+    '.bd-code-body .hljs-type, .bd-code-body .hljs-class .hljs-title { color: #8be9fd; }',
+    '.bd-code-body .hljs-deletion, .bd-code-body .hljs-formula { color: #ff5555; }',
+    '.bd-code-body .hljs-operator, .bd-code-body .hljs-punctuation { color: #ff79c6; }',
+    '.bd-code-body .hljs-params { color: #ffb86c; font-style: italic; }',
+    '.bd-code-body .hljs-property { color: #A8E6CF; }',
+  ].join('\n');
+  document.head.appendChild(style);
+}
+
+// Highlight a code body in place. Safe to call multiple times — the
+// last call wins. Strips any existing markup and re-tokenizes from the
+// current text content (so it works for both initial render and after
+// an animated update).
+function _highlightCodeBody(body, lang) {
+  if (!body) return;
+  if (typeof hljs === 'undefined') {
+    _loadHighlightJs().then(function() { _highlightCodeBody(body, lang); }).catch(function(e) {
+      console.warn('[CodeRunner] highlight.js load failed:', e.message);
+    });
+    return;
+  }
+  try {
+    var text = body.textContent || '';
+    if (!text.trim()) return;
+    var langKey = (lang || '').toLowerCase();
+    var result;
+    if (langKey && hljs.getLanguage(langKey)) {
+      result = hljs.highlight(text, { language: langKey, ignoreIllegals: true });
+    } else {
+      result = hljs.highlightAuto(text);
+    }
+    body.innerHTML = result.value;
+    body.classList.add('hljs');
+  } catch (e) {
+    console.warn('[CodeRunner] highlight failed:', e && e.message);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PYTHON EXECUTION via Pyodide (lazy-loaded on first run).
+// Pyodide is a 6 MB CDN bundle — only loaded when the student
+// actually clicks Run on a Python runner. Cached for the rest of
+// the session. Future phases can add JS / SQL runtimes here.
+// ═══════════════════════════════════════════════════════════════
+
+var _pyodideInstance = null;
+var _pyodideLoading = null;
+
+function _loadPyodide() {
+  if (_pyodideInstance) return Promise.resolve(_pyodideInstance);
+  if (_pyodideLoading) return _pyodideLoading;
+
+  _pyodideLoading = new Promise(function(resolve, reject) {
+    if (typeof loadPyodide !== 'undefined') {
+      // Pyodide already loaded
+      loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/' })
+        .then(function(py) { _pyodideInstance = py; resolve(py); })
+        .catch(reject);
+      return;
+    }
+    // Inject the CDN script
+    var script = document.createElement('script');
+    script.src = 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/pyodide.js';
+    script.onload = function() {
+      // eslint-disable-next-line no-undef
+      loadPyodide({ indexURL: 'https://cdn.jsdelivr.net/pyodide/v0.26.4/full/' })
+        .then(function(py) { _pyodideInstance = py; resolve(py); })
+        .catch(reject);
+    };
+    script.onerror = function() { reject(new Error('Failed to load Pyodide CDN')); };
+    document.head.appendChild(script);
+  });
+  return _pyodideLoading;
+}
+
+// Render the "running" placeholder in the output panel.
+function _showRunnerLoading(el, msg) {
+  var output = el.querySelector('.bd-code-output');
+  if (!output) return;
+  output.className = 'bd-code-output bd-code-output-empty';
+  output.innerHTML = '<div class="bd-code-output-header"><span class="bd-code-output-status-dot running"></span>' + escapeHtml(msg || 'Running…') + '</div>';
+}
+
+// Update the visible test rows + summary after a run completes.
+function _updateTestRows(el, results) {
+  if (!results) return;
+  var rows = el.querySelectorAll('.bd-code-tests-table tbody tr');
+  results.forEach(function(r, i) {
+    var row = rows[i];
+    if (!row) return;
+    row.classList.remove('pass-row', 'fail-row');
+    row.classList.add(r.pass ? 'pass-row' : 'fail-row');
+    var status = row.querySelector('.bd-code-tests-status');
+    if (status) status.textContent = r.pass ? '✓' : '✗';
+    var actual = row.querySelector('.bd-code-tests-actual');
+    if (actual) actual.textContent = r.actual === undefined || r.actual === null ? '—' : String(r.actual);
+  });
+  var summary = el.querySelector('[data-tests-summary]');
+  if (summary) {
+    var passed = results.filter(function(r) { return r.pass; }).length;
+    var total = results.length;
+    summary.className = 'bd-code-tests-summary ' + (passed === total ? 'ok' : 'err');
+    summary.textContent = passed + ' / ' + total + ' passed';
+  }
+}
+
+// Render the run output (stdout + status header) into the output panel.
+function _showRunResult(el, result) {
+  var output = el.querySelector('.bd-code-output');
+  if (!output) return;
+  if (result.status === 'success') {
+    output.className = 'bd-code-output bd-code-output-ok';
+    var header = '<div class="bd-code-output-header"><span class="bd-code-output-status-dot ok"></span>Run succeeded · ' + (result.elapsedMs || 0) + 'ms</div>';
+    output.innerHTML = header + escapeHtml(result.stdout || '(no output)');
+  } else {
+    output.className = 'bd-code-output bd-code-output-err';
+    var hdr = '<div class="bd-code-output-header"><span class="bd-code-output-status-dot err"></span>Run failed · ' + (result.elapsedMs || 0) + 'ms</div>';
+    var body = (result.stderr || result.error || 'Unknown error');
+    if (result.stdout) body = escapeHtml(result.stdout) + '\n\n' + escapeHtml(body);
+    else body = escapeHtml(body);
+    output.innerHTML = hdr + body;
+  }
+}
+
+// Top-level entry point — wired to the Run button AND the model's
+// cmd:"run" beat command. Loads Pyodide if needed, executes the code,
+// runs the tests, updates UI + state.codeRunners[id].lastRun.
+async function _runStudentCode(id) {
+  if (!id) { console.warn('[CodeRunner] _runStudentCode called with no id'); return; }
+  var entry = board.codeRunners && board.codeRunners[id];
+  if (!entry) { console.warn('[CodeRunner] No runner registered for id:', id); return; }
+  if (!entry.runnable) {
+    console.warn('[CodeRunner] Runner', id, 'is not runnable (no Run button)');
+    return;
+  }
+  var el = entry.element;
+  if (!el) return;
+
+  // Disable the Run button while executing
+  var runBtn = el.querySelector('.bd-code-btn-run');
+  if (runBtn) { runBtn.disabled = true; runBtn.textContent = 'running…'; }
+  _showRunnerLoading(el, _pyodideInstance ? 'Running Python…' : 'Loading Pyodide (first run, ~3-5s)…');
+
+  var startTime = Date.now();
+  try {
+    var py = await _loadPyodide();
+    if (entry.lang !== 'python') {
+      throw new Error('Only Python is supported in Phase 1. Got: ' + entry.lang);
+    }
+
+    var code = entry.currentCode;
+    var testSpec = entry.tests && entry.tests.spec;
+
+    // Capture stdout/stderr by redirecting sys.stdout/stderr to StringIO,
+    // then run the user code. If tests are provided, run each test
+    // independently and capture the result of evaluating the test input
+    // as a function call. Tests format: {in: "func(args)", out: "expected"}.
+    var pyResult;
+    if (testSpec && testSpec.length > 0) {
+      pyResult = await _runWithTests(py, code, testSpec);
+    } else {
+      pyResult = await _runOnce(py, code);
+    }
+
+    var elapsed = Date.now() - startTime;
+    pyResult.elapsedMs = elapsed;
+    pyResult.ranAt = new Date().toISOString();
+
+    // Update entry state
+    entry.lastRun = {
+      status: pyResult.status,
+      stdout: pyResult.stdout || '',
+      stderr: pyResult.stderr || '',
+      errorLine: pyResult.errorLine || null,
+      elapsedMs: elapsed,
+      ranAt: pyResult.ranAt,
+    };
+    if (pyResult.testResults) {
+      entry.tests.results = pyResult.testResults;
+    }
+    entry.lastInteractedAt = Date.now();
+
+    // Update UI
+    if (pyResult.testResults) _updateTestRows(el, pyResult.testResults);
+    _showRunResult(el, pyResult);
+  } catch (err) {
+    console.error('[CodeRunner] Run failed:', err);
+    var elapsed = Date.now() - startTime;
+    entry.lastRun = {
+      status: 'error',
+      stdout: '',
+      stderr: err && err.message ? err.message : String(err),
+      elapsedMs: elapsed,
+      ranAt: new Date().toISOString(),
+    };
+    _showRunResult(el, {
+      status: 'error',
+      error: 'Failed to start: ' + (err && err.message ? err.message : String(err)),
+      elapsedMs: elapsed,
+    });
+  } finally {
+    if (runBtn) { runBtn.disabled = false; runBtn.textContent = '▶ Run'; }
+  }
+}
+
+// Run the code once, capture stdout/stderr, return {status, stdout, stderr}.
+async function _runOnce(py, code) {
+  py.runPython([
+    'import sys, io',
+    '_capture_stdout = io.StringIO()',
+    '_capture_stderr = io.StringIO()',
+    'sys.stdout = _capture_stdout',
+    'sys.stderr = _capture_stderr',
+  ].join('\n'));
+  try {
+    await py.runPythonAsync(code);
+    var stdout = py.runPython('_capture_stdout.getvalue()');
+    var stderr = py.runPython('_capture_stderr.getvalue()');
+    return { status: 'success', stdout: stdout, stderr: stderr };
+  } catch (err) {
+    var stderrMsg = err && err.message ? err.message : String(err);
+    var lineMatch = stderrMsg.match(/line (\d+)/);
+    return {
+      status: 'error',
+      stdout: '',
+      stderr: stderrMsg,
+      errorLine: lineMatch ? parseInt(lineMatch[1], 10) : null,
+    };
+  } finally {
+    py.runPython('sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__');
+  }
+}
+
+// Run the code, then evaluate each test case as a Python expression and
+// compare against the expected string. Returns {status, stdout, testResults}.
+async function _runWithTests(py, code, testSpec) {
+  // First, define the user's code in the Python namespace
+  py.runPython([
+    'import sys, io',
+    '_capture_stdout = io.StringIO()',
+    '_capture_stderr = io.StringIO()',
+    'sys.stdout = _capture_stdout',
+    'sys.stderr = _capture_stderr',
+  ].join('\n'));
+
+  var defineErr = null;
+  try {
+    await py.runPythonAsync(code);
+  } catch (err) {
+    defineErr = err && err.message ? err.message : String(err);
+  }
+
+  var stdoutAfterDefine = py.runPython('_capture_stdout.getvalue()');
+  py.runPython('sys.stdout = sys.__stdout__\nsys.stderr = sys.__stderr__');
+
+  if (defineErr) {
+    return { status: 'error', stdout: stdoutAfterDefine, stderr: defineErr, testResults: null };
+  }
+
+  // Now run each test as: repr(eval(test.in)) == test.out (string match)
+  var testResults = [];
+  var anyFailed = false;
+  for (var i = 0; i < testSpec.length; i++) {
+    var t = testSpec[i];
+    var input = t.in || '';
+    var expected = String(t.out !== undefined ? t.out : '');
+    var actual = '';
+    var pass = false;
+    try {
+      // Eval the input expression — e.g. "binary_search([1,3,5], 5)"
+      var raw = py.runPython('repr(' + input + ')');
+      // Strip quotes if it's a string repr ('5' → 5) so simple int matches work
+      if (raw.length >= 2 && raw[0] === "'" && raw[raw.length - 1] === "'") {
+        actual = raw.slice(1, -1);
+      } else {
+        actual = raw;
+      }
+      pass = (actual === expected);
+    } catch (err) {
+      actual = 'Error: ' + (err && err.message ? err.message : String(err));
+      pass = false;
+    }
+    if (!pass) anyFailed = true;
+    testResults.push({ input: input, expected: expected, actual: actual, pass: pass });
+  }
+
+  return {
+    status: anyFailed ? 'error' : 'success',
+    stdout: stdoutAfterDefine,
+    stderr: anyFailed ? (testResults.length - testResults.filter(function(r) { return r.pass; }).length) + ' of ' + testResults.length + ' tests failed' : '',
+    testResults: testResults,
+  };
 }
 
 function escapeHtml(t) {
-  return t.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
 // ── Three.js 3D scene ───────────────────────────────────────────────
@@ -2063,11 +2637,80 @@ function _tryKatex(el, latex) {
 }
 
 async function renderText(cmd) {
+  // ── Markdown-style code fences inside text ──
+  // If the text contains ``` fences, split into prose + code segments.
+  // Each prose segment animates char-by-char like normal text. Each code
+  // segment renders as a read-only bd-code-block (like cmd:"code" without
+  // the editor). The model can weave a code snippet into a sentence
+  // without switching commands.
+  var rawText = cmd.text || '';
+  if (typeof rawText === 'string' && rawText.indexOf('```') !== -1) {
+    var segments = _splitMarkdownFences(rawText);
+    if (segments.length > 1) {
+      // Mixed content. Place a wrapper, then animate prose / render code.
+      var wrap = document.createElement('div');
+      wrap.className = 'bd-el bd-text-mixed';
+      if (cmd.id) { wrap.id = cmd.id; registerElement(cmd.id, wrap); }
+      placeElement(wrap, cmd.placement, cmd);
+      for (var i = 0; i < segments.length; i++) {
+        var seg = segments[i];
+        if (seg.kind === 'prose') {
+          if (!seg.text.trim()) continue;
+          var prose = document.createElement('div');
+          prose.className = 'bd-text bd-text-segment ' + colorClass(cmd.color || 'white') + ' ' + sizeClass(cmd.size);
+          wrap.appendChild(prose);
+          if (!_tryKatex(prose, seg.text)) {
+            await animateText(prose, seg.text, { charDelay: cmd.charDelay });
+          }
+        } else {
+          // Code segment — render as a read-only bd-code-block
+          var codeBlock = document.createElement('div');
+          codeBlock.className = 'bd-el bd-code-block bd-text-code-segment';
+          var hdr = document.createElement('div');
+          hdr.className = 'bd-code-header';
+          hdr.innerHTML = '<span class="bd-code-lang">' + escapeHtml((seg.lang || 'text').toUpperCase()) + '</span>';
+          codeBlock.appendChild(hdr);
+          var body = document.createElement('pre');
+          body.className = 'bd-code-body';
+          body.textContent = seg.text;
+          codeBlock.appendChild(body);
+          wrap.appendChild(codeBlock);
+        }
+      }
+      return;
+    }
+  }
+
   var el = createStyledElement('div', cmd, 'bd-text');
   placeElement(el, cmd.placement, cmd);
   if (!_tryKatex(el, cmd.text)) {
     await animateText(el, cmd.text, { charDelay: cmd.charDelay });
   }
+}
+
+// Parse triple-backtick fences out of a markdown-ish string.
+// Returns an array of segments: [{kind: 'prose'|'code', text, lang?}, ...]
+// Tolerates literal "\\n" escapes and unmatched fences.
+function _splitMarkdownFences(text) {
+  // Normalize literal escape sequences (model often double-escapes \n)
+  if (text.indexOf('\\') !== -1) {
+    text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+  }
+  var segments = [];
+  var fenceRe = /```([a-zA-Z0-9_+-]*)\s*\n([\s\S]*?)```/g;
+  var lastIndex = 0;
+  var match;
+  while ((match = fenceRe.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      segments.push({ kind: 'prose', text: text.slice(lastIndex, match.index) });
+    }
+    segments.push({ kind: 'code', lang: match[1] || 'text', text: match[2] });
+    lastIndex = fenceRe.lastIndex;
+  }
+  if (lastIndex < text.length) {
+    segments.push({ kind: 'prose', text: text.slice(lastIndex) });
+  }
+  return segments;
 }
 
 function renderGap(cmd) {
@@ -2244,12 +2887,76 @@ async function renderUpdate(cmd) {
   if (!cmd.target || !cmd.text) return;
   var el = document.getElementById(cmd.target);
   if (!el) return;
+
+  // Normalize literal escape sequences (model often double-escapes \n)
+  var text = cmd.text;
+  if (typeof text === 'string' && text.indexOf('\\') !== -1) {
+    text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+  }
+
+  // ── Code block special case ──
+  // Code blocks have structure: header / body / tests / output. The naive
+  // textContent='' wipes the whole structure. Instead, update only the
+  // body element's text. AND — if the new text is a SUPERSET of the old
+  // (model is growing the code line by line across beats), animate only
+  // the new suffix so existing lines stay put. The student watches the
+  // code grow in place, beat by beat, just like text/equation/step do.
+  if (el.classList.contains('bd-code-block')) {
+    var body = el.querySelector('.bd-code-body');
+    if (body) {
+      // Flatten any highlight markup so textContent comparisons are clean.
+      if (body.classList.contains('hljs')) {
+        body.textContent = body.textContent;
+        body.classList.remove('hljs');
+      }
+      var existing = body.textContent || '';
+      // Match speech pacing (~50ms/char ≈ 20 chars/sec) so the new line
+      // types in over the duration of the spoken narration that goes
+      // with it. Faster than 30ms feels too snappy; slower than 70ms
+      // makes the student wait after the tutor has stopped talking.
+      var charDelay = cmd.charDelay !== undefined ? cmd.charDelay : 50;
+
+      if (text.length > existing.length && text.indexOf(existing) === 0) {
+        // GROW: append-only update. Use _animateAppend (NOT animateText)
+        // because animateText clobbers parentEl at the end of its run.
+        // Previous lines stay put — only the new suffix types in.
+        var suffix = text.slice(existing.length);
+        await _animateAppend(body, suffix, { charDelay: charDelay });
+      } else if (text === existing) {
+        // No change — nothing to do.
+      } else {
+        // REPLACE: full rewrite (refactor / fix-up). Clear and retype.
+        body.textContent = '';
+        await animateText(body, text, { charDelay: charDelay });
+      }
+
+      // Re-highlight ONLY after the suffix is fully appended. The
+      // re-highlight produces a brief flash but the existing lines
+      // never re-animate.
+      var entry = board.codeRunners && board.codeRunners[cmd.target];
+      var lang = entry ? entry.lang : null;
+      _highlightCodeBody(body, lang);
+
+      if (entry) {
+        entry.originalCode = text;
+        entry.currentCode = text;
+        entry.lastInteractedAt = Date.now();
+        // A code update from the tutor invalidates the previous run output
+        // (the code changed) — clear the visible panels and the registry.
+        entry.lastRun = null;
+        if (entry.tests) entry.tests.results = null;
+        _resetCodeRunnerPanels(el);
+      }
+      return;
+    }
+  }
+
   el.textContent = '';
   if (cmd.color) {
     el.className = el.className.replace(/bd-chalk-\w+/g, '');
     el.classList.add(colorClass(cmd.color));
   }
-  await animateText(el, cmd.text, { charDelay: 20 });
+  await animateText(el, text, { charDelay: 20 });
 }
 
 function renderDelete(cmd) {

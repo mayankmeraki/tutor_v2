@@ -2420,6 +2420,65 @@ function buildContext() {
     }),
   });
 
+  // Context: Code Runners — interactive cmd:"code" blocks on screen.
+  // Pulled from BoardEngine.state.codeRunners. Each entry: current code,
+  // last run output, test results. The tutor reads this to react to
+  // student edits and run results without making any tool call.
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.state && BoardEngine.state.codeRunners) {
+    const runners = BoardEngine.state.codeRunners;
+    const runnerIds = Object.keys(runners);
+    if (runnerIds.length > 0) {
+      const summary = {};
+      for (const id of runnerIds) {
+        const r = runners[id];
+        if (!r) continue;
+        // Truncate very long code (>80 lines): keep head + tail.
+        let code = r.currentCode || '';
+        const lines = code.split('\n');
+        if (lines.length > 80) {
+          code = lines.slice(0, 50).join('\n') + '\n... [truncated ' + (lines.length - 80) + ' lines] ...\n' + lines.slice(-30).join('\n');
+        }
+        const entry = {
+          lang: r.lang,
+          editable: r.editable,
+          runnable: r.runnable,
+          currentCode: code,
+          edited: r.currentCode !== r.originalCode,
+        };
+        if (r.lastRun) {
+          entry.lastRun = {
+            status: r.lastRun.status,
+            stdout: (r.lastRun.stdout || '').slice(0, 800),
+            stderr: (r.lastRun.stderr || '').slice(0, 800),
+            errorLine: r.lastRun.errorLine || null,
+            ranAt: r.lastRun.ranAt || null,
+          };
+        }
+        if (r.tests && r.tests.results) {
+          // Compact tests: show counts + up to 3 failing cases verbatim
+          const results = r.tests.results;
+          const passed = results.filter(t => t.pass).length;
+          const failed = results.filter(t => !t.pass);
+          entry.tests = {
+            total: results.length,
+            passed: passed,
+            failed: failed.length,
+            failing: failed.slice(0, 3).map(t => ({
+              input: t.input,
+              expected: t.expected,
+              actual: t.actual,
+            })),
+          };
+        }
+        summary[id] = entry;
+      }
+      items.push({
+        description: 'Code Runners — interactive cmd:"code" blocks on the board. Read the currentCode + lastRun + tests to react to the student edit/run state. NO tool call needed; this is the latest snapshot.',
+        value: JSON.stringify(summary),
+      });
+    }
+  }
+
   // Simulations — only send if student has one open (active state), not the full catalog
   if (state.simulations && state.simulations.length > 0 && false) { // DISABLED — moved to content_map tool
     const relevant = state.simulations.filter(s =>
