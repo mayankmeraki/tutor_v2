@@ -3221,6 +3221,9 @@ async function renderUpdate(cmd) {
   // piece by piece across beats: each beat extends the left (growing
   // equation) and changes the right (new annotation for this piece).
   if (el.classList.contains('bd-split')) {
+    // Scroll the split into view — same reason as code blocks
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
     var leftEl = el.querySelector('.bd-split-l');
     var rightEl = el.querySelector('.bd-split-r');
     // cmd.left or cmd.text updates the left side
@@ -3248,6 +3251,11 @@ async function renderUpdate(cmd) {
   // the new suffix so existing lines stay put. The student watches the
   // code grow in place, beat by beat, just like text/equation/step do.
   if (el.classList.contains('bd-code-block')) {
+    // Scroll the code block into view BEFORE animating — the tutor might
+    // be updating a code block that scrolled off-screen while other content
+    // was added below it. The student needs to SEE the code changing.
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+
     var body = el.querySelector('.bd-code-body');
     if (body) {
       // Use dataset.rawText for the existing text comparison — this is
