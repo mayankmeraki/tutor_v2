@@ -1193,9 +1193,12 @@ async function renderCode(cmd) {
   await animateText(body, text, { charDelay: typingDelay });
   body._suppressInput = false;
 
-  // Syntax highlight after the typing animation completes. For editable
-  // blocks we highlight ONCE on first render — re-highlighting on every
-  // keystroke would break the cursor position in contenteditable.
+  // Store the raw text with proper newlines so _highlightCodeBody can
+  // read it instead of body.textContent (which loses \n after animateText
+  // converts them to <br> tags).
+  body.dataset.rawText = text;
+
+  // Syntax highlight after the typing animation completes.
   _highlightCodeBody(body, cmd.lang);
 
   // Wire the editable listeners AFTER the typing animation completes,
@@ -1223,8 +1226,10 @@ async function renderCode(cmd) {
       var id = body.dataset.codeId;
       var entry = id && board.codeRunners[id];
       if (!entry) return;
-      // Snapshot text first (in case highlight rebuilds the DOM)
-      entry.currentCode = body.innerText.replace(/\u00a0/g, ' ');
+      // Snapshot text first — innerText translates <br> back to \n
+      var currentText = body.innerText.replace(/\u00a0/g, ' ');
+      entry.currentCode = currentText;
+      body.dataset.rawText = currentText;
       body.classList.remove('hljs');
       _highlightCodeBody(body, entry.lang);
     });
@@ -1255,6 +1260,7 @@ async function renderCode(cmd) {
       var entry = board.codeRunners && board.codeRunners[cmd.id];
       if (!entry) return;
       body.textContent = entry.originalCode;
+      body.dataset.rawText = entry.originalCode;
       body.classList.remove('hljs');
       _highlightCodeBody(body, entry.lang);
       entry.currentCode = entry.originalCode;
@@ -1391,7 +1397,11 @@ function _highlightCodeBody(body, lang) {
     return;
   }
   try {
-    var text = body.textContent || '';
+    // Read from dataset.rawText (authoritative source with proper \n),
+    // NOT from body.textContent — because animateText converts \n to <br>
+    // in its final innerHTML assignment, and textContent doesn't translate
+    // <br> back to \n. Without this, highlighting gets a flat one-liner.
+    var text = body.dataset.rawText || body.textContent || '';
     if (!text.trim()) return;
     var langKey = (lang || '').toLowerCase();
     var result;
@@ -2904,17 +2914,20 @@ async function renderUpdate(cmd) {
   if (el.classList.contains('bd-code-block')) {
     var body = el.querySelector('.bd-code-body');
     if (body) {
-      // Flatten any highlight markup so textContent comparisons are clean.
+      // Use dataset.rawText for the existing text comparison — this is
+      // the authoritative source with proper \n. body.textContent loses
+      // newlines because animateText converts \n→<br> and textContent
+      // doesn't translate <br> back. If rawText isn't set (legacy),
+      // fall back to textContent.
+      var existing = body.dataset.rawText || body.textContent || '';
+      var charDelay = cmd.charDelay !== undefined ? cmd.charDelay : 50;
+
+      // Flatten any highlight markup before appending so the new chars
+      // land as plain text. We re-highlight the whole body once done.
       if (body.classList.contains('hljs')) {
-        body.textContent = body.textContent;
+        body.textContent = existing;
         body.classList.remove('hljs');
       }
-      var existing = body.textContent || '';
-      // Match speech pacing (~50ms/char ≈ 20 chars/sec) so the new line
-      // types in over the duration of the spoken narration that goes
-      // with it. Faster than 30ms feels too snappy; slower than 70ms
-      // makes the student wait after the tutor has stopped talking.
-      var charDelay = cmd.charDelay !== undefined ? cmd.charDelay : 50;
 
       if (text.length > existing.length && text.indexOf(existing) === 0) {
         // GROW: append-only update. Use _animateAppend (NOT animateText)
@@ -2930,9 +2943,10 @@ async function renderUpdate(cmd) {
         await animateText(body, text, { charDelay: charDelay });
       }
 
-      // Re-highlight ONLY after the suffix is fully appended. The
-      // re-highlight produces a brief flash but the existing lines
-      // never re-animate.
+      // Update the authoritative raw text for future diffs + highlights.
+      body.dataset.rawText = text;
+
+      // Re-highlight from the raw text (not from DOM textContent).
       var entry = board.codeRunners && board.codeRunners[cmd.target];
       var lang = entry ? entry.lang : null;
       _highlightCodeBody(body, lang);
