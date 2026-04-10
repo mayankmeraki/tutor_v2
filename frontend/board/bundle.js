@@ -3013,7 +3013,7 @@ async function renderSplit(cmd) {
   placeElement(el, cmd.placement, cmd);
 
   // Left side: try KaTeX first (for proper fractions/symbols), fall back to animation
-  if (!_looksLikeLatex(cmd.left) || !_renderKatex(left, cmd.left)) {
+  if (!_tryKatex(left, cmd.left)) {
     await animateText(left, cmd.left || '', { charDelay: cmd.charDelay || 20 });
   }
   // Right side: always prose, just animate
@@ -3219,7 +3219,7 @@ async function renderUpdate(cmd) {
     if (leftEl && newLeft) {
       leftEl.textContent = '';
       leftEl.classList.remove('hljs');
-      if (!_looksLikeLatex(newLeft) || !_renderKatex(leftEl, newLeft)) {
+      if (!_tryKatex(leftEl, newLeft)) {
         await animateText(leftEl, newLeft, { charDelay: cmd.charDelay || 18 });
       }
     }
