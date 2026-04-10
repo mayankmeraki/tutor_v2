@@ -2426,7 +2426,13 @@ function buildContext() {
   // student edits and run results without making any tool call.
   if (typeof BoardEngine !== 'undefined' && BoardEngine.state && BoardEngine.state.codeRunners) {
     const runners = BoardEngine.state.codeRunners;
-    const runnerIds = Object.keys(runners);
+    // Cap at 5 most recently interacted runners. More than 5 is extremely
+    // rare, but if it happens we keep the freshest ones and drop stale.
+    let runnerIds = Object.keys(runners).filter(id => runners[id]);
+    if (runnerIds.length > 5) {
+      runnerIds.sort((a, b) => (runners[b].lastInteractedAt || 0) - (runners[a].lastInteractedAt || 0));
+      runnerIds = runnerIds.slice(0, 5);
+    }
     if (runnerIds.length > 0) {
       const summary = {};
       for (const id of runnerIds) {
@@ -2438,10 +2444,16 @@ function buildContext() {
         if (lines.length > 80) {
           code = lines.slice(0, 50).join('\n') + '\n... [truncated ' + (lines.length - 80) + ' lines] ...\n' + lines.slice(-30).join('\n');
         }
+        // firstLine + lineCount help the agent identify which block is
+        // which at a glance when multiple runners are on screen. The
+        // agent targets the right block via cmd:"update" target="<id>".
+        const allLines = (r.currentCode || '').split('\n');
         const entry = {
           lang: r.lang,
           editable: r.editable,
           runnable: r.runnable,
+          lineCount: allLines.length,
+          firstLine: (allLines[0] || '').slice(0, 60),
           currentCode: code,
           edited: r.currentCode !== r.originalCode,
         };
