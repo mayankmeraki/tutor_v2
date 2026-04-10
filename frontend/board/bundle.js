@@ -2936,16 +2936,9 @@ async function renderCheckCross(cmd, isCheck) {
   }
 }
 
+var _calloutVariantCounter = 0;
 async function renderCallout(cmd) {
-  // Callouts are PROSE (warnings, takeaways, "always do X"). They are NOT
-  // equations and must never run through KaTeX — Python expressions like
-  // "mid+1 or mid-1" or "lo + (hi-lo)/2" trip the heuristic and get
-  // rendered as italic LaTeX, which mangles the message.
-  //
-  // Callouts also flow top-to-bottom in the scene; they must never honor
-  // x,y positioning. The model sometimes passes coordinates as a soft
-  // "above/below" hint, but width:100% + position:absolute makes two
-  // x,y'd callouts overlap by 80%. Strip x,y before placement.
+  // Callouts are PROSE. Strip x,y to prevent overlap.
   var safeCmd = cmd;
   if (typeof cmd.x === 'number' || typeof cmd.y === 'number') {
     safeCmd = Object.assign({}, cmd);
@@ -2954,7 +2947,9 @@ async function renderCallout(cmd) {
     if (!safeCmd.placement) safeCmd.placement = 'below';
   }
 
+  var variant = safeCmd.variant || ((_calloutVariantCounter++ % 3) + 1);
   var el = createElement('div', safeCmd, 'bd-callout', colorClass(safeCmd.color || 'gold'));
+  el.classList.add('bd-cv-' + variant);
 
   var text = document.createElement('div');
   text.className = 'bd-callout-text ' + sizeClass(safeCmd.size);
@@ -2999,8 +2994,10 @@ function renderDivider(cmd) {
 
 // ── SPLIT — thing left, meaning right ──────────────────────
 // Used for: equation+explanation, term+definition, code+annotation
+var _splitVariantCounter = 0;
 async function renderSplit(cmd) {
-  var el = createElement('div', cmd, 'bd-split');
+  var variant = cmd.variant || ((_splitVariantCounter++ % 3) + 1);
+  var el = createElement('div', cmd, 'bd-split', 'bd-sv-' + variant);
   if (cmd.size === 'lg') el.classList.add('bd-split-lg');
   if (cmd.size === 'sm') el.classList.add('bd-split-sm');
 

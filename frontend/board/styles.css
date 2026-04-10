@@ -502,6 +502,34 @@
   border-left-color: var(--bd-dim);
 }
 
+/* Callout variants — subtle variations */
+/* V1 — default left bar (no extra styles) */
+/* V2 — no bar, indented, slightly larger text */
+.bd-cv-2 {
+  border-left: none;
+  padding-left: 0;
+  margin-left: 20px;
+}
+.bd-cv-2 .bd-callout-text { font-size: 1.05em; }
+/* V3 — centered, dot accent above instead of bar */
+.bd-cv-3 {
+  border-left: none;
+  padding-left: 0;
+  text-align: center;
+  max-width: 600px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.bd-cv-3::before {
+  content: '';
+  display: block;
+  width: 3px; height: 3px;
+  border-radius: 50%;
+  background: currentColor;
+  opacity: 0.5;
+  margin: 0 auto 12px;
+}
+
 /* ═══════════════════════════════════════════════════════════
    Board Blocks — split, flow, diff, question
    Controlled layout components. No x,y. System handles WHERE.
@@ -543,6 +571,20 @@
 .bd-split-lg .bd-split-r { font-size: 17px; }
 .bd-split-sm .bd-split-l { font-size: 16px; }
 .bd-split-sm .bd-split-r { font-size: 14px; opacity: 0.55; }
+
+/* Split variants — subtle variations to break monotony */
+/* V1 — default baseline (no extra styles) */
+/* V2 — left side has a subtle bottom accent */
+.bd-sv-2 .bd-split-l {
+  padding-bottom: 4px;
+  border-bottom: 1px solid rgba(168,230,207,0.2);
+}
+/* V3 — indented, tighter gap, right side brighter */
+.bd-sv-3 {
+  margin-left: 24px;
+  gap: 24px;
+}
+.bd-sv-3 .bd-split-r { opacity: 0.85; }
 
 /* ── FLOW — process chain with glowing dots ── */
 .bd-flow {
