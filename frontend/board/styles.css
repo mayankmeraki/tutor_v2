@@ -49,12 +49,12 @@
   --bd-glow: none;
 
   /* Sizing scale — larger for board readability */
-  --bd-h1: 28px;
-  --bd-h2: 22px;
-  --bd-h3: 18px;
-  --bd-text: 16px;
-  --bd-small: 14px;
-  --bd-label: 12px;
+  --bd-h1: 34px;
+  --bd-h2: 26px;
+  --bd-h3: 22px;
+  --bd-text: 18px;
+  --bd-small: 16px;
+  --bd-label: 13px;
 
   /* Spacing */
   --bd-margin: 56px;
