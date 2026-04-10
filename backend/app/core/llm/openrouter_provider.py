@@ -334,18 +334,49 @@ def _convert_messages_openrouter(
 
 
 def _convert_tools_openrouter(tools: list[dict]) -> list[dict]:
-    """Convert Anthropic tool format to OpenAI function format."""
-    return [
-        {
-            "type": "function",
-            "function": {
-                "name": tool["name"],
-                "description": tool.get("description", ""),
-                "parameters": tool.get("input_schema", {}),
-            },
-        }
-        for tool in tools
-    ]
+    """Convert Anthropic tool format to OpenAI function format.
+
+    Special case: the user-defined ``web_search`` tool is replaced with
+    OpenRouter's native ``openrouter:web_search`` server tool. The server
+    tool gives the model access to Exa-powered real-time web search that
+    OpenRouter executes automatically — no round-trip to our backend, no
+    DuckDuckGo scraping, better quality results, automatic citations.
+    The model decides when to search and can search multiple times per
+    request.
+    """
+    converted: list[dict] = []
+    has_web_search = False
+
+    for tool in tools:
+        if tool.get("name") == "web_search":
+            has_web_search = True
+            continue  # skip — replaced by the server tool below
+        converted.append(
+            {
+                "type": "function",
+                "function": {
+                    "name": tool["name"],
+                    "description": tool.get("description", ""),
+                    "parameters": tool.get("input_schema", {}),
+                },
+            }
+        )
+
+    # Inject the OpenRouter server tool in place of the user-defined one.
+    # The model calls it like any other tool, but OpenRouter intercepts and
+    # executes the search — the tool call never reaches our backend.
+    if has_web_search:
+        converted.append(
+            {
+                "type": "openrouter:web_search",
+                "parameters": {
+                    "max_results": 5,
+                    "search_context_size": "medium",
+                },
+            }
+        )
+
+    return converted
 
 
 def _convert_tool_choice_openrouter(choice: dict | None) -> dict | str | None:
