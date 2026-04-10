@@ -1062,6 +1062,7 @@ async function runCommand(cmd) {
     case 'voice':    break;
     case 'pause':    break;
     case 'code':     await renderCode(cmd); break;
+    case 'code-highlight': _codeHighlightLines(cmd); break;
     case 'run':      _runStudentCode(cmd.target); break;
     case 'scene3d':  await renderScene3D(cmd); break;
     default:
@@ -1199,6 +1200,10 @@ async function renderCode(cmd) {
   // Syntax highlight after the typing animation completes.
   _highlightCodeBody(body, cmd.lang);
 
+  // Wrap lines with line numbers + optional highlight. This runs AFTER
+  // highlight.js so the span markup gets wrapped inside line containers.
+  _wrapCodeLines(body, cmd.highlight);
+
   // Wire the editable listeners AFTER the typing animation completes,
   // so the student can immediately start editing without the listener
   // having fired hundreds of times during the type-on.
@@ -1230,6 +1235,7 @@ async function renderCode(cmd) {
       body.dataset.rawText = currentText;
       body.classList.remove('hljs');
       _highlightCodeBody(body, entry.lang);
+      _wrapCodeLines(body, null);
     });
   }
 
@@ -1261,6 +1267,7 @@ async function renderCode(cmd) {
       body.dataset.rawText = entry.originalCode;
       body.classList.remove('hljs');
       _highlightCodeBody(body, entry.lang);
+      _wrapCodeLines(body, null);
       entry.currentCode = entry.originalCode;
       entry.lastRun = null;
       if (entry.tests) entry.tests.results = null;
@@ -1419,6 +1426,56 @@ function _highlightCodeBody(body, lang) {
   } catch (e) {
     console.warn('[CodeRunner] highlight failed:', e && e.message);
   }
+}
+
+// Wrap each line of the code body's innerHTML in a <span class="bd-code-line">
+// element. Each line gets a data-ln attribute for the line number (shown
+// via CSS ::before) and optionally a highlight class (transparent mint
+// background) if the line number is in the highlightLines array.
+//
+// MUST run AFTER _highlightCodeBody so the highlighted HTML (span tokens)
+// gets wrapped inside line containers, not the other way around.
+function _wrapCodeLines(body, highlightLines) {
+  if (!body) return;
+  var html = body.innerHTML;
+  if (!html || !html.trim()) return;
+  // Split on actual newlines in the HTML source. hljs preserves \n
+  // between span tokens, and <pre> preserves them in innerHTML.
+  var lines = html.split('\n');
+  // Don't wrap if there's only a trailing empty line (common)
+  if (lines.length > 1 && lines[lines.length - 1].trim() === '') {
+    lines.pop();
+  }
+  var hiSet = {};
+  if (highlightLines && Array.isArray(highlightLines)) {
+    for (var h = 0; h < highlightLines.length; h++) hiSet[highlightLines[h]] = true;
+  }
+  body.innerHTML = lines.map(function(lineHtml, i) {
+    var lineNum = i + 1;
+    var hiClass = hiSet[lineNum] ? ' bd-code-line-hi' : '';
+    return '<span class="bd-code-line' + hiClass + '" data-ln="' + lineNum + '">' + (lineHtml || ' ') + '</span>';
+  }).join('\n');
+}
+
+// cmd:"code-highlight" — update which lines are highlighted on an
+// existing code block. Tutor uses this to draw attention to specific
+// lines while speaking: {"cmd":"code-highlight","target":"bs","lines":[3,7]}
+function _codeHighlightLines(cmd) {
+  if (!cmd.target) return;
+  var el = document.getElementById(cmd.target);
+  if (!el || !el.classList.contains('bd-code-block')) return;
+  var body = el.querySelector('.bd-code-body');
+  if (!body) return;
+  // Re-wrap with the new highlight set. Need to unwrap first if already
+  // wrapped — easiest to re-highlight + re-wrap from rawText.
+  var entry = board.codeRunners && board.codeRunners[cmd.target];
+  var lang = entry ? entry.lang : null;
+  var rawText = body.dataset.rawText || body.textContent || '';
+  body.textContent = rawText;
+  body.classList.remove('hljs');
+  body.dataset.rawText = rawText;
+  _highlightCodeBody(body, lang);
+  _wrapCodeLines(body, cmd.lines || []);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -2983,6 +3040,9 @@ async function renderUpdate(cmd) {
       var entry = board.codeRunners && board.codeRunners[cmd.target];
       var lang = entry ? entry.lang : null;
       _highlightCodeBody(body, lang);
+
+      // Re-wrap lines with line numbers + optional highlight.
+      _wrapCodeLines(body, cmd.highlight);
 
       if (entry) {
         entry.originalCode = text;

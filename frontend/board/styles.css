@@ -1316,7 +1316,39 @@
   background: rgba(168,230,207,0.015);
 }
 
-/* Old line-number / highlight markup — kept for back-compat */
+/* Line numbers + line highlighting — applied after highlight.js runs.
+   Each line of code is wrapped in a <span class="bd-code-line"> with
+   data-ln="N" for the line number (shown via ::before) and an optional
+   bd-code-line-hi class for a transparent mint background highlight
+   that the tutor can use to draw attention while speaking. */
+.bd-code-line {
+  display: block;
+  position: relative;
+  padding-left: 44px;
+  min-height: 1.7em;
+}
+.bd-code-line::before {
+  content: attr(data-ln);
+  position: absolute;
+  left: 0;
+  width: 30px;
+  text-align: right;
+  color: #484f58;
+  font-size: 11px;
+  user-select: none;
+  pointer-events: none;
+}
+.bd-code-line-hi {
+  background: rgba(168, 230, 207, 0.08);
+  border-left: 2px solid #A8E6CF;
+  padding-left: 42px;
+  margin-left: -2px;
+}
+.bd-code-line-hi::before {
+  color: #A8E6CF;
+}
+
+/* Old line-number markup — kept for back-compat with legacy code blocks */
 .bd-cl { display: block; padding: 1px 0; }
 .bd-cl-hi {
   background: rgba(52,211,153,.07);
