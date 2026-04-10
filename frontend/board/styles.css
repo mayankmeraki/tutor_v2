@@ -32,8 +32,8 @@
   --bd-font-mono: 'JetBrains Mono', ui-monospace, 'SF Mono', Menlo, monospace;
 
   /* Three-color palette: headers / body / math */
-  --bd-header: #F5F5F5;      /* h1/h2/h3 — all headings */
-  --bd-h2-color: #F5F5F5;    /* same as h1 */
+  --bd-header: #e8c872;      /* h1/h2/h3 — warm gold tone */
+  --bd-h2-color: #e8c872;    /* same as h1 */
   --bd-white: #E0E0E0;       /* body text + bullets + everything else */
   --bd-math: #A8E6CF;        /* numbers, equations, data, symbols */
   --bd-accent: #E0E0E0;
@@ -57,7 +57,7 @@
   --bd-label: 18px;
 
   /* Spacing */
-  --bd-margin: 40px;
+  --bd-margin: 56px;
   --bd-el-gap: 24px;
   --bd-row-gap: 24px;
 }
@@ -521,6 +521,16 @@
   font-weight: 400;
   color: var(--bd-math);
 }
+/* KaTeX inside split left — inherit mint color, no extra margin */
+.bd-split-l .katex,
+.bd-split-l .katex-display {
+  color: var(--bd-math);
+  font-size: 1em;
+  margin: 0; padding: 0;
+  text-align: left;
+  display: inline;
+}
+.bd-split-l .katex-display > .katex { display: inline; }
 .bd-split-r {
   flex: 1;
   font-family: var(--bd-font);
@@ -798,7 +808,7 @@
   margin-top: var(--bd-el-gap);
 }
 .bd-figure-anim {
-  flex: 1 1 58%;
+  flex: 1 1 65%;
   min-width: 0;
   display: flex;
   flex-direction: column;
@@ -821,7 +831,7 @@
   width: 100%;
 }
 .bd-figure-narration {
-  flex: 1 1 42%;
+  flex: 1 1 35%;
   min-width: 0;
   display: flex;
   flex-direction: column;

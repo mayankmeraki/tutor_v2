@@ -3015,8 +3015,11 @@ async function renderSplit(cmd) {
 
   placeElement(el, cmd.placement, cmd);
 
-  // Animate left first, then right — sequential within one beat
-  await animateText(left, cmd.left || '', { charDelay: cmd.charDelay || 20 });
+  // Left side: try KaTeX first (for proper fractions/symbols), fall back to animation
+  if (!_looksLikeLatex(cmd.left) || !_renderKatex(left, cmd.left)) {
+    await animateText(left, cmd.left || '', { charDelay: cmd.charDelay || 20 });
+  }
+  // Right side: always prose, just animate
   await animateText(right, cmd.right || '', { charDelay: cmd.charDelay || 18 });
 }
 
