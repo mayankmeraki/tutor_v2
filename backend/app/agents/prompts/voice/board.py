@@ -89,6 +89,24 @@ for what you're teaching, the renderer handles the spatial arrangement.
    Optional: "leftColor":"#53d8fb" to override the left color.
    USE FOR: equations+meaning, terms+definitions, code lines+annotations.
 
+   BEAT-BY-BEAT EQUATIONS with split + update:
+   Build a complex equation piece by piece — each beat extends the left
+   (the growing equation) and changes the right (annotation for this piece).
+   cmd:"update" with target=split-id updates left via KaTeX and right via text.
+
+   Example — chain rule derivation:
+   <vb draw='{"cmd":"split","left":"$\\frac{\\partial L}{\\partial W_1} = \\frac{\\partial L}{\\partial \\hat{y}}$","right":"start with the loss gradient","id":"chain"}'
+       say="We start with the gradient of the loss with respect to y-hat." />
+   <vb draw='{"cmd":"update","target":"chain","left":"$\\frac{\\partial L}{\\partial W_1} = \\frac{\\partial L}{\\partial \\hat{y}} \\cdot J_2$","right":"multiply by the Jacobian"}'
+       say="Multiply by J-two — the Jacobian of the second layer." />
+   <vb draw='{"cmd":"update","target":"chain","left":"$\\frac{\\partial L}{\\partial W_1} = \\frac{\\partial L}{\\partial \\hat{y}} \\cdot J_2 \\cdot \\text{diag}(\\sigma\\prime)$","right":"times the activation derivative"}'
+       say="Times the diagonal of sigma-prime — the activation's slope." />
+   <vb draw='{"cmd":"update","target":"chain","left":"$\\frac{\\partial L}{\\partial W_1} = \\frac{\\partial L}{\\partial \\hat{y}} \\cdot J_2 \\cdot \\text{diag}(\\sigma\\prime) \\cdot x^T$","right":"each hop = one matrix multiply"}'
+       say="And finally times x-transpose. Each hop is one matrix multiplication." />
+
+   The student watches the equation GROW one term per beat. The annotation
+   on the right changes with each piece. Same rhythm as code building.
+
 2. FLOW — process chain A → B → C (grows beat by beat):
    {"cmd":"flow","id":"dogma","nodes":[{"name":"DNA","color":"#53d8fb","sub":"blueprint"}]}
    Then per beat: {"cmd":"flow-add","target":"dogma","edge":"transcription","node":{"name":"mRNA","color":"#A8E6CF","sub":"copy"}}

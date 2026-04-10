@@ -3196,14 +3196,39 @@ function renderStrikeout(cmd) {
 }
 
 async function renderUpdate(cmd) {
-  if (!cmd.target || !cmd.text) return;
+  if (!cmd.target) return;
   var el = document.getElementById(cmd.target);
   if (!el) return;
 
   // Normalize literal escape sequences (model often double-escapes \n)
-  var text = cmd.text;
+  var text = cmd.text || '';
   if (typeof text === 'string' && text.indexOf('\\') !== -1) {
     text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+  }
+
+  // ── Split special case ──
+  // When targeting a split, update the left side (with KaTeX) and
+  // optionally the right side. This lets the model build an equation
+  // piece by piece across beats: each beat extends the left (growing
+  // equation) and changes the right (new annotation for this piece).
+  if (el.classList.contains('bd-split')) {
+    var leftEl = el.querySelector('.bd-split-l');
+    var rightEl = el.querySelector('.bd-split-r');
+    // cmd.left or cmd.text updates the left side
+    var newLeft = cmd.left || text;
+    if (leftEl && newLeft) {
+      leftEl.textContent = '';
+      leftEl.classList.remove('hljs');
+      if (!_looksLikeLatex(newLeft) || !_renderKatex(leftEl, newLeft)) {
+        await animateText(leftEl, newLeft, { charDelay: cmd.charDelay || 18 });
+      }
+    }
+    // cmd.right updates the right side (optional — keeps old if not provided)
+    if (rightEl && cmd.right !== undefined) {
+      rightEl.textContent = '';
+      await animateText(rightEl, cmd.right, { charDelay: cmd.charDelay || 16 });
+    }
+    return;
   }
 
   // ── Code block special case ──

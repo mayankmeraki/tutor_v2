@@ -49,12 +49,12 @@
   --bd-glow: none;
 
   /* Sizing scale — larger for board readability */
-  --bd-h1: 44px;
-  --bd-h2: 36px;
-  --bd-h3: 30px;
-  --bd-text: 26px;
-  --bd-small: 22px;
-  --bd-label: 18px;
+  --bd-h1: 28px;
+  --bd-h2: 22px;
+  --bd-h3: 18px;
+  --bd-text: 16px;
+  --bd-small: 14px;
+  --bd-label: 12px;
 
   /* Spacing */
   --bd-margin: 56px;
@@ -358,9 +358,9 @@
 
 .bd-size-h1 {
   font-size: var(--bd-h1);
-  font-weight: 500;
+  font-weight: 400;
   line-height: 1.4;
-  color: var(--bd-header);   /* mint green #8BD282 */
+  color: var(--bd-header);
 }
 
 .bd-size-h2 {
