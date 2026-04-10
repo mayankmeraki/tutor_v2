@@ -1006,6 +1006,7 @@ async function runCommand(cmd) {
 
   var contentCmds = ['text', 'latex', 'animation', 'figure', 'equation', 'step',
     'check', 'cross', 'callout', 'list', 'divider', 'mermaid', 'diagram',
+    'split', 'flow', 'diff', 'question-block',
     'line', 'arrow', 'rect', 'fillrect', 'circle', 'arc', 'dot', 'dashed'];
   if (!cmd.placement && contentCmds.includes(cmd.cmd)) {
     cmd.placement = 'below';
@@ -1061,6 +1062,11 @@ async function runCommand(cmd) {
     case 'matrix':   break;
     case 'voice':    break;
     case 'pause':    break;
+    case 'split':    await renderSplit(cmd); break;
+    case 'flow':     renderFlow(cmd); break;
+    case 'flow-add': renderFlowAdd(cmd); break;
+    case 'diff':     await renderDiff(cmd); break;
+    case 'question-block': await renderQuestion(cmd); break;
     case 'code':     await renderCode(cmd); break;
     case 'code-highlight': _codeHighlightLines(cmd); break;
     case 'run':      _runStudentCode(cmd.target); break;
@@ -2984,6 +2990,201 @@ function renderDivider(cmd) {
   if (cmd.id) el.id = cmd.id;
   placeElement(el, cmd.placement, cmd);
 }
+
+// ═══════════════════════════════════════════════════════════════
+// NEW BOARD BLOCKS — split, flow, diff, question
+// Controlled layout components. The LLM picks WHAT to show,
+// the renderer handles WHERE it goes. No x,y coordinates.
+// ═══════════════════════════════════════════════════════════════
+
+// ── SPLIT — thing left, meaning right ──────────────────────
+// Used for: equation+explanation, term+definition, code+annotation
+async function renderSplit(cmd) {
+  var el = createElement('div', cmd, 'bd-split');
+  if (cmd.size === 'lg') el.classList.add('bd-split-lg');
+  if (cmd.size === 'sm') el.classList.add('bd-split-sm');
+
+  var left = document.createElement('span');
+  left.className = 'bd-split-l';
+  if (cmd.leftColor) left.classList.add(colorClass(cmd.leftColor));
+  el.appendChild(left);
+
+  var right = document.createElement('span');
+  right.className = 'bd-split-r';
+  el.appendChild(right);
+
+  placeElement(el, cmd.placement, cmd);
+
+  // Animate left first, then right — sequential within one beat
+  await animateText(left, cmd.left || '', { charDelay: cmd.charDelay || 20 });
+  await animateText(right, cmd.right || '', { charDelay: cmd.charDelay || 18 });
+}
+
+// ── FLOW — process chain A → B → C ────────────────────────
+// Created with first node(s). Grows via cmd:"flow-add".
+function renderFlow(cmd) {
+  var el = createElement('div', cmd, 'bd-flow');
+  if (cmd.compact) el.classList.add('bd-flow-compact');
+
+  var nodes = cmd.nodes || [];
+  for (var i = 0; i < nodes.length; i++) {
+    if (i > 0) {
+      // Edge between previous node and this one
+      var edge = document.createElement('div');
+      edge.className = 'bd-flow-edge';
+      edge.innerHTML = '<div class="bd-flow-line"></div>' +
+        (nodes[i].edge ? '<div class="bd-flow-verb">' + escapeHtml(nodes[i].edge) + '</div>' : '');
+      el.appendChild(edge);
+    }
+    el.appendChild(_createFlowNode(nodes[i]));
+  }
+
+  placeElement(el, cmd.placement, cmd);
+}
+
+function _createFlowNode(n) {
+  var node = document.createElement('div');
+  node.className = 'bd-flow-node';
+  var color = n.color || '#eeeeec';
+  node.innerHTML =
+    '<div class="bd-flow-dot" style="background:' + color + ';box-shadow:0 0 12px ' + color + '"></div>' +
+    '<div class="bd-flow-name" style="color:' + color + '">' + escapeHtml(n.name || '') + '</div>' +
+    (n.sub ? '<div class="bd-flow-sub">' + escapeHtml(n.sub) + '</div>' : '');
+  return node;
+}
+
+// cmd:"flow-add" — append one node+edge to an existing flow
+function renderFlowAdd(cmd) {
+  if (!cmd.target) return;
+  var el = document.getElementById(cmd.target);
+  if (!el || !el.classList.contains('bd-flow')) return;
+
+  // Add edge
+  var edge = document.createElement('div');
+  edge.className = 'bd-flow-edge';
+  edge.innerHTML = '<div class="bd-flow-line"></div>' +
+    (cmd.edge ? '<div class="bd-flow-verb">' + escapeHtml(cmd.edge) + '</div>' : '');
+  el.appendChild(edge);
+
+  // Add node
+  var node = cmd.node || {};
+  el.appendChild(_createFlowNode(node));
+}
+
+// ── DIFF — before/after (fix mode) or side-by-side (compare mode) ──
+async function renderDiff(cmd) {
+  var mode = cmd.mode || 'fix';
+  var el = createElement('div', cmd, 'bd-diff', 'bd-diff-' + mode);
+
+  if (mode === 'compare') {
+    // Compare mode — two equal-weight sides with items
+    var leftSide = document.createElement('div');
+    leftSide.className = 'bd-diff-side';
+    var leftData = cmd.left || {};
+    var rightData = cmd.right || {};
+    var leftColor = leftData.color || '#53d8fb';
+    var rightColor = rightData.color || '#fbbf24';
+
+    leftSide.innerHTML = '<div class="bd-diff-label" style="color:' + leftColor + '">' + escapeHtml(leftData.label || 'A') + '</div>';
+    var leftItems = document.createElement('div');
+    leftItems.className = 'bd-diff-items';
+    (leftData.items || []).forEach(function(item) {
+      var d = document.createElement('div');
+      d.className = 'bd-diff-item';
+      d.style.color = leftColor;
+      d.textContent = item;
+      leftItems.appendChild(d);
+    });
+    leftSide.appendChild(leftItems);
+
+    var bar = document.createElement('div');
+    bar.className = 'bd-diff-bar';
+
+    var rightSide = document.createElement('div');
+    rightSide.className = 'bd-diff-side';
+    rightSide.innerHTML = '<div class="bd-diff-label" style="color:' + rightColor + '">' + escapeHtml(rightData.label || 'B') + '</div>';
+    var rightItems = document.createElement('div');
+    rightItems.className = 'bd-diff-items';
+    (rightData.items || []).forEach(function(item) {
+      var d = document.createElement('div');
+      d.className = 'bd-diff-item';
+      d.style.color = rightColor;
+      d.textContent = item;
+      rightItems.appendChild(d);
+    });
+    rightSide.appendChild(rightItems);
+
+    el.appendChild(leftSide);
+    el.appendChild(bar);
+    el.appendChild(rightSide);
+    placeElement(el, cmd.placement, cmd);
+  } else {
+    // Fix mode — left dimmed+struck, right bright
+    var before = document.createElement('div');
+    before.className = 'bd-diff-side bd-diff-before';
+    before.innerHTML = '<div class="bd-diff-label">' + escapeHtml(cmd.beforeLabel || 'before') + '</div>';
+    var beforeBody = document.createElement('div');
+    beforeBody.className = 'bd-diff-body';
+    before.appendChild(beforeBody);
+
+    var bar = document.createElement('div');
+    bar.className = 'bd-diff-bar';
+
+    var after = document.createElement('div');
+    after.className = 'bd-diff-side bd-diff-after';
+    after.innerHTML = '<div class="bd-diff-label">' + escapeHtml(cmd.afterLabel || 'after') + '</div>';
+    var afterBody = document.createElement('div');
+    afterBody.className = 'bd-diff-body';
+    after.appendChild(afterBody);
+
+    el.appendChild(before);
+    el.appendChild(bar);
+    el.appendChild(after);
+    placeElement(el, cmd.placement, cmd);
+
+    // Animate before first (dims in), then after (types bright)
+    await animateText(beforeBody, cmd.before || '', { charDelay: 15 });
+    await animateText(afterBody, cmd.after || '', { charDelay: 18 });
+  }
+
+  // Optional note below
+  if (cmd.note) {
+    var note = document.createElement('div');
+    note.className = 'bd-diff-note';
+    el.appendChild(note);
+    await animateText(note, cmd.note, { charDelay: 16 });
+  }
+}
+
+// ── QUESTION — centered, visually distinct from teaching ───
+async function renderQuestion(cmd) {
+  var el = createElement('div', cmd, 'bd-question-block');
+
+  if (cmd.context) {
+    var ctx = document.createElement('div');
+    ctx.className = 'bd-question-ctx';
+    el.appendChild(ctx);
+  }
+
+  var text = document.createElement('div');
+  text.className = 'bd-question-text';
+  el.appendChild(text);
+
+  if (cmd.hint) {
+    var hint = document.createElement('div');
+    hint.className = 'bd-question-hint';
+    el.appendChild(hint);
+  }
+
+  placeElement(el, cmd.placement, cmd);
+
+  // Animate in sequence: context → question → hint
+  if (cmd.context) await animateText(ctx, cmd.context, { charDelay: 16 });
+  await animateText(text, cmd.text || '', { charDelay: 20 });
+  if (cmd.hint) await animateText(hint, cmd.hint, { charDelay: 16 });
+}
+
+// ═══════════════════════════════════════════════════════════════
 
 function renderStrikeout(cmd) {
   if (!cmd.target) return;

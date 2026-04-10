@@ -502,6 +502,206 @@
   border-left-color: var(--bd-dim);
 }
 
+/* ═══════════════════════════════════════════════════════════
+   Board Blocks — split, flow, diff, question
+   Controlled layout components. No x,y. System handles WHERE.
+   ═══════════════════════════════════════════════════════════ */
+
+/* ── SPLIT — thing left, meaning right ── */
+.bd-split {
+  display: flex;
+  align-items: baseline;
+  gap: 32px;
+  margin-top: var(--bd-el-gap);
+}
+.bd-split-l {
+  flex: 0 0 auto;
+  font-family: var(--bd-font-mono);
+  font-size: 20px;
+  font-weight: 400;
+  color: var(--bd-math);
+}
+.bd-split-r {
+  flex: 1;
+  font-family: var(--bd-font);
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--bd-white);
+  opacity: 0.75;
+}
+.bd-split-lg .bd-split-l { font-size: 28px; }
+.bd-split-lg .bd-split-r { font-size: 17px; }
+.bd-split-sm .bd-split-l { font-size: 16px; }
+.bd-split-sm .bd-split-r { font-size: 14px; opacity: 0.55; }
+
+/* ── FLOW — process chain with glowing dots ── */
+.bd-flow {
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  margin-top: var(--bd-el-gap);
+  flex-wrap: wrap;
+}
+.bd-flow-node {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  min-width: 72px;
+}
+.bd-flow-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  margin-bottom: 10px;
+}
+.bd-flow-name {
+  font-family: var(--bd-font);
+  font-size: 16px;
+  font-weight: 500;
+  margin-bottom: 4px;
+}
+.bd-flow-sub {
+  font-family: var(--bd-font);
+  font-size: 11px;
+  color: var(--bd-dim);
+  max-width: 100px;
+  line-height: 1.35;
+}
+.bd-flow-edge {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 2px 14px 0;
+}
+.bd-flow-line {
+  width: 48px;
+  height: 1px;
+  background: rgba(255,255,255,0.08);
+}
+.bd-flow-verb {
+  font-family: var(--bd-font);
+  font-size: 9px;
+  color: var(--bd-dim);
+  letter-spacing: 0.5px;
+  margin-top: 6px;
+  white-space: nowrap;
+}
+.bd-flow-compact .bd-flow-node { min-width: 56px; }
+.bd-flow-compact .bd-flow-name { font-size: 14px; }
+.bd-flow-compact .bd-flow-edge { padding: 2px 8px 0; }
+.bd-flow-compact .bd-flow-line { width: 28px; }
+
+/* ── DIFF — before/after or side-by-side compare ── */
+.bd-diff {
+  display: flex;
+  gap: 0;
+  margin-top: var(--bd-el-gap);
+  max-width: 780px;
+}
+.bd-diff-side { flex: 1; padding: 16px 24px; }
+.bd-diff-label {
+  font-family: var(--bd-font);
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 1.5px;
+  margin-bottom: 14px;
+  font-weight: 400;
+}
+.bd-diff-body {
+  font-family: var(--bd-font-mono);
+  font-size: 14px;
+  line-height: 1.8;
+  white-space: pre;
+}
+.bd-diff-bar {
+  width: 1px;
+  background: rgba(255,255,255,0.05);
+  flex-shrink: 0;
+}
+/* Fix mode */
+.bd-diff-fix .bd-diff-before { opacity: 0.35; }
+.bd-diff-fix .bd-diff-before .bd-diff-label { color: var(--bd-red); }
+.bd-diff-fix .bd-diff-before .bd-diff-body {
+  text-decoration: line-through;
+  text-decoration-color: rgba(255,107,107,0.25);
+}
+.bd-diff-fix .bd-diff-after .bd-diff-label { color: var(--bd-green); }
+.bd-diff-fix .bd-diff-after .bd-diff-body { color: var(--bd-white); }
+/* Compare mode */
+.bd-diff-compare .bd-diff-side { opacity: 1; }
+.bd-diff-compare .bd-diff-body {
+  font-family: var(--bd-font);
+  font-size: 15px;
+  white-space: normal;
+  line-height: 1.55;
+}
+.bd-diff-items {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 8px;
+}
+.bd-diff-item {
+  font-family: var(--bd-font);
+  font-size: 14px;
+  padding-left: 14px;
+  position: relative;
+}
+.bd-diff-item::before {
+  content: '·';
+  position: absolute;
+  left: 0;
+  color: var(--bd-dim);
+  font-size: 18px;
+  line-height: 1.1;
+}
+.bd-diff-note {
+  font-family: var(--bd-font);
+  font-size: 14px;
+  color: var(--bd-white);
+  opacity: 0.65;
+  margin-top: 12px;
+  line-height: 1.5;
+  max-width: 500px;
+}
+
+/* ── QUESTION — centered, visually distinct ── */
+.bd-question-block {
+  text-align: center;
+  margin: 32px auto;
+  max-width: 620px;
+}
+.bd-question-block::before {
+  content: '';
+  display: block;
+  width: 4px; height: 4px;
+  border-radius: 50%;
+  background: var(--bd-cyan);
+  box-shadow: 0 0 12px var(--bd-cyan);
+  margin: 0 auto 20px;
+}
+.bd-question-ctx {
+  font-family: var(--bd-font);
+  font-size: 14px;
+  color: var(--bd-dim);
+  margin-bottom: 16px;
+  line-height: 1.5;
+}
+.bd-question-text {
+  font-family: var(--bd-font);
+  font-size: 22px;
+  font-weight: 400;
+  color: var(--bd-white);
+  line-height: 1.5;
+}
+.bd-question-hint {
+  font-family: var(--bd-font);
+  font-size: 13px;
+  color: var(--bd-dim);
+  margin-top: 16px;
+  font-style: italic;
+}
+
 /* ── List: styled items with markers ── */
 .bd-list {
   list-style: none;

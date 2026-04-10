@@ -77,36 +77,52 @@ CONNECTION ARROWS (draw relationships):
 
 EVERY element MUST have an "id" for {ref:} and connections.
 
-═══ COMPOUND COMMANDS — USE THESE INSTEAD OF RAW TEXT ═══
+═══ BOARD BLOCKS — the 4 layout components you should PREFER ═══
 
-Compound commands produce richer visuals with fewer tokens. They handle
-layout, annotation, and hierarchy internally. PREFER THESE over cmd:"text".
+These handle layout automatically. No coordinates. Pick the right block
+for what you're teaching, the renderer handles the spatial arrangement.
 
-1. EQUATION — auto-annotated equation (replaces text+beside pattern):
-   {"cmd":"equation","text":"\\hat{H}\\psi = E\\psi","note":"eigenvalue equation","placement":"below","color":"cyan","size":"text","id":"eq1"}
-   → renders equation with KaTeX LEFT, scribbles "← eigenvalue equation" to its right.
-   EVERY equation should use this. The note is mandatory for teaching.
-   IMPORTANT: Use LaTeX notation for equations, NOT Unicode symbols.
-   GOOD: "\\frac{\\partial^2 \\psi}{\\partial x^2}" — renders as proper math
-   BAD: "∂²ψ/∂x²" — renders as flat text, hard to read
-   Use \\frac{}{} for fractions, ^{} for superscripts, _{} for subscripts,
-   \\partial, \\psi, \\hbar, \\nabla, \\int, \\sum, etc.
+1. SPLIT — thing left, meaning right:
+   {"cmd":"split","left":"E = mc²","right":"energy = mass × speed of light squared","id":"eq1"}
+   → equation/term/code on the LEFT (mono, mint), explanation on the RIGHT (prose).
+   Sizes: "size":"lg" (big equation), default, "size":"sm" (code annotation).
+   Optional: "leftColor":"#53d8fb" to override the left color.
+   USE FOR: equations+meaning, terms+definitions, code lines+annotations.
 
-3. STEP — numbered step in a sequence:
-   {"cmd":"step","n":1,"text":"Write the unperturbed equation","placement":"below","id":"s1"}
-   → circled number + text. Use for derivations, procedures, algorithms.
+2. FLOW — process chain A → B → C (grows beat by beat):
+   {"cmd":"flow","id":"dogma","nodes":[{"name":"DNA","color":"#53d8fb","sub":"blueprint"}]}
+   Then per beat: {"cmd":"flow-add","target":"dogma","edge":"transcription","node":{"name":"mRNA","color":"#A8E6CF","sub":"copy"}}
+   → Glowing dots connected by thin lines. Each beat adds one node.
+   USE FOR: biology processes, algorithm pipelines, HTTP lifecycle, ML flows.
 
-4. CHECK / CROSS — right/wrong, true/false, property list:
-   {"cmd":"check","text":"Unitary: preserves norm","placement":"below","id":"c1"}
-   {"cmd":"cross","text":"NOT reversible after measurement","placement":"below","id":"c2"}
-   → green ✓ or red ✗ prefix. Use for property lists, misconception correction.
+3. DIFF — before/after (two modes):
+   Fix mode (wrong → right):
+     {"cmd":"diff","mode":"fix","before":"while lo < hi:","after":"while lo <= hi:","note":"checks the last element","id":"fix1"}
+   Compare mode (A vs B, neither wrong):
+     {"cmd":"diff","mode":"compare","left":{"label":"Stack","color":"#53d8fb","items":["LIFO","push/pop","DFS, undo"]},"right":{"label":"Queue","color":"#fbbf24","items":["FIFO","enqueue/dequeue","BFS, scheduling"]},"id":"cmp1"}
+   USE FOR: bug fixes, misconception correction, AND side-by-side comparisons.
 
-5. CALLOUT — bordered emphasis block:
-   {"cmd":"callout","text":"Key insight: energy is quantized","placement":"below","color":"gold","id":"key1"}
-   → left accent border + emphasized text. Use for takeaways, warnings, key points.
+4. QUESTION-BLOCK — centered, visually distinct from teaching:
+   {"cmd":"question-block","text":"What are lo, hi, mid after iteration 1?","context":"Array: [2,5,8,12,16,23,38,56,72,91], target=23","hint":"Start with lo=0, hi=9","id":"q1"}
+   → Cyan dot beacon + big centered text. Visually breaks from teaching content.
+   USE FOR: any time you ask the student a question. NOT for rhetoric — only when
+   you actually want input (paired with question="true" on the <vb> beat).
 
-7. LIST — bulleted, numbered, or check-marked list:
-   {"cmd":"list","items":["Linear","Hermitian","Unitary"],"style":"bullet","placement":"below","color":"white","id":"props"}
+═══ EXISTING COMMANDS (still available) ═══
+
+These still work. Use them when the 4 blocks above don't fit:
+
+  equation — KaTeX-rendered math with note (use for complex fractions/matrices)
+  step     — numbered step in a sequence
+  check    — ✓ prefix (property is true / correct)
+  cross    — ✗ prefix (property is false / wrong)
+  callout  — thin left accent + text (takeaways=gold, warnings=red, insights=cyan)
+  list     — bulleted or numbered list
+  text     — plain animated text (h1/h2/h3 for headings)
+  code     — syntax-highlighted code block (editable, runnable)
+  animation— p5.js sketch
+  figure   — animation + narration column
+  divider  — horizontal separator
    → styles: "bullet" (•), "number" (1. 2. 3.), "check" (✓)
 
 8. DIVIDER — section separator:
