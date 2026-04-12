@@ -596,11 +596,12 @@ function sanitizeCode(code) {
   code = code.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
   code = code.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
 
-  // Force transparent canvas — replace p.background(...) and background(...)
-  // with p.clear() so the board background shows through.
-  // Matches: p.background('#xxx'), p.background(0), p.background(0,0,0,255), background('#xxx')
-  code = code.replace(/\bp\.background\s*\([^;)]*(?:\([^)]*\)[^;)]*)*\)/g, 'p.clear()');
-  code = code.replace(/(?<![\w.])background\s*\([^;)]*(?:\([^)]*\)[^;)]*)*\)/g, 'p.clear()');
+  // Replace p.background(...) / background(...) with board bg fill.
+  // Uses (?:[^()]|\([^()]*\))* to handle nested parens like p.color(r,g,b).
+  // Old regex broke on nested calls — matched only the inner ), leaving
+  // a stray ) that caused a syntax error and blank canvas.
+  code = code.replace(/\bp\.background\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g, 'p.background(6,14,17)');
+  code = code.replace(/(?<![\w.])background\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g, 'p.background(6,14,17)');
 
   // Fix "Function statements require a function name" —
   // LLM sometimes wraps code in function(p,W,H){...} which is invalid
@@ -630,9 +631,8 @@ function buildControlBridge(scale, isWebGL) {
     '      if (isHighlighted) { p.strokeWeight(sStroke(3)); p.drawingContext.shadowColor = color || \'#34d399\'; p.drawingContext.shadowBlur = 18 * S; }\n' +
     '      else { p.strokeWeight(sStroke(1.5)); p.drawingContext.shadowBlur = 0; }\n' +
     '    }\n' +
-    '    // Force transparent canvas — board background shows through.\n' +
-    '    // (sanitizeCode also rewrites p.background(...) → p.clear() in the LLM code)\n' +
-    '    p.background = function() { try { p.clear(); } catch(e) {} };\n' +
+    '    // p.background is NOT overridden — sanitizeCode rewrites all\n' +
+    '    // p.background(...) to p.background(6,14,17) matching board bg.\n' +
     '    [\'setLineDash\',\'getLineDash\',\'setTransform\',\'resetTransform\',\'clip\',\'clearRect\',\n' +
     '     \'createLinearGradient\',\'createRadialGradient\',\'measureText\',\'fillRect\',\'strokeRect\'].forEach(function(m) {\n' +
     '      p[m] = function() {\n' +
@@ -1025,6 +1025,7 @@ async function runCommand(cmd) {
     case 'check':    await renderCheckCross(cmd, true); break;
     case 'cross':    await renderCheckCross(cmd, false); break;
     case 'callout':  await renderCallout(cmd); break;
+    case 'result':   await renderCallout(Object.assign({}, cmd, { text: (cmd.label ? cmd.label + ': ' : '') + (cmd.text || ''), color: cmd.color || 'gold' })); break;
     case 'connect':  renderConnect(cmd); break;
     case 'mermaid':  await renderMermaid(cmd); break;
     case 'list':     await renderList(cmd); break;
@@ -2566,7 +2567,10 @@ function renderConnect(cmd) {
 function _drawConnect(cmd) {
   var fromEntry = board.elements.get(cmd.from);
   var toEntry = board.elements.get(cmd.to);
-  if (!fromEntry || !toEntry) return; // silently skip if elements not found
+  if (!fromEntry || !toEntry) {
+    console.warn('[Board] connect: missing element — from="' + cmd.from + '" ' + (fromEntry ? '✓' : '✗') + ', to="' + cmd.to + '" ' + (toEntry ? '✓' : '✗') + '. Available ids:', Array.from(board.elements.keys()).join(', '));
+    return;
+  }
   var fromEl = fromEntry.element;
   var toEl = toEntry.element;
   if (!fromEl || !toEl || !fromEl.isConnected || !toEl.isConnected) return;

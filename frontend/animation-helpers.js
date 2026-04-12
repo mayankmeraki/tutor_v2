@@ -96,12 +96,11 @@ class AnimHelper {
 
   // ── Drawing primitives ──
 
-  /** Clear canvas — uses board background so animation blends seamlessly */
+  /** Clear canvas — fills with board bg so animation blends seamlessly */
   clear() {
     const p = this.p;
-    // Use board bg color so animation blends with board surface
-    // This is necessary (vs p.clear()) because animated objects need prior frame erased
-    p.background(26, 29, 46);
+    // Match --bd-bg: #060e11 = rgb(6, 14, 17)
+    p.background(6, 14, 17);
   }
 
   /** Draw subtle grid */

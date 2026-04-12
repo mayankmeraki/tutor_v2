@@ -93,10 +93,8 @@ RULES:
     BAD: id="eq1" for the whole line (can't point to specific parts)
 
 Example of fine-grained IDs:
-  <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t","placement":"row-start","id":"lhs","color":"#53d8fb"}' />
-  <vb draw='{"cmd":"text","text":"= Ĥψ","placement":"row-next","id":"rhs","color":"#fbbf24"}' />
-  <vb say="Look at the left side. {ref:lhs}" pause="1" />
-  <vb say="Now the right side — that's where the physics is. {ref:rhs}" />
+  <vb draw='{"cmd":"text","text":"iℏ ∂ψ/∂t","placement":"row-start","id":"lhs","color":"#53d8fb"}' say="Look at the left side." />
+  <vb draw='{"cmd":"text","text":"= Ĥψ","placement":"row-next","id":"rhs","color":"#fbbf24"}' say="Now the right side — that's where the physics is. {ref:rhs}" />
 
 ═══ BOARD EDITING — MODIFY EXISTING CONTENT ═══
 

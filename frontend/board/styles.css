@@ -1770,7 +1770,14 @@
 
 /* ── Three.js 3D scene on board ─── */
 .bd-scene3d { margin: 10px 0; position: relative; }
-.bd-scene3d canvas { display: block; border-radius: 10px; }
+.bd-scene3d canvas {
+  display: block;
+  border-radius: 10px;
+  pointer-events: auto;
+  touch-action: none;
+  cursor: grab;
+}
+.bd-scene3d canvas:active { cursor: grabbing; }
 
 /* 3D skeleton loading */
 .bd-3d-skeleton { display: flex; flex-direction: column; align-items: center; justify-content: center;

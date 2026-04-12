@@ -1824,8 +1824,17 @@ async function _wsExecBeat(beat, beatNum, turn) {
   if (beat.simulation) { renderTeachingTag({ name: 'teaching-simulation', attrs: { id: beat.simulation }, content: '' }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
   if (beat.widgetTitle && beat.widgetCode) { renderTeachingTag({ name: 'teaching-widget', attrs: { title: beat.widgetTitle }, content: beat.widgetCode }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
 
+  // Log beat execution with full details for debugging voice issues
+  var hasDraw = beat.draw && (Array.isArray(beat.draw) ? beat.draw.length > 0 : true);
+  var hasSay = beat.say && beat.say.trim().length > 0;
+  var drawCmds = hasDraw ? (Array.isArray(beat.draw) ? beat.draw.map(function(d) { return d.cmd; }).join('+') : beat.draw.cmd || '?') : 'none';
+  console.log('[WS Exec] Beat #' + beatNum + ' | draw:' + drawCmds + ' | say:' + (hasSay ? '"' + beat.say.slice(0, 50) + '"' : '⚠️ EMPTY/MISSING') + (beat.question ? ' | QUESTION' : ''));
+  if (!hasSay && hasDraw) {
+    console.warn('[WS Exec] ⚠️ Beat #' + beatNum + ' has draw (' + drawCmds + ') but NO say — voice will be silent for this beat');
+  }
+
   await Promise.race([
-    Promise.all([ executeDraw(beat.draw), beat.say ? _wsPlayAudio(beat, beatNum, turn) : Promise.resolve() ]),
+    Promise.all([ executeDraw(beat.draw), hasSay ? _wsPlayAudio(beat, beatNum, turn) : Promise.resolve() ]),
     new Promise(r => setTimeout(r, 15000)),
   ]);
 
@@ -1836,7 +1845,10 @@ async function _wsExecBeat(beat, beatNum, turn) {
 // ── Audio playback ──────────────────────────────────────────
 
 async function _wsPlayAudio(beat, beatNum, turn) {
-  if (!beat.say?.trim() || turn.executorExited) return;
+  if (!beat.say?.trim() || turn.executorExited) {
+    if (!beat.say?.trim()) console.log('[WS Audio] Beat #' + beatNum + ' skipped — say is empty');
+    return;
+  }
 
   // Stop any previously playing audio from this turn (prevents overlap from timeout race)
   if (turn.audioEl) {

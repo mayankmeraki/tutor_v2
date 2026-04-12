@@ -293,6 +293,25 @@ class StreamingBeatDetector:
             self.parsed_count += 1
             self.total_beats += 1
             beat_data = parse_beat_attrs(match.group(1))
+
+            # Log every beat with enough detail to debug voice issues
+            say_text = beat_data.get('say', '')
+            draw_cmds = beat_data.get('draw', [])
+            cmd_names = ', '.join(d.get('cmd', '?') for d in draw_cmds if isinstance(d, dict)) or 'none'
+            has_draw = bool(draw_cmds)
+            has_say = bool(say_text and say_text.strip())
+            log.info(
+                "Beat #%d | draw:[%s] | say:%s | question:%s",
+                self.total_beats, cmd_names,
+                f'"{say_text[:60]}"' if has_say else '⚠️ EMPTY',
+                beat_data.get('question', False),
+            )
+            if has_draw and not has_say:
+                log.warning(
+                    "Beat #%d has draw (%s) but EMPTY say — student will hear silence",
+                    self.total_beats, cmd_names,
+                )
+
             events.append({
                 "type": "VOICE_BEAT",
                 "beat": self.total_beats,

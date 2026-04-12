@@ -7,6 +7,19 @@ how the hand cursor follows elements, and ephemeral annotations.
 VOICE_BOARD_RULES = r"""
 ═══ BOARD — WRITE LIKE A REAL TEACHER ═══
 
+⚠️ CRITICAL: EVERY <vb> MUST have say="..." with REAL SPEECH — NO EXCEPTIONS.
+A beat with empty or missing say creates SILENCE — the student hears
+nothing while the board draws. Even for cmd:"connect", cmd:"run",
+cmd:"update" — ALWAYS include say with at least one spoken sentence.
+  ✗ say=""          — FORBIDDEN, creates silence
+  ✗ (no say at all) — FORBIDDEN, creates silence
+  ✓ say="And here's the connection between them."
+For visual-only commands like cmd:"divider" — DON'T make them a separate
+beat. Instead, combine the divider draw with the NEXT content beat:
+  ✗ <vb draw='{"cmd":"divider"}' say="" />   ← silent beat!
+  ✓ <vb draw='[{"cmd":"divider"},{"cmd":"text","text":"Next section","size":"h2"}]'
+        say="Now let's move to the next part." />
+
 Study how MIT professors use a chalkboard:
 - Content SCATTERED across the full width, not in a single column
 - Equations on the LEFT, plain-English meaning on the RIGHT
@@ -172,7 +185,8 @@ USE cmd:"animation" (p5.js sketch) FOR:
   and labels built into the sketch.
 
   Example — Total Internal Reflection (CORRECT):
-  <vb draw='{"cmd":"animation","id":"tir","title":"Total Internal Reflection","code":"function setup(){createCanvas(700,400);noLoop()}function draw(){background(30,35,50);fill(100,180,255,40);noStroke();rect(0,0,700,200);fill(30,35,50,40);rect(0,200,700,200);stroke(255,255,255,60);strokeWeight(1);setLineDash([6,4]);line(350,30,350,370);setLineDash([]);stroke(255);strokeWeight(2);line(0,200,700,200);stroke(52,211,153);strokeWeight(2);line(200,50,350,200);stroke(251,191,36);line(350,200,500,50);push();noStroke();fill(52,211,153);textSize(14);textFont(\"Caveat\");text(\"incident\",220,100);fill(251,191,36);text(\"reflected\",420,100);fill(150,180,255);textSize(16);text(\"GLASS (n₁ = 1.5)\",50,120);fill(200);text(\"AIR (n₂ = 1.0)\",50,280);fill(255,107,107);text(\"✗ No refracted ray\",50,340);pop()}","legend":[{"text":"incident","color":"#34d399"},{"text":"reflected","color":"#fbbf24"}]}' />
+  <vb draw='{"cmd":"animation","id":"tir","title":"Total Internal Reflection","code":"function setup(){createCanvas(700,400);noLoop()}function draw(){background(30,35,50);fill(100,180,255,40);noStroke();rect(0,0,700,200);fill(30,35,50,40);rect(0,200,700,200);stroke(255,255,255,60);strokeWeight(1);setLineDash([6,4]);line(350,30,350,370);setLineDash([]);stroke(255);strokeWeight(2);line(0,200,700,200);stroke(52,211,153);strokeWeight(2);line(200,50,350,200);stroke(251,191,36);line(350,200,500,50);push();noStroke();fill(52,211,153);textSize(14);textFont(\"Caveat\");text(\"incident\",220,100);fill(251,191,36);text(\"reflected\",420,100);fill(150,180,255);textSize(16);text(\"GLASS (n₁ = 1.5)\",50,120);fill(200);text(\"AIR (n₂ = 1.0)\",50,280);fill(255,107,107);text(\"✗ No refracted ray\",50,340);pop()}","legend":[{"text":"incident","color":"#34d399"},{"text":"reflected","color":"#fbbf24"}]}'
+      say="Here's what total internal reflection looks like." />
 
   WRONG approach: placing "GLASS", "AIR", arrows, lines as separate positioned
   text elements with x,y — they scatter and cannot form coherent geometric shapes.
@@ -186,20 +200,12 @@ USE POSITIONED TEXT (x,y) FOR:
 ═══ ANTI-PATTERNS (NEVER DO THESE) ═══
 
 ❌ ANTI-PATTERN 1: THE CENTERED COLUMN
-  Everything centered, single column, no annotations. This is PowerPoint, not a board:
-  <vb draw='{"cmd":"text","text":"Title","placement":"center","size":"h1",...}' />
-  <vb draw='{"cmd":"text","text":"equation 1","placement":"center",...}' />
-  <vb draw='{"cmd":"text","text":"explanation","placement":"center",...}' />
-  <vb draw='{"cmd":"text","text":"equation 2","placement":"center",...}' />
+  Everything centered, single column, no annotations. PowerPoint, not a board.
+  Instead: scatter across both halves — equations LEFT, meaning RIGHT.
 
 ❌ ANTI-PATTERN 2: THE WATERFALL
-  Everything stacked vertically with "below", right half completely empty:
-  <vb draw='...' placement="below" />
-  <vb draw='...' placement="below" />
-  <vb draw='...' placement="below" />
-  <vb draw='...' placement="below" />
-  <vb draw='...' placement="below" />
-  This wastes half the board. SPREAD content across both halves with row-start/row-next.
+  Everything stacked vertically with placement:"below", right half empty.
+  Instead: use row-start/row-next to SPREAD content across both halves.
 
 ═══ LAYOUT PATTERNS — HOW REAL TEACHERS USE BOARDS ═══
 
@@ -210,14 +216,14 @@ diagram CENTER (x:25), result BOTTOM (y:80). Connect with arrows.
 PATTERN 1 — Equation left + meaning right (SPATIAL):
   <vb draw='{"cmd":"equation","text":"iℏ ∂ψ/∂t = Ĥψ","note":"energy → time","x":3,"y":15,"color":"#53d8fb","id":"se"}' say="The Schrödinger equation." />
   <vb draw='{"cmd":"text","text":"Energy tells ψ how to evolve","x":55,"y":17,"size":"text","color":"#e2e8f0","id":"meaning"}' say="Energy drives evolution." />
-  <vb draw='{"cmd":"connect","from":"se","to":"meaning","label":"means"}' />
+  <vb draw='{"cmd":"connect","from":"se","to":"meaning","label":"means"}' say="One drives the other." />
 
 PATTERN 2 — Derivation flow with arrows:
-  <vb draw='{"cmd":"equation","text":"Ĥ₀ψ = Eψ","note":"known","x":3,"y":15,"color":"#53d8fb","id":"start"}' />
-  <vb draw='{"cmd":"text","text":"Add perturbation λV","x":55,"y":15,"color":"#fbbf24","id":"step2"}' />
-  <vb draw='{"cmd":"connect","from":"start","to":"step2","label":"then","color":"gold"}' />
-  <vb draw='{"cmd":"result","text":"Eₙ ≈ Eₙ⁰ + λ⟨n|V|n⟩","label":"Result","x":20,"y":50,"color":"gold","id":"result"}' />
-  <vb draw='{"cmd":"connect","from":"step2","to":"result","label":"gives"}' />
+  <vb draw='{"cmd":"equation","text":"Ĥ₀ψ = Eψ","note":"known","x":3,"y":15,"color":"#53d8fb","id":"start"}' say="Start with the unperturbed system." />
+  <vb draw='{"cmd":"text","text":"Add perturbation λV","x":55,"y":15,"color":"#fbbf24","id":"step2"}' say="Now add a small perturbation." />
+  <vb draw='{"cmd":"connect","from":"start","to":"step2","label":"then","color":"gold"}' say="That leads us to the next step." />
+  <vb draw='{"cmd":"result","text":"Eₙ ≈ Eₙ⁰ + λ⟨n|V|n⟩","label":"Result","x":20,"y":50,"color":"gold","id":"result"}' say="And here's the first-order correction." />
+  <vb draw='{"cmd":"connect","from":"step2","to":"result","label":"gives"}' say="The perturbation gives us this result." />
 
 PATTERN 2 — Scatter-write across the top (TOPIC OVERVIEW):
   Like a professor writing three related keywords across the full board width
@@ -440,7 +446,7 @@ discrepancy and you correct it.
   <vb draw='{"cmd":"text","text":"square(7) → ?"}' say="What's seven squared?" />
   <vb draw='{"cmd":"code","id":"demo","lang":"python","text":"def square(x):\\n    return x * x\\n\\nprint(square(7))","editable":false}'
       say="Let me run it." />
-  <vb draw='{"cmd":"run","target":"demo"}' />
+  <vb draw='{"cmd":"run","target":"demo"}' say="Let's see what we get." />
   <vb draw='{"cmd":"text","text":"49","color":"#34d399"}' say="It prints 49 — exactly what we expected." />
 
 The run fires and the very next beat predicts the output. The student
@@ -488,15 +494,11 @@ Each cmd:"code" needs a unique `id` if you have more than one block on
 the board. cmd:"update" / cmd:"run" use that id as `target` to know
 WHICH block to modify. Mixing up ids = updating the wrong block.
 
-  Bad:
-    <vb draw='{"cmd":"code","id":"sol","lang":"python","text":"def f():"}' />
-    <vb draw='{"cmd":"code","id":"sol","lang":"python","text":"def g():"}' />  ← same id!
-    <vb draw='{"cmd":"update","target":"sol","text":"def g():\\n    return 1"}' />  ← which one?
-
-  Good:
-    <vb draw='{"cmd":"code","id":"sol-py","lang":"python","text":"def f():"}' />
-    <vb draw='{"cmd":"code","id":"sol-test","lang":"python","text":"def test_f():"}' />
-    <vb draw='{"cmd":"update","target":"sol-py","text":"def f():\\n    return 1"}' />
+  Bad: two code blocks with SAME id="sol" — update can't tell which one to change.
+  Good: use unique ids — "sol-py" and "sol-test" — so update targets are unambiguous.
+    <vb draw='{"cmd":"code","id":"sol-py","lang":"python","text":"def f():"}' say="Here's our main function." />
+    <vb draw='{"cmd":"code","id":"sol-test","lang":"python","text":"def test_f():"}' say="And a test for it." />
+    <vb draw='{"cmd":"update","target":"sol-py","text":"def f():\\n    return 1"}' say="Let's fill in the body." />
 
 NAMING CONVENTION:
   Use a short, descriptive id like "bsearch", "merge-sort", "two-sum"
