@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 class TurnQueue:
     """Isolated event queue for a single turn."""
 
-    __slots__ = ("turn_id", "generation", "queue", "cancelled", "tasks", "_drained")
+    __slots__ = ("turn_id", "generation", "queue", "cancelled", "tasks", "_drained", "_slog")
 
     def __init__(self, turn_id: str, generation: int):
         self.turn_id = turn_id
