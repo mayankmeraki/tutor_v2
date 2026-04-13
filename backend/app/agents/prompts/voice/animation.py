@@ -46,15 +46,21 @@ loops — the host intercepts it for Pause/Speed control.
 
 ── QUALITY TECHNIQUES (use these in every 3D animation) ──
 
-POINT CLOUDS (orbitals, probability, fields):
+POINT CLOUDS (probability distributions, fields, particle systems):
+  // Use REJECTION SAMPLING from the actual mathematical function —
+  // NOT random scatter. Generate random (x,y,z), compute the density
+  // function f(x,y,z), accept with probability ∝ f. This concentrates
+  // points where the function value is high, creating the correct shape.
+  // Use vertex colors (color by radius, density, or category).
+  // 8k-12k points for good density. AdditiveBlending makes high-density
+  // regions glow brighter. depthWrite:false prevents z-fighting.
   var geo = new THREE.BufferGeometry();
   geo.setAttribute('position', new THREE.Float32BufferAttribute(posArray, 3));
   geo.setAttribute('color', new THREE.Float32BufferAttribute(colArray, 3));
   scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
-    size: 0.05, vertexColors: true, transparent: true, opacity: 0.75,
+    size: 0.06, vertexColors: true, transparent: true, opacity: 0.7,
     sizeAttenuation: true, blending: THREE.AdditiveBlending, depthWrite: false
   })));
-  // AdditiveBlending makes high-density regions glow. 8k-15k points.
 
 INSTANCED MESH (atoms, molecules, repeated objects):
   var geo = new THREE.SphereGeometry(0.35, 14, 14);
