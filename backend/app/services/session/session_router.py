@@ -214,6 +214,31 @@ class SessionRouter:
                     if beat_detector and beat_detector.scene_started and not beat_detector.scene_ended:
                         slog.log_truncation_warning(len("".join(text_parts)))
 
+                        # ── HEURISTIC REPAIR: close truncated <vb> tag ──
+                        # The LLM ran out of tokens mid-animation code.
+                        # The geometry is already scene.add()'d — just
+                        # needs closing braces + tag to make it parseable.
+                        from app.services.teaching.beat_repair import repair_truncated_beat
+                        full_text = "".join(text_parts)
+                        repaired_events = repair_truncated_beat(full_text, beat_detector)
+                        for re_evt in repaired_events:
+                            re_type = re_evt["type"]
+                            if re_type == "VOICE_BEAT":
+                                turn.put_json(re_evt)
+                                slog.log_event("REPAIRED_BEAT", f"beat #{re_evt['beat']}")
+                                slog.log_beat(re_evt["beat"], re_evt["data"])
+                                say_text = re_evt["data"].get("say", "")
+                                if say_text and say_text.strip():
+                                    tts_task = asyncio.create_task(
+                                        self._produce_audio(turn, re_evt["beat"], say_text)
+                                    )
+                                    turn.tasks.append(tts_task)
+                                else:
+                                    turn.put_json({"type": "AUDIO_SKIP", "beat": re_evt["beat"]})
+                            elif re_type == "VOICE_SCENE_END":
+                                turn.put_json(re_evt)
+                                slog.log_scene_end()
+
                     # Wait for pending TTS tasks before signaling done
                     pending = [t for t in turn.tasks if not t.done() and t != asyncio.current_task()]
                     if pending:
