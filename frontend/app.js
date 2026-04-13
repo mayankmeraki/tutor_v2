@@ -1800,6 +1800,8 @@ async function _wsRunExecutor(turn) {
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
         if (_vbState === 'thinking') setVoiceBarState('speaking');
+        // Hide streaming indicator on first beat execution — content is now on the board
+        _hideBoardStreaming();
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
         if (beat.question) break;
       } else if (state.isStreaming || _eager.queue.length > 0) {
