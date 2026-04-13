@@ -975,6 +975,8 @@ function handleBackButton() {
   if (hasSession && typeof showFeedbackForm === 'function' && !sessionStorage.getItem(fbKey)) {
     window._fbOnClose = goHome;
     showFeedbackForm();
+    // Safety: navigate after 30s even if user doesn't interact with form
+    setTimeout(goHome, 30000);
     return;
   }
   goHome();
