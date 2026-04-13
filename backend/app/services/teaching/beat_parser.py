@@ -103,12 +103,17 @@ def _repair_draw_json(s: str) -> str:
     s = s.replace('\u2018', "'").replace('\u2019', "'")
     # HTML entities
     s = s.replace('&quot;', '"').replace('&apos;', "'").replace('&#39;', "'")
-    # Literal newlines / carriage returns inside JSON strings are invalid.
-    # LLMs sometimes output multi-line code in draw text with real newlines
-    # instead of \\n escape sequences. Replace them so json.loads can parse.
+    # Literal control characters inside JSON strings are invalid.
     s = s.replace('\r\n', '\\n').replace('\r', '\\n').replace('\n', '\\n')
-    # Literal tabs → escaped
     s = s.replace('\t', '\\t')
+    s = s.replace('\x0c', '\\f')  # form feed (from LaTeX \f → 0x0c)
+    s = s.replace('\x08', '\\b')  # backspace (from LaTeX \b → 0x08)
+    # LaTeX backslashes: \rho, \frac, \partial etc. produce invalid JSON
+    # escapes (\r=CR, \f=FF, \b=BS, \p=invalid, \m=invalid, etc.).
+    # Fix: escape any lone backslash NOT followed by a valid JSON escape char.
+    # Valid JSON escapes after \: " \ / b f n r t u
+    import re
+    s = re.sub(r'\\(?!["\\/bfnrtu])', r'\\\\', s)
     return s
 
 
