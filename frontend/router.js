@@ -40,6 +40,10 @@ const Router = (() => {
 
   function navigate(path, opts = {}) {
     const { replace = false, skipHandler = false } = opts;
+    // Cleanup WebSocket when leaving a session view
+    if (!path.startsWith('/session') && typeof _wsCleanupConnection === 'function') {
+      try { _wsCleanupConnection(); } catch (e) {}
+    }
     if (replace) history.replaceState(null, '', path);
     else history.pushState(null, '', path);
     if (!skipHandler) resolve(path);

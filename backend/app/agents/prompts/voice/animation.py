@@ -44,6 +44,16 @@ are handled by the host. You ADD objects to the scene. Don't recreate
 scene/camera/renderer. You CAN use requestAnimationFrame for animation
 loops — the host intercepts it for Pause/Speed control.
 
+⚠️ TEXT LABELS in 3D: Use CanvasTexture + Sprite (NOT TextGeometry or
+FontGeometry — those require font loading and are NOT available).
+  var c = document.createElement('canvas'); c.width = 256; c.height = 64;
+  var ctx = c.getContext('2d');
+  ctx.fillStyle = '#ffffff'; ctx.font = 'bold 24px sans-serif';
+  ctx.textAlign = 'center'; ctx.fillText('Label', 128, 40);
+  var sprite = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: new THREE.CanvasTexture(c), transparent: true }));
+  sprite.scale.set(3, 0.8, 1); sprite.position.set(x, y, z);
+
 ── QUALITY TECHNIQUES (use these in every 3D animation) ──
 
 POINT CLOUDS (probability distributions, fields, particle systems):
