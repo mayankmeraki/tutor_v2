@@ -262,22 +262,31 @@ function placeElement(element, placement, cmd) {
               }
             }
           }
-          // Path 2: Three.js — reveal next hidden direct child (Group, Object3D, Mesh)
-          // with smooth scale-up. Checks any direct scene child, not just Groups.
+          // Path 2: Three.js — reveal next hidden object whose PARENT is visible.
+          // This handles both:
+          //   - Groups as direct children of scene (simple case)
+          //   - Groups nested inside a wrapper Group (LLM creates 'all' group)
+          // The key: an object is a "phase group" if it's hidden but its
+          // parent is visible — meaning it's waiting to be revealed.
           if (!revealed && animEntry._threeScene) {
-            var children = animEntry._threeScene.children;
-            for (var ci = 0; ci < children.length; ci++) {
-              var child = children[ci];
-              // Skip lights, helpers, and already-visible objects
-              if (child.visible) continue;
-              if (child.type === 'AmbientLight' || child.type === 'DirectionalLight' ||
-                  child.type === 'PointLight' || child.type === 'AxesHelper' ||
-                  child.type === 'GridHelper') continue;
-              child.visible = true;
-              child.scale.setScalar(0);
-              child._revealProgress = 0;
+            var toReveal = null;
+            animEntry._threeScene.traverse(function(obj) {
+              if (toReveal) return;
+              if (obj === animEntry._threeScene) return;
+              if (obj.visible) return;
+              // Skip if parent is also hidden (this is a child INSIDE a phase group, not the group itself)
+              if (obj.parent && !obj.parent.visible && obj.parent !== animEntry._threeScene) return;
+              // Skip lights/helpers
+              if (obj.type === 'AmbientLight' || obj.type === 'DirectionalLight' ||
+                  obj.type === 'PointLight' || obj.type === 'AxesHelper' ||
+                  obj.type === 'GridHelper') return;
+              toReveal = obj;
+            });
+            if (toReveal) {
+              toReveal.visible = true;
+              toReveal.scale.setScalar(0);
+              toReveal._revealProgress = 0;
               revealed = true;
-              break;
             }
           }
         }
