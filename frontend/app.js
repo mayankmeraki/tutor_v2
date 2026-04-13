@@ -1320,6 +1320,30 @@ function _wsNewTurn() {
 // closing /> is seen in the accumulated text, whichever is first).
 // Driven by counting opens vs closes in _ws.accumulatedText.
 
+// ── Board streaming indicator — shown while LLM generates, hidden when first beat draws ──
+function _showBoardStreaming() {
+  const wrap = document.getElementById('bd-canvas-wrap');
+  if (!wrap) return;
+  let el = document.getElementById('bd-streaming-indicator');
+  if (el) return; // already showing
+  el = document.createElement('div');
+  el.id = 'bd-streaming-indicator';
+  el.innerHTML = `
+    <div class="bd-stream-pulse"></div>
+    <div class="bd-stream-text">Euler is preparing — this may take a few moments</div>
+  `;
+  wrap.appendChild(el);
+  // Fade in
+  requestAnimationFrame(() => el.classList.add('bd-stream-visible'));
+}
+
+function _hideBoardStreaming() {
+  const el = document.getElementById('bd-streaming-indicator');
+  if (!el) return;
+  el.classList.remove('bd-stream-visible');
+  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+}
+
 function _showBoardDrawingSkeleton() {
   // Contract: the skeleton is ONLY for the silent gap before the tutor's
   // voice begins. Once we've transitioned to 'speaking' for this turn, the
@@ -17975,7 +17999,7 @@ function setVoiceBarState(newState) {
       if (field) field.placeholder = 'Your answer...';
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
-      // Keep last subtitle visible — it persists until next turn starts (thinking)
+      _hideBoardStreaming();
       break;
 
     case 'thinking':
@@ -17987,8 +18011,9 @@ function setVoiceBarState(newState) {
       if (status) { status.className = 'vb-status active thinking'; status.textContent = 'Euler is thinking...'; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      // Clear previous turn's last subtitle when new turn starts
       voiceHideSubtitle();
+      // Show board streaming indicator
+      _showBoardStreaming();
       break;
 
     case 'speaking':
@@ -17999,6 +18024,8 @@ function setVoiceBarState(newState) {
       if (status) { status.className = 'vb-status active speaking'; status.textContent = 'Euler is speaking'; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
+      // First beat is about to play — hide streaming indicator
+      _hideBoardStreaming();
       break;
 
     case 'paused':

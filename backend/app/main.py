@@ -460,6 +460,42 @@ async def submit_feedback(request: Request):
         return {"status": "received", "note": "Email delivery pending"}
 
 
+# ─── Session feedback (stored in DB) ──────────────────────────────
+
+@app.post("/api/v1/session-feedback")
+async def submit_session_feedback(request: Request):
+    """Store post-session feedback in MongoDB for beta analytics."""
+    from app.api.routes.auth import get_optional_user
+    from app.core.mongodb import get_tutor_db
+    from datetime import datetime, timezone
+
+    try:
+        user = await get_optional_user(request)
+        user_email = user.get("email", "") if user else ""
+    except Exception:
+        user_email = ""
+
+    body = await request.json()
+    doc = {
+        "sessionId": body.get("sessionId", ""),
+        "userEmail": user_email,
+        "score": body.get("score"),          # 1-10 NPS
+        "reason": body.get("reason", ""),     # why low score (if < 7)
+        "highlight": body.get("highlight", ""),  # what went well
+        "createdAt": datetime.now(timezone.utc),
+        "userAgent": request.headers.get("user-agent", "")[:200],
+    }
+
+    try:
+        db = get_tutor_db()
+        await db.session_feedback.insert_one(doc)
+        log.info("[Feedback] session=%s score=%s", doc["sessionId"][:12], doc["score"])
+    except Exception as e:
+        log.warning("[Feedback] DB write failed: %s", e)
+
+    return {"status": "ok"}
+
+
 # ─── Document serving ──────────────────────────────────────────────
 
 @app.get("/api/v1/documents/{document_id}")
