@@ -685,6 +685,15 @@ function buildControlBridge(scale, isWebGL) {
     '    var resizeCanvas=function(){return p.resizeCanvas.apply(p,arguments)};\n' +
     '    var noLoop=function(){return p.noLoop()};\n' +
     '    var loop=function(){return p.loop()};\n' +
+    '    var frameRate=function(){return p.frameRate.apply(p,arguments)};\n' +
+    '    var pixelDensity=function(){return p.pixelDensity.apply(p,arguments)};\n' +
+    '    var smooth=function(){return p.smooth?p.smooth():undefined};\n' +
+    '    var noCursor=function(){return p.noCursor()};\n' +
+    '    var cursor=function(){return p.cursor.apply(p,arguments)};\n' +
+    '    var millis=function(){return p.millis()};\n' +
+    '    var sin=Math.sin,cos=Math.cos,tan=Math.tan,sqrt=Math.sqrt,pow=Math.pow;\n' +
+    '    var abs=Math.abs,floor=Math.floor,ceil=Math.ceil,round=Math.round,min=Math.min,max=Math.max;\n' +
+    '    var log=Math.log,exp=Math.exp,atan2=Math.atan2;\n' +
     '    var push=function(){return p.push()};\n' +
     '    var pop=function(){return p.pop()};\n' +
     '    var fill=function(){return p.fill.apply(p,arguments)};\n' +
