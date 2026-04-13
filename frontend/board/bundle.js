@@ -1264,6 +1264,7 @@ async function runCommand(cmd) {
     case 'flow':     renderFlow(cmd); break;
     case 'flow-add': renderFlowAdd(cmd); break;
     case 'diff':     await renderDiff(cmd); break;
+    case 'diff-add': renderDiffAdd(cmd); break;
     case 'question-block': await renderQuestion(cmd); break;
     case 'code':     await renderCode(cmd); break;
     case 'code-highlight': _codeHighlightLines(cmd); break;
@@ -3350,24 +3351,19 @@ async function renderDiff(cmd) {
   var el = createElement('div', cmd, 'bd-diff', 'bd-diff-' + mode);
 
   if (mode === 'compare') {
-    // Compare mode — two equal-weight sides with items
-    var leftSide = document.createElement('div');
-    leftSide.className = 'bd-diff-side';
+    // Compare mode — two equal-weight sides with items.
+    // Items can be provided upfront OR added beat-by-beat via diff-add.
     var leftData = cmd.left || {};
     var rightData = cmd.right || {};
     var leftColor = leftData.color || '#53d8fb';
     var rightColor = rightData.color || '#fbbf24';
 
+    var leftSide = document.createElement('div');
+    leftSide.className = 'bd-diff-side';
+    leftSide.dataset.color = leftColor;
     leftSide.innerHTML = '<div class="bd-diff-label" style="color:' + leftColor + '">' + escapeHtml(leftData.label || 'A') + '</div>';
     var leftItems = document.createElement('div');
     leftItems.className = 'bd-diff-items';
-    (leftData.items || []).forEach(function(item) {
-      var d = document.createElement('div');
-      d.className = 'bd-diff-item';
-      d.style.color = leftColor;
-      d.textContent = item;
-      leftItems.appendChild(d);
-    });
     leftSide.appendChild(leftItems);
 
     var bar = document.createElement('div');
@@ -3375,17 +3371,19 @@ async function renderDiff(cmd) {
 
     var rightSide = document.createElement('div');
     rightSide.className = 'bd-diff-side';
+    rightSide.dataset.color = rightColor;
     rightSide.innerHTML = '<div class="bd-diff-label" style="color:' + rightColor + '">' + escapeHtml(rightData.label || 'B') + '</div>';
     var rightItems = document.createElement('div');
     rightItems.className = 'bd-diff-items';
-    (rightData.items || []).forEach(function(item) {
-      var d = document.createElement('div');
-      d.className = 'bd-diff-item';
-      d.style.color = rightColor;
-      d.textContent = item;
-      rightItems.appendChild(d);
-    });
     rightSide.appendChild(rightItems);
+
+    // If items are provided upfront, add them (for non-beat-by-beat usage)
+    (leftData.items || []).forEach(function(item) {
+      _addDiffItem(leftItems, item, leftColor);
+    });
+    (rightData.items || []).forEach(function(item) {
+      _addDiffItem(rightItems, item, rightColor);
+    });
 
     el.appendChild(leftSide);
     el.appendChild(bar);
@@ -3427,6 +3425,38 @@ async function renderDiff(cmd) {
     el.appendChild(note);
     await animateText(note, cmd.note, { charDelay: 16 });
   }
+}
+
+function _addDiffItem(container, text, color) {
+  var d = document.createElement('div');
+  d.className = 'bd-diff-item bd-diff-item-enter';
+  d.style.color = color;
+  d.textContent = text;
+  container.appendChild(d);
+  // Trigger enter animation
+  requestAnimationFrame(function() { d.classList.remove('bd-diff-item-enter'); });
+  return d;
+}
+
+// cmd:"diff-add" — add one item to an existing diff compare component
+function renderDiffAdd(cmd) {
+  if (!cmd.target) return;
+  var el = document.getElementById(cmd.target);
+  if (!el || !el.classList.contains('bd-diff-compare')) {
+    // Fallback: look for bd-diff
+    el = document.getElementById(cmd.target);
+    if (!el || !el.classList.contains('bd-diff')) return;
+  }
+
+  var sides = el.querySelectorAll('.bd-diff-side');
+  if (sides.length < 2) return;
+
+  var side = cmd.side === 'right' ? sides[1] : sides[0];
+  var color = side.dataset.color || (cmd.side === 'right' ? '#fbbf24' : '#53d8fb');
+  var items = side.querySelector('.bd-diff-items');
+  if (!items) return;
+
+  _addDiffItem(items, cmd.text || '', cmd.color || color);
 }
 
 // ── QUESTION — visually distinct from teaching, RANDOM style ───

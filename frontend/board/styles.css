@@ -698,6 +698,11 @@
   font-size: 14px;
   padding-left: 14px;
   position: relative;
+  transition: opacity 0.35s ease, transform 0.35s ease;
+}
+.bd-diff-item-enter {
+  opacity: 0;
+  transform: translateY(8px);
 }
 .bd-diff-item::before {
   content: '·';

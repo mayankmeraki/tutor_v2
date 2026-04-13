@@ -129,8 +129,16 @@ for what you're teaching, the renderer handles the spatial arrangement.
 3. DIFF — before/after (two modes):
    Fix mode (wrong → right):
      {"cmd":"diff","mode":"fix","before":"while lo < hi:","after":"while lo <= hi:","note":"checks the last element","id":"fix1"}
-   Compare mode (A vs B, neither wrong):
-     {"cmd":"diff","mode":"compare","left":{"label":"Stack","color":"#53d8fb","items":["LIFO","push/pop","DFS, undo"]},"right":{"label":"Queue","color":"#fbbf24","items":["FIFO","enqueue/dequeue","BFS, scheduling"]},"id":"cmp1"}
+   Compare mode (A vs B — builds up beat by beat):
+     Beat 1: Create the compare layout with just the headers:
+       {"cmd":"diff","mode":"compare","left":{"label":"Stack","color":"#53d8fb"},"right":{"label":"Queue","color":"#fbbf24"},"id":"cmp1"}
+     Beat 2+: Add items one at a time with diff-add:
+       {"cmd":"diff-add","target":"cmp1","side":"left","text":"LIFO"}
+       {"cmd":"diff-add","target":"cmp1","side":"right","text":"FIFO"}
+       {"cmd":"diff-add","target":"cmp1","side":"left","text":"push/pop"}
+       {"cmd":"diff-add","target":"cmp1","side":"right","text":"enqueue/dequeue"}
+     Each diff-add item slides in with a smooth animation.
+     PREFER beat-by-beat over dumping all items in one beat.
    USE FOR: bug fixes, misconception correction, AND side-by-side comparisons.
 
 4. QUESTION-BLOCK — centered, visually distinct from teaching:
