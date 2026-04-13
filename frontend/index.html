@@ -589,7 +589,7 @@
       <!-- Top Bar -->
       <header id="top-bar">
         <div class="top-left">
-          <button id="btn-back" class="icon-btn">&larr; Courses</button>
+          <button id="btn-back" class="icon-btn">&larr; Home</button>
           <span class="course-title" id="course-title">Teaching Session</span>
         </div>
         <div class="top-right">
@@ -931,6 +931,8 @@ function showFeedbackForm() {
 function closeFeedbackForm() {
   var overlay = document.getElementById('session-feedback-overlay');
   if (overlay) overlay.style.display = 'none';
+  // If triggered from back button, navigate after closing
+  if (window._fbOnClose) { var fn = window._fbOnClose; window._fbOnClose = null; fn(); }
 }
 
 function submitSessionFeedback() {
@@ -952,7 +954,9 @@ function submitSessionFeedback() {
   document.getElementById('fb-reason-wrap').style.display = 'none';
   document.getElementById('fb-highlight-wrap').style.display = 'none';
   document.getElementById('fb-thanks').style.display = 'block';
-  setTimeout(closeFeedbackForm, 2000);
+  setTimeout(function() {
+    closeFeedbackForm(); // this also triggers _fbOnClose navigation if set
+  }, 2000);
 }
 
 // Auto-show after session ends or after 10+ turns
