@@ -1986,10 +1986,12 @@ async function renderScene3D(cmd) {
   container.style.maxWidth = (cmd.width || 700) + 'px';
   container.style.height = (cmd.height || 450) + 'px';
   container.style.borderRadius = '10px';
-  container.style.overflow = 'hidden';
+  container.style.overflow = 'visible';
   container.style.border = 'none';
   container.style.background = '#060e11';
   container.style.position = 'relative';
+  container.style.touchAction = 'none';
+  container.style.userSelect = 'none';
   placeElement(container, cmd.placement, cmd);
 
   // Loading indicator
@@ -2046,6 +2048,19 @@ async function renderScene3D(cmd) {
   threeRenderer.domElement.style.pointerEvents = 'auto';
   threeRenderer.domElement.style.touchAction = 'none';
   threeRenderer.domElement.style.cursor = 'grab';
+  threeRenderer.domElement.style.userSelect = 'none';
+  // Stop mouse events from propagating to parent scrollable containers
+  // (the board has overflow-y scroll which intercepts drag gestures)
+  threeRenderer.domElement.addEventListener('mousedown', function(e) {
+    e.stopPropagation();
+    threeRenderer.domElement.style.cursor = 'grabbing';
+  });
+  threeRenderer.domElement.addEventListener('mouseup', function() {
+    threeRenderer.domElement.style.cursor = 'grab';
+  });
+  threeRenderer.domElement.addEventListener('wheel', function(e) {
+    e.stopPropagation(); // prevent board scroll on zoom
+  }, { passive: false });
   container.appendChild(threeRenderer.domElement);
 
   // Orbit controls
