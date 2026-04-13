@@ -897,8 +897,8 @@ function showFeedbackForm() {
   var overlay = document.getElementById('session-feedback-overlay');
   if (!overlay) return;
   // Check if already shown this session
-  if (sessionStorage.getItem('fb_shown_' + (window.state?.sessionId || ''))) return;
-  sessionStorage.setItem('fb_shown_' + (window.state?.sessionId || ''), '1');
+  if (sessionStorage.getItem('fb_shown_' + (window._appState?.sessionId || ''))) return;
+  sessionStorage.setItem('fb_shown_' + (window._appState?.sessionId || ''), '1');
 
   // Build NPS buttons
   var row = document.getElementById('fb-nps-row');
@@ -938,7 +938,7 @@ function closeFeedbackForm() {
 function submitSessionFeedback() {
   if (!_fbScore) return;
   var body = {
-    sessionId: window.state?.sessionId || '',
+    sessionId: window._appState?.sessionId || '',
     score: _fbScore,
     reason: (document.getElementById('fb-reason')?.value || '').trim(),
     highlight: (document.getElementById('fb-highlight')?.value || '').trim(),
@@ -969,7 +969,7 @@ function handleBackButton() {
     else window.location.href = '/home';
   }
   // Show feedback if a session is active (has a sessionId) and feedback hasn't been shown
-  var sid = window.state?.sessionId || '';
+  var sid = window._appState?.sessionId || '';
   var fbKey = 'fb_shown_' + sid;
   var hasSession = sid && sid.length > 5;
   if (hasSession && typeof showFeedbackForm === 'function' && !sessionStorage.getItem(fbKey)) {

@@ -726,7 +726,7 @@ const SessionManager = (() => {
 // Module 2: Config & State
 // ═══════════════════════════════════════════════════════════
 
-const state = {
+const state = window._appState = {
   apiUrl: window.location.origin,
   courseId: null,
   studentName: '',
