@@ -2054,7 +2054,7 @@ async function renderScene3D(cmd) {
   // Drag hint — fades out after 4 seconds
   var hint = document.createElement('div');
   hint.style.cssText = 'position:absolute;bottom:8px;right:10px;z-index:2;pointer-events:none;font-family:var(--bd-font,sans-serif);font-size:10px;color:rgba(255,255,255,0.25);transition:opacity 1s;';
-  hint.textContent = '↻ drag to rotate';
+  hint.textContent = '↻ drag to rotate · pinch to zoom';
   container.appendChild(hint);
   setTimeout(function() { hint.style.opacity = '0'; }, 4000);
 

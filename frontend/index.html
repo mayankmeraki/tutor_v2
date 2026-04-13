@@ -962,15 +962,21 @@ function submitSessionFeedback() {
 // Track turns for feedback trigger
 window._fbTurnCount = 0;
 
-// Back button handler (onclick — more reliable than addEventListener)
+// Back button handler — ALWAYS navigates, optionally shows feedback first
 function handleBackButton() {
-  if (window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function') {
-    window._fbOnClose = function() { if (typeof Router !== 'undefined') Router.navigate('/home'); else window.location.href = '/home'; };
+  function goHome() {
+    if (typeof Router !== 'undefined') Router.navigate('/home');
+    else window.location.href = '/home';
+  }
+  // Try showing feedback if session had turns and hasn't been shown yet
+  var fbKey = 'fb_shown_' + (window.state?.sessionId || '');
+  if (window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function' && !sessionStorage.getItem(fbKey)) {
+    window._fbOnClose = goHome;
     showFeedbackForm();
     return;
   }
-  if (typeof Router !== 'undefined') Router.navigate('/home');
-  else window.location.href = '/home';
+  // Otherwise just go home immediately
+  goHome();
 }
 </script>
 </body>
