@@ -5,9 +5,8 @@ Euler Admin Dashboard — standalone monitoring server.
 Usage:
     python server.py                         # defaults: port 4000
     python server.py --port 4001
-    MONGODB_URI=mongodb+srv://... python server.py
 
-Reads MONGODB_URI from env or from ../backend/.env automatically.
+Reads MONGODB_URI from ../backend/.env (via dotenv) or environment variables.
 """
 
 import asyncio
@@ -21,25 +20,29 @@ from urllib.parse import urlparse
 import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# ── Config ──────────────────────────────────────────────────────────
+# ── Config — load from backend .env ─────────────────────────────────
 
-def _load_mongo_uri() -> str:
-    uri = os.environ.get("MONGODB_URI")
-    if uri:
-        return uri
-    env_path = os.path.join(os.path.dirname(__file__), "..", "backend", ".env.example")
-    if not os.path.exists(env_path):
-        env_path = os.path.join(os.path.dirname(__file__), "..", "backend", ".env")
-    if os.path.exists(env_path):
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("MONGODB_URI=") and len(line) > 12:
-                    return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return "mongodb+srv://mayank:NWsGMchTprlN3S14@cluster0.rftqzyz.mongodb.net/"
+_BACKEND_ENV = os.path.join(os.path.dirname(__file__), "..", "backend", ".env")
 
+try:
+    from dotenv import load_dotenv
+    load_dotenv(_BACKEND_ENV, override=False)
+except ImportError:
+    # Fallback: parse .env manually if python-dotenv not installed
+    if os.path.exists(_BACKEND_ENV):
+        with open(_BACKEND_ENV) as _f:
+            for _line in _f:
+                _line = _line.strip()
+                if _line and not _line.startswith("#") and "=" in _line:
+                    _k, _v = _line.split("=", 1)
+                    _k, _v = _k.strip(), _v.strip().strip('"').strip("'")
+                    if _k and _v and _k not in os.environ:
+                        os.environ[_k] = _v
 
-MONGO_URI = _load_mongo_uri()
+MONGO_URI = os.environ.get("MONGODB_URI", "")
+if not MONGO_URI:
+    sys.exit("MONGODB_URI not set. Ensure ../backend/.env exists or set the env var.")
+
 PORT = int(os.environ.get("DASHBOARD_PORT", "4000"))
 
 # Max gap between two consecutive messages that still counts as "active"

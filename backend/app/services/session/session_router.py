@@ -214,13 +214,14 @@ class SessionRouter:
                     if beat_detector and beat_detector.scene_started and not beat_detector.scene_ended:
                         slog.log_truncation_warning(len("".join(text_parts)))
 
-                        # ── HEURISTIC REPAIR: close truncated <vb> tag ──
+                        # ── REPAIR TRUNCATED BEAT ──
                         # The LLM ran out of tokens mid-animation code.
-                        # The geometry is already scene.add()'d — just
-                        # needs closing braces + tag to make it parseable.
-                        from app.services.teaching.beat_repair import repair_truncated_beat
+                        # Strategy: try Haiku completion (8s) to recover
+                        # the animation loop, fall back to heuristic
+                        # (instant, static geometry only).
+                        from app.services.teaching.beat_repair import repair_truncated_beat, try_haiku_completion
                         full_text = "".join(text_parts)
-                        repaired_events = repair_truncated_beat(full_text, beat_detector)
+                        repaired_events = await try_haiku_completion(full_text, beat_detector, slog)
                         for re_evt in repaired_events:
                             re_type = re_evt["type"]
                             if re_type == "VOICE_BEAT":
