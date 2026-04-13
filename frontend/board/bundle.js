@@ -2036,8 +2036,8 @@ async function renderScene3D(cmd) {
   var h = Math.round(rect.height) || cmd.height || 450;
   var scene = new THREE.Scene();
   scene.background = new THREE.Color(0x060e11);
-  var camera = new THREE.PerspectiveCamera(48, w / h, 0.01, 500);
-  camera.position.set(cmd.cameraX || 0, cmd.cameraY || 0, cmd.cameraZ || 18);
+  var camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 500);
+  camera.position.set(cmd.cameraX || 0, cmd.cameraY || 2, cmd.cameraZ || 24);
   camera.lookAt(0, 0, 0);
 
   var threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });

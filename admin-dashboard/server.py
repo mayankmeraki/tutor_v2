@@ -863,6 +863,7 @@ REPLAY_HTML = """\
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Session Replay — Euler</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
   :root {
     --bg: #0f1117; --surface: #1a1d2e; --surface2: #232738; --border: #2a2e45;
@@ -907,9 +908,15 @@ REPLAY_HTML = """\
   .board-item.draw-cross { color: var(--red); }
   .board-item.draw-cross::before { content: "\\2717  "; font-weight: 700; }
   .board-item.draw-list li { margin: 3px 0 3px 18px; }
-  .board-item.draw-figure { padding: 14px; background: rgba(96,165,250,.06);
-                            border: 1px dashed var(--blue); border-radius: 8px; margin: 10px 0;
-                            color: var(--blue); font-style: italic; font-size: 13px; }
+  .board-item.draw-figure { border-radius: 10px; margin: 12px 0; overflow: hidden;
+                            border: 1px solid rgba(96,165,250,.2); }
+  .board-item.draw-figure .fig-title { padding: 8px 14px; font-size: 12px; font-weight: 600;
+                                       color: var(--cyan); background: rgba(96,165,250,.06); }
+  .board-item.draw-figure canvas { display: block; width: 100%; background: #060e11; }
+  .board-item.draw-figure .fig-legend { padding: 6px 14px; font-size: 11px; color: var(--text2);
+                                        background: rgba(0,0,0,.2); display: flex; gap: 14px; flex-wrap: wrap; }
+  .board-item.draw-figure .fig-legend .lg { display: flex; align-items: center; gap: 4px; }
+  .board-item.draw-figure .fig-legend .dot { width: 8px; height: 8px; border-radius: 50%; }
   .board-item.draw-divider { border-top: 1px solid var(--border); margin: 14px 0; }
   .board-item.draw-note { font-size: 13px; color: var(--text2); font-style: italic; padding: 4px 0; }
 
@@ -1023,11 +1030,89 @@ function renderDrawItem(draw) {
       return `<div class="board-item draw-list"><ul>${items.map(i => `<li>${esc(typeof i === 'string' ? i : i.text || '')}</li>`).join('')}</ul></div>`;
     }
     case 'figure':
-    case 'animation':
-      return `<div class="board-item draw-figure">[Animation: ${esc(draw.id || text || 'visual')}]</div>`;
+    case 'animation': {
+      const fid = 'fig-' + (draw.id || Math.random().toString(36).slice(2, 8));
+      const title = draw.title || draw.id || 'Visual';
+      let legendHtml = '';
+      if (draw.legend) {
+        try {
+          const items = typeof draw.legend === 'string' ? JSON.parse(draw.legend.replace(/'/g, '"')) : draw.legend;
+          if (Array.isArray(items)) {
+            legendHtml = '<div class="fig-legend">' + items.map(l =>
+              `<span class="lg"><span class="dot" style="background:${l.color || '#888'}"></span>${esc(l.text || '')}</span>`
+            ).join('') + '</div>';
+          }
+        } catch(e) {}
+      }
+      const codeB64 = draw.code ? btoa(unescape(encodeURIComponent(draw.code))) : '';
+      return `<div class="board-item draw-figure">
+        <div class="fig-title">${esc(title)}</div>
+        <canvas id="${fid}" width="700" height="420" data-code="${codeB64}"></canvas>
+        ${legendHtml}
+      </div>`;
+    }
     default:
       return text ? `<div class="board-item draw-text" style="${style}">${esc(text)}</div>` : '';
   }
+}
+
+const _figAnimations = [];
+
+function bootFigure(canvasId) {
+  const canvas = document.getElementById(canvasId);
+  if (!canvas || !canvas.dataset.code) return;
+  try {
+    const code = decodeURIComponent(escape(atob(canvas.dataset.code)));
+    const W = canvas.width, H = canvas.height;
+    const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, alpha: true });
+    renderer.setSize(W, H);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+
+    const scene = new THREE.Scene();
+    scene.background = new THREE.Color('#060e11');
+    scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+    const dir1 = new THREE.DirectionalLight(0xffffff, 0.8);
+    dir1.position.set(5, 10, 7);
+    scene.add(dir1);
+    const dir2 = new THREE.DirectionalLight(0x8888ff, 0.3);
+    dir2.position.set(-5, -3, -5);
+    scene.add(dir2);
+
+    const camera = new THREE.PerspectiveCamera(50, W / H, 0.1, 1000);
+    camera.position.set(0, 0, 18);
+    camera.lookAt(0, 0, 0);
+
+    const fn = new Function('THREE', 'scene', 'camera', 'renderer', code);
+    fn(THREE, scene, camera, renderer);
+
+    renderer.render(scene, camera);
+
+    // Auto-rotate
+    let angle = 0;
+    function animate() {
+      const id = requestAnimationFrame(animate);
+      angle += 0.003;
+      scene.rotation.y = angle;
+      renderer.render(scene, camera);
+    }
+    const animId = requestAnimationFrame(animate);
+    _figAnimations.push({ canvasId, animId, renderer });
+  } catch (e) {
+    console.warn('Figure render failed:', canvasId, e);
+    canvas.style.display = 'none';
+    const fallback = document.createElement('div');
+    fallback.style.cssText = 'padding:14px;color:#60a5fa;font-style:italic;font-size:13px;background:rgba(96,165,250,.06)';
+    fallback.textContent = '[3D Visual — render error: ' + e.message + ']';
+    canvas.parentNode.insertBefore(fallback, canvas.nextSibling);
+  }
+}
+
+function cleanupFigures() {
+  _figAnimations.forEach(f => {
+    cancelAnimationFrame(f.animId);
+    f.renderer.dispose();
+  });
+  _figAnimations.length = 0;
 }
 
 function showStep(idx) {
@@ -1053,6 +1138,14 @@ function showStep(idx) {
     if (step.draw) {
       const html = renderDrawItem(step.draw);
       if (html) board.insertAdjacentHTML('beforeend', html);
+      // Boot Three.js figures after DOM insert
+      if (step.draw.cmd === 'figure' || step.draw.cmd === 'animation') {
+        const fid = 'fig-' + (step.draw.id || '');
+        setTimeout(() => {
+          const canvases = board.querySelectorAll('canvas[data-code]');
+          canvases.forEach(c => { if (!c._booted) { c._booted = true; bootFigure(c.id); } });
+        }, 50);
+      }
     }
     if (step.say) {
       const div = document.createElement('div');
@@ -1072,6 +1165,7 @@ function showStep(idx) {
 }
 
 function rebuildUpTo(idx) {
+  cleanupFigures();
   document.getElementById('board').innerHTML = '';
   document.getElementById('chat').innerHTML = '';
   for (let i = 0; i <= idx; i++) showStep(i);
@@ -1091,7 +1185,7 @@ function goPrev() {
   rebuildUpTo(cursor);
 }
 
-function goStart() { cursor = -1; document.getElementById('board').innerHTML = ''; document.getElementById('chat').innerHTML = ''; updateButtons(); }
+function goStart() { cursor = -1; cleanupFigures(); document.getElementById('board').innerHTML = ''; document.getElementById('chat').innerHTML = ''; updateButtons(); }
 function goEnd() { cursor = steps.length - 1; rebuildUpTo(cursor); }
 
 function updateButtons() {
