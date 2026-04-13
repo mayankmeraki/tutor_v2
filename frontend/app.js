@@ -1333,8 +1333,8 @@ function _showBoardStreaming() {
     <div class="bd-stream-text">Euler is preparing — this may take a few moments</div>
   `;
   wrap.appendChild(el);
-  // Fade in
-  requestAnimationFrame(() => el.classList.add('bd-stream-visible'));
+  // Show immediately (no delayed fade — thinking phase can be <1 second)
+  el.classList.add('bd-stream-visible');
 }
 
 function _hideBoardStreaming() {

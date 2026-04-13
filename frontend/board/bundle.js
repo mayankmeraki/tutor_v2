@@ -2051,13 +2051,21 @@ async function renderScene3D(cmd) {
     container.appendChild(overlay);
   }
 
+  // Drag hint — fades out after 4 seconds
+  var hint = document.createElement('div');
+  hint.style.cssText = 'position:absolute;bottom:8px;right:10px;z-index:2;pointer-events:none;font-family:var(--bd-font,sans-serif);font-size:10px;color:rgba(255,255,255,0.25);transition:opacity 1s;';
+  hint.textContent = '↻ drag to rotate';
+  container.appendChild(hint);
+  setTimeout(function() { hint.style.opacity = '0'; }, 4000);
+
   var rect = container.getBoundingClientRect();
   var w = Math.round(rect.width) || cmd.width || 700;
   var h = Math.round(rect.height) || cmd.height || 450;
   var scene = new THREE.Scene();
   scene.background = new THREE.Color(0x060e11);
-  var camera = new THREE.PerspectiveCamera(45, w / h, 0.01, 500);
-  camera.position.set(cmd.cameraX || 0, cmd.cameraY || 2, cmd.cameraZ || 24);
+  // Wider FOV + further back = content doesn't clip at edges
+  var camera = new THREE.PerspectiveCamera(50, w / h, 0.01, 500);
+  camera.position.set(cmd.cameraX || 0, cmd.cameraY || 3, cmd.cameraZ || 28);
   camera.lookAt(0, 0, 0);
 
   var threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
