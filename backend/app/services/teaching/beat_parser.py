@@ -103,6 +103,12 @@ def _repair_draw_json(s: str) -> str:
     s = s.replace('\u2018', "'").replace('\u2019', "'")
     # HTML entities
     s = s.replace('&quot;', '"').replace('&apos;', "'").replace('&#39;', "'")
+    # Literal newlines / carriage returns inside JSON strings are invalid.
+    # LLMs sometimes output multi-line code in draw text with real newlines
+    # instead of \\n escape sequences. Replace them so json.loads can parse.
+    s = s.replace('\r\n', '\\n').replace('\r', '\\n').replace('\n', '\\n')
+    # Literal tabs → escaped
+    s = s.replace('\t', '\\t')
     return s
 
 
@@ -112,29 +118,40 @@ def _parse_draw(attr_str: str) -> list[dict] | None:
     if not draw_str:
         return None
 
-    draw_str = _repair_draw_json(draw_str)
-
-    # Try multi-line JSONL (one command per line)
-    try:
-        lines = [l.strip() for l in draw_str.split('\n') if l.strip()]
-        cmds = [json.loads(l) for l in lines]
-        return cmds
-    except (json.JSONDecodeError, ValueError):
-        pass
-
-    # Try single JSON object
+    # Try single JSON object FIRST — most common case, and safe even when
+    # the text field contains \\n sequences (which JSONL split would break).
     try:
         return [json.loads(draw_str)]
     except (json.JSONDecodeError, ValueError):
         pass
 
-    # Try repaired JSON
+    # Try with repair (literal newlines → \\n, smart quotes, etc.)
+    repaired = _repair_draw_json(draw_str)
     try:
-        return [json.loads(_repair_draw_json(draw_str))]
+        return [json.loads(repaired)]
     except (json.JSONDecodeError, ValueError):
-        log.warning("Failed to parse draw JSON: %s...", draw_str[:100])
-        # Return raw string wrapped — client has its own repair logic
-        return [{"_raw": draw_str}]
+        pass
+
+    # Try multi-line JSONL (one command per line) — for rare compound beats
+    try:
+        lines = [l.strip() for l in repaired.split('\\n') if l.strip()]
+        if len(lines) > 1:
+            cmds = [json.loads(l) for l in lines]
+            return cmds
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    # Try JSON array
+    try:
+        arr = json.loads(repaired)
+        if isinstance(arr, list):
+            return arr
+    except (json.JSONDecodeError, ValueError):
+        pass
+
+    log.warning("Failed to parse draw JSON: %s...", draw_str[:150])
+    # Return raw string wrapped — client has its own repair logic
+    return [{"_raw": draw_str}]
 
 
 # ── Beat attribute parser ────────────────────────────────────

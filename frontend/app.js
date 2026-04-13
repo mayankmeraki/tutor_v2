@@ -17335,8 +17335,15 @@ async function executeDraw(drawCmds) {
     // Handle _raw fallback from backend when JSON parse failed
     if (!origCmd.cmd && origCmd._raw) {
       try { origCmd = JSON.parse(origCmd._raw); } catch (e) {
-        console.warn('[VoiceScene] Failed to parse _raw draw command:', origCmd._raw?.slice(0, 100));
-        continue;
+        // Repair: literal newlines/tabs inside JSON strings are invalid —
+        // LLMs sometimes put multi-line code with real newlines in draw text
+        try {
+          var repaired = origCmd._raw.replace(/\r?\n/g, '\\n').replace(/\t/g, '\\t');
+          origCmd = JSON.parse(repaired);
+        } catch (e2) {
+          console.warn('[VoiceScene] Failed to parse _raw draw command:', origCmd._raw?.slice(0, 150));
+          continue;
+        }
       }
     }
     if (!origCmd.cmd) continue;
