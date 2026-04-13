@@ -137,6 +137,11 @@ class SessionRouter:
             slog = SessionLogger(session_id)
             gen_counter = getattr(self, '_gen_counter', 0) + 1
             self._gen_counter = gen_counter
+            turn._slog = slog  # attach so _produce_audio can log TTS outcomes
+            slog.log_event("STUDENT_INPUT", text or "(no text)")
+            if context:
+                ctx_summary = ", ".join(c.get("description", "?")[:40] for c in context[:5]) if isinstance(context, list) else str(context)[:100]
+                slog.log_event("CONTEXT", ctx_summary)
 
             async for sse_str in _generate_for_turn(
                 session_id=session_id,
@@ -147,6 +152,8 @@ class SessionRouter:
                 attachments=attachments,
             ):
                 if turn.cancelled.is_set():
+                    slog.log_event("CANCELLED", "turn cancelled by client")
+                    slog.flush_generation(gen_counter)
                     break
 
                 event = _parse_sse_event(sse_str)
@@ -213,19 +220,35 @@ class SessionRouter:
                         await asyncio.gather(*pending, return_exceptions=True)
                     turn.put_json({"type": "DONE", "fullText": "".join(text_parts)})
                 elif evt_type == "RUN_ERROR":
+                    slog.log_error("RUN_ERROR", event.get("message", str(event)))
+                    slog.flush_generation(gen_counter)
                     turn.put_json(event)
                 elif evt_type == "CONNECTED":
                     pass  # Skip — WebSocket is already connected
                 elif evt_type in ("TEXT_MESSAGE_START", "TEXT_MESSAGE_END"):
                     pass  # Not needed for WebSocket protocol
                 else:
-                    # Forward all other events as-is
+                    # Forward all other events as-is — log notable ones
+                    if evt_type in ("COST_UPDATE", "PLAN_UPDATE", "INTERRUPTED"):
+                        detail = ""
+                        if evt_type == "COST_UPDATE":
+                            detail = f"cost={event.get('costCents', '?')}c calls={event.get('callCount', '?')}"
+                        elif evt_type == "INTERRUPTED":
+                            detail = f"gen={event.get('gen', '?')}"
+                        elif evt_type == "PLAN_UPDATE":
+                            plan = event.get("plan", {})
+                            detail = f"sections={len(plan.get('sections', []))} objective={str(plan.get('session_objective', ''))[:60]}"
+                        slog.log_event(evt_type, detail)
                     turn.put_json(event)
 
         except asyncio.CancelledError:
             log.info("[Turn %s] cancelled", turn.turn_id)
+            try: slog.log_event("CANCELLED_EXCEPTION", "asyncio.CancelledError"); slog.flush_generation(gen_counter)
+            except Exception: pass
         except Exception as e:
             log.exception("[Turn %s] error: %s", turn.turn_id, e)
+            try: slog.log_error("EXCEPTION", str(e)); slog.flush_generation(gen_counter)
+            except Exception: pass
             turn.put_json({"type": "RUN_ERROR", "message": str(e)})
         finally:
             turn.done()
@@ -246,19 +269,26 @@ class SessionRouter:
 
             if audio_bytes:
                 turn.put_audio(beat_num, audio_bytes)
+                if hasattr(turn, '_slog'):
+                    turn._slog.log_event("TTS_OK", f"beat #{beat_num} ({len(audio_bytes)} bytes)")
                 del audio_bytes  # Release reference for GC
             else:
                 turn.put_json({"type": "AUDIO_SKIP", "beat": beat_num})
+                if hasattr(turn, '_slog'):
+                    turn._slog.log_event("TTS_EMPTY", f"beat #{beat_num} — no audio returned")
 
         except asyncio.CancelledError:
-            # Turn was interrupted — don't queue anything, re-raise for task cleanup
             raise
         except asyncio.TimeoutError:
             log.warning("[Turn %s] TTS timeout for beat %d", turn.turn_id, beat_num)
+            if hasattr(turn, '_slog'):
+                turn._slog.log_error("TTS_TIMEOUT", f"beat #{beat_num} — 6s timeout")
             if not turn.cancelled.is_set():
                 turn.put_json({"type": "AUDIO_SKIP", "beat": beat_num})
         except Exception as e:
             log.warning("[Turn %s] TTS error for beat %d: %s", turn.turn_id, beat_num, e)
+            if hasattr(turn, '_slog'):
+                turn._slog.log_error("TTS_ERROR", f"beat #{beat_num} — {e}")
             if not turn.cancelled.is_set():
                 turn.put_json({"type": "AUDIO_SKIP", "beat": beat_num})
 

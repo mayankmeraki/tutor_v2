@@ -261,6 +261,136 @@ async def fetch_transcript(session_id: str):
     return {"transcript": cleaned}
 
 
+# ── Replay data ─────────────────────────────────────────────────────
+
+import re
+
+def _parse_vb_beats(text: str) -> list[dict]:
+    """Parse <vb draw='...' say="..." /> tags from assistant content into steps."""
+    beats = []
+    for m in re.finditer(r'<vb\s([^>]*?)/?>', text, re.DOTALL):
+        attrs_str = m.group(1)
+        say = ""
+        draw = None
+        say_m = re.search(r'say="([^"]*)"', attrs_str) or re.search(r"say='([^']*)'", attrs_str)
+        if say_m:
+            say = say_m.group(1)
+        draw_m = re.search(r"draw='(\{[^']*\})'", attrs_str) or re.search(r'draw="(\{[^"]*\})"', attrs_str)
+        if draw_m:
+            try:
+                draw = json.loads(draw_m.group(1))
+            except Exception:
+                draw = {"raw": draw_m.group(1)[:200]}
+        beats.append({"say": say, "draw": draw})
+    return beats
+
+
+def _parse_scene_title(text: str) -> str:
+    m = re.search(r'<teaching-voice-scene\s+title="([^"]*)"', text)
+    return m.group(1) if m else ""
+
+
+async def fetch_replay(session_id: str):
+    from bson import ObjectId
+    db = get_db()
+    s = None
+    try:
+        s = await db.sessions.find_one(
+            {"_id": ObjectId(session_id)},
+            {"transcript": 1, "backendState.messages": 1,
+             "studentName": 1, "title": 1, "headline": 1, "intent": 1,
+             "createdAt": 1, "metrics": 1},
+        )
+    except Exception:
+        pass
+    if not s:
+        s = await db.sessions.find_one(
+            {"sessionId": session_id},
+            {"transcript": 1, "backendState.messages": 1,
+             "studentName": 1, "title": 1, "headline": 1, "intent": 1,
+             "createdAt": 1, "metrics": 1},
+        )
+    if not s:
+        return {"error": "Session not found", "steps": [], "meta": {}}
+
+    # Build timestamp map from transcript (user messages have timestamps)
+    ts_map: dict[str, str] = {}
+    for t in s.get("transcript", []):
+        if isinstance(t, dict) and t.get("role") == "user":
+            content = str(t.get("content", ""))[:80]
+            ts_map[content] = str(t.get("timestamp", ""))[:19]
+
+    # Parse backendState.messages into replay steps
+    messages = (s.get("backendState") or {}).get("messages", [])
+    steps = []
+    last_ts = ""
+
+    for msg in messages:
+        if not isinstance(msg, dict):
+            continue
+        role = msg.get("role", "")
+        content = msg.get("content", "")
+
+        if isinstance(content, list):
+            parts = []
+            for block in content:
+                if isinstance(block, dict) and block.get("type") == "text":
+                    parts.append(block.get("text", ""))
+                elif isinstance(block, str):
+                    parts.append(block)
+            content = " ".join(parts)
+        content = str(content)
+
+        if role == "user":
+            if content.startswith("[SYSTEM]"):
+                continue
+            # Find timestamp from transcript
+            content_key = content[:80]
+            ts = ts_map.get(content_key, "")
+            if ts:
+                last_ts = ts
+            steps.append({
+                "type": "student",
+                "text": content,
+                "ts": ts,
+            })
+
+        elif role == "assistant":
+            scene_title = _parse_scene_title(content)
+            beats = _parse_vb_beats(content)
+            if beats:
+                for i, beat in enumerate(beats):
+                    step = {
+                        "type": "tutor-beat",
+                        "scene": scene_title if i == 0 else "",
+                        "say": beat["say"],
+                        "draw": beat["draw"],
+                        "ts": "",
+                    }
+                    steps.append(step)
+            else:
+                # No beats parsed — show raw content (trimmed of XML tags)
+                clean = re.sub(r'<[^>]+>', '', content).strip()
+                if clean:
+                    steps.append({
+                        "type": "tutor-raw",
+                        "text": clean[:3000],
+                        "ts": "",
+                    })
+
+    intent = s.get("intent") or {}
+    raw_intent = intent.get("raw", "") if isinstance(intent, dict) else str(intent)
+    meta = {
+        "student": s.get("studentName", "?"),
+        "title": s.get("title") or s.get("headline") or "(no title)",
+        "intent": raw_intent,
+        "createdAt": str(s.get("createdAt", ""))[:19],
+        "totalSteps": len(steps),
+        "metrics": s.get("metrics") or {},
+    }
+    return {"steps": steps, "meta": meta}
+
+
 # ── HTTP server ─────────────────────────────────────────────────────
 
 _loop = None
@@ -300,6 +430,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
         try:
             if path == "" or path == "/dashboard":
                 self._html(DASHBOARD_HTML)
+            elif path.startswith("/replay/"):
+                self._html(REPLAY_HTML)
             elif path == "/api/stats":
                 self._json(run_async(fetch_stats()))
             elif path == "/api/users":
@@ -309,6 +441,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/transcript/"):
                 sid = path.split("/api/transcript/", 1)[1]
                 self._json(run_async(fetch_transcript(sid)))
+            elif path.startswith("/api/replay/"):
+                sid = path.split("/api/replay/", 1)[1]
+                self._json(run_async(fetch_replay(sid)))
             else:
                 self.send_error(404)
         except Exception as e:
@@ -613,7 +748,8 @@ function renderSessions() {
     return `<tr>
     <td class="muted">${i + 1}</td>
     <td><span class="bold">${esc(s.user)}</span><br><span class="mono muted">${esc(s.email)}</span></td>
-    <td class="link" onclick="viewTranscript('${s._idx}')" title="View transcript">${esc(s.title)}</td>
+    <td><span class="link" onclick="viewTranscript('${s._idx}')" title="View transcript">${esc(s.title)}</span>
+        <br><a class="mono muted" href="/replay/${s._id}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none" title="Open replay">&#9654; replay</a></td>
     <td class="sm">${fmtDate(s.createdAt)}<br><span class="muted">${ago(s.createdAt)}</span></td>
     <td><span class="dur">${activeStr}</span>${spanStr}</td>
     <td>${zeroWrap(s.turns)}</td>
@@ -709,6 +845,302 @@ setInterval(tick, 1000); tick();
 
 refreshAll();
 startAutoRefresh();
+</script>
+</body>
+</html>
+"""
+
+
+# ── Replay HTML ─────────────────────────────────────────────────────
+
+REPLAY_HTML = """\
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Session Replay — Euler</title>
+<style>
+  :root {
+    --bg: #0f1117; --surface: #1a1d2e; --surface2: #232738; --border: #2a2e45;
+    --text: #e2e4ed; --text2: #8b8fa7; --accent: #818cf8;
+    --accent2: #a78bfa; --green: #34d399; --orange: #fbbf24;
+    --red: #f87171; --blue: #60a5fa; --cyan: #22d3ee;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif;
+         background: var(--bg); color: var(--text); }
+
+  .top-bar { background: var(--surface); border-bottom: 1px solid var(--border);
+             padding: 12px 24px; display: flex; align-items: center; gap: 16px;
+             position: sticky; top: 0; z-index: 10; }
+  .top-bar a { color: var(--accent); text-decoration: none; font-size: 13px; }
+  .top-bar a:hover { text-decoration: underline; }
+  .top-bar .title { font-weight: 700; font-size: 15px; flex: 1; }
+  .top-bar .meta { font-size: 12px; color: var(--text2); }
+
+  .main { display: flex; height: calc(100vh - 49px); }
+
+  /* Board panel */
+  .board-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+  .board { flex: 1; padding: 24px 32px; overflow-y: auto; background: #0a0d14; }
+  .board-item { margin-bottom: 8px; animation: fadeIn .3s ease; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .board-item.scene-title { font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+                            color: var(--orange); margin-top: 20px; margin-bottom: 8px; font-weight: 700; }
+  .board-item.draw-text { font-size: 15px; line-height: 1.6; }
+  .board-item.draw-text.h1 { font-size: 24px; font-weight: 800; color: var(--orange); text-align: center; margin: 16px 0; }
+  .board-item.draw-text.h2 { font-size: 18px; font-weight: 700; color: var(--cyan); margin-top: 12px; }
+  .board-item.draw-text.h3 { font-size: 16px; font-weight: 600; color: var(--accent); }
+  .board-item.draw-equation { font-family: 'SF Mono', Monaco, monospace; font-size: 16px;
+                              color: var(--green); padding: 8px 14px; background: rgba(52,211,153,.06);
+                              border-left: 3px solid var(--green); border-radius: 4px; margin: 8px 0; }
+  .board-item.draw-step { padding: 6px 14px; border-left: 3px solid var(--accent);
+                          background: rgba(129,140,248,.05); border-radius: 4px; margin: 4px 0; }
+  .board-item.draw-callout { padding: 10px 14px; background: rgba(251,191,36,.08);
+                             border: 1px solid rgba(251,191,36,.2); border-radius: 8px; margin: 8px 0; }
+  .board-item.draw-check { color: var(--green); }
+  .board-item.draw-check::before { content: "\\2713  "; font-weight: 700; }
+  .board-item.draw-cross { color: var(--red); }
+  .board-item.draw-cross::before { content: "\\2717  "; font-weight: 700; }
+  .board-item.draw-list li { margin: 3px 0 3px 18px; }
+  .board-item.draw-figure { padding: 14px; background: rgba(96,165,250,.06);
+                            border: 1px dashed var(--blue); border-radius: 8px; margin: 10px 0;
+                            color: var(--blue); font-style: italic; font-size: 13px; }
+  .board-item.draw-divider { border-top: 1px solid var(--border); margin: 14px 0; }
+  .board-item.draw-note { font-size: 13px; color: var(--text2); font-style: italic; padding: 4px 0; }
+
+  /* Chat panel */
+  .chat-panel { width: 380px; border-left: 1px solid var(--border); display: flex;
+                flex-direction: column; background: var(--surface); }
+  .chat-header { padding: 12px 16px; border-bottom: 1px solid var(--border);
+                 font-size: 12px; color: var(--text2); font-weight: 600;
+                 text-transform: uppercase; letter-spacing: .5px; }
+  .chat-messages { flex: 1; overflow-y: auto; padding: 16px; }
+  .chat-msg { margin-bottom: 14px; animation: fadeIn .3s ease; }
+  .chat-msg .bubble { padding: 10px 14px; border-radius: 12px; font-size: 13px;
+                      line-height: 1.5; max-width: 90%; word-break: break-word; }
+  .chat-msg.student .bubble { background: rgba(129,140,248,.12); border: 1px solid rgba(129,140,248,.15);
+                              margin-left: 0; border-bottom-left-radius: 4px; }
+  .chat-msg.tutor .bubble { background: rgba(52,211,153,.08); border: 1px solid rgba(52,211,153,.12);
+                            margin-left: auto; border-bottom-right-radius: 4px; }
+  .chat-msg .who { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: .5px; margin-bottom: 3px;
+                   display: flex; align-items: center; gap: 6px; }
+  .chat-msg.student .who { color: var(--accent); }
+  .chat-msg.tutor .who { color: var(--green); text-align: right; justify-content: flex-end; }
+  .chat-msg .who .ts { font-weight: 400; color: var(--text2); font-size: 10px; }
+
+  /* Controls */
+  .controls-bar { padding: 14px 24px; background: var(--surface2); border-top: 1px solid var(--border);
+                  display: flex; align-items: center; gap: 12px; justify-content: center; }
+  .controls-bar button { padding: 8px 18px; border: 1px solid var(--border); border-radius: 8px;
+                         font-size: 13px; font-weight: 600; cursor: pointer;
+                         background: var(--surface); color: var(--text); transition: all .1s; }
+  .controls-bar button:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+  .controls-bar button:disabled { opacity: .3; cursor: default; }
+  .controls-bar button.primary { background: var(--accent); color: #0f1117; border-color: var(--accent); }
+  .controls-bar button.primary:hover:not(:disabled) { opacity: .85; color: #0f1117; }
+  .controls-bar .progress { font-size: 12px; color: var(--text2); font-family: monospace; min-width: 80px; text-align: center; }
+  .controls-bar .speed { padding: 5px 8px; border: 1px solid var(--border); border-radius: 6px;
+                         background: var(--surface); color: var(--text); font-size: 12px; }
+  .controls-bar label { font-size: 11px; color: var(--text2); }
+
+  .loading { display: flex; align-items: center; justify-content: center; height: 100%;
+             font-size: 14px; color: var(--text2); }
+</style>
+</head>
+<body>
+<div class="top-bar">
+  <a href="/">&larr; Dashboard</a>
+  <div class="title" id="replayTitle">Loading...</div>
+  <div class="meta" id="replayMeta"></div>
+</div>
+<div class="main">
+  <div class="board-panel">
+    <div class="board" id="board"><div class="loading">Loading session...</div></div>
+    <div class="controls-bar">
+      <button onclick="goStart()" title="Start">&laquo;</button>
+      <button onclick="goPrev()" id="btnPrev" title="Previous">&larr; Prev</button>
+      <button onclick="goNext()" id="btnNext" class="primary" title="Next (Space)">Next &rarr;</button>
+      <button onclick="goEnd()" title="End">&raquo;</button>
+      <div class="progress" id="progress">0 / 0</div>
+      <span style="width:1px;height:20px;background:var(--border)"></span>
+      <button onclick="toggleAuto()" id="btnAuto" title="Auto-play">&#9654; Play</button>
+      <label>Speed</label>
+      <select class="speed" id="speedSelect">
+        <option value="500">Fast</option>
+        <option value="1500" selected>Normal</option>
+        <option value="3000">Slow</option>
+        <option value="5000">Very Slow</option>
+      </select>
+    </div>
+  </div>
+  <div class="chat-panel">
+    <div class="chat-header">Conversation</div>
+    <div class="chat-messages" id="chat"></div>
+  </div>
+</div>
+
+<script>
+let steps = [], meta = {}, cursor = -1, autoTimer = null;
+
+function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function renderDrawItem(draw) {
+  if (!draw) return '';
+  const cmd = draw.cmd || 'text';
+  const text = draw.text || draw.label || '';
+  const size = draw.size || 'text';
+  const color = draw.color || '';
+  const style = color ? `color:${color}` : '';
+
+  switch (cmd) {
+    case 'text':
+    case 'label':
+      return `<div class="board-item draw-text ${size}" style="${style}">${esc(text)}</div>`;
+    case 'equation':
+    case 'latex':
+      return `<div class="board-item draw-equation" style="${style}">${esc(text || draw.equation || draw.latex || '')}</div>`;
+    case 'step':
+      return `<div class="board-item draw-step" style="${style}">${esc(text)}</div>`;
+    case 'callout':
+      return `<div class="board-item draw-callout" style="${style}">${esc(text)}</div>`;
+    case 'check':
+      return `<div class="board-item draw-check" style="${style}">${esc(text)}</div>`;
+    case 'cross':
+      return `<div class="board-item draw-cross" style="${style}">${esc(text)}</div>`;
+    case 'note':
+      return `<div class="board-item draw-note">${esc(text)}</div>`;
+    case 'divider':
+    case 'clear':
+      return '<div class="board-item draw-divider"></div>';
+    case 'list': {
+      const items = draw.items || [];
+      return `<div class="board-item draw-list"><ul>${items.map(i => `<li>${esc(typeof i === 'string' ? i : i.text || '')}</li>`).join('')}</ul></div>`;
+    }
+    case 'figure':
+    case 'animation':
+      return `<div class="board-item draw-figure">[Animation: ${esc(draw.id || text || 'visual')}]</div>`;
+    default:
+      return text ? `<div class="board-item draw-text" style="${style}">${esc(text)}</div>` : '';
+  }
+}
+
+function showStep(idx) {
+  if (idx < 0 || idx >= steps.length) return;
+  const step = steps[idx];
+  const board = document.getElementById('board');
+  const chat = document.getElementById('chat');
+
+  if (step.type === 'student') {
+    const div = document.createElement('div');
+    div.className = 'chat-msg student';
+    div.innerHTML = `<div class="who">Student${step.ts ? ' <span class="ts">' + step.ts.replace('T',' ') + '</span>' : ''}</div>
+      <div class="bubble">${esc(step.text)}</div>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  } else if (step.type === 'tutor-beat') {
+    if (step.scene) {
+      const scDiv = document.createElement('div');
+      scDiv.className = 'board-item scene-title';
+      scDiv.textContent = step.scene;
+      board.appendChild(scDiv);
+    }
+    if (step.draw) {
+      const html = renderDrawItem(step.draw);
+      if (html) board.insertAdjacentHTML('beforeend', html);
+    }
+    if (step.say) {
+      const div = document.createElement('div');
+      div.className = 'chat-msg tutor';
+      div.innerHTML = `<div class="who">Tutor</div><div class="bubble">${esc(step.say)}</div>`;
+      chat.appendChild(div);
+      chat.scrollTop = chat.scrollHeight;
+    }
+    board.scrollTop = board.scrollHeight;
+  } else if (step.type === 'tutor-raw') {
+    const div = document.createElement('div');
+    div.className = 'chat-msg tutor';
+    div.innerHTML = `<div class="who">Tutor</div><div class="bubble">${esc(step.text)}</div>`;
+    chat.appendChild(div);
+    chat.scrollTop = chat.scrollHeight;
+  }
+}
+
+function rebuildUpTo(idx) {
+  document.getElementById('board').innerHTML = '';
+  document.getElementById('chat').innerHTML = '';
+  for (let i = 0; i <= idx; i++) showStep(i);
+  updateButtons();
+}
+
+function goNext() {
+  if (cursor >= steps.length - 1) return;
+  cursor++;
+  showStep(cursor);
+  updateButtons();
+}
+
+function goPrev() {
+  if (cursor <= 0) { cursor = -1; document.getElementById('board').innerHTML = ''; document.getElementById('chat').innerHTML = ''; updateButtons(); return; }
+  cursor--;
+  rebuildUpTo(cursor);
+}
+
+function goStart() { cursor = -1; document.getElementById('board').innerHTML = ''; document.getElementById('chat').innerHTML = ''; updateButtons(); }
+function goEnd() { cursor = steps.length - 1; rebuildUpTo(cursor); }
+
+function updateButtons() {
+  document.getElementById('btnPrev').disabled = cursor < 0;
+  document.getElementById('btnNext').disabled = cursor >= steps.length - 1;
+  document.getElementById('progress').textContent = (cursor + 1) + ' / ' + steps.length;
+}
+
+function toggleAuto() {
+  if (autoTimer) { stopAuto(); return; }
+  document.getElementById('btnAuto').innerHTML = '&#9724; Stop';
+  const ms = parseInt(document.getElementById('speedSelect').value);
+  autoTimer = setInterval(() => {
+    if (cursor >= steps.length - 1) { stopAuto(); return; }
+    goNext();
+  }, ms);
+}
+function stopAuto() {
+  if (autoTimer) clearInterval(autoTimer);
+  autoTimer = null;
+  document.getElementById('btnAuto').innerHTML = '&#9654; Play';
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key === 'ArrowRight' || e.key === ' ') { e.preventDefault(); goNext(); }
+  if (e.key === 'ArrowLeft') { e.preventDefault(); goPrev(); }
+  if (e.key === 'Home') goStart();
+  if (e.key === 'End') goEnd();
+});
+
+async function loadReplay() {
+  const sid = location.pathname.split('/replay/')[1];
+  if (!sid) { document.getElementById('board').innerHTML = '<div class="loading">No session ID</div>'; return; }
+  try {
+    const resp = await fetch('/api/replay/' + sid);
+    const data = await resp.json();
+    if (data.error) { document.getElementById('board').innerHTML = '<div class="loading">' + esc(data.error) + '</div>'; return; }
+    steps = data.steps || [];
+    meta = data.meta || {};
+    document.getElementById('replayTitle').textContent = (meta.student || '?') + ' — ' + (meta.title || 'Session');
+    document.getElementById('replayMeta').textContent =
+      (meta.createdAt || '').replace('T', ' ') + ' | ' + steps.length + ' steps | ' +
+      (meta.metrics?.totalTurns || 0) + ' turns';
+    document.getElementById('board').innerHTML = '';
+    cursor = -1;
+    updateButtons();
+  } catch (e) {
+    document.getElementById('board').innerHTML = '<div class="loading">Failed to load: ' + esc(e.message) + '</div>';
+  }
+}
+
+loadReplay();
 </script>
 </body>
 </html>
