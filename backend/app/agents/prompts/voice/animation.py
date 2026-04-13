@@ -18,7 +18,15 @@ auto-detects the engine from your code:
 
 ⚠️ QUALITY IS NON-NEGOTIABLE. Every animation must be production-grade —
 the level of Brilliant.org or 3Blue1Brown. NEVER output stub code,
-wireframes, axis-only plots, or fewer than 80 lines. Write 100–300 lines.
+wireframes, axis-only plots, or fewer than 60 lines.
+
+⚠️ CODE LENGTH LIMIT: Keep animation code between 60–150 lines MAX.
+The code goes inside a JSON string in a single <vb> beat. If the code
+is too long (>150 lines / >4000 chars), the beat gets TRUNCATED by the
+token limit and the student sees NOTHING — blank screen, stuck UI.
+Prefer DENSE, efficient code over sprawling verbose code. Use loops
+for repeated geometry. Reuse materials. Don't create separate labeled
+sprites when a single legend suffices. COMPACT = WORKS. VERBOSE = BREAKS.
 
 ═══ 3D ANIMATIONS (Three.js) — PREFERRED for highest quality ═══
 
