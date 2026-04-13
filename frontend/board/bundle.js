@@ -2011,30 +2011,28 @@ async function renderScene3D(cmd) {
     return;
   }
 
-  // Clear loading, build controls bar + canvas
+  // Clear loading, build canvas — no controls bar (was blocking drag)
   container.innerHTML = '';
 
-  // Controls bar
-  var controlsBar = document.createElement('div');
-  controlsBar.className = 'bd-3d-controls';
-  controlsBar.innerHTML = '<button class="bd-3d-ctrl-btn" data-action="toggle">Pause</button>' +
-    '<label class="bd-3d-ctrl-label">Speed <input type="range" min="0" max="100" value="50" class="bd-3d-speed"></label>' +
-    (cmd.title ? '<span class="bd-3d-ctrl-title">' + escapeHtml(cmd.title) + '</span>' : '');
-  container.appendChild(controlsBar);
-
-  // Legend bar
-  if (cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0) {
-    var legendBar = document.createElement('div');
-    legendBar.className = 'bd-3d-legend';
-    legendBar.innerHTML = cmd.legend.map(function(l) {
-      return '<span class="bd-3d-legend-item"><span class="bd-3d-legend-dot" style="background:' + (l.color || '#fff') + '"></span>' + escapeHtml(l.text || l.label || '') + '</span>';
-    }).join('');
-    container.appendChild(legendBar);
+  // Title + legend as a small translucent overlay on top of canvas
+  if (cmd.title || (cmd.legend && cmd.legend.length)) {
+    var overlay = document.createElement('div');
+    overlay.style.cssText = 'position:absolute;top:8px;left:10px;z-index:2;pointer-events:none;font-family:var(--bd-font,sans-serif);';
+    if (cmd.title) {
+      overlay.innerHTML += '<div style="font-size:11px;color:rgba(255,255,255,0.4);margin-bottom:4px">' + escapeHtml(cmd.title) + '</div>';
+    }
+    if (cmd.legend && cmd.legend.length) {
+      overlay.innerHTML += '<div style="display:flex;gap:10px;flex-wrap:wrap;font-size:10px;color:rgba(255,255,255,0.35)">' +
+        cmd.legend.map(function(l) {
+          return '<span style="display:flex;align-items:center;gap:4px"><span style="width:6px;height:6px;border-radius:50%;background:' + (l.color || '#fff') + '"></span>' + escapeHtml(l.text || l.label || '') + '</span>';
+        }).join('') + '</div>';
+    }
+    container.appendChild(overlay);
   }
 
   var rect = container.getBoundingClientRect();
   var w = Math.round(rect.width) || cmd.width || 700;
-  var h = Math.round(rect.height - 40) || cmd.height || 420;
+  var h = Math.round(rect.height) || cmd.height || 450;
   var scene = new THREE.Scene();
   scene.background = new THREE.Color(0x060e11);
   var camera = new THREE.PerspectiveCamera(48, w / h, 0.01, 500);
@@ -2088,8 +2086,7 @@ async function renderScene3D(cmd) {
   if (cmd.grid === true) scene.add(new THREE.GridHelper(10, 10, 0x1a3a2a, 0x111413));
   if (cmd.axes === true) scene.add(new THREE.AxesHelper(2));
 
-  // Pause/speed state + RAF interception for LLM animation loops
-  var paused = false, speed = 0.5;
+  // RAF interception for LLM animation loops
   var pendingRAFs = [], rafIdCounter = 1, rafIdMap = {};
   function interceptedRAF(cb) { var id = rafIdCounter++; rafIdMap[id] = cb; pendingRAFs.push(id); return id; }
   function interceptedCAF(id) { delete rafIdMap[id]; }
@@ -2124,24 +2121,22 @@ async function renderScene3D(cmd) {
   }
 
   // Animation loop — drains LLM's pending RAFs + renders
-  var animId, speedAccum = 0, lastTs = 0;
+  var animId;
   function animate(ts) {
     animId = requestAnimationFrame(animate);
-    if (!paused) {
-      speedAccum += speed * 2;
-      while (speedAccum >= 1 && pendingRAFs.length > 0) {
-        speedAccum -= 1;
-        var batch = pendingRAFs.slice(); pendingRAFs.length = 0;
-        for (var i = 0; i < batch.length; i++) {
-          var cb = rafIdMap[batch[i]]; delete rafIdMap[batch[i]];
-          if (cb) { try { cb(ts); } catch (err) {} }
-        }
-      }
-      if (speedAccum > 2) speedAccum = 2;
-      if (controls) { controls.autoRotateSpeed = (cmd.rotateSpeed || 1) * speed * 2; controls.update(); }
-    } else { lastTs = 0; }
 
-    // Smooth scale-up reveal — animate groups that were just revealed
+    // Drain LLM's intercepted RAF callbacks
+    if (pendingRAFs.length > 0) {
+      var batch = pendingRAFs.slice(); pendingRAFs.length = 0;
+      for (var i = 0; i < batch.length; i++) {
+        var cb = rafIdMap[batch[i]]; delete rafIdMap[batch[i]];
+        if (cb) { try { cb(ts); } catch (err) {} }
+      }
+    }
+
+    if (controls) controls.update();
+
+    // Smooth scale-up reveal for phase groups
     scene.traverse(function(obj) {
       if (obj._revealProgress !== undefined && obj._revealProgress < 1) {
         obj._revealProgress = Math.min(1, obj._revealProgress + 0.04);
@@ -2154,19 +2149,6 @@ async function renderScene3D(cmd) {
     threeRenderer.render(scene, camera);
   }
   animate(performance.now());
-
-  // Wire Pause/Speed controls
-  var toggleBtn = controlsBar.querySelector('[data-action="toggle"]');
-  var speedSlider = controlsBar.querySelector('.bd-3d-speed');
-  if (toggleBtn) toggleBtn.addEventListener('click', function(e) {
-    e.stopPropagation(); paused = !paused;
-    this.textContent = paused ? 'Resume' : 'Pause';
-    if (controls) controls.autoRotate = !paused;
-  });
-  if (speedSlider) {
-    speedSlider.addEventListener('input', function(e) { e.stopPropagation(); speed = this.value / 100; });
-    speedSlider.addEventListener('click', function(e) { e.stopPropagation(); });
-  }
 
   // Store for cleanup + figure auto-sync
   board.animations.push({
