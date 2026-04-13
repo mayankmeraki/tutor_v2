@@ -1330,7 +1330,7 @@ function _showBoardStreaming() {
   el.id = 'bd-streaming-indicator';
   el.innerHTML = `
     <div class="bd-stream-pulse"></div>
-    <div class="bd-stream-text">Euler is preparing — this may take a few moments</div>
+    <div class="bd-stream-text">Euler is thinking — this may take a few moments</div>
   `;
   wrap.appendChild(el);
   // Show immediately (no delayed fade — thinking phase can be <1 second)
