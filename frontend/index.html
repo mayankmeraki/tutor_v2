@@ -968,14 +968,15 @@ function handleBackButton() {
     if (typeof Router !== 'undefined') Router.navigate('/home');
     else window.location.href = '/home';
   }
-  // Try showing feedback if session had turns and hasn't been shown yet
-  var fbKey = 'fb_shown_' + (window.state?.sessionId || '');
-  if (window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function' && !sessionStorage.getItem(fbKey)) {
+  // Show feedback if a session is active (has a sessionId) and feedback hasn't been shown
+  var sid = window.state?.sessionId || '';
+  var fbKey = 'fb_shown_' + sid;
+  var hasSession = sid && sid.length > 5;
+  if (hasSession && typeof showFeedbackForm === 'function' && !sessionStorage.getItem(fbKey)) {
     window._fbOnClose = goHome;
     showFeedbackForm();
     return;
   }
-  // Otherwise just go home immediately
   goHome();
 }
 </script>
