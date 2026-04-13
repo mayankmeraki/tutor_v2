@@ -132,6 +132,12 @@ class SessionRouter:
             beat_detector = StreamingBeatDetector()
             text_parts = []  # Use list to avoid O(n²) string concat
 
+            # Per-session debug logger — writes full generations + beats to /tmp/euler_logs/
+            from app.services.teaching.session_logger import SessionLogger
+            slog = SessionLogger(session_id)
+            gen_counter = getattr(self, '_gen_counter', 0) + 1
+            self._gen_counter = gen_counter
+
             async for sse_str in _generate_for_turn(
                 session_id=session_id,
                 messages=actual_messages,
@@ -153,6 +159,7 @@ class SessionRouter:
                 if evt_type == "TEXT_MESSAGE_CONTENT":
                     delta = event.get("delta", "")
                     text_parts.append(delta)
+                    slog.log_delta(delta)
 
                     # Still send text delta for client finalization
                     turn.put_json({"type": "TEXT_DELTA", "delta": delta})
@@ -167,10 +174,12 @@ class SessionRouter:
                             be_type = be["type"]
                             if be_type == "VOICE_SCENE_START":
                                 turn.put_json({"type": "VOICE_SCENE_START", "title": be["title"]})
+                                slog.log_scene_start(be["title"])
                             elif be_type == "VOICE_BEAT":
                                 beat_num = be["beat"]
                                 beat_data = be["data"]
                                 turn.put_json({"type": "VOICE_BEAT", "beat": beat_num, "data": beat_data})
+                                slog.log_beat(beat_num, beat_data)
 
                                 # Start TTS in background
                                 say_text = beat_data.get("say", "")
@@ -181,8 +190,10 @@ class SessionRouter:
                                     turn.tasks.append(tts_task)
                                 else:
                                     turn.put_json({"type": "AUDIO_SKIP", "beat": beat_num})
+                                    slog.log_event("AUDIO_SKIP", f"beat #{beat_num}")
                             elif be_type == "VOICE_SCENE_END":
                                 turn.put_json({"type": "VOICE_SCENE_END"})
+                                slog.log_scene_end()
                                 beat_detector.reset()
 
                     continue  # Don't forward raw TEXT_MESSAGE_CONTENT in voice mode
@@ -191,6 +202,11 @@ class SessionRouter:
                 if evt_type == "TEXT_MESSAGE_CONTENT":
                     turn.put_json({"type": "TEXT_DELTA", "delta": event.get("delta", "")})
                 elif evt_type == "RUN_FINISHED":
+                    # Flush generation log + detect truncated beats
+                    slog.flush_generation(gen_counter)
+                    if beat_detector and beat_detector.scene_started and not beat_detector.scene_ended:
+                        slog.log_truncation_warning(len("".join(text_parts)))
+
                     # Wait for pending TTS tasks before signaling done
                     pending = [t for t in turn.tasks if not t.done() and t != asyncio.current_task()]
                     if pending:
