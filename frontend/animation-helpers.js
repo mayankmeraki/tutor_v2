@@ -106,6 +106,34 @@ class AnimHelper {
     }
   }
 
+  // ── Color normalization ──
+  // LLMs pass colors in unpredictable formats: [r,g,b], "#hex", 0xhex,
+  // "rgb(r,g,b)", p5.Color objects, or even {r,g,b}. This normalizes
+  // ANY format to [r, g, b] so destructuring never fails.
+  _rgb(c) {
+    if (!c) return [200, 200, 200];
+    if (Array.isArray(c)) return c;
+    if (typeof c === 'number') {
+      return [(c >> 16) & 255, (c >> 8) & 255, c & 255];
+    }
+    if (typeof c === 'string') {
+      // "#rrggbb" or "#rgb"
+      const hex = c.replace('#', '');
+      if (/^[0-9a-fA-F]{6}$/.test(hex)) return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
+      if (/^[0-9a-fA-F]{3}$/.test(hex)) return [parseInt(hex[0]+hex[0],16), parseInt(hex[1]+hex[1],16), parseInt(hex[2]+hex[2],16)];
+      // "rgb(r,g,b)"
+      const m = c.match(/(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+      if (m) return [+m[1], +m[2], +m[3]];
+      // Named — fall back
+      return [200, 200, 200];
+    }
+    if (c && typeof c === 'object') {
+      if (c.levels) return [c.levels[0], c.levels[1], c.levels[2]]; // p5.Color
+      if (c.r !== undefined) return [c.r, c.g, c.b];
+    }
+    return [200, 200, 200];
+  }
+
   // ── Drawing primitives ──
 
   /** Clear canvas — fills with board bg so animation blends seamlessly */
@@ -127,7 +155,7 @@ class AnimHelper {
   /** Draw a glowing circle */
   glow(x, y, r, color, intensity = 0.3) {
     const p = this.p;
-    const [cr, cg, cb] = color;
+    const [cr, cg, cb] = this._rgb(color);
     p.noStroke();
     // Outer glow layers
     for (let i = 4; i > 0; i--) {
@@ -150,7 +178,7 @@ class AnimHelper {
   /** Draw text label */
   label(x, y, text, color, size = 12, align = 'center') {
     const p = this.p;
-    const [cr, cg, cb] = color || this.colors.text;
+    const [cr, cg, cb] = this._rgb(color || this.colors.text);
     p.fill(cr, cg, cb, 200);
     p.noStroke();
     p.textAlign(p[align.toUpperCase()] || p.CENTER, p.CENTER);
@@ -168,7 +196,7 @@ class AnimHelper {
   /** Draw annotation callout */
   callout(x, y, text, color, maxWidth = 180) {
     const p = this.p;
-    const [cr, cg, cb] = color || this.colors.textMuted;
+    const [cr, cg, cb] = this._rgb(color || this.colors.textMuted);
     const pad = 8;
     const lines = this._wrapText(text, maxWidth - pad*2);
     const h = lines.length * 16 + pad * 2;
@@ -210,7 +238,7 @@ class AnimHelper {
   /** Draw arrow */
   arrow(x1, y1, x2, y2, color, weight = 2) {
     const p = this.p;
-    const [cr, cg, cb] = color;
+    const [cr, cg, cb] = this._rgb(color);
     p.stroke(cr, cg, cb, 180);
     p.strokeWeight(weight);
     p.line(x1, y1, x2, y2);
@@ -229,7 +257,7 @@ class AnimHelper {
   /** Draw dashed line */
   dashed(x1, y1, x2, y2, color, dashLen = 6, gapLen = 4) {
     const p = this.p;
-    const [cr, cg, cb] = color;
+    const [cr, cg, cb] = this._rgb(color);
     p.stroke(cr, cg, cb, 100);
     p.strokeWeight(1);
     p.drawingContext.setLineDash([dashLen, gapLen]);
@@ -252,7 +280,7 @@ class AnimHelper {
   curve(points, color, weight = 2, alpha = 1) {
     if (points.length < 2) return;
     const p = this.p;
-    const [cr, cg, cb] = color;
+    const [cr, cg, cb] = this._rgb(color);
     p.stroke(cr, cg, cb, alpha * 255);
     p.strokeWeight(weight);
     p.noFill();
@@ -265,7 +293,7 @@ class AnimHelper {
   filledCurve(points, baseY, color, alpha = 0.15) {
     if (points.length < 2) return;
     const p = this.p;
-    const [cr, cg, cb] = color;
+    const [cr, cg, cb] = this._rgb(color);
     p.fill(cr, cg, cb, alpha * 255);
     p.noStroke();
     p.beginShape();
@@ -310,7 +338,7 @@ class AnimHelper {
       const ix = lx + pad;
       const iy = ly + pad + i * lineH + lineH / 2;
       const c = item.color || [148, 163, 184];
-      const [cr, cg, cb] = Array.isArray(c) ? c : [148, 163, 184];
+      const [cr, cg, cb] = this._rgb(c);
       p.fill(cr, cg, cb);
       p.noStroke();
       p.ellipse(ix + dotR, iy, dotR * 2, dotR * 2);
@@ -325,7 +353,7 @@ class AnimHelper {
   /** Draw equation box */
   equation(x, y, text, color) {
     const p = this.p;
-    const [cr, cg, cb] = color || this.colors.accent;
+    const [cr, cg, cb] = this._rgb(color || this.colors.accent);
     const w = Math.max(160, p.textWidth(text) + 30);
     p.fill(10, 14, 26, 230);
     p.stroke(cr, cg, cb, 60);
