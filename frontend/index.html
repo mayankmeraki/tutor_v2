@@ -589,7 +589,7 @@
       <!-- Top Bar -->
       <header id="top-bar">
         <div class="top-left">
-          <button id="btn-back" class="icon-btn">&larr; Home</button>
+          <button id="btn-back" class="icon-btn" onclick="handleBackButton()">&larr; Home</button>
           <span class="course-title" id="course-title">Teaching Session</span>
         </div>
         <div class="top-right">
@@ -959,19 +959,18 @@ function submitSessionFeedback() {
   }, 2000);
 }
 
-// Auto-show after session ends or after 10+ turns
+// Track turns for feedback trigger
 window._fbTurnCount = 0;
-var _origSetVoiceBarState = window.setVoiceBarState;
-if (typeof setVoiceBarState === 'function') {
-  var _origFn = setVoiceBarState;
-  setVoiceBarState = function(s) {
-    _origFn(s);
-    if (s === 'idle') {
-      window._fbTurnCount++;
-      // Show after 8 turns
-      if (window._fbTurnCount >= 8) showFeedbackForm();
-    }
-  };
+
+// Back button handler (onclick — more reliable than addEventListener)
+function handleBackButton() {
+  if (window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function') {
+    window._fbOnClose = function() { if (typeof Router !== 'undefined') Router.navigate('/home'); else window.location.href = '/home'; };
+    showFeedbackForm();
+    return;
+  }
+  if (typeof Router !== 'undefined') Router.navigate('/home');
+  else window.location.href = '/home';
 }
 </script>
 </body>

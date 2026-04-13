@@ -905,6 +905,7 @@ async function createAnimation(cmd) {
 
   // Clear global skeleton — per-animation loader is about to appear
   if (typeof _clearHeavyDrawPending === 'function') _clearHeavyDrawPending();
+  if (typeof _hideBoardStreaming === 'function') _hideBoardStreaming();
 
   // Wait for the container to have a stable non-zero layout.
   // ResizeObserver fires when the element actually has dimensions,
@@ -2019,6 +2020,7 @@ async function renderScene3D(cmd) {
 
   // Clear global skeleton — per-animation loader is now visible
   if (typeof _clearHeavyDrawPending === 'function') _clearHeavyDrawPending();
+  if (typeof _hideBoardStreaming === 'function') _hideBoardStreaming();
 
   // YIELD — let the browser paint the loading indicator
   await new Promise(function(r) { requestAnimationFrame(function() { requestAnimationFrame(r); }); });

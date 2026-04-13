@@ -1345,11 +1345,10 @@ function _hideBoardStreaming() {
 }
 
 function _showBoardDrawingSkeleton() {
-  // Contract: the skeleton is ONLY for the silent gap before the tutor's
-  // voice begins. Once we've transitioned to 'speaking' for this turn, the
-  // student is hearing the tutor — the skeleton must never reappear, even
-  // if a later beat is mid-stream in the accumulated text.
-  if (_vbState === 'speaking' || _vbState === 'idle') return;
+  // DISABLED — replaced by _showBoardStreaming which is more reliable
+  // and doesn't conflict. The new indicator shows during thinking AND
+  // stays through speaking until the animation actually renders.
+  return;
   const wrap = document.getElementById('bd-canvas-wrap');
   if (!wrap) return;
   let el = document.getElementById('bd-drawing-skeleton');
@@ -18006,6 +18005,12 @@ function setVoiceBarState(newState) {
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       _hideBoardStreaming();
+      _hideBoardDrawingSkeleton();
+      // Count turns for feedback trigger
+      if (typeof window._fbTurnCount === 'number') {
+        window._fbTurnCount++;
+        if (window._fbTurnCount >= 8 && typeof showFeedbackForm === 'function') showFeedbackForm();
+      }
       break;
 
     case 'thinking':
@@ -18030,8 +18035,10 @@ function setVoiceBarState(newState) {
       if (status) { status.className = 'vb-status active speaking'; status.textContent = 'Euler is speaking'; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      // First beat is about to play — hide streaming indicator
-      _hideBoardStreaming();
+      // Don't hide streaming indicator here — it stays until the animation
+      // actually renders. Text beats fire first (speaking starts) but the
+      // heavy animation beat might still be streaming. The indicator is
+      // hidden when createAnimation/renderScene3D calls _hideBoardStreaming.
       break;
 
     case 'paused':
