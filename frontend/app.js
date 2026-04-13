@@ -1551,12 +1551,18 @@ function _wsKillTurn(reason) {
   if (!turn) return;
   console.log(`[WS] Kill turn gen=${turn.gen} reason=${reason}`);
 
+  // Stop ALL audio — the turn's tracked element + any orphaned Audio objects
   if (turn.audioEl) {
     if (turn.audioEl._blobUrl) try { URL.revokeObjectURL(turn.audioEl._blobUrl); } catch (e) {}
     try { turn.audioEl.pause(); turn.audioEl.src = ''; } catch (e) {}
     turn.audioEl = null;
   }
   state.voiceCurrentAudio = null;
+  // Nuclear: pause every audio element on the page to kill orphans
+  // (race condition: TTS bytes arrive AFTER kill, audio starts playing)
+  document.querySelectorAll('audio').forEach(a => {
+    try { a.pause(); a.src = ''; } catch (e) {}
+  });
 
   for (const b of Object.values(turn.beats)) {
     if (b._timeout) clearTimeout(b._timeout);
@@ -1568,6 +1574,7 @@ function _wsKillTurn(reason) {
   _wsTurn = null;
   _eager.running = false;
   _hideBoardDrawingSkeleton();
+  _hideBoardStreaming();
 }
 
 function wsCancel() {
