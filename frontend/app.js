@@ -1805,7 +1805,9 @@ async function _wsRunExecutor(turn) {
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
         if (beat.question) break;
       } else if (state.isStreaming || _eager.queue.length > 0) {
-        // Still streaming or beats may arrive — wait
+        // Queue empty but still streaming — animation code might be generating.
+        // Show indicator so student knows something is coming.
+        _showBoardStreaming();
         await new Promise(r => setTimeout(r, 80));
       } else {
         // Streaming done AND queue empty — exit
