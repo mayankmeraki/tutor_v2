@@ -2051,12 +2051,12 @@ async function renderScene3D(cmd) {
     container.appendChild(overlay);
   }
 
-  // Drag hint — fades out after 4 seconds
+  // Drag hint — bottom center, fades after 6 seconds
   var hint = document.createElement('div');
-  hint.style.cssText = 'position:absolute;bottom:8px;right:10px;z-index:2;pointer-events:none;font-family:var(--bd-font,sans-serif);font-size:10px;color:rgba(255,255,255,0.25);transition:opacity 1s;';
-  hint.textContent = '↻ drag to rotate · pinch to zoom';
+  hint.style.cssText = 'position:absolute;bottom:10px;left:50%;transform:translateX(-50%);z-index:2;pointer-events:none;font-family:var(--bd-font,sans-serif);font-size:11px;color:rgba(255,255,255,0.35);transition:opacity 1s;letter-spacing:0.3px;background:rgba(0,0,0,0.3);padding:4px 12px;border-radius:6px;';
+  hint.textContent = '↻ Drag to rotate · Scroll to zoom';
   container.appendChild(hint);
-  setTimeout(function() { hint.style.opacity = '0'; }, 4000);
+  setTimeout(function() { hint.style.opacity = '0'; }, 6000);
 
   var rect = container.getBoundingClientRect();
   var w = Math.round(rect.width) || cmd.width || 700;
@@ -2096,8 +2096,8 @@ async function renderScene3D(cmd) {
     controls = new THREE.OrbitControls(camera, threeRenderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
-    controls.autoRotate = cmd.autoRotate !== false;
-    controls.autoRotateSpeed = cmd.rotateSpeed || 1;
+    controls.autoRotate = false; // static by default — user drags to rotate
+    controls.autoRotateSpeed = 0;
     controls.enableZoom = true;
     controls.enablePan = true;
   }
