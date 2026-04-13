@@ -17,9 +17,21 @@
 class AnimHelper {
   constructor(p, W, H) {
     this.p = p;
-    this.W = W;
-    this.H = H;
+    // Store initial W/H but use getters that fall back to live p.width/p.height.
+    // This handles the case where AnimHelper is constructed before createCanvas
+    // (auto-injection in setup) — W/H might be 0 initially but p.width/p.height
+    // become correct after createCanvas runs.
+    this._initW = W;
+    this._initH = H;
     this.state = {};
+    // Dynamic getters: if initial dimensions were 0 (constructed before
+    // createCanvas), fall back to live p5 dimensions.
+    Object.defineProperty(this, 'W', {
+      get: function() { return this._initW || this.p.width || 400; }
+    });
+    Object.defineProperty(this, 'H', {
+      get: function() { return this._initH || this.p.height || 300; }
+    });
     this._targets = {};
     this._t = 0;
     this._speed = 3; // lerp speed

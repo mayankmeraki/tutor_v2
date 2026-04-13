@@ -1,0 +1,824 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Capacity — AI Tutor Platform | Pitch Deck</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+  :root {
+    --primary: #6C5CE7;
+    --primary-dark: #5A4BD1;
+    --accent: #00CEC9;
+    --accent2: #FD79A8;
+    --dark: #0F0F1A;
+    --dark2: #1A1A2E;
+    --dark3: #2D2D44;
+    --text: #E8E8F0;
+    --text-muted: #9B9BB0;
+    --card-bg: #1E1E32;
+    --border: rgba(108, 92, 231, 0.2);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  @page {
+    size: A4;
+    margin: 0;
+  }
+
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    background: var(--dark);
+    color: var(--text);
+    line-height: 1.6;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .page {
+    width: 210mm;
+    min-height: 297mm;
+    margin: 0 auto;
+    padding: 40px 48px;
+    background: var(--dark);
+    page-break-after: always;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .page::before {
+    content: '';
+    position: absolute;
+    top: -200px;
+    right: -200px;
+    width: 500px;
+    height: 500px;
+    background: radial-gradient(circle, rgba(108,92,231,0.08) 0%, transparent 70%);
+    pointer-events: none;
+  }
+
+  /* ─── Cover ─── */
+  .cover {
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: flex-start;
+    min-height: 297mm;
+    padding: 60px 48px;
+  }
+  .cover .logo-mark {
+    font-size: 14px;
+    font-weight: 600;
+    letter-spacing: 4px;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 32px;
+  }
+  .cover h1 {
+    font-size: 52px;
+    font-weight: 800;
+    line-height: 1.1;
+    margin-bottom: 20px;
+    background: linear-gradient(135deg, #fff 0%, #B8B0F0 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+  }
+  .cover .subtitle {
+    font-size: 22px;
+    font-weight: 300;
+    color: var(--text-muted);
+    max-width: 500px;
+    margin-bottom: 48px;
+    line-height: 1.5;
+  }
+  .cover .meta-row {
+    display: flex;
+    gap: 32px;
+    font-size: 13px;
+    color: var(--text-muted);
+  }
+  .cover .meta-row span {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+  .cover .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--primary);
+    display: inline-block;
+  }
+
+  /* ─── Section headers ─── */
+  .section-num {
+    font-size: 12px;
+    font-weight: 600;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: var(--primary);
+    margin-bottom: 8px;
+  }
+  h2 {
+    font-size: 32px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #fff;
+  }
+  .section-sub {
+    font-size: 15px;
+    color: var(--text-muted);
+    margin-bottom: 32px;
+    max-width: 520px;
+  }
+
+  /* ─── Cards ─── */
+  .card-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .card-grid.three { grid-template-columns: 1fr 1fr 1fr; }
+  .card {
+    background: var(--card-bg);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+  }
+  .card .icon {
+    font-size: 24px;
+    margin-bottom: 10px;
+  }
+  .card h3 {
+    font-size: 15px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: #fff;
+  }
+  .card p {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.55;
+  }
+
+  /* ─── Feature rows ─── */
+  .feature-row {
+    display: flex;
+    gap: 16px;
+    align-items: flex-start;
+    margin-bottom: 18px;
+  }
+  .feature-row .num {
+    flex-shrink: 0;
+    width: 32px; height: 32px;
+    border-radius: 8px;
+    background: rgba(108,92,231,0.15);
+    color: var(--primary);
+    font-weight: 700;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .feature-row .feat-body h4 {
+    font-size: 14px;
+    font-weight: 600;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+  .feature-row .feat-body p {
+    font-size: 12.5px;
+    color: var(--text-muted);
+    line-height: 1.5;
+  }
+
+  /* ─── Stats ─── */
+  .stat-row {
+    display: flex;
+    gap: 24px;
+    margin: 24px 0;
+  }
+  .stat {
+    flex: 1;
+    background: linear-gradient(135deg, rgba(108,92,231,0.12), rgba(0,206,201,0.08));
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 20px;
+    text-align: center;
+  }
+  .stat .val {
+    font-size: 36px;
+    font-weight: 800;
+    color: var(--primary);
+  }
+  .stat .label {
+    font-size: 12px;
+    color: var(--text-muted);
+    margin-top: 4px;
+  }
+
+  /* ─── Table ─── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12.5px;
+    margin: 16px 0;
+  }
+  th {
+    text-align: left;
+    font-weight: 600;
+    font-size: 11px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: var(--text-muted);
+    padding: 10px 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  td {
+    padding: 10px 12px;
+    border-bottom: 1px solid rgba(255,255,255,0.04);
+    color: var(--text);
+  }
+  tr:nth-child(even) td { background: rgba(255,255,255,0.015); }
+
+  .tag {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 500;
+    background: rgba(108,92,231,0.15);
+    color: var(--primary);
+  }
+  .tag.green { background: rgba(0,206,201,0.15); color: var(--accent); }
+  .tag.pink { background: rgba(253,121,168,0.15); color: var(--accent2); }
+
+  /* ─── Divider ─── */
+  .divider {
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--border), transparent);
+    margin: 28px 0;
+  }
+
+  /* ─── Footer ─── */
+  .page-footer {
+    position: absolute;
+    bottom: 24px;
+    left: 48px;
+    right: 48px;
+    display: flex;
+    justify-content: space-between;
+    font-size: 10px;
+    color: var(--text-muted);
+  }
+
+  /* ─── Highlight box ─── */
+  .highlight-box {
+    background: linear-gradient(135deg, rgba(108,92,231,0.1), rgba(0,206,201,0.05));
+    border-left: 3px solid var(--primary);
+    border-radius: 0 12px 12px 0;
+    padding: 18px 24px;
+    margin: 20px 0;
+  }
+  .highlight-box p {
+    font-size: 14px;
+    color: var(--text);
+    line-height: 1.6;
+  }
+
+  .small-text {
+    font-size: 11px;
+    color: var(--text-muted);
+    line-height: 1.6;
+  }
+</style>
+</head>
+<body>
+
+<!-- ==================== PAGE 1: COVER ==================== -->
+<div class="page cover">
+  <div class="logo-mark">Capacity</div>
+  <h1>AI Tutor That<br>Teaches You Live</h1>
+  <p class="subtitle">
+    A real-time, adaptive teaching platform that draws on a board,
+    speaks, assesses understanding, and follows your curriculum &mdash;
+    delivering 1:1 tutoring at scale.
+  </p>
+  <div class="meta-row">
+    <span><span class="dot"></span> Platform Overview &amp; Capabilities</span>
+    <span><span class="dot"></span> Confidential</span>
+    <span><span class="dot"></span> April 2026</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 2: THE PROBLEM ==================== -->
+<div class="page">
+  <div class="section-num">01 &mdash; The Problem</div>
+  <h2>Education's Broken Model</h2>
+  <p class="section-sub">
+    The most effective form of learning &mdash; 1:1 tutoring &mdash; is inaccessible to 99% of students.
+    Current AI tools answer questions but don't <em>teach</em>.
+  </p>
+
+  <div class="card-grid">
+    <div class="card">
+      <div class="icon">&#128218;</div>
+      <h3>ChatGPT ≠ Teaching</h3>
+      <p>Chat interfaces dump information. They don't structure lessons, draw diagrams, build intuition, or check if you actually understood.</p>
+    </div>
+    <div class="card">
+      <div class="icon">&#127891;</div>
+      <h3>Videos Are Passive</h3>
+      <p>Pre-recorded lectures can't pause to explain what you missed, adapt to your pace, or answer your specific question in context.</p>
+    </div>
+    <div class="card">
+      <div class="icon">&#128176;</div>
+      <h3>Tutors Don't Scale</h3>
+      <p>Human tutors cost $40-100/hr. Institutions can't provide 1:1 teaching for every student in every subject at every level.</p>
+    </div>
+    <div class="card">
+      <div class="icon">&#128200;</div>
+      <h3>No Adaptive Learning</h3>
+      <p>Existing EdTech serves the same content regardless of what the student knows, where they're stuck, or how they learn best.</p>
+    </div>
+  </div>
+
+  <div class="highlight-box">
+    <p><strong>Bloom's 2 Sigma Problem:</strong> Students who receive 1:1 tutoring perform two standard deviations better than classroom students. Capacity makes this accessible to every learner.</p>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>2</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 3: THE PRODUCT ==================== -->
+<div class="page">
+  <div class="section-num">02 &mdash; The Product</div>
+  <h2>Capacity: Live AI Teaching</h2>
+  <p class="section-sub">
+    Not a chatbot. A tutor that draws, speaks, adapts, and assesses &mdash; in real time.
+  </p>
+
+  <div class="feature-row">
+    <div class="num">1</div>
+    <div class="feat-body">
+      <h4>Live Teaching Board</h4>
+      <p>The tutor draws diagrams, writes equations (KaTeX), annotates code, shows images, and builds visual explanations step-by-step on a real-time canvas &mdash; just like a whiteboard session with a human tutor.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">2</div>
+    <div class="feat-body">
+      <h4>Voice-First Interaction</h4>
+      <p>The tutor speaks with natural TTS, paces explanations with synchronized board drawing, and listens via microphone. Students can interrupt, ask questions, or request re-explanation mid-lesson.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">3</div>
+    <div class="feat-body">
+      <h4>Adaptive Lesson Plans</h4>
+      <p>An AI planning agent structures each session with objectives, topics, and checkpoints. The plan adapts in real-time based on student performance and questions.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">4</div>
+    <div class="feat-body">
+      <h4>Inline Assessments</h4>
+      <p>MCQ, free-text, fill-in-the-blank, spot-the-error, confidence checks, teach-back, and canvas derivation exercises &mdash; woven naturally into the teaching flow, not bolted on.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">5</div>
+    <div class="feat-body">
+      <h4>Video Follow-Along</h4>
+      <p>Pair any YouTube lecture or uploaded video with an AI tutor. The tutor knows the transcript and syllabus context, pauses when you have questions, and resumes seamlessly.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">6</div>
+    <div class="feat-body">
+      <h4>Interactive Simulations</h4>
+      <p>Course-linked simulations with predict-observe-explain pedagogy. Students make predictions, run the sim, then the tutor explains discrepancies.</p>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>3</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 4: ARCHITECTURE ==================== -->
+<div class="page">
+  <div class="section-num">03 &mdash; How It Works</div>
+  <h2>Multi-Agent Architecture</h2>
+  <p class="section-sub">
+    A coordinated system of specialized AI agents that handle different aspects of the teaching experience.
+  </p>
+
+  <div class="card-grid three">
+    <div class="card">
+      <h3>Tutor Agent</h3>
+      <p>Core teaching engine. Generates board content, voice beats, inline assessments, and manages the active teaching flow. Equipped with 20+ tools.</p>
+    </div>
+    <div class="card">
+      <h3>Planning Agent</h3>
+      <p>Auto-spawns on session start. Structures lessons into topics, sets objectives, manages checkpoints, and adapts the plan based on student progress.</p>
+    </div>
+    <div class="card">
+      <h3>Assessment Agent</h3>
+      <p>Handles dedicated assessment checkpoints. Generates questions matched to taught concepts, evaluates responses, and reports mastery levels.</p>
+    </div>
+    <div class="card">
+      <h3>Content Agent</h3>
+      <p>Searches and retrieves curriculum content, enriched sections, concepts, and student-uploaded materials (BYO) to ground teaching in source material.</p>
+    </div>
+    <div class="card">
+      <h3>Research Agent</h3>
+      <p>Web search, image search, and external knowledge retrieval for topics beyond the indexed curriculum.</p>
+    </div>
+    <div class="card">
+      <h3>Delegation Agent</h3>
+      <p>Sub-agent for bounded drills. The tutor delegates focused practice problems, then the student returns to the main session flow.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-num" style="margin-top:12px;">Real-Time Streaming</div>
+  <table>
+    <tr>
+      <th>Channel</th>
+      <th>Protocol</th>
+      <th>Purpose</th>
+    </tr>
+    <tr>
+      <td>Teaching Stream</td>
+      <td><span class="tag">SSE</span></td>
+      <td>LLM token streaming, board tags, assessment widgets, plan updates</td>
+    </tr>
+    <tr>
+      <td>Voice Stream</td>
+      <td><span class="tag green">WebSocket</span></td>
+      <td>Voice beats with synchronized board draws + binary TTS audio</td>
+    </tr>
+    <tr>
+      <td>Agent Events</td>
+      <td><span class="tag">SSE</span></td>
+      <td>Background agent status, plan polling, assessment lifecycle</td>
+    </tr>
+    <tr>
+      <td>Video Control</td>
+      <td><span class="tag pink">SSE Events</span></td>
+      <td>Resume, seek, and pause commands from tutor to video player</td>
+    </tr>
+  </table>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>4</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 5: TEACHING MODES ==================== -->
+<div class="page">
+  <div class="section-num">04 &mdash; Teaching Modes</div>
+  <h2>Every Way Students Learn</h2>
+  <p class="section-sub">
+    Multiple entry points and learning modalities, all powered by the same adaptive engine.
+  </p>
+
+  <table>
+    <tr>
+      <th>Mode</th>
+      <th>Entry Point</th>
+      <th>Experience</th>
+    </tr>
+    <tr>
+      <td><strong>On-Demand Tutoring</strong></td>
+      <td>Type any question or topic</td>
+      <td>Instant triage &rarr; lesson plan &rarr; live board teaching with voice. Any subject, any level.</td>
+    </tr>
+    <tr>
+      <td><strong>Course-Based</strong></td>
+      <td>Select from course catalog</td>
+      <td>Structured curriculum with modules, lessons, sections. Progress tracking. Concept mastery.</td>
+    </tr>
+    <tr>
+      <td><strong>Video Follow-Along</strong></td>
+      <td>Play from course or paste URL</td>
+      <td>Watch lecture video + AI tutor answers questions in real-time using transcript context.</td>
+    </tr>
+    <tr>
+      <td><strong>Exam Prep</strong></td>
+      <td>Specify exam topic + date</td>
+      <td>Rapid-fire review, targeted practice problems, timed assessment checkpoints.</td>
+    </tr>
+    <tr>
+      <td><strong>BYO Materials</strong></td>
+      <td>Upload PDFs, images, videos</td>
+      <td>Tutor teaches from your materials. Upload homework, notes, or lecture recordings.</td>
+    </tr>
+    <tr>
+      <td><strong>Voice Mode</strong></td>
+      <td>Default for all sessions</td>
+      <td>Conversational tutoring with speech, board visualization, and hold-to-talk mic input.</td>
+    </tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="section-num">Assessment Types</div>
+  <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+    Seven assessment formats woven naturally into teaching, not separate quiz modules.
+  </p>
+  <div class="card-grid three" style="gap:10px;">
+    <div class="card" style="padding:14px;">
+      <h3 style="font-size:13px;">Multiple Choice</h3>
+      <p style="font-size:11px;">Conceptual understanding with distractors designed around common misconceptions.</p>
+    </div>
+    <div class="card" style="padding:14px;">
+      <h3 style="font-size:13px;">Free Response</h3>
+      <p style="font-size:11px;">Open-ended explanations evaluated by the assessment agent for depth and accuracy.</p>
+    </div>
+    <div class="card" style="padding:14px;">
+      <h3 style="font-size:13px;">Fill in the Blank</h3>
+      <p style="font-size:11px;">Test recall of key terms, equations, or steps in a derivation.</p>
+    </div>
+    <div class="card" style="padding:14px;">
+      <h3 style="font-size:13px;">Spot the Error</h3>
+      <p style="font-size:11px;">Present flawed reasoning or calculation; student identifies and corrects the mistake.</p>
+    </div>
+    <div class="card" style="padding:14px;">
+      <h3 style="font-size:13px;">Confidence Check</h3>
+      <p style="font-size:11px;">Self-assessment calibration: rate understanding before the tutor reveals the answer.</p>
+    </div>
+    <div class="card" style="padding:14px;">
+      <h3 style="font-size:13px;">Teach-Back</h3>
+      <p style="font-size:11px;">Student explains the concept in their own words; AI evaluates comprehension depth.</p>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>5</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 6: COURSE SYSTEM ==================== -->
+<div class="page">
+  <div class="section-num">05 &mdash; Content Infrastructure</div>
+  <h2>Structured Knowledge Base</h2>
+  <p class="section-sub">
+    Courses are deeply structured with semantic search, vector embeddings, and section-level granularity.
+  </p>
+
+  <div class="highlight-box">
+    <p><strong>Content Hierarchy:</strong> Course &rarr; Module &rarr; Lesson &rarr; Timed Section &rarr; Concepts</p>
+    <p style="font-size:12px; color:var(--text-muted); margin-top:6px;">
+      Each lesson has video URLs, transcripts, duration, and enriched section content.
+      Each section maps to a timestamp range in the video for precise follow-along grounding.
+    </p>
+  </div>
+
+  <div class="card-grid">
+    <div class="card">
+      <h3>Semantic Search</h3>
+      <p>MongoDB Atlas vector search with OpenAI embeddings + Haiku re-ranking. Students find relevant content by asking natural language questions, not browsing menus.</p>
+    </div>
+    <div class="card">
+      <h3>Intent Resolution</h3>
+      <p>Free-text queries like "teach me derivatives" are resolved to specific courses, lessons, and starting sections via the /resolve-course API.</p>
+    </div>
+    <div class="card">
+      <h3>Video Extraction</h3>
+      <p>YouTube URLs are converted to direct stream URLs via yt-dlp, enabling custom playback controls, speed adjustment, and transcript alignment.</p>
+    </div>
+    <div class="card">
+      <h3>Concept Mapping</h3>
+      <p>Per-course concept hierarchies with prerequisites and relationships. Enables mastery-based progression and targeted review.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-num">Student Intelligence</div>
+  <p style="font-size:13px; color:var(--text-muted); margin-bottom:16px;">
+    Persistent student model tracks mastery across sessions and concepts.
+  </p>
+
+  <div class="feature-row">
+    <div class="num" style="background:rgba(0,206,201,0.15); color:var(--accent);">A</div>
+    <div class="feat-body">
+      <h4>Concept Mastery Vectors</h4>
+      <p>Per-student, per-concept notes and mastery tags stored in MongoDB with vector search. The tutor queries student knowledge before teaching to avoid redundancy and target gaps.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num" style="background:rgba(0,206,201,0.15); color:var(--accent);">B</div>
+    <div class="feat-body">
+      <h4>Session Continuity</h4>
+      <p>Every session preserves full transcript, plan state, board frames, assessment scores, and backend tutor state. Resume any session exactly where you left off.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num" style="background:rgba(0,206,201,0.15); color:var(--accent);">C</div>
+    <div class="feat-body">
+      <h4>AI-Generated Artifacts</h4>
+      <p>Flashcards with spaced repetition stats, study plans, and revision notes &mdash; automatically generated from teaching sessions and accessible for later review.</p>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>6</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 7: FOR INSTITUTIONS ==================== -->
+<div class="page">
+  <div class="section-num">06 &mdash; For Institutions</div>
+  <h2>Your Curriculum. Taught by AI.</h2>
+  <p class="section-sub">
+    Universities, coaching centers, and EdTech companies bring their own content &mdash;
+    Capacity delivers the teaching layer.
+  </p>
+
+  <div class="feature-row">
+    <div class="num">1</div>
+    <div class="feat-body">
+      <h4>Upload Your Curriculum</h4>
+      <p>Import lecture videos, PDFs, syllabi, and question banks. The platform structures them into course &rarr; module &rarr; lesson hierarchy with section-level timestamps.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">2</div>
+    <div class="feat-body">
+      <h4>Auto-Generated Teaching Layer</h4>
+      <p>Structured lesson plans, board-based teaching, checkpoints, and assessments &mdash; all derived from your source material. No manual content creation.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">3</div>
+    <div class="feat-body">
+      <h4>Per-Student 1:1 Tutoring</h4>
+      <p>Every student gets their own adaptive tutor that follows your syllabus, teaches at their pace, and assesses their understanding of your specific material.</p>
+    </div>
+  </div>
+  <div class="feature-row">
+    <div class="num">4</div>
+    <div class="feat-body">
+      <h4>Analytics &amp; Insights</h4>
+      <p>Per-student mastery tracking, engagement metrics, concept-level gaps, session duration, and assessment scores. Know exactly who needs help and where.</p>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div class="section-num">Platform Capabilities Summary</div>
+  <div class="stat-row">
+    <div class="stat">
+      <div class="val">6</div>
+      <div class="label">Learning Modalities</div>
+    </div>
+    <div class="stat">
+      <div class="val">7</div>
+      <div class="label">Assessment Types</div>
+    </div>
+    <div class="stat">
+      <div class="val">20+</div>
+      <div class="label">Tutor Tools</div>
+    </div>
+    <div class="stat">
+      <div class="val">6</div>
+      <div class="label">AI Agents</div>
+    </div>
+  </div>
+
+  <div class="highlight-box">
+    <p><strong>Deployment:</strong> Cloud Run on Google Cloud. WebSocket + SSE dual-channel streaming. Auto-scaling to handle concurrent sessions. PostgreSQL for course structure, MongoDB Atlas for content, sessions, and vector search.</p>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>7</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 8: TECH STACK ==================== -->
+<div class="page">
+  <div class="section-num">07 &mdash; Technology</div>
+  <h2>Production-Grade Stack</h2>
+  <p class="section-sub">
+    Built for reliability, real-time performance, and scale.
+  </p>
+
+  <table>
+    <tr><th>Layer</th><th>Technology</th><th>Purpose</th></tr>
+    <tr><td>Frontend</td><td>Vanilla JS SPA</td><td>Zero-framework, fast load, custom canvas rendering, KaTeX math</td></tr>
+    <tr><td>Backend</td><td>FastAPI (Python)</td><td>Async API server, SSE streaming, WebSocket support, agent orchestration</td></tr>
+    <tr><td>LLM</td><td>OpenRouter (multi-model)</td><td>Model routing for teaching, planning, assessment, embeddings</td></tr>
+    <tr><td>TTS</td><td>ElevenLabs</td><td>Natural voice synthesis for voice-mode teaching</td></tr>
+    <tr><td>Relational DB</td><td>PostgreSQL + SQLAlchemy</td><td>Course structure, hierarchy, metadata</td></tr>
+    <tr><td>Document DB</td><td>MongoDB Atlas</td><td>Sessions, transcripts, sections, embeddings, student mastery vectors</td></tr>
+    <tr><td>Search</td><td>Atlas Vector Search</td><td>Semantic content discovery with embedding similarity + re-ranking</td></tr>
+    <tr><td>Video</td><td>yt-dlp + Plyr</td><td>YouTube stream extraction, custom video player with transcript sync</td></tr>
+    <tr><td>Auth</td><td>JWT + bcrypt</td><td>Token-based auth with rate limiting</td></tr>
+    <tr><td>Hosting</td><td>Google Cloud Run</td><td>Autoscaling containers, WebSocket support, managed infrastructure</td></tr>
+    <tr><td>Email</td><td>Resend</td><td>Feedback, bug reports, contact form delivery</td></tr>
+  </table>
+
+  <div class="divider"></div>
+
+  <div class="section-num">Tutor Toolbox</div>
+  <p style="font-size:12.5px; color:var(--text-muted); margin-bottom:12px;">The teaching agent has access to 20+ tools for content, orchestration, assessment, and media.</p>
+
+  <div class="card-grid three" style="gap:8px;">
+    <div class="card" style="padding:12px;">
+      <h3 style="font-size:12px;">Content Tools</h3>
+      <p style="font-size:11px;">content_map, content_read, content_peek, content_search, get_section_content</p>
+    </div>
+    <div class="card" style="padding:12px;">
+      <h3 style="font-size:12px;">BYO Tools</h3>
+      <p style="font-size:11px;">byo_read, byo_list, byo_transcript_context</p>
+    </div>
+    <div class="card" style="padding:12px;">
+      <h3 style="font-size:12px;">Media Tools</h3>
+      <p style="font-size:11px;">search_images, web_search, request_board_image, fetch_asset</p>
+    </div>
+    <div class="card" style="padding:12px;">
+      <h3 style="font-size:12px;">Student Model</h3>
+      <p style="font-size:11px;">query_knowledge, update_student_model</p>
+    </div>
+    <div class="card" style="padding:12px;">
+      <h3 style="font-size:12px;">Orchestration</h3>
+      <p style="font-size:11px;">spawn_agent, delegate_teaching, advance_topic, handoff_to_assessment</p>
+    </div>
+    <div class="card" style="padding:12px;">
+      <h3 style="font-size:12px;">Video Control</h3>
+      <p style="font-size:11px;">get_transcript_context, resume_video, seek_video</p>
+    </div>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>8</span>
+  </div>
+</div>
+
+<!-- ==================== PAGE 9: CLOSING ==================== -->
+<div class="page" style="display:flex; flex-direction:column; justify-content:center;">
+  <div class="section-num">08 &mdash; Summary</div>
+  <h2 style="font-size:38px; margin-bottom:16px;">The Future of Learning<br>is Live &amp; Adaptive</h2>
+  <p class="section-sub" style="max-width:600px; font-size:16px;">
+    Capacity isn't another AI chatbot. It's a complete teaching system that draws, speaks,
+    adapts, and assesses &mdash; delivering the 2-sigma advantage of 1:1 tutoring to every student.
+  </p>
+
+  <div class="divider"></div>
+
+  <div style="margin-top:20px;">
+    <div class="feature-row">
+      <div class="num" style="background:rgba(108,92,231,0.3);">&#10003;</div>
+      <div class="feat-body">
+        <h4>For Students</h4>
+        <p>A tutor that actually teaches &mdash; with a board, voice, and adaptive pace. Any subject, any time, from $0.10/session.</p>
+      </div>
+    </div>
+    <div class="feature-row">
+      <div class="num" style="background:rgba(0,206,201,0.3); color:var(--accent);">&#10003;</div>
+      <div class="feat-body">
+        <h4>For Institutions</h4>
+        <p>Upload your curriculum. Get 1:1 tutoring for every student, mastery analytics per concept, and video follow-along for every lecture.</p>
+      </div>
+    </div>
+    <div class="feature-row">
+      <div class="num" style="background:rgba(253,121,168,0.3); color:var(--accent2);">&#10003;</div>
+      <div class="feat-body">
+        <h4>For Content Creators</h4>
+        <p>Pair any video or PDF with an AI tutor. Your content becomes interactive, adaptive, and measurably effective.</p>
+      </div>
+    </div>
+  </div>
+
+  <div class="divider"></div>
+
+  <div style="text-align:center; margin-top:32px;">
+    <p style="font-size:20px; font-weight:600; color:#fff; margin-bottom:8px;">Let's talk.</p>
+    <p style="font-size:14px; color:var(--text-muted);">
+      mayank@seekcapacity.ai &nbsp;&bull;&nbsp; seekcapacity.ai
+    </p>
+  </div>
+
+  <div class="page-footer">
+    <span>Capacity &mdash; Confidential</span>
+    <span>9</span>
+  </div>
+</div>
+
+</body>
+</html>

@@ -902,6 +902,11 @@
   display: flex;
   flex-direction: column;
 }
+/* If the animation slot is empty (no animation code), hide it so
+   narration takes full width. CSS-only safety net. */
+.bd-figure-anim:empty { display: none; }
+.bd-figure-anim:empty + .bd-figure-narration { flex: 1 1 100%; }
+
 /* Override the standalone .bd-anim-figure sizing — inside a figure the
    animation should grow to fill the entire left slot, not sit in a
    220px-tall box anchored to the top. */
@@ -1099,20 +1104,20 @@
   box-shadow: 0 0 6px currentColor;
 }
 
-/* Canvas area inside figure — transparent so board bg shows through */
+/* Canvas area inside figure — matches board bg so animation blends */
 .bd-anim-box {
   display: block;
-  overflow: hidden;
-  background: transparent !important;
+  overflow: visible;
+  background: var(--bd-bg);
   position: relative;
   min-height: 220px;
   aspect-ratio: 4 / 3;
   padding: 8px;
 }
-/* Ensure p5 canvas is transparent + fills the box */
+/* p5 canvas — board bg, p.background(6,14,17) fills the pixel buffer */
 .bd-anim-box canvas {
   display: block;
-  background: transparent !important;
+  background: var(--bd-bg);
   width: 100% !important;
   height: 100% !important;
 }
@@ -1179,11 +1184,7 @@
   border-color: rgba(248,113,113,0.5);
 }
 
-/* Canvas inside animation box fills its container */
-.bd-anim-box canvas {
-  display: block;
-  width: 100%;
-}
+/* (Removed duplicate — consolidated into .bd-anim-box canvas rule above) */
 
 .bd-anim-canvas-wrap {
   width: 100%;
@@ -1778,6 +1779,39 @@
   cursor: grab;
 }
 .bd-scene3d canvas:active { cursor: grabbing; }
+
+/* 3D controls bar — Pause/Speed/Title */
+.bd-3d-controls {
+  display: flex; align-items: center; gap: 14px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.04);
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+  font-family: var(--bd-font); font-size: 12px;
+  position: relative; z-index: 2; pointer-events: auto;
+}
+.bd-3d-ctrl-btn {
+  font-family: var(--bd-font); font-size: 12px;
+  padding: 4px 14px; border-radius: 5px;
+  border: 1px solid rgba(255,255,255,0.12);
+  background: rgba(255,255,255,0.06);
+  color: #e0e0e0; cursor: pointer; pointer-events: auto;
+}
+.bd-3d-ctrl-btn:hover { background: rgba(255,255,255,0.1); }
+.bd-3d-ctrl-label { color: #94a3b8; display: flex; align-items: center; gap: 8px; }
+.bd-3d-speed { width: 80px; cursor: pointer; }
+.bd-3d-ctrl-title { margin-left: auto; color: #94a3b8; font-size: 11px; }
+
+/* 3D legend bar */
+.bd-3d-legend {
+  display: flex; gap: 16px; flex-wrap: wrap;
+  padding: 6px 14px;
+  font-size: 12px; color: #b0b0ac;
+  background: rgba(0,0,0,0.2);
+}
+.bd-3d-legend-item { display: flex; align-items: center; gap: 6px; }
+.bd-3d-legend-dot {
+  width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0;
+}
 
 /* 3D skeleton loading */
 .bd-3d-skeleton { display: flex; flex-direction: column; align-items: center; justify-content: center;

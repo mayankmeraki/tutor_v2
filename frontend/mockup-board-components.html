@@ -1,0 +1,736 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Board Components — Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0d0b;
+  --header: #F5F5F5;
+  --body: #E0E0E0;
+  --math: #A8E6CF;
+  --dim: #94a3b8;
+  --gold: #fbbf24;
+  --cyan: #53d8fb;
+  --green: #34d399;
+  --red: #ff6b6b;
+  --border: rgba(255,255,255,0.06);
+  --font: 'Lexend', system-ui, sans-serif;
+  --mono: 'JetBrains Mono', monospace;
+}
+* { margin:0; padding:0; box-sizing:border-box; }
+body {
+  font-family: var(--font);
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.008) 0, rgba(255,255,255,0.008) .5px, transparent .5px, transparent 40px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.008) 0, rgba(255,255,255,0.008) .5px, transparent .5px, transparent 40px),
+    var(--bg);
+  color: var(--body);
+  -webkit-font-smoothing: antialiased;
+  font-weight: 300;
+  padding: 40px 80px 200px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ── Demo nav ─── */
+.demos {
+  position: fixed; top: 10px; left: 50%; transform: translateX(-50%);
+  display: flex; gap: 6px; z-index: 100; flex-wrap: wrap; justify-content: center;
+  background: rgba(0,0,0,0.7); padding: 8px 14px; border-radius: 10px;
+  backdrop-filter: blur(10px);
+}
+.demos button {
+  padding: 5px 12px; border-radius: 6px;
+  border: 1px solid var(--border); background: rgba(255,255,255,0.03);
+  color: var(--dim); font-size: 11px; cursor: pointer; font-family: var(--font);
+}
+.demos button.active { color: var(--math); border-color: rgba(168,230,207,0.4); background: rgba(168,230,207,0.08); }
+.demo { display: none; }
+.demo.active { display: block; }
+
+.section-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--dim); margin: 60px 0 24px; font-weight: 500;
+}
+.vs-label {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1px;
+  color: var(--red); margin: 40px 0 16px; font-weight: 500;
+  padding-left: 12px; border-left: 2px solid var(--red);
+}
+
+/* ══════════════════════════════════════
+   TODAY's board — everything below, left
+   ══════════════════════════════════════ */
+.today-board {
+  max-width: 900px;
+}
+.today-board .bd-h2 {
+  font-size: 22px; font-weight: 500; color: var(--header);
+  margin: 28px 0 12px;
+}
+.today-board .bd-h3 {
+  font-size: 17px; font-weight: 500; color: var(--header);
+  margin: 20px 0 8px;
+}
+.today-board .bd-text {
+  font-size: 16px; line-height: 1.6; color: var(--body); margin-bottom: 10px;
+}
+.today-board .bd-callout {
+  border-left: 3px solid var(--gold);
+  padding: 10px 0 10px 16px; margin: 12px 0;
+  font-size: 16px; line-height: 1.6; color: var(--body);
+}
+.today-board .bd-callout.q { border-left-color: var(--cyan); }
+.today-board .bd-eq {
+  font-family: var(--mono); font-size: 18px; color: var(--math);
+  margin: 14px 0; display: flex; align-items: baseline; gap: 14px;
+}
+.today-board .bd-eq .note {
+  font-family: var(--font); font-size: 13px; font-style: italic;
+  color: var(--dim); border-left: 1px solid rgba(255,255,255,0.1);
+  padding-left: 10px;
+}
+.today-board .bd-cross {
+  font-size: 16px; color: var(--body); margin: 8px 0;
+}
+.today-board .bd-cross::before { content: '✕ '; color: var(--red); }
+.today-board .bd-step {
+  display: flex; gap: 12px; align-items: flex-start; margin: 10px 0;
+}
+.today-board .bd-step-num {
+  width: 24px; height: 24px; border-radius: 50%; border: 1.5px solid var(--cyan);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 12px; color: var(--cyan); flex-shrink: 0;
+}
+.today-board .bd-step-text { font-size: 16px; color: var(--cyan); }
+
+/* ══════════════════════════════════════
+   NEW COMPONENTS — spatial, controlled
+   ══════════════════════════════════════ */
+
+/* ── SPLIT — two-column layout ─── */
+.bd-split {
+  display: flex;
+  align-items: baseline;
+  gap: 32px;
+  margin: 18px 0;
+  max-width: 900px;
+}
+.bd-split-left {
+  flex: 0 0 auto;
+  font-family: var(--mono);
+  font-size: 22px;
+  color: var(--math);
+  white-space: nowrap;
+}
+.bd-split-right {
+  flex: 1;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--body);
+  border-left: 1px solid rgba(255,255,255,0.08);
+  padding-left: 20px;
+}
+.bd-split.large .bd-split-left { font-size: 28px; }
+.bd-split.large .bd-split-right { font-size: 18px; }
+
+/* ── FLOW — process chain with arrows ─── */
+.bd-flow {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  margin: 28px 0;
+  flex-wrap: wrap;
+  max-width: 100%;
+}
+.bd-flow-node {
+  padding: 12px 22px;
+  border-radius: 10px;
+  font-family: var(--font);
+  font-size: 16px;
+  font-weight: 500;
+  text-align: center;
+  min-width: 80px;
+  border: 1.5px solid;
+  background: transparent;
+}
+.bd-flow-arrow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 0 8px;
+  color: var(--dim);
+}
+.bd-flow-arrow-line {
+  font-size: 18px;
+  line-height: 1;
+  color: rgba(255,255,255,0.3);
+}
+.bd-flow-arrow-label {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  margin-top: 2px;
+  white-space: nowrap;
+}
+
+/* ── CARD — bordered card with header ─── */
+.bd-card {
+  border: 1px solid;
+  border-radius: 12px;
+  padding: 20px 24px;
+  margin: 20px 0;
+  max-width: 760px;
+  position: relative;
+}
+.bd-card.question {
+  border-color: rgba(83,216,251,0.25);
+  background: rgba(83,216,251,0.03);
+}
+.bd-card.summary {
+  border-color: rgba(251,191,36,0.25);
+  background: rgba(251,191,36,0.03);
+}
+.bd-card.warning {
+  border-color: rgba(255,107,107,0.25);
+  background: rgba(255,107,107,0.03);
+}
+.bd-card.info {
+  border-color: rgba(168,230,207,0.2);
+  background: rgba(168,230,207,0.02);
+}
+.bd-card-header {
+  display: flex; align-items: center; gap: 10px;
+  margin-bottom: 12px;
+}
+.bd-card-icon {
+  font-size: 18px;
+  flex-shrink: 0;
+}
+.bd-card-title {
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  font-weight: 500;
+}
+.bd-card.question .bd-card-title { color: var(--cyan); }
+.bd-card.summary .bd-card-title { color: var(--gold); }
+.bd-card.warning .bd-card-title { color: var(--red); }
+.bd-card.info .bd-card-title { color: var(--math); }
+.bd-card-body {
+  font-size: 17px;
+  line-height: 1.6;
+  color: var(--header);
+}
+.bd-card.summary .bd-card-body { color: var(--gold); }
+
+/* ── CONCEPT — heading + body + key point as one unit ─── */
+.bd-concept {
+  margin: 28px 0;
+  max-width: 800px;
+}
+.bd-concept-title {
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--header);
+  margin-bottom: 10px;
+  padding-bottom: 6px;
+  border-bottom: 1px solid rgba(255,255,255,0.06);
+}
+.bd-concept-body {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--body);
+  margin-bottom: 12px;
+  max-width: 700px;
+}
+.bd-concept-key {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--math);
+  font-family: var(--mono);
+  padding: 8px 14px;
+  background: rgba(168,230,207,0.04);
+  border-radius: 6px;
+  border-left: 2px solid rgba(168,230,207,0.3);
+}
+
+/* ── SPLIT-LIST — heading left, items right ─── */
+.bd-split-list {
+  display: flex;
+  gap: 40px;
+  margin: 24px 0;
+  max-width: 900px;
+  align-items: flex-start;
+}
+.bd-split-list-heading {
+  flex: 0 0 220px;
+  font-size: 20px;
+  font-weight: 500;
+  color: var(--header);
+  padding-top: 4px;
+}
+.bd-split-list-items {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.bd-split-list-item {
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--body);
+  padding-left: 18px;
+  position: relative;
+}
+.bd-split-list-item::before {
+  content: '•';
+  position: absolute;
+  left: 0;
+  color: var(--dim);
+}
+.bd-split-list-item .hl { color: var(--math); font-weight: 400; }
+
+/* ── Process animation mockup ─── */
+.bd-process-anim {
+  background: rgba(255,255,255,0.01);
+  border-radius: 12px;
+  padding: 30px;
+  margin: 24px 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  max-width: 100%;
+}
+.bd-process-stage {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+.bd-process-icon {
+  width: 64px; height: 64px;
+  border-radius: 50%;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px;
+  border: 2px solid;
+}
+.bd-process-label {
+  font-size: 14px; font-weight: 500; text-align: center;
+}
+.bd-process-sublabel {
+  font-size: 11px; color: var(--dim); text-align: center;
+}
+.bd-process-connector {
+  display: flex; flex-direction: column; align-items: center; gap: 2px;
+  color: var(--dim); padding: 0 4px;
+}
+.bd-process-connector-arrow { font-size: 20px; color: rgba(255,255,255,0.3); }
+.bd-process-connector-label {
+  font-size: 9px; text-transform: uppercase; letter-spacing: 0.8px; color: var(--dim);
+}
+</style>
+</head>
+<body>
+
+<div class="demos">
+  <button class="active" data-demo="d1">Today (before)</button>
+  <button data-demo="d2">Proposed (after)</button>
+  <button data-demo="d3">Split examples</button>
+  <button data-demo="d4">Flow examples</button>
+  <button data-demo="d5">Card examples</button>
+  <button data-demo="d6">Concept examples</button>
+  <button data-demo="d7">Full scene: Biology</button>
+  <button data-demo="d8">Full scene: DSA</button>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 1 — TODAY's board (the screenshot)
+     ═══════════════════════════════════════════ -->
+<div class="demo d1 active">
+  <p class="section-label">Today's board — single column, left-aligned, document-like</p>
+
+  <div class="today-board">
+    <div class="bd-step"><span class="bd-step-num">2</span><span class="bd-step-text">mRNA → Protein ← TRANSLATION (decoding + building)</span></div>
+    <div class="bd-callout">Your instinct was right — info IS being read. But transcription = COPY. Translation = DECODE.</div>
+    <div class="bd-h2">Quick check:</div>
+    <div class="bd-callout q">If transcription is the copying step — what exactly gets copied, and where does that copy go next?</div>
+    <div class="bd-h2">What gets PRODUCED?</div>
+    <div class="bd-cross">DNA gets copied → too vague</div>
+    <div class="bd-h3">The product of transcription:</div>
+    <div class="bd-eq">DNA <span style="color:var(--dim);font-size:14px;margin:0 8px">—transcription→</span> mRNA <span class="note">messenger RNA — the photocopy</span></div>
+    <div class="bd-text">m = messenger — it carries a MESSAGE from DNA</div>
+    <div class="bd-h2">Where does it go?</div>
+    <div class="bd-eq">mRNA <span style="color:var(--dim);font-size:14px;margin:0 8px">—travels to→</span> Ribosome <span class="note">the protein-building machine</span></div>
+    <div class="bd-callout" style="border-left-color:var(--green)">Transcription → makes mRNA → mRNA goes to the ribosome</div>
+  </div>
+
+  <p class="vs-label">Problems: everything left-aligned, single column, right half empty, no visual grouping, questions look like content</p>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 2 — PROPOSED board (same content, new components)
+     ═══════════════════════════════════════════ -->
+<div class="demo d2">
+  <p class="section-label">Proposed — same content, smart components, spatial layout</p>
+
+  <h1 style="font-size:32px;font-weight:500;color:var(--header);text-align:center;margin-bottom:8px">Transcription</h1>
+  <p style="text-align:center;color:var(--dim);font-size:14px;margin-bottom:36px">DNA → mRNA: the copying step</p>
+
+  <div class="bd-card question">
+    <div class="bd-card-header">
+      <span class="bd-card-icon">❓</span>
+      <span class="bd-card-title">Quick check</span>
+    </div>
+    <div class="bd-card-body">If transcription is the copying step — what exactly gets copied, and where does that copy go next?</div>
+  </div>
+
+  <div style="display:flex;gap:20px;align-items:flex-start;margin:8px 0 28px">
+    <div class="bd-cross" style="font-size:15px;color:var(--body)"><span style="color:var(--red);margin-right:6px">✕</span>"DNA gets copied" → too vague</div>
+  </div>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">The product of transcription</div>
+    <div class="bd-concept-body">DNA gets read and a messenger copy — <strong style="color:var(--math)">mRNA</strong> — is built. The "m" stands for <em>messenger</em>: it carries a message from DNA to the protein-building machinery.</div>
+    <div class="bd-concept-key">m = messenger — it carries a MESSAGE from DNA</div>
+  </div>
+
+  <div class="bd-process-anim">
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--cyan);color:var(--cyan)">🧬</div>
+      <div class="bd-process-label" style="color:var(--cyan)">DNA</div>
+      <div class="bd-process-sublabel">the blueprint</div>
+    </div>
+    <div class="bd-process-connector">
+      <div class="bd-process-connector-arrow">→</div>
+      <div class="bd-process-connector-label">transcription</div>
+    </div>
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--math);color:var(--math)">📋</div>
+      <div class="bd-process-label" style="color:var(--math)">mRNA</div>
+      <div class="bd-process-sublabel">the photocopy</div>
+    </div>
+    <div class="bd-process-connector">
+      <div class="bd-process-connector-arrow">→</div>
+      <div class="bd-process-connector-label">travels to</div>
+    </div>
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--gold);color:var(--gold)">⚙️</div>
+      <div class="bd-process-label" style="color:var(--gold)">Ribosome</div>
+      <div class="bd-process-sublabel">protein factory</div>
+    </div>
+    <div class="bd-process-connector">
+      <div class="bd-process-connector-arrow">→</div>
+      <div class="bd-process-connector-label">translation</div>
+    </div>
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--green);color:var(--green)">🔗</div>
+      <div class="bd-process-label" style="color:var(--green)">Protein</div>
+      <div class="bd-process-sublabel">the final product</div>
+    </div>
+  </div>
+
+  <div class="bd-card summary">
+    <div class="bd-card-header">
+      <span class="bd-card-icon">💡</span>
+      <span class="bd-card-title">Takeaway</span>
+    </div>
+    <div class="bd-card-body">Transcription → makes mRNA → mRNA travels to the ribosome → translation makes protein</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 3 — SPLIT component examples
+     ═══════════════════════════════════════════ -->
+<div class="demo d3">
+  <p class="section-label">cmd:"split" — equation left, meaning right</p>
+
+  <div class="bd-split large">
+    <div class="bd-split-left">E = mc²</div>
+    <div class="bd-split-right">Energy equals mass times the speed of light squared. A tiny amount of mass contains an enormous amount of energy.</div>
+  </div>
+
+  <div class="bd-split">
+    <div class="bd-split-left">iℏ ∂ψ/∂t = Ĥψ</div>
+    <div class="bd-split-right">The Schrödinger equation. Energy governs how the wave function evolves in time. Everything about the system is encoded in the Hamiltonian Ĥ.</div>
+  </div>
+
+  <div class="bd-split">
+    <div class="bd-split-left">O(log n)</div>
+    <div class="bd-split-right">Binary search — halving the search space each step. For 1 million items, that's only 20 comparisons instead of 1,000,000.</div>
+  </div>
+
+  <div class="bd-split">
+    <div class="bd-split-left" style="font-size:16px">while lo &lt;= hi:</div>
+    <div class="bd-split-right">Inclusive bounds — the loop checks the last remaining element. Using &lt; instead of &lt;= is the #1 binary search bug.</div>
+  </div>
+
+  <p class="section-label" style="margin-top:48px">Split with heading on left, bullets on right</p>
+
+  <div class="bd-split-list">
+    <div class="bd-split-list-heading">Why strings<br>fix infinities</div>
+    <div class="bd-split-list-items">
+      <div class="bd-split-list-item">A point has <span class="hl">zero extent</span> — all energy concentrates at one location</div>
+      <div class="bd-split-list-item">Self-energy calculations diverge to <span class="hl">infinity</span></div>
+      <div class="bd-split-list-item">Replace the point with a <span class="hl">tiny loop</span> — now there's actual length</div>
+      <div class="bd-split-list-item">Energy spreads along the string — no single divergent point</div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 4 — FLOW component examples
+     ═══════════════════════════════════════════ -->
+<div class="demo d4">
+  <p class="section-label">cmd:"flow" — process chain with arrows</p>
+
+  <p style="color:var(--header);font-size:18px;font-weight:500;margin-bottom:16px">Central Dogma of Biology</p>
+  <div class="bd-flow">
+    <div class="bd-flow-node" style="color:var(--cyan);border-color:rgba(83,216,251,0.4)">DNA</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">transcription</span></div>
+    <div class="bd-flow-node" style="color:var(--math);border-color:rgba(168,230,207,0.4)">mRNA</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">translation</span></div>
+    <div class="bd-flow-node" style="color:var(--gold);border-color:rgba(251,191,36,0.4)">Protein</div>
+  </div>
+
+  <p style="color:var(--header);font-size:18px;font-weight:500;margin:40px 0 16px">Binary Search — each iteration</p>
+  <div class="bd-flow">
+    <div class="bd-flow-node" style="color:var(--header);border-color:var(--border)">Compare mid</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">equal?</span></div>
+    <div class="bd-flow-node" style="color:var(--green);border-color:rgba(52,211,153,0.4)">Found ✓</div>
+  </div>
+  <div style="display:flex;gap:32px;margin-top:12px">
+    <div class="bd-flow" style="margin:0">
+      <div class="bd-flow-node" style="color:var(--header);border-color:var(--border);opacity:0.5">Compare mid</div>
+      <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">too small</span></div>
+      <div class="bd-flow-node" style="color:var(--cyan);border-color:rgba(83,216,251,0.4)">lo = mid + 1</div>
+    </div>
+    <div class="bd-flow" style="margin:0">
+      <div class="bd-flow-node" style="color:var(--header);border-color:var(--border);opacity:0.5">Compare mid</div>
+      <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">too big</span></div>
+      <div class="bd-flow-node" style="color:var(--gold);border-color:rgba(251,191,36,0.4)">hi = mid - 1</div>
+    </div>
+  </div>
+
+  <p style="color:var(--header);font-size:18px;font-weight:500;margin:40px 0 16px">HTTP Request Lifecycle</p>
+  <div class="bd-flow">
+    <div class="bd-flow-node" style="color:var(--cyan);border-color:rgba(83,216,251,0.4)">Client</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">DNS lookup</span></div>
+    <div class="bd-flow-node" style="color:var(--header);border-color:var(--border)">IP Address</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">TCP connect</span></div>
+    <div class="bd-flow-node" style="color:var(--math);border-color:rgba(168,230,207,0.4)">Server</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">HTTP response</span></div>
+    <div class="bd-flow-node" style="color:var(--green);border-color:rgba(52,211,153,0.4)">Rendered Page</div>
+  </div>
+
+  <p style="color:var(--header);font-size:18px;font-weight:500;margin:40px 0 16px">ML Pipeline</p>
+  <div class="bd-flow">
+    <div class="bd-flow-node" style="color:var(--dim);border-color:var(--border)">Raw Data</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">clean</span></div>
+    <div class="bd-flow-node" style="color:var(--cyan);border-color:rgba(83,216,251,0.4)">Features</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">train</span></div>
+    <div class="bd-flow-node" style="color:var(--math);border-color:rgba(168,230,207,0.4)">Model</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">evaluate</span></div>
+    <div class="bd-flow-node" style="color:var(--gold);border-color:rgba(251,191,36,0.4)">Score</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">deploy</span></div>
+    <div class="bd-flow-node" style="color:var(--green);border-color:rgba(52,211,153,0.4)">Production</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 5 — CARD component examples
+     ═══════════════════════════════════════════ -->
+<div class="demo d5">
+  <p class="section-label">cmd:"card" — bordered cards for questions, summaries, warnings</p>
+
+  <div class="bd-card question">
+    <div class="bd-card-header"><span class="bd-card-icon">❓</span><span class="bd-card-title">Quick check</span></div>
+    <div class="bd-card-body">If transcription is the copying step — what exactly gets copied, and where does that copy go next?</div>
+  </div>
+
+  <div class="bd-card question">
+    <div class="bd-card-header"><span class="bd-card-icon">🤔</span><span class="bd-card-title">Think about it</span></div>
+    <div class="bd-card-body">Given a sorted array [2, 5, 8, 12, 16, 23, 38, 56, 72, 91] and target = 23 — what are lo, hi, and mid after the first iteration?</div>
+  </div>
+
+  <div class="bd-card summary">
+    <div class="bd-card-header"><span class="bd-card-icon">💡</span><span class="bd-card-title">Key takeaway</span></div>
+    <div class="bd-card-body">Transcription → makes mRNA → mRNA goes to the ribosome → translation makes protein. The whole flow is one-directional: DNA never gets modified.</div>
+  </div>
+
+  <div class="bd-card warning">
+    <div class="bd-card-header"><span class="bd-card-icon">⚠️</span><span class="bd-card-title">Common bug</span></div>
+    <div class="bd-card-body">Using <code style="font-family:var(--mono);background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px">while lo &lt; hi</code> instead of <code style="font-family:var(--mono);background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px">while lo &lt;= hi</code> — misses the last element on single-item arrays. The #1 binary search interview failure.</div>
+  </div>
+
+  <div class="bd-card info">
+    <div class="bd-card-header"><span class="bd-card-icon">📌</span><span class="bd-card-title">Remember</span></div>
+    <div class="bd-card-body">Every recursive function needs two things: a base case that stops the recursion, and a recursive case that makes the problem smaller. If you forget the base case, you get infinite recursion → stack overflow.</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 6 — CONCEPT component examples
+     ═══════════════════════════════════════════ -->
+<div class="demo d6">
+  <p class="section-label">cmd:"concept" — heading + body + key point as one visual unit</p>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">The product of transcription</div>
+    <div class="bd-concept-body">DNA gets read and a messenger copy — <strong style="color:var(--math)">mRNA</strong> — is built. The "m" stands for <em>messenger</em>: it carries a message from DNA to the protein-building machinery.</div>
+    <div class="bd-concept-key">m = messenger — it carries a MESSAGE from DNA</div>
+  </div>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">Binary search invariant</div>
+    <div class="bd-concept-body">At every iteration, the target — if it exists — is somewhere in <code style="font-family:var(--mono);background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px">nums[lo..hi]</code>. The loop shrinks this window by half each step. When the window is empty (lo > hi), the target isn't in the array.</div>
+    <div class="bd-concept-key">loop: lo ≤ hi · narrow: mid±1 · terminate: lo > hi → not found</div>
+  </div>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">Time complexity of binary search</div>
+    <div class="bd-concept-body">Each iteration cuts the search space in half. Starting from n elements: n → n/2 → n/4 → ... → 1. That's log₂(n) steps. For 1 billion elements, only ~30 comparisons.</div>
+    <div class="bd-concept-key">O(log n) — halving each step. 1 billion elements = ~30 comparisons.</div>
+  </div>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">Backpropagation intuition</div>
+    <div class="bd-concept-body">Forward pass: input flows through layers to produce a prediction. Loss measures how wrong the prediction is. Backprop: the loss signal flows BACKWARDS through the network, telling each weight "this is how much you contributed to the error — adjust by this much."</div>
+    <div class="bd-concept-key">forward = predict · loss = how wrong · backward = blame each weight</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 7 — Full scene: Biology (Transcription)
+     ═══════════════════════════════════════════ -->
+<div class="demo d7">
+  <p class="section-label">Full scene — biology: transcription (same content as the screenshot, redesigned)</p>
+
+  <h1 style="font-size:30px;font-weight:500;color:var(--header);text-align:center;margin-bottom:6px">Transcription</h1>
+  <p style="text-align:center;color:var(--dim);font-size:13px;margin-bottom:40px">Step 1 of gene expression: DNA → mRNA</p>
+
+  <div class="bd-split large">
+    <div class="bd-split-left" style="color:var(--cyan)">Step ①</div>
+    <div class="bd-split-right"><strong style="color:var(--header)">DNA → mRNA</strong> = TRANSCRIPTION (copying)<br><span style="color:var(--dim);font-size:14px">Your instinct was right — info IS being read. But transcription = COPY. Translation = DECODE.</span></div>
+  </div>
+
+  <div class="bd-split large">
+    <div class="bd-split-left" style="color:var(--cyan)">Step ②</div>
+    <div class="bd-split-right"><strong style="color:var(--header)">mRNA → Protein</strong> = TRANSLATION (decoding + building)</div>
+  </div>
+
+  <div class="bd-card question" style="margin:32px auto;max-width:680px">
+    <div class="bd-card-header"><span class="bd-card-icon">❓</span><span class="bd-card-title">Quick check</span></div>
+    <div class="bd-card-body">If transcription is the copying step — what exactly gets copied, and where does that copy go next?</div>
+  </div>
+
+  <div style="margin:8px 0"><span style="color:var(--red);margin-right:8px">✕</span><span style="color:var(--dim)">"DNA gets copied" → too vague. What KIND of copy?</span></div>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">What gets produced?</div>
+    <div class="bd-concept-body">The product of transcription is <strong style="color:var(--math)">mRNA</strong> — messenger RNA. It's a single-stranded copy of one gene from the DNA. Think of it as a <em>photocopy</em> of one page from the master blueprint.</div>
+    <div class="bd-concept-key">m = messenger — it carries a MESSAGE from DNA to the ribosome</div>
+  </div>
+
+  <div class="bd-process-anim">
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--cyan);color:var(--cyan)">🧬</div>
+      <div class="bd-process-label" style="color:var(--cyan)">DNA</div>
+      <div class="bd-process-sublabel">master blueprint</div>
+    </div>
+    <div class="bd-process-connector">
+      <div class="bd-process-connector-arrow">→</div>
+      <div class="bd-process-connector-label">transcription</div>
+    </div>
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--math);color:var(--math)">📋</div>
+      <div class="bd-process-label" style="color:var(--math)">mRNA</div>
+      <div class="bd-process-sublabel">photocopy</div>
+    </div>
+    <div class="bd-process-connector">
+      <div class="bd-process-connector-arrow">→</div>
+      <div class="bd-process-connector-label">travels to</div>
+    </div>
+    <div class="bd-process-stage">
+      <div class="bd-process-icon" style="border-color:var(--gold);color:var(--gold)">⚙️</div>
+      <div class="bd-process-label" style="color:var(--gold)">Ribosome</div>
+      <div class="bd-process-sublabel">protein factory</div>
+    </div>
+  </div>
+
+  <div class="bd-card summary" style="max-width:680px;margin:24px auto">
+    <div class="bd-card-header"><span class="bd-card-icon">💡</span><span class="bd-card-title">Takeaway</span></div>
+    <div class="bd-card-body">Transcription makes mRNA → mRNA goes to the ribosome → translation makes protein</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════
+     TAB 8 — Full scene: DSA (Binary Search)
+     ═══════════════════════════════════════════ -->
+<div class="demo d8">
+  <p class="section-label">Full scene — DSA: binary search template</p>
+
+  <h1 style="font-size:30px;font-weight:500;color:var(--header);text-align:center;margin-bottom:6px">Binary Search</h1>
+  <p style="text-align:center;color:var(--dim);font-size:13px;margin-bottom:40px">The bulletproof template</p>
+
+  <div class="bd-concept">
+    <div class="bd-concept-title">The idea</div>
+    <div class="bd-concept-body">Given a sorted array, find a target by repeatedly cutting the search space in half. Each step eliminates 50% of the remaining elements.</div>
+    <div class="bd-concept-key">O(log n) — 1 billion elements → ~30 comparisons</div>
+  </div>
+
+  <div class="bd-flow" style="margin:32px 0">
+    <div class="bd-flow-node" style="color:var(--header);border-color:var(--border)">Compare mid</div>
+    <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span><span class="bd-flow-arrow-label">match?</span></div>
+    <div class="bd-flow-node" style="color:var(--green);border-color:rgba(52,211,153,0.4)">Return mid</div>
+  </div>
+  <div style="display:flex;gap:24px;margin-bottom:32px">
+    <div class="bd-flow" style="margin:0">
+      <div class="bd-flow-node" style="color:var(--header);border-color:var(--border);opacity:0.4;font-size:13px">mid too small</div>
+      <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span></div>
+      <div class="bd-flow-node" style="color:var(--cyan);border-color:rgba(83,216,251,0.4)">lo = mid + 1</div>
+    </div>
+    <div class="bd-flow" style="margin:0">
+      <div class="bd-flow-node" style="color:var(--header);border-color:var(--border);opacity:0.4;font-size:13px">mid too big</div>
+      <div class="bd-flow-arrow"><span class="bd-flow-arrow-line">→</span></div>
+      <div class="bd-flow-node" style="color:var(--gold);border-color:rgba(251,191,36,0.4)">hi = mid - 1</div>
+    </div>
+  </div>
+
+  <div class="bd-split-list">
+    <div class="bd-split-list-heading">3 invariants<br><span style="font-size:13px;color:var(--dim);font-weight:300">burn these in</span></div>
+    <div class="bd-split-list-items">
+      <div class="bd-split-list-item"><span class="hl">lo ≤ hi</span> — loop while at least one element remains</div>
+      <div class="bd-split-list-item"><span class="hl">mid = lo + (hi - lo) // 2</span> — overflow-safe midpoint</div>
+      <div class="bd-split-list-item"><span class="hl">lo = mid + 1 / hi = mid - 1</span> — NEVER just mid (infinite loop)</div>
+    </div>
+  </div>
+
+  <div class="bd-card warning" style="max-width:680px">
+    <div class="bd-card-header"><span class="bd-card-icon">⚠️</span><span class="bd-card-title">The #1 bug</span></div>
+    <div class="bd-card-body">Using <code style="font-family:var(--mono);background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px">while lo &lt; hi</code> instead of <code style="font-family:var(--mono);background:rgba(255,255,255,0.06);padding:2px 6px;border-radius:3px">while lo &lt;= hi</code>. On a single-element array [42], lo == hi == 0 — the loop never runs and the element is never checked.</div>
+  </div>
+
+  <div class="bd-card question" style="max-width:680px;margin:24px 0">
+    <div class="bd-card-header"><span class="bd-card-icon">🤔</span><span class="bd-card-title">Your turn</span></div>
+    <div class="bd-card-body">Array: [2, 5, 8, 12, 16, 23, 38, 56, 72, 91], target = 23. What are lo, hi, and mid after the first iteration?</div>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.demos button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.demos button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.demo').forEach(d => d.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector('.' + btn.dataset.demo).classList.add('active');
+  });
+});
+</script>
+</body>
+</html>

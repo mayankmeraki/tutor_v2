@@ -1,0 +1,1855 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS Teaching Tools — Mockup</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@300;400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  /* Match the production board palette */
+  --bg: #0a0d0b;
+  --bg-soft: #0e1210;
+  --header: #F5F5F5;
+  --body: #E0E0E0;
+  --math: #A8E6CF;
+  --dim: #94a3b8;
+  --gold: #fbbf24;
+  --cyan: #53d8fb;
+  --green: #34d399;
+  --red: #ff6b6b;
+  --border: rgba(255,255,255,0.06);
+  --border-strong: rgba(255,255,255,0.10);
+
+  --font-body: 'Lexend', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+}
+
+* { margin: 0; padding: 0; box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  font-family: var(--font-body);
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,0.008) 0, rgba(255,255,255,0.008) .5px, transparent .5px, transparent 40px),
+    repeating-linear-gradient(0deg, rgba(255,255,255,0.008) 0, rgba(255,255,255,0.008) .5px, transparent .5px, transparent 40px),
+    var(--bg);
+  color: var(--body);
+  -webkit-font-smoothing: antialiased;
+  font-weight: 300;
+}
+
+/* ── Top bar ───────────────────────────────────── */
+.topbar {
+  height: 44px;
+  display: flex; align-items: center; gap: 14px;
+  padding: 0 22px;
+  background: var(--bg-soft);
+  border-bottom: 1px solid var(--border);
+}
+.topbar-pill {
+  font-size: 11px; padding: 4px 10px;
+  border-radius: 4px;
+  background: rgba(168,230,207,0.08);
+  color: var(--math);
+  letter-spacing: .4px;
+  font-weight: 500;
+}
+.topbar-title { font-size: 13px; color: var(--dim); }
+.topbar-right { margin-left: auto; display: flex; gap: 14px; font-size: 12px; color: var(--dim); }
+
+/* ── Layout ────────────────────────────────────── */
+.layout {
+  display: grid;
+  grid-template-columns: 1fr 320px;
+  height: calc(100vh - 44px);
+}
+.board {
+  overflow-y: auto;
+  padding: 60px 80px 200px 80px;
+}
+.sidebar {
+  background: rgba(0,0,0,0.2);
+  border-left: 1px solid var(--border);
+  padding: 24px 22px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.sidebar h4 {
+  font-size: 11px; text-transform: uppercase; letter-spacing: 1.4px;
+  color: var(--dim); margin-bottom: 14px; font-weight: 500;
+}
+.sidebar-step {
+  display: flex; align-items: center; gap: 10px;
+  padding: 8px 0;
+  color: var(--dim);
+  font-weight: 400;
+}
+.sidebar-step.done { color: var(--green); }
+.sidebar-step.now { color: var(--header); }
+.sidebar-dot {
+  width: 18px; height: 18px; border-radius: 50%;
+  border: 1.5px solid currentColor; display: flex; align-items: center; justify-content: center;
+  font-size: 10px; flex-shrink: 0;
+}
+.sidebar-step.now .sidebar-dot {
+  background: var(--header);
+  color: var(--bg);
+}
+.sidebar-step.done .sidebar-dot::after { content: '✓'; font-size: 11px; }
+.sidebar-step.done .sidebar-dot { background: var(--green); color: var(--bg); border-color: var(--green); }
+
+.sidebar-section { margin-top: 32px; }
+.runner-card {
+  background: rgba(255,255,255,0.02);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 10px;
+}
+.runner-card-id {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--dim);
+  margin-bottom: 4px;
+}
+.runner-card-status {
+  font-size: 12px;
+  display: flex; align-items: center; gap: 6px;
+  margin-top: 6px;
+}
+.status-dot { width: 7px; height: 7px; border-radius: 50%; }
+.status-dot.ok { background: var(--green); box-shadow: 0 0 8px rgba(52,211,153,.6); }
+.status-dot.err { background: var(--red); box-shadow: 0 0 8px rgba(255,107,107,.6); }
+.status-dot.idle { background: var(--dim); }
+.runner-card-status.ok { color: var(--green); }
+.runner-card-status.err { color: var(--red); }
+.runner-card-status.idle { color: var(--dim); }
+
+/* ── Board content ─────────────────────────────── */
+.board h1 {
+  font-family: var(--font-body);
+  font-size: 36px;
+  font-weight: 500;
+  color: var(--header);
+  margin-bottom: 8px;
+  letter-spacing: -0.4px;
+}
+.board h2 {
+  font-family: var(--font-body);
+  font-size: 22px;
+  font-weight: 500;
+  color: var(--header);
+  margin-top: 36px;
+  margin-bottom: 14px;
+}
+.board h3 {
+  font-family: var(--font-body);
+  font-size: 17px;
+  font-weight: 500;
+  color: var(--header);
+  margin-top: 22px;
+  margin-bottom: 10px;
+}
+.board p, .board .text {
+  font-size: 16px;
+  line-height: 1.65;
+  color: var(--body);
+  margin-bottom: 14px;
+  max-width: 720px;
+}
+.board .dim { color: var(--dim); }
+.board .math { color: var(--math); font-family: var(--font-mono); }
+.board .gold { color: var(--gold); }
+
+/* ── Code blocks (read-only — for showing reference) ───── */
+.bd-code {
+  background: #0d1117;
+  border: 1px solid #1e2733;
+  border-radius: 10px;
+  margin: 14px 0;
+  overflow: hidden;
+  max-width: 760px;
+}
+.bd-code-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 14px;
+  background: rgba(255,255,255,0.025);
+  border-bottom: 1px solid #1e2733;
+}
+.bd-code-lang {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--math);
+  text-transform: uppercase;
+  letter-spacing: .8px;
+}
+.bd-code-file {
+  font-size: 11px;
+  color: var(--dim);
+  font-family: var(--font-mono);
+}
+.bd-code-actions { margin-left: auto; display: flex; gap: 6px; }
+.bd-code-action {
+  font-size: 11px;
+  padding: 4px 8px;
+  border: 1px solid var(--border-strong);
+  border-radius: 5px;
+  background: transparent;
+  color: var(--dim);
+  cursor: pointer;
+  font-family: var(--font-body);
+}
+.bd-code-action:hover { color: var(--header); border-color: rgba(255,255,255,0.2); }
+.bd-code-body {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: #e6edf3;
+  padding: 14px 16px;
+  white-space: pre;
+  overflow-x: auto;
+}
+.bd-code-body .ln {
+  display: inline-block;
+  width: 22px;
+  text-align: right;
+  margin-right: 14px;
+  color: #4a5568;
+  user-select: none;
+}
+.bd-code-body .hl { background: rgba(168,230,207,0.07); display: block; margin: 0 -16px; padding: 0 16px; border-left: 2px solid var(--math); }
+
+/* Syntax highlighting */
+.tok-kw { color: #ff79c6; }
+.tok-fn { color: #50fa7b; }
+.tok-str { color: #f1fa8c; }
+.tok-num { color: #bd93f9; }
+.tok-com { color: #6272a4; font-style: italic; }
+.tok-op { color: #ff79c6; }
+.tok-var { color: #f8f8f2; }
+.tok-cls { color: #8be9fd; }
+
+/* ── Editable / Runnable code component ──────────── */
+.bd-runner {
+  background: #0d1117;
+  border: 1px solid #1e2733;
+  border-radius: 10px;
+  margin: 18px 0;
+  overflow: hidden;
+  max-width: 820px;
+  box-shadow: 0 0 0 1px rgba(168,230,207,0.04);
+}
+.bd-runner-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 16px;
+  background: rgba(168,230,207,0.04);
+  border-bottom: 1px solid #1e2733;
+}
+.bd-runner-prompt {
+  font-size: 12px;
+  color: var(--math);
+  font-weight: 500;
+}
+.bd-runner-prompt::before {
+  content: '✎ ';
+  margin-right: 4px;
+}
+.bd-runner-lang {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--dim);
+  text-transform: uppercase;
+  letter-spacing: .6px;
+  padding: 2px 7px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+}
+.bd-runner-actions { margin-left: auto; display: flex; gap: 8px; }
+.bd-runner-btn {
+  font-family: var(--font-body);
+  font-size: 12px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: transparent;
+  color: var(--body);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 500;
+}
+.bd-runner-btn:hover { background: rgba(255,255,255,0.04); }
+.bd-runner-btn.run {
+  background: rgba(52,211,153,0.12);
+  color: var(--green);
+  border-color: rgba(52,211,153,0.3);
+}
+.bd-runner-btn.run::before { content: '▶'; font-size: 9px; }
+.bd-runner-btn.run:hover { background: rgba(52,211,153,0.2); }
+.bd-runner-btn.reset { color: var(--dim); }
+
+.bd-runner-editor {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.7;
+  color: #e6edf3;
+  padding: 14px 16px 14px 50px;
+  white-space: pre;
+  outline: none;
+  min-height: 80px;
+  position: relative;
+  caret-color: var(--math);
+  counter-reset: line;
+}
+.bd-runner-editor[contenteditable="true"] {
+  cursor: text;
+}
+.bd-runner-editor::before {
+  content: '';
+  position: absolute;
+  left: 36px; top: 0; bottom: 0;
+  width: 1px;
+  background: var(--border);
+}
+.bd-runner-line {
+  display: block;
+  position: relative;
+}
+.bd-runner-line::before {
+  counter-increment: line;
+  content: counter(line);
+  position: absolute;
+  left: -42px;
+  width: 24px;
+  text-align: right;
+  color: #4a5568;
+  user-select: none;
+}
+.bd-runner-line.err {
+  background: rgba(255,107,107,0.08);
+  margin: 0 -16px 0 -50px;
+  padding: 0 16px 0 50px;
+  border-left: 2px solid var(--red);
+}
+
+/* Output panel */
+.bd-runner-output {
+  border-top: 1px solid #1e2733;
+  background: rgba(0,0,0,0.3);
+  padding: 12px 16px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre-wrap;
+  max-height: 200px;
+  overflow-y: auto;
+}
+.bd-runner-output-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  margin-bottom: 6px;
+  font-family: var(--font-body);
+  font-weight: 500;
+  display: flex; align-items: center; gap: 8px;
+}
+.bd-runner-output.ok { color: #c8e6c9; }
+.bd-runner-output.err { color: #ffcdd2; }
+.bd-runner-output.err .bd-runner-output-header { color: var(--red); }
+.bd-runner-output.ok .bd-runner-output-header { color: var(--green); }
+.bd-runner-output .err-trace { color: var(--red); }
+.bd-runner-output .err-line { color: var(--gold); }
+
+.bd-runner-empty {
+  padding: 14px 16px;
+  font-size: 11px;
+  color: var(--dim);
+  font-style: italic;
+  border-top: 1px solid #1e2733;
+}
+
+/* Tests panel */
+.bd-runner-tests {
+  border-top: 1px solid #1e2733;
+  background: rgba(255,255,255,0.015);
+  padding: 12px 16px;
+}
+.bd-runner-tests-header {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  color: var(--dim);
+  margin-bottom: 8px;
+  font-weight: 500;
+  display: flex; align-items: center; gap: 8px;
+}
+.bd-runner-tests-summary {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-weight: 600;
+}
+.bd-runner-tests-summary.ok { color: var(--green); }
+.bd-runner-tests-summary.err { color: var(--red); }
+.bd-runner-tests-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+.bd-runner-tests-table th,
+.bd-runner-tests-table td {
+  padding: 5px 10px;
+  text-align: left;
+  border-bottom: 1px solid var(--border);
+  color: var(--body);
+}
+.bd-runner-tests-table th {
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.4px;
+  color: var(--dim);
+}
+.bd-runner-tests-table .pass { color: var(--green); }
+.bd-runner-tests-table .fail { color: var(--red); }
+.bd-runner-tests-table tr.pass-row { background: rgba(52,211,153,0.03); }
+.bd-runner-tests-table tr.fail-row { background: rgba(255,107,107,0.04); }
+
+/* ── Inline code (markdown style) ──────────────── */
+.text code {
+  font-family: var(--font-mono);
+  background: rgba(168,230,207,0.08);
+  color: var(--math);
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 0.9em;
+}
+
+/* ── Voice bar (mock) ──────────────────────────── */
+.voicebar {
+  position: fixed;
+  bottom: 0; left: 0; right: 320px;
+  padding: 18px 80px 26px;
+  background: linear-gradient(to top, var(--bg) 60%, transparent);
+  text-align: center;
+}
+.voicebar-text {
+  font-size: 16px;
+  color: var(--body);
+  margin-bottom: 8px;
+}
+.voicebar-text .uline { border-bottom: 1px dotted var(--green); padding-bottom: 1px; }
+.voicebar-status { font-size: 11px; color: var(--dim); margin-bottom: 12px; }
+.voicebar-input {
+  display: flex; align-items: center; gap: 8px;
+  max-width: 720px; margin: 0 auto;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border-strong);
+  border-radius: 24px;
+  padding: 8px 8px 8px 18px;
+}
+.voicebar-input input {
+  flex: 1;
+  background: transparent;
+  border: none; outline: none;
+  color: var(--body); font-family: var(--font-body);
+  font-size: 14px;
+}
+.voicebar-input input::placeholder { color: var(--dim); }
+.voicebar-btn {
+  width: 32px; height: 32px;
+  border-radius: 50%;
+  background: rgba(255,255,255,0.06);
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer;
+  font-size: 14px;
+}
+.voicebar-btn.mic { background: rgba(52,211,153,0.15); color: var(--green); }
+.voicebar-btn.stop { background: rgba(255,107,107,0.15); color: var(--red); }
+
+/* Demo nav bar */
+.demos {
+  position: fixed; top: 50px; right: 340px;
+  display: flex; gap: 8px; z-index: 100;
+}
+.demos button {
+  padding: 6px 12px; border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: rgba(0,0,0,0.5);
+  color: var(--dim); font-size: 11px;
+  cursor: pointer; font-family: var(--font-body);
+}
+.demos button.active { color: var(--math); border-color: rgba(168,230,207,0.4); background: rgba(168,230,207,0.08); }
+
+.demo { display: none; }
+.demo.active { display: block; }
+
+/* ── Scenario tabs (group separator) ────────── */
+.demos .group-label {
+  padding: 6px 4px 6px 12px;
+  font-size: 9px;
+  color: rgba(255,255,255,0.25);
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  align-self: center;
+  pointer-events: none;
+}
+.demos button.scenario {
+  background: rgba(168,230,207,0.04);
+  color: var(--math);
+  border-color: rgba(168,230,207,0.2);
+}
+.demos button.scenario.active {
+  background: rgba(168,230,207,0.15);
+  border-color: rgba(168,230,207,0.6);
+}
+.demos button.scenario::before {
+  content: '▶ ';
+  font-size: 9px;
+  margin-right: 3px;
+}
+
+/* ── Scenario stage layout ───────────────────── */
+.scenario-frame {
+  display: flex;
+  gap: 18px;
+  align-items: flex-start;
+}
+.scenario-stage {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.scenario-inspector {
+  flex: 0 0 380px;
+  position: sticky;
+  top: 60px;
+  background: rgba(0,0,0,0.4);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+.scenario-inspector-header {
+  padding: 10px 14px;
+  background: rgba(168,230,207,0.04);
+  border-bottom: 1px solid var(--border);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+  color: var(--math);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.scenario-inspector-header::before {
+  content: '◉';
+  font-size: 9px;
+}
+.scenario-inspector-body {
+  padding: 14px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.55;
+  color: var(--body);
+  max-height: 480px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+}
+.scenario-inspector-body .ji { color: var(--cyan); }    /* json key */
+.scenario-inspector-body .js { color: #f1fa8c; }        /* string */
+.scenario-inspector-body .jn { color: #bd93f9; }        /* number */
+.scenario-inspector-body .jb { color: #ff79c6; }        /* bool / null */
+.scenario-inspector-body .jp { color: var(--green); }   /* pass */
+.scenario-inspector-body .jf { color: var(--red); }     /* fail */
+.scenario-inspector-body .jc { color: #6272a4; font-style: italic; } /* comment */
+
+/* Beat timeline */
+.scenario-timeline {
+  display: flex;
+  gap: 4px;
+  margin: 18px 0 24px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+.scenario-beat {
+  font-size: 10px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  background: rgba(255,255,255,0.02);
+  color: var(--dim);
+  font-family: var(--font-mono);
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.scenario-beat.done {
+  background: rgba(52,211,153,0.06);
+  border-color: rgba(52,211,153,0.2);
+  color: rgba(52,211,153,0.7);
+}
+.scenario-beat.active {
+  background: rgba(168,230,207,0.15);
+  border-color: rgba(168,230,207,0.6);
+  color: var(--math);
+  font-weight: 500;
+}
+.scenario-controls {
+  display: flex;
+  gap: 8px;
+  margin-left: auto;
+}
+.scenario-controls button {
+  font-family: var(--font-body);
+  font-size: 11px;
+  padding: 5px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border-strong);
+  background: rgba(255,255,255,0.04);
+  color: var(--body);
+  cursor: pointer;
+  font-weight: 500;
+}
+.scenario-controls button:hover { background: rgba(255,255,255,0.08); }
+.scenario-controls button.primary {
+  background: rgba(168,230,207,0.12);
+  color: var(--math);
+  border-color: rgba(168,230,207,0.4);
+}
+.scenario-controls button:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* The "say" speech bubble shown beside the active beat */
+.beat-say {
+  margin: 14px 0 18px;
+  padding: 12px 18px;
+  border-left: 3px solid var(--cyan);
+  background: rgba(83,216,251,0.04);
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--body);
+  font-style: italic;
+  max-width: 720px;
+  border-radius: 0 6px 6px 0;
+}
+.beat-say::before {
+  content: 'Euler says: ';
+  font-style: normal;
+  color: var(--cyan);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.6px;
+  margin-right: 8px;
+}
+
+/* Latency / annotation */
+.scenario-note {
+  font-size: 11px;
+  color: var(--dim);
+  font-style: italic;
+  margin: 6px 0 14px;
+}
+.scenario-note .pill {
+  display: inline-block;
+  font-style: normal;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  padding: 1px 7px;
+  border-radius: 3px;
+  background: rgba(255,255,255,0.05);
+  color: var(--body);
+  margin: 0 2px;
+}
+.scenario-note .pill.ok { background: rgba(52,211,153,0.1); color: var(--green); }
+.scenario-note .pill.warn { background: rgba(251,191,36,0.1); color: var(--gold); }
+.scenario-note .pill.err { background: rgba(255,107,107,0.1); color: var(--red); }
+
+/* Mock student message bubble */
+.student-msg {
+  margin: 14px 0 18px;
+  padding: 10px 16px;
+  background: rgba(255,255,255,0.04);
+  border: 1px solid var(--border);
+  border-radius: 18px 18px 4px 18px;
+  font-size: 14px;
+  color: var(--body);
+  max-width: 360px;
+  margin-left: auto;
+}
+.student-msg::before {
+  content: 'Student: ';
+  color: var(--dim);
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-right: 6px;
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <span class="topbar-pill">BOARD</span>
+  <span class="topbar-title">Algorithms — Binary Search</span>
+  <div class="topbar-right">
+    <span>Lesson 7 · 12 min</span>
+  </div>
+</div>
+
+<div class="demos">
+  <span class="group-label">COMPONENTS</span>
+  <button class="active" data-demo="d1">Read-only</button>
+  <button data-demo="d2">Editable</button>
+  <button data-demo="d3">Runnable + tests</button>
+  <button data-demo="d4">Multi-lang</button>
+  <button data-demo="d5">Markdown</button>
+  <button data-demo="d6">SQL</button>
+  <span class="group-label">SCENARIOS</span>
+  <button class="scenario" data-demo="sA">A. Tutor demos</button>
+  <button class="scenario" data-demo="sB">B. Student fixes</button>
+  <button class="scenario" data-demo="sC">C. Trace walk</button>
+</div>
+
+<div class="layout">
+  <div class="board">
+
+    <!-- ─────────────────────────────────────────────
+         DEMO 1 — Read-only code (existing pattern)
+         The tutor shows reference code; student doesn't touch it.
+    ────────────────────────────────────────────── -->
+    <div class="demo d1 active">
+      <h1>Binary Search — The Template</h1>
+      <p class="text">Here's the bulletproof template you should commit to memory. Look at it for a second, then we'll trace through it together.</p>
+
+      <div class="bd-code">
+        <div class="bd-code-header">
+          <span class="bd-code-lang">PYTHON</span>
+          <span class="bd-code-file">binary_search.py</span>
+          <div class="bd-code-actions">
+            <button class="bd-code-action">Copy</button>
+          </div>
+        </div>
+        <div class="bd-code-body"><span><span class="ln">1</span><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span><span class="ln">2</span>    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span>      <span class="tok-com"># inclusive bounds</span></span>
+<span class="hl"><span class="ln">3</span>    <span class="tok-kw">while</span> lo &lt;= hi:</span>
+<span><span class="ln">4</span>        mid = lo + (hi - lo) // <span class="tok-num">2</span>     <span class="tok-com"># overflow-safe midpoint</span></span>
+<span><span class="ln">5</span>        <span class="tok-kw">if</span> nums[mid] == target:</span>
+<span><span class="ln">6</span>            <span class="tok-kw">return</span> mid</span>
+<span><span class="ln">7</span>        <span class="tok-kw">elif</span> nums[mid] &lt; target:</span>
+<span><span class="ln">8</span>            lo = mid + <span class="tok-num">1</span>             <span class="tok-com"># skip mid, search right</span></span>
+<span><span class="ln">9</span>        <span class="tok-kw">else</span>:</span>
+<span><span class="ln">10</span>            hi = mid - <span class="tok-num">1</span>             <span class="tok-com"># skip mid, search left</span></span>
+<span><span class="ln">11</span>    <span class="tok-kw">return</span> -<span class="tok-num">1</span></span>
+        </div>
+      </div>
+
+      <p class="text"><span class="gold">Three things to burn into memory:</span> <code>lo &lt;= hi</code> (check the last element), <code>mid = lo + (hi - lo) // 2</code> (overflow-safe), and <code>lo = mid+1 / hi = mid-1</code> (never just <code>mid</code> — that's an infinite loop waiting to happen).</p>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         DEMO 2 — Editable code (no run yet)
+         Tutor: "Trace this on paper, fill in the variable values"
+    ────────────────────────────────────────────── -->
+    <div class="demo d2">
+      <h1>Your Turn — Trace the Algorithm</h1>
+      <p class="text">Here's a search for <code>target = 23</code> in <code>[2, 5, 8, 12, 16, 23, 38, 56, 72, 91]</code>. Fill in <code>lo</code>, <code>hi</code>, and <code>mid</code> at each step. I'll check your trace once you're done.</p>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Edit this — fill in your trace</span>
+          <span class="bd-runner-lang">Python</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"># Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23)</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"># Step 1:  lo = ?,  hi = ?,  mid = ?,  nums[mid] = ?</span>
+<span class="bd-runner-line">step1 = {"lo": 0, "hi": 9, "mid": 4, "val": 16}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"># Step 2:  lo = ?,  hi = ?,  mid = ?,  nums[mid] = ?</span>
+<span class="bd-runner-line">step2 = {"lo": ?, "hi": ?, "mid": ?, "val": ?}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"># Step 3:  did we find it?  what does the function return?</span>
+<span class="bd-runner-line">found = ?</span>
+<span class="bd-runner-line">result = ?</span></div>
+      </div>
+
+      <p class="text dim">When you reply, I'll see your trace and tell you if it matches what binary search actually does.</p>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         DEMO 3 — Runnable + tests
+         Student writes the function, runs it, sees pass/fail
+    ────────────────────────────────────────────── -->
+    <div class="demo d3">
+      <h1>Implement It Yourself</h1>
+      <p class="text">Write <code>binary_search(nums, target)</code> from scratch. Use the template we just walked through. I'll see your code and the test results when you run it — fix anything that fails before you tell me you're done.</p>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Write your solution</span>
+          <span class="bd-runner-lang">Python</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+            <button class="bd-runner-btn run">Run</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span class="bd-runner-line">    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span></span>
+<span class="bd-runner-line err">    <span class="tok-kw">while</span> lo &lt; hi:                  <span class="tok-com"># BUG: should be &lt;=</span></span>
+<span class="bd-runner-line">        mid = (lo + hi) // <span class="tok-num">2</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">if</span> nums[mid] == target:</span>
+<span class="bd-runner-line">            <span class="tok-kw">return</span> mid</span>
+<span class="bd-runner-line">        <span class="tok-kw">elif</span> nums[mid] &lt; target:</span>
+<span class="bd-runner-line">            lo = mid + <span class="tok-num">1</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">else</span>:</span>
+<span class="bd-runner-line">            hi = mid - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">return</span> -<span class="tok-num">1</span></span></div>
+        <div class="bd-runner-tests">
+          <div class="bd-runner-tests-header">
+            Test cases
+            <span class="bd-runner-tests-summary err">3 / 4 passed</span>
+          </div>
+          <table class="bd-runner-tests-table">
+            <thead>
+              <tr><th></th><th>Input</th><th>Expected</th><th>Got</th></tr>
+            </thead>
+            <tbody>
+              <tr class="pass-row"><td class="pass">✓</td><td>[1,3,5,7,9], target=5</td><td>2</td><td class="pass">2</td></tr>
+              <tr class="pass-row"><td class="pass">✓</td><td>[1,3,5,7,9], target=1</td><td>0</td><td class="pass">0</td></tr>
+              <tr class="pass-row"><td class="pass">✓</td><td>[2,5,8,12,16,23,38,56,72,91], target=23</td><td>5</td><td class="pass">5</td></tr>
+              <tr class="fail-row"><td class="fail">✗</td><td>[42], target=42</td><td>0</td><td class="fail">-1</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="bd-runner-output err">
+          <div class="bd-runner-output-header">
+            <span class="status-dot err"></span>Run failed · 1 test failed · ran in 8ms
+          </div><span class="err-trace">FAIL on single-element array.</span>
+With <span class="err-line">while lo &lt; hi</span>, when lo == hi == 0 the loop never runs,
+so the single element [42] is never compared and the function returns -1.
+
+<span class="err-line">Fix:</span> change <span class="tok-op">&lt;</span> to <span class="tok-op">&lt;=</span> on line 3.
+        </div>
+      </div>
+
+      <p class="text dim">I see the failing test. Want me to walk you through why <code>&lt; vs &lt;=</code> matters, or do you want to try the fix yourself first?</p>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         DEMO 4 — Multi-language: same algorithm, 4 languages
+    ────────────────────────────────────────────── -->
+    <div class="demo d4">
+      <h1>Same Algorithm, Four Languages</h1>
+      <p class="text">Binary search is identical across languages — only the syntax changes. Pick the one your interview is in and run it.</p>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Try it in your language</span>
+          <span class="bd-runner-lang">Python</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+            <button class="bd-runner-btn run">Run</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span class="bd-runner-line">    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">while</span> lo &lt;= hi:</span>
+<span class="bd-runner-line">        mid = lo + (hi - lo) // <span class="tok-num">2</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">if</span> nums[mid] == target: <span class="tok-kw">return</span> mid</span>
+<span class="bd-runner-line">        <span class="tok-kw">elif</span> nums[mid] &lt; target: lo = mid + <span class="tok-num">1</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">else</span>: hi = mid - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">return</span> -<span class="tok-num">1</span></span></div>
+        <div class="bd-runner-output ok">
+          <div class="bd-runner-output-header">
+            <span class="status-dot ok"></span>Run succeeded · ran in 12ms
+          </div>>>> binary_search([2,5,8,12,16,23,38,56,72,91], 23)
+<span style="color: var(--math)">5</span></div>
+      </div>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Same idea — JavaScript</span>
+          <span class="bd-runner-lang">JavaScript</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+            <button class="bd-runner-btn run">Run</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-kw">function</span> <span class="tok-fn">binarySearch</span>(nums, target) {</span>
+<span class="bd-runner-line">  <span class="tok-kw">let</span> lo = <span class="tok-num">0</span>, hi = nums.length - <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">  <span class="tok-kw">while</span> (lo &lt;= hi) {</span>
+<span class="bd-runner-line">    <span class="tok-kw">const</span> mid = lo + ((hi - lo) &gt;&gt; <span class="tok-num">1</span>);</span>
+<span class="bd-runner-line">    <span class="tok-kw">if</span> (nums[mid] === target) <span class="tok-kw">return</span> mid;</span>
+<span class="bd-runner-line">    nums[mid] &lt; target ? lo = mid + <span class="tok-num">1</span> : hi = mid - <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">  }</span>
+<span class="bd-runner-line">  <span class="tok-kw">return</span> -<span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">}</span></div>
+        <div class="bd-runner-empty">Click <strong>Run</strong> to execute · last result: never</div>
+      </div>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Same idea — Java</span>
+          <span class="bd-runner-lang">Java</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+            <button class="bd-runner-btn run">Run</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-kw">public static int</span> <span class="tok-fn">binarySearch</span>(<span class="tok-cls">int</span>[] nums, <span class="tok-cls">int</span> target) {</span>
+<span class="bd-runner-line">    <span class="tok-cls">int</span> lo = <span class="tok-num">0</span>, hi = nums.length - <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">    <span class="tok-kw">while</span> (lo &lt;= hi) {</span>
+<span class="bd-runner-line">        <span class="tok-cls">int</span> mid = lo + (hi - lo) / <span class="tok-num">2</span>;</span>
+<span class="bd-runner-line">        <span class="tok-kw">if</span> (nums[mid] == target) <span class="tok-kw">return</span> mid;</span>
+<span class="bd-runner-line">        <span class="tok-kw">else if</span> (nums[mid] &lt; target) lo = mid + <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">        <span class="tok-kw">else</span> hi = mid - <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">    }</span>
+<span class="bd-runner-line">    <span class="tok-kw">return</span> -<span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">}</span></div>
+        <div class="bd-runner-empty">Click <strong>Run</strong> to execute · last result: never</div>
+      </div>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Same idea — C++</span>
+          <span class="bd-runner-lang">C++</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+            <button class="bd-runner-btn run">Run</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-cls">int</span> <span class="tok-fn">binarySearch</span>(vector&lt;<span class="tok-cls">int</span>&gt;&amp; nums, <span class="tok-cls">int</span> target) {</span>
+<span class="bd-runner-line">    <span class="tok-cls">int</span> lo = <span class="tok-num">0</span>, hi = nums.size() - <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">    <span class="tok-kw">while</span> (lo &lt;= hi) {</span>
+<span class="bd-runner-line">        <span class="tok-cls">int</span> mid = lo + (hi - lo) / <span class="tok-num">2</span>;</span>
+<span class="bd-runner-line">        <span class="tok-kw">if</span> (nums[mid] == target) <span class="tok-kw">return</span> mid;</span>
+<span class="bd-runner-line">        <span class="tok-kw">else if</span> (nums[mid] &lt; target) lo = mid + <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">        <span class="tok-kw">else</span> hi = mid - <span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">    }</span>
+<span class="bd-runner-line">    <span class="tok-kw">return</span> -<span class="tok-num">1</span>;</span>
+<span class="bd-runner-line">}</span></div>
+        <div class="bd-runner-empty">Click <strong>Run</strong> to execute · last result: never</div>
+      </div>
+
+      <p class="text dim">Browser-side execution: Python (Pyodide), JavaScript (sandboxed eval). Server-side via Judge0 API: Java, C++, Go, Rust, C#, Ruby, Kotlin, Swift, Scala, TypeScript, PHP, R, Haskell. ~50 languages total.</p>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         DEMO 5 — Markdown code blocks inside text
+         Tutor weaves code into prose without a separate cmd
+    ────────────────────────────────────────────── -->
+    <div class="demo d5">
+      <h1>Inline Code in Prose</h1>
+      <p class="text">The default <code>cmd:"text"</code> already supports markdown-style fences. The tutor can weave a code snippet into a sentence without switching commands. Here's how it reads on the board:</p>
+
+      <p class="text">Most binary-search bugs come from the wrong loop condition. The classic mistake looks like this:</p>
+
+      <div class="bd-code">
+        <div class="bd-code-header">
+          <span class="bd-code-lang">PYTHON</span>
+        </div>
+        <div class="bd-code-body"><span class="hl"><span class="ln">1</span><span class="tok-kw">while</span> lo &lt; hi:                <span class="tok-com"># misses the last element</span></span>
+<span><span class="ln">2</span>    mid = (lo + hi) // <span class="tok-num">2</span></span>
+<span><span class="ln">3</span>    ...</span>
+        </div>
+      </div>
+
+      <p class="text">It looks fine — and for arrays of length two or more it usually works. But on a single-element array, <code>lo == hi == 0</code> from the start, the loop never runs, and the function returns <code>-1</code> for an element that's right there. Always use <code>&lt;=</code>:</p>
+
+      <div class="bd-code">
+        <div class="bd-code-header">
+          <span class="bd-code-lang">PYTHON</span>
+        </div>
+        <div class="bd-code-body"><span class="hl"><span class="ln">1</span><span class="tok-kw">while</span> lo &lt;= hi:               <span class="tok-com"># inclusive — checks the last element</span></span>
+<span><span class="ln">2</span>    mid = lo + (hi - lo) // <span class="tok-num">2</span>   <span class="tok-com"># overflow-safe midpoint</span></span>
+<span><span class="ln">3</span>    ...</span>
+        </div>
+      </div>
+
+      <p class="text">The model writes a single <code>cmd:"text"</code> with triple-backtick fences inside. The renderer splits it into prose segments (animated char-by-char) and code segments (rendered as bordered code blocks). No new command, no awkward stitching.</p>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         DEMO 6 — SQL playground
+    ────────────────────────────────────────────── -->
+    <div class="demo d6">
+      <h1>SQL — Find the Top Customers</h1>
+      <p class="text">Same component, different language. <code>cmd:"code"</code> with <code>lang:"sql"</code> turns the runner into a SQL playground. The tutor pre-loads a sample table; you write the query and run it.</p>
+
+      <div class="bd-runner">
+        <div class="bd-runner-header">
+          <span class="bd-runner-prompt">Sample tables: customers, orders</span>
+          <span class="bd-runner-lang">SQL</span>
+          <div class="bd-runner-actions">
+            <button class="bd-runner-btn reset">↺ Reset</button>
+            <button class="bd-runner-btn run">Run</button>
+          </div>
+        </div>
+        <div class="bd-runner-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-com">-- Find the top 5 customers by total spend in 2025</span></span>
+<span class="bd-runner-line"><span class="tok-kw">SELECT</span> c.name, <span class="tok-fn">SUM</span>(o.amount) <span class="tok-kw">AS</span> total_spend</span>
+<span class="bd-runner-line"><span class="tok-kw">FROM</span> customers c</span>
+<span class="bd-runner-line"><span class="tok-kw">JOIN</span> orders o <span class="tok-kw">ON</span> o.customer_id = c.id</span>
+<span class="bd-runner-line"><span class="tok-kw">WHERE</span> o.created_at &gt;= <span class="tok-str">'2025-01-01'</span></span>
+<span class="bd-runner-line"><span class="tok-kw">GROUP BY</span> c.id, c.name</span>
+<span class="bd-runner-line"><span class="tok-kw">ORDER BY</span> total_spend <span class="tok-kw">DESC</span></span>
+<span class="bd-runner-line"><span class="tok-kw">LIMIT</span> <span class="tok-num">5</span>;</span></div>
+        <div class="bd-runner-output ok">
+          <div class="bd-runner-output-header">
+            <span class="status-dot ok"></span>Query returned 5 rows · 14ms
+          </div><table style="font-family: var(--font-mono); font-size: 11px; border-collapse: collapse; margin-top: 4px;">
+<tr><th style="text-align:left; padding:2px 16px 4px 0; color: var(--math); border-bottom: 1px solid var(--border)">name</th><th style="text-align:right; padding:2px 0 4px; color: var(--math); border-bottom: 1px solid var(--border)">total_spend</th></tr>
+<tr><td style="padding:3px 16px 3px 0">Acme Corp</td><td style="text-align:right">$48,920.00</td></tr>
+<tr><td style="padding:3px 16px 3px 0">Globex Industries</td><td style="text-align:right">$32,475.50</td></tr>
+<tr><td style="padding:3px 16px 3px 0">Initech</td><td style="text-align:right">$28,102.25</td></tr>
+<tr><td style="padding:3px 16px 3px 0">Stark Labs</td><td style="text-align:right">$19,640.00</td></tr>
+<tr><td style="padding:3px 16px 3px 0">Wayne Holdings</td><td style="text-align:right">$15,283.75</td></tr>
+</table></div>
+      </div>
+
+      <p class="text dim">SQL runs in browser via <code>sql.js</code> (sqlite compiled to WASM, ~700 KB). Sample tables are pre-loaded by the tutor at the start of the lesson, so the student doesn't need to set up a DB.</p>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         SCENARIO A — Tutor demonstrates (predict-and-verify)
+         Step through 6 beats showing how tutor builds code,
+         predicts output, and frontend verifies in background.
+    ────────────────────────────────────────────── -->
+    <div class="demo sA">
+      <h1>Scenario A — Tutor Demonstrates</h1>
+      <p class="text dim">Predict-and-verify flow. Tutor builds the code across beats, narrates the expected output, and the frontend runs it in the background. Single turn, no extra latency. Click <strong>Next Beat</strong> to step through.</p>
+
+      <div class="scenario-timeline" id="sA-timeline">
+        <div class="scenario-beat active" data-beat="0">beat 1 · code init</div>
+        <div class="scenario-beat" data-beat="1">beat 2 · update</div>
+        <div class="scenario-beat" data-beat="2">beat 3 · update</div>
+        <div class="scenario-beat" data-beat="3">beat 4 · update (full)</div>
+        <div class="scenario-beat" data-beat="4">beat 5 · run</div>
+        <div class="scenario-beat" data-beat="5">beat 6 · narrate output</div>
+        <div class="scenario-controls">
+          <button class="reset" data-scenario="sA">↺ Reset</button>
+          <button class="primary next" data-scenario="sA">Next beat →</button>
+        </div>
+      </div>
+
+      <div class="scenario-frame">
+        <div class="scenario-stage">
+          <div class="beat-say" id="sA-say">Let's build it. Start with the function signature.</div>
+
+          <div class="bd-runner">
+            <div class="bd-runner-header">
+              <span class="bd-runner-prompt">tutor is writing</span>
+              <span class="bd-runner-lang">Python</span>
+              <span class="bd-runner-actions">
+                <span style="font-size:10px; color: var(--dim); padding: 4px 8px;">id: bsearch</span>
+              </span>
+            </div>
+            <div class="bd-runner-editor" id="sA-editor"><span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span></div>
+            <div class="bd-runner-empty" id="sA-output">No run yet · runner is being authored by the tutor</div>
+          </div>
+
+          <p class="scenario-note" id="sA-note">Beat 1: tutor emits <span class="pill">cmd:"code"</span> with the function signature. Runner appears, animation writes the line.</p>
+        </div>
+
+        <div class="scenario-inspector">
+          <div class="scenario-inspector-header">What the tutor is emitting</div>
+          <div class="scenario-inspector-body" id="sA-inspect"><span class="jc">// Beat 1 — Tutor's <vb> tag</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"code"</span>,
+  <span class="ji">"id"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"lang"</span>: <span class="js">"python"</span>,
+  <span class="ji">"text"</span>: <span class="js">"def binary_search(nums, target):"</span>
+<span class="js">}'</span>
+say=<span class="js">"Let's build it. Start with the function signature."</span> /&gt;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         SCENARIO B — Student fixes broken code
+         Tutor sets up broken starter + tests. Student edits,
+         runs, sees failure, asks for help. Tutor's NEXT TURN
+         reacts using state.codeRunners in context.
+    ────────────────────────────────────────────── -->
+    <div class="demo sB">
+      <h1>Scenario B — Student Fixes Broken Code</h1>
+      <p class="text dim">Most common CS interaction. Tutor pre-fills broken code with tests. Student edits, runs, sees failures. Tutor reacts on the next message — the runner state flows back via context, no tool call.</p>
+
+      <div class="scenario-timeline" id="sB-timeline">
+        <div class="scenario-beat active" data-beat="0">step 1 · tutor sets up</div>
+        <div class="scenario-beat" data-beat="1">step 2 · student edits</div>
+        <div class="scenario-beat" data-beat="2">step 3 · student runs</div>
+        <div class="scenario-beat" data-beat="3">step 4 · tests fail</div>
+        <div class="scenario-beat" data-beat="4">step 5 · student asks</div>
+        <div class="scenario-beat" data-beat="5">step 6 · tutor reacts</div>
+        <div class="scenario-controls">
+          <button class="reset" data-scenario="sB">↺ Reset</button>
+          <button class="primary next" data-scenario="sB">Next step →</button>
+        </div>
+      </div>
+
+      <div class="scenario-frame">
+        <div class="scenario-stage">
+          <div class="beat-say" id="sB-say">Here's a buggy binary_search. Find the bug. Run it when you think you've got it — I'll see your tests.</div>
+
+          <div class="bd-runner">
+            <div class="bd-runner-header">
+              <span class="bd-runner-prompt">find &amp; fix the bug</span>
+              <span class="bd-runner-lang">Python</span>
+              <div class="bd-runner-actions">
+                <button class="bd-runner-btn reset">↺ Reset</button>
+                <button class="bd-runner-btn run" id="sB-run-btn">Run</button>
+              </div>
+            </div>
+            <div class="bd-runner-editor" id="sB-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span class="bd-runner-line">    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span></span>
+<span class="bd-runner-line err" id="sB-bug-line">    <span class="tok-kw">while</span> lo &lt; hi:</span>
+<span class="bd-runner-line">        mid = (lo + hi) // <span class="tok-num">2</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">if</span> nums[mid] == target: <span class="tok-kw">return</span> mid</span>
+<span class="bd-runner-line">        <span class="tok-kw">elif</span> nums[mid] &lt; target: lo = mid + <span class="tok-num">1</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">else</span>: hi = mid - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">return</span> -<span class="tok-num">1</span></span></div>
+            <div class="bd-runner-tests" id="sB-tests-block" style="display:none">
+              <div class="bd-runner-tests-header">
+                Test cases
+                <span class="bd-runner-tests-summary err" id="sB-tests-summary">3 / 4 passed</span>
+              </div>
+              <table class="bd-runner-tests-table">
+                <thead><tr><th></th><th>Input</th><th>Expected</th><th>Got</th></tr></thead>
+                <tbody>
+                  <tr class="pass-row"><td class="pass">✓</td><td>[1,3,5,7,9], target=5</td><td>2</td><td class="pass">2</td></tr>
+                  <tr class="pass-row"><td class="pass">✓</td><td>[1,3,5,7,9], target=1</td><td>0</td><td class="pass">0</td></tr>
+                  <tr class="pass-row"><td class="pass">✓</td><td>[2,5,8,12,16,23,38,56,72,91], target=23</td><td>5</td><td class="pass">5</td></tr>
+                  <tr class="fail-row"><td class="fail">✗</td><td>[42], target=42</td><td>0</td><td class="fail">-1</td></tr>
+                </tbody>
+              </table>
+            </div>
+            <div class="bd-runner-output err" id="sB-output" style="display:none">
+              <div class="bd-runner-output-header">
+                <span class="status-dot err"></span>1 / 4 tests failed · ran in 8ms
+              </div><span class="err-trace">FAIL on single-element array.</span>
+With <span class="err-line">while lo &lt; hi</span>, when lo == hi == 0 the loop never runs.
+The single element [42] is never compared and the function returns -1.</div>
+          </div>
+
+          <div class="student-msg" id="sB-student-msg" style="display:none">stuck — what's wrong?</div>
+
+          <p class="scenario-note" id="sB-note">Step 1: tutor emits <span class="pill">cmd:"code"</span> with editable, runnable, and 4 test cases. The runner appears with the buggy starter pre-filled.</p>
+        </div>
+
+        <div class="scenario-inspector">
+          <div class="scenario-inspector-header" id="sB-inspect-title">What the tutor is emitting</div>
+          <div class="scenario-inspector-body" id="sB-inspect"><span class="jc">// Step 1 — Tutor's <vb> tag</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"code"</span>,
+  <span class="ji">"id"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"lang"</span>: <span class="js">"python"</span>,
+  <span class="ji">"editable"</span>: <span class="jb">true</span>,
+  <span class="ji">"runnable"</span>: <span class="jb">true</span>,
+  <span class="ji">"text"</span>: <span class="js">"def binary_search(nums, target):\n    lo, hi = 0, len(nums) - 1\n    while lo &lt; hi:\n        mid = (lo + hi) // 2\n        if nums[mid] == target: return mid\n        elif nums[mid] &lt; target: lo = mid + 1\n        else: hi = mid - 1\n    return -1"</span>,
+  <span class="ji">"tests"</span>: [
+    {<span class="ji">"in"</span>: <span class="js">"[1,3,5,7,9], 5"</span>, <span class="ji">"out"</span>: <span class="js">"2"</span>},
+    {<span class="ji">"in"</span>: <span class="js">"[1,3,5,7,9], 1"</span>, <span class="ji">"out"</span>: <span class="js">"0"</span>},
+    {<span class="ji">"in"</span>: <span class="js">"[2,5,8,...,91], 23"</span>, <span class="ji">"out"</span>: <span class="js">"5"</span>},
+    {<span class="ji">"in"</span>: <span class="js">"[42], 42"</span>, <span class="ji">"out"</span>: <span class="js">"0"</span>}
+  ]
+<span class="js">}'</span>
+say=<span class="js">"Find the bug. Run when you've got it."</span> /&gt;</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ─────────────────────────────────────────────
+         SCENARIO C — Trace walk (no execution)
+         Editable runner used as a worksheet. Student fills
+         in blank trace cells. Tutor sees the answers.
+    ────────────────────────────────────────────── -->
+    <div class="demo sC">
+      <h1>Scenario C — Trace Walk</h1>
+      <p class="text dim">No execution — pure worksheet pattern. Tutor seeds an empty trace template; student fills in <code>lo</code>, <code>hi</code>, <code>mid</code> at each iteration. Tutor sees the answers and reacts.</p>
+
+      <div class="scenario-timeline" id="sC-timeline">
+        <div class="scenario-beat active" data-beat="0">step 1 · tutor seeds trace</div>
+        <div class="scenario-beat" data-beat="1">step 2 · student fills</div>
+        <div class="scenario-beat" data-beat="2">step 3 · student says done</div>
+        <div class="scenario-beat" data-beat="3">step 4 · tutor checks</div>
+        <div class="scenario-controls">
+          <button class="reset" data-scenario="sC">↺ Reset</button>
+          <button class="primary next" data-scenario="sC">Next step →</button>
+        </div>
+      </div>
+
+      <div class="scenario-frame">
+        <div class="scenario-stage">
+          <div class="beat-say" id="sC-say">Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23). Fill in lo, hi, mid for each iteration. No need to run anything — I'll check your work.</div>
+
+          <div class="bd-runner">
+            <div class="bd-runner-header">
+              <span class="bd-runner-prompt">trace worksheet (no run)</span>
+              <span class="bd-runner-lang">Python</span>
+              <div class="bd-runner-actions">
+                <button class="bd-runner-btn reset">↺ Reset</button>
+              </div>
+            </div>
+            <div class="bd-runner-editor" id="sC-editor" contenteditable="true"><span class="bd-runner-line"><span class="tok-com"># Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23)</span></span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 1</span>:  lo = ?,  hi = ?,  mid = ?,  nums[mid] = ?</span>
+<span class="bd-runner-line">step1 = {<span class="tok-str">"lo"</span>: ?, <span class="tok-str">"hi"</span>: ?, <span class="tok-str">"mid"</span>: ?, <span class="tok-str">"val"</span>: ?}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 2</span>:  lo = ?,  hi = ?,  mid = ?,  nums[mid] = ?</span>
+<span class="bd-runner-line">step2 = {<span class="tok-str">"lo"</span>: ?, <span class="tok-str">"hi"</span>: ?, <span class="tok-str">"mid"</span>: ?, <span class="tok-str">"val"</span>: ?}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># found at iter ?</span></span>
+<span class="bd-runner-line">result = ?</span></div>
+          </div>
+
+          <div class="student-msg" id="sC-student-msg" style="display:none">done</div>
+
+          <p class="scenario-note" id="sC-note">Step 1: tutor emits <span class="pill">cmd:"code"</span> with <span class="pill">editable: true</span> but no <span class="pill">runnable</span>. Pure worksheet — no Run button.</p>
+        </div>
+
+        <div class="scenario-inspector">
+          <div class="scenario-inspector-header" id="sC-inspect-title">What the tutor is emitting</div>
+          <div class="scenario-inspector-body" id="sC-inspect"><span class="jc">// Step 1 — Tutor's <vb> tag</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"code"</span>,
+  <span class="ji">"id"</span>: <span class="js">"trace-walk"</span>,
+  <span class="ji">"lang"</span>: <span class="js">"python"</span>,
+  <span class="ji">"editable"</span>: <span class="jb">true</span>,
+  <span class="ji">"runnable"</span>: <span class="jb">false</span>,
+  <span class="ji">"text"</span>: <span class="js">"# Trace binary_search(...)\n# iter 1: ...\nstep1 = {...}\n# iter 2: ...\nstep2 = {...}"</span>
+<span class="js">}'</span>
+say=<span class="js">"Fill in lo, hi, mid for each iteration."</span> /&gt;</div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Right sidebar — plan + state ─────────── -->
+  <div class="sidebar">
+    <h4>Today's Path</h4>
+    <div class="sidebar-step done"><div class="sidebar-dot"></div>Sorted-array intuition</div>
+    <div class="sidebar-step done"><div class="sidebar-dot"></div>The bulletproof template</div>
+    <div class="sidebar-step now"><div class="sidebar-dot">3</div>Implement it yourself</div>
+    <div class="sidebar-step"><div class="sidebar-dot">4</div>Boundary search variants</div>
+    <div class="sidebar-step"><div class="sidebar-dot">5</div>Pattern recognition</div>
+
+    <div class="sidebar-section">
+      <h4>Code on screen</h4>
+      <div class="runner-card">
+        <div class="runner-card-id">bsearch-py</div>
+        <div>Python · 11 lines</div>
+        <div class="runner-card-status err">
+          <span class="status-dot err"></span>3 / 4 tests passed
+        </div>
+      </div>
+      <div class="runner-card">
+        <div class="runner-card-id">trace-walk</div>
+        <div>Python · editable</div>
+        <div class="runner-card-status idle">
+          <span class="status-dot idle"></span>not run yet
+        </div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <h4>What the tutor sees</h4>
+      <div style="font-size: 12px; color: var(--dim); line-height: 1.6;">
+        On your next message, the tutor receives:
+        <ul style="margin: 8px 0 0 16px; padding: 0;">
+          <li>Your edited code</li>
+          <li>The Run output (success or error)</li>
+          <li>Test results: 3 ✓ / 1 ✗</li>
+          <li>The line of the failing test</li>
+        </ul>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Voice bar (mock) ─────────────────────── -->
+  <div class="voicebar">
+    <div class="voicebar-text">I see you're using <span class="uline">while lo &lt; hi</span> — that's the classic off-by-one. Want to try fixing it, or should I walk you through why?</div>
+    <div class="voicebar-status">Euler is speaking</div>
+    <div class="voicebar-input">
+      <input type="text" placeholder="Type to interrupt..." />
+      <button class="voicebar-btn">||</button>
+      <button class="voicebar-btn stop">■</button>
+      <button class="voicebar-btn mic">●</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// Demo switcher
+document.querySelectorAll('.demos button').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.demos button').forEach(b => b.classList.remove('active'));
+    document.querySelectorAll('.demo').forEach(d => d.classList.remove('active'));
+    btn.classList.add('active');
+    document.querySelector('.' + btn.dataset.demo).classList.add('active');
+  });
+});
+
+// Mock the Run button — flash a "running..." then restore
+document.querySelectorAll('.bd-runner-btn.run').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const original = btn.innerHTML;
+    btn.innerHTML = 'running…';
+    btn.style.opacity = 0.6;
+    setTimeout(() => {
+      btn.innerHTML = original;
+      btn.style.opacity = 1;
+    }, 800);
+  });
+});
+
+// ─── Scenario step engine ────────────────────────────
+//
+// Each scenario is an array of "frames". Each frame is a dict of
+// {selector: html-or-text} updates that get applied when the frame becomes
+// active. The "next" button advances the frame index; "reset" rewinds.
+// The point: show real interaction flows step-by-step so the design is
+// testable visually before any code is written.
+
+const scenarios = {
+  // ─── Scenario A: Tutor demonstrates (predict-and-verify) ─────
+  sA: {
+    frames: [
+      // Beat 1 — code init
+      {
+        say: "Let's build it. Start with the function signature.",
+        editor: '<span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>',
+        output: '<div class="bd-runner-empty" style="border:none;padding:14px 16px">No run yet · runner is being authored</div>',
+        outputClass: '',
+        note: 'Beat 1: tutor emits <span class="pill">cmd:"code"</span> with the function signature. Runner appears, animation writes the line.',
+        inspect: `<span class="jc">// Beat 1 — Tutor's vb tag</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"code"</span>,
+  <span class="ji">"id"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"lang"</span>: <span class="js">"python"</span>,
+  <span class="ji">"text"</span>: <span class="js">"def binary_search(nums, target):"</span>
+<span class="js">}'</span>
+say=<span class="js">"Let's build it. Start with the function signature."</span> /&gt;`,
+      },
+      // Beat 2 — first update
+      {
+        say: "Initialize lo and hi to span the whole array — inclusive bounds.",
+        editor: `<span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span class="bd-runner-line">    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span></span>`,
+        note: 'Beat 2: <span class="pill">cmd:"update"</span> with the same id. Renderer diffs, animates only the new line. Old lines stay put.',
+        inspect: `<span class="jc">// Beat 2 — update with full new text</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"update"</span>,
+  <span class="ji">"target"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"text"</span>: <span class="js">"def binary_search(nums, target):\\n    lo, hi = 0, len(nums) - 1"</span>
+<span class="js">}'</span>
+say=<span class="js">"Initialize lo and hi to span the whole array."</span> /&gt;`,
+      },
+      // Beat 3 — second update
+      {
+        say: "Loop while the window has at least one element. Note the equals sign — that's the bug-prevention.",
+        editor: `<span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span class="bd-runner-line">    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">while</span> lo &lt;= hi:</span>
+<span class="bd-runner-line">        mid = lo + (hi - lo) // <span class="tok-num">2</span></span>`,
+        note: 'Beat 3: another <span class="pill">cmd:"update"</span>. Two new lines animate in.',
+        inspect: `<span class="jc">// Beat 3 — update grows the function</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"update"</span>,
+  <span class="ji">"target"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"text"</span>: <span class="js">"...lo, hi = 0, len(nums) - 1\\n    while lo &lt;= hi:\\n        mid = lo + (hi - lo) // 2"</span>
+<span class="js">}'</span>
+say=<span class="js">"Loop while the window has at least one element."</span> /&gt;`,
+      },
+      // Beat 4 — full function
+      {
+        say: "And the three branches: equal returns mid, less searches right, greater searches left.",
+        editor: `<span class="bd-runner-line"><span class="tok-kw">def</span> <span class="tok-fn">binary_search</span>(nums, target):</span>
+<span class="bd-runner-line">    lo, hi = <span class="tok-num">0</span>, <span class="tok-fn">len</span>(nums) - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">while</span> lo &lt;= hi:</span>
+<span class="bd-runner-line">        mid = lo + (hi - lo) // <span class="tok-num">2</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">if</span> nums[mid] == target:</span>
+<span class="bd-runner-line">            <span class="tok-kw">return</span> mid</span>
+<span class="bd-runner-line">        <span class="tok-kw">elif</span> nums[mid] &lt; target:</span>
+<span class="bd-runner-line">            lo = mid + <span class="tok-num">1</span></span>
+<span class="bd-runner-line">        <span class="tok-kw">else</span>:</span>
+<span class="bd-runner-line">            hi = mid - <span class="tok-num">1</span></span>
+<span class="bd-runner-line">    <span class="tok-kw">return</span> -<span class="tok-num">1</span></span>`,
+        note: 'Beat 4: the full function. Six new lines.',
+        inspect: `<span class="jc">// Beat 4 — full function complete</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"update"</span>,
+  <span class="ji">"target"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"text"</span>: <span class="js">"def binary_search(nums, target):\\n    lo, hi = 0, len(nums) - 1\\n    while lo &lt;= hi:\\n        mid = lo + (hi - lo) // 2\\n        if nums[mid] == target:\\n            return mid\\n        elif nums[mid] &lt; target:\\n            lo = mid + 1\\n        else:\\n            hi = mid - 1\\n    return -1"</span>
+<span class="js">}'</span>
+say=<span class="js">"And the three branches..."</span> /&gt;`,
+      },
+      // Beat 5 — run command (background execution)
+      {
+        say: "Let me run it on our example. nums = [2,5,8,12,16,23,38,56,72,91], target = 23.",
+        output: '<div class="bd-runner-output-header"><span class="status-dot ok" style="animation: pulse 1s infinite"></span>Running in background…</div>',
+        outputClass: 'ok',
+        note: 'Beat 5: <span class="pill">cmd:"run"</span> fires execution in the background. Tutor doesn\'t wait — the next beat already plays.',
+        inspect: `<span class="jc">// Beat 5 — fire the run, no wait</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"run"</span>,
+  <span class="ji">"target"</span>: <span class="js">"bsearch"</span>
+<span class="js">}'</span>
+say=<span class="js">"Let me run it on our example..."</span> /&gt;
+
+<span class="jc">// Frontend executes async via Pyodide</span>
+<span class="jc">// Result lands in state.codeRunners[id].lastRun</span>
+<span class="jc">// Tutor will see it on the NEXT student message</span>`,
+      },
+      // Beat 6 — predicted output
+      {
+        say: "It returns 5 — index of 23 in the array. Exactly where we expected to find it.",
+        output: `<div class="bd-runner-output-header"><span class="status-dot ok"></span>Run succeeded · ran in 12ms</div>&gt;&gt;&gt; binary_search([2,5,8,12,16,23,38,56,72,91], 23)
+<span style="color: var(--math)">5</span>`,
+        outputClass: 'ok',
+        note: 'Beat 6: tutor narrates the <strong>predicted</strong> output as a <span class="pill">cmd:"text"</span>. Frontend\'s actual run completed and matches — no correction needed. <span class="pill ok">single turn</span> · <span class="pill ok">0 added latency</span>',
+        inspect: `<span class="jc">// Beat 6 — predicted output narration</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"text"</span>,
+  <span class="ji">"text"</span>: <span class="js">"Output: 5"</span>,
+  <span class="ji">"placement"</span>: <span class="js">"below"</span>,
+  <span class="ji">"color"</span>: <span class="js">"#34d399"</span>
+<span class="js">}'</span>
+say=<span class="js">"It returns 5 — exactly right."</span> /&gt;
+
+<span class="jc">// Tutor's prediction matched actual run.</span>
+<span class="jc">// Happy path: 0 latency, single turn done.</span>
+<span class="jc">// If it had differed, next turn's context would</span>
+<span class="jc">// flag the discrepancy and tutor would correct.</span>`,
+      },
+    ],
+  },
+
+  // ─── Scenario B: Student fixes broken code ───────────────────
+  sB: {
+    frames: [
+      // Step 1 — tutor sets up
+      {
+        say: "Here's a buggy binary_search. Find the bug. Run it when you think you've got it — I'll see your tests.",
+        showStudentMsg: false,
+        showTests: false,
+        showOutput: false,
+        runBtnState: 'idle',
+        note: 'Step 1: tutor emits <span class="pill">cmd:"code"</span> with editable, runnable, and 4 test cases. Buggy starter pre-filled.',
+        inspectTitle: "What the tutor is emitting",
+        inspect: `<span class="jc">// Step 1 — Tutor's vb tag</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"code"</span>,
+  <span class="ji">"id"</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">"lang"</span>: <span class="js">"python"</span>,
+  <span class="ji">"editable"</span>: <span class="jb">true</span>,
+  <span class="ji">"runnable"</span>: <span class="jb">true</span>,
+  <span class="ji">"text"</span>: <span class="js">"def binary_search(...): ..."</span>,
+  <span class="ji">"tests"</span>: [
+    {<span class="ji">"in"</span>: <span class="js">"[1,3,5,7,9], 5"</span>, <span class="ji">"out"</span>: <span class="js">"2"</span>},
+    {<span class="ji">"in"</span>: <span class="js">"[1,3,5,7,9], 1"</span>, <span class="ji">"out"</span>: <span class="js">"0"</span>},
+    {<span class="ji">"in"</span>: <span class="js">"[2,5,8,...], 23"</span>, <span class="ji">"out"</span>: <span class="js">"5"</span>},
+    {<span class="ji">"in"</span>: <span class="js">"[42], 42"</span>, <span class="ji">"out"</span>: <span class="js">"0"</span>}
+  ]
+<span class="js">}'</span>
+say=<span class="js">"Find the bug..."</span> /&gt;`,
+      },
+      // Step 2 — student edits (no real change, just acknowledge)
+      {
+        say: "Here's a buggy binary_search. Find the bug. Run it when you think you've got it — I'll see your tests.",
+        showStudentMsg: false,
+        showTests: false,
+        showOutput: false,
+        runBtnState: 'idle',
+        note: 'Step 2: student is editing the code. Per-keystroke updates stay LOCAL — no WebSocket traffic. The tutor doesn\'t see typing in real time, just the latest snapshot when the student runs or sends a message.',
+        inspectTitle: "Local state (frontend only)",
+        inspect: `<span class="jc">// Per-keystroke updates stay local.</span>
+<span class="jc">// state.codeRunners["bsearch"].currentCode</span>
+<span class="jc">// gets updated on every keystroke,</span>
+<span class="jc">// but NOTHING is sent to the tutor yet.</span>
+
+state.codeRunners[<span class="js">"bsearch"</span>] = {
+  <span class="ji">id</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">lang</span>: <span class="js">"python"</span>,
+  <span class="ji">currentCode</span>: <span class="js">"... student's edits ..."</span>,
+  <span class="ji">lastRun</span>: <span class="jb">null</span>,         <span class="jc">// hasn't run yet</span>
+  <span class="ji">tests</span>: <span class="jb">null</span>
+}`,
+      },
+      // Step 3 — student runs
+      {
+        say: "Here's a buggy binary_search. Find the bug. Run it when you think you've got it — I'll see your tests.",
+        showStudentMsg: false,
+        showTests: false,
+        showOutput: false,
+        runBtnState: 'running',
+        note: 'Step 3: student clicks <span class="pill">Run</span>. Pyodide executes the function against all 4 test cases in the browser. ~50ms after Pyodide is loaded.',
+        inspectTitle: "Frontend executing",
+        inspect: `<span class="jc">// Frontend executes locally (Pyodide).</span>
+<span class="jc">// No backend round-trip.</span>
+
+await pyodide.runPython(<span class="js">studentCode</span>);
+<span class="jc">// run all 4 tests, capture results</span>
+
+<span class="jc">// Result populates state.codeRunners[id].lastRun</span>
+<span class="jc">// AND state.codeRunners[id].tests</span>
+<span class="jc">// Still nothing sent to tutor yet —</span>
+<span class="jc">// tutor will see this on next MESSAGE.</span>`,
+      },
+      // Step 4 — tests fail
+      {
+        say: "Here's a buggy binary_search. Find the bug. Run it when you think you've got it — I'll see your tests.",
+        showStudentMsg: false,
+        showTests: true,
+        showOutput: true,
+        runBtnState: 'idle',
+        note: 'Step 4: results inline. 3 of 4 passed, the [42] case failed because <span class="pill warn">while lo &lt; hi</span> never enters the loop on a single-element array.',
+        inspectTitle: "state.codeRunners (local)",
+        inspect: `<span class="jc">// Frontend state — NOT YET sent to tutor.</span>
+state.codeRunners[<span class="js">"bsearch"</span>] = {
+  <span class="ji">id</span>: <span class="js">"bsearch"</span>,
+  <span class="ji">lang</span>: <span class="js">"python"</span>,
+  <span class="ji">currentCode</span>: <span class="js">"...student's code..."</span>,
+  <span class="ji">lastRun</span>: {
+    <span class="ji">status</span>: <span class="js">"error"</span>,
+    <span class="ji">stderr</span>: <span class="js">"1 test failed"</span>,
+    <span class="ji">errorLine</span>: <span class="jn">3</span>,
+    <span class="ji">ranAt</span>: <span class="js">"just now"</span>
+  },
+  <span class="ji">tests</span>: {
+    <span class="ji">total</span>: <span class="jn">4</span>, <span class="ji">passed</span>: <span class="jn">3</span>, <span class="ji">failed</span>: <span class="jn">1</span>,
+    <span class="ji">failing</span>: [
+      {
+        <span class="ji">input</span>: <span class="js">"[42], target=42"</span>,
+        <span class="ji">expected</span>: <span class="js">"0"</span>,
+        <span class="ji">actual</span>: <span class="jf">"-1"</span>
+      }
+    ]
+  }
+}`,
+      },
+      // Step 5 — student asks
+      {
+        say: "Here's a buggy binary_search. Find the bug. Run it when you think you've got it — I'll see your tests.",
+        showStudentMsg: true,
+        studentMsg: "stuck — what's wrong?",
+        showTests: true,
+        showOutput: true,
+        runBtnState: 'idle',
+        note: 'Step 5: student types and sends a message. The runner state goes into the <span class="pill">MESSAGE</span> context payload AUTOMATICALLY via buildContext(). <span class="pill ok">no tool call</span> · <span class="pill ok">no extra round-trip</span>',
+        inspectTitle: "WebSocket MESSAGE payload",
+        inspect: `<span class="jc">// On send, buildContext() pulls in</span>
+<span class="jc">// state.codeRunners as a context item.</span>
+
+{
+  <span class="ji">type</span>: <span class="js">"MESSAGE"</span>,
+  <span class="ji">text</span>: <span class="js">"stuck — what's wrong?"</span>,
+  <span class="ji">context</span>: [
+    { <span class="ji">description</span>: <span class="js">"Student Profile"</span>, ... },
+    { <span class="ji">description</span>: <span class="js">"Session Metrics"</span>, ... },
+    { <span class="ji">description</span>: <span class="js">"Code Runners"</span>, <span class="ji">value</span>: {
+      <span class="js">"bsearch"</span>: {
+        <span class="ji">lang</span>: <span class="js">"python"</span>,
+        <span class="ji">currentCode</span>: <span class="js">"...all 11 lines..."</span>,
+        <span class="ji">lastRun</span>: { <span class="ji">status</span>: <span class="js">"error"</span>, ... },
+        <span class="ji">tests</span>: { <span class="ji">passed</span>: <span class="jn">3</span>, <span class="ji">failed</span>: <span class="jn">1</span>,
+          <span class="ji">failing</span>: [{<span class="ji">input</span>:<span class="js">"[42], 42"</span>,
+            <span class="ji">expected</span>:<span class="js">"0"</span>, <span class="ji">actual</span>:<span class="jf">"-1"</span>}]
+        }
+      }
+    } }
+  ]
+}`,
+      },
+      // Step 6 — tutor reacts
+      {
+        say: "I see it. On line 3 you wrote `while lo < hi` — but that misses the last element. When lo == hi == 0 the loop never runs, so the single-element array [42] returns -1 instead of 0. Change it to `while lo <= hi` and run again.",
+        showStudentMsg: true,
+        studentMsg: "stuck — what's wrong?",
+        showTests: true,
+        showOutput: true,
+        runBtnState: 'idle',
+        note: 'Step 6: tutor\'s first beat already knows the failing test, the wrong line, and the fix. <span class="pill ok">no tool call needed</span> — everything was in the context. The student gets a precise fix on the first beat.',
+        inspectTitle: "Tutor's prompt context (auto-loaded)",
+        inspect: `<span class="jc">// The tutor's first beat sees ALL of this</span>
+<span class="jc">// in its system prompt automatically.</span>
+<span class="jc">// No tool call. No round trip. No latency.</span>
+
+[CONTEXT_BLOCK]
+Code Runners:
+  bsearch (Python, 11 lines, EDITED)
+    lastRun: error  - 1 of 4 tests failed
+    failing test:
+      input: [42], target=42
+      expected: 0
+      got:      <span class="jf">-1</span>
+    likely cause line 3:
+      <span class="js">while lo &lt; hi</span>
+      should be <span class="js">while lo &lt;= hi</span>
+      (loop misses single-element)
+[END_CONTEXT_BLOCK]
+
+<span class="jc">// Tutor reacts directly:</span>
+&lt;vb say=<span class="js">"I see it. On line 3..."</span> /&gt;`,
+      },
+    ],
+  },
+
+  // ─── Scenario C: Trace walk (worksheet) ──────────────────────
+  sC: {
+    frames: [
+      // Step 1 — tutor seeds
+      {
+        say: "Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23). Fill in lo, hi, mid for each iteration. No need to run anything — I'll check your work.",
+        editor: `<span class="bd-runner-line"><span class="tok-com"># Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23)</span></span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 1</span>:  lo = ?,  hi = ?,  mid = ?,  nums[mid] = ?</span>
+<span class="bd-runner-line">step1 = {<span class="tok-str">"lo"</span>: ?, <span class="tok-str">"hi"</span>: ?, <span class="tok-str">"mid"</span>: ?, <span class="tok-str">"val"</span>: ?}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 2</span>:  lo = ?,  hi = ?,  mid = ?,  nums[mid] = ?</span>
+<span class="bd-runner-line">step2 = {<span class="tok-str">"lo"</span>: ?, <span class="tok-str">"hi"</span>: ?, <span class="tok-str">"mid"</span>: ?, <span class="tok-str">"val"</span>: ?}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># found at iter ?</span></span>
+<span class="bd-runner-line">result = ?</span>`,
+        showStudentMsg: false,
+        note: 'Step 1: tutor emits <span class="pill">cmd:"code"</span> with <span class="pill">editable: true</span> but no <span class="pill">runnable</span>. Pure worksheet — no Run button.',
+        inspectTitle: "What the tutor is emitting",
+        inspect: `<span class="jc">// Step 1 — Tutor's vb tag</span>
+&lt;vb draw=<span class="js">'{</span>
+  <span class="ji">"cmd"</span>: <span class="js">"code"</span>,
+  <span class="ji">"id"</span>: <span class="js">"trace-walk"</span>,
+  <span class="ji">"lang"</span>: <span class="js">"python"</span>,
+  <span class="ji">"editable"</span>: <span class="jb">true</span>,
+  <span class="ji">"runnable"</span>: <span class="jb">false</span>,
+  <span class="ji">"text"</span>: <span class="js">"# Trace binary_search(...)\\n# iter 1: ..."</span>
+<span class="js">}'</span>
+say=<span class="js">"Fill in lo, hi, mid for each iteration."</span> /&gt;`,
+      },
+      // Step 2 — student fills in
+      {
+        say: "Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23). Fill in lo, hi, mid for each iteration. No need to run anything — I'll check your work.",
+        editor: `<span class="bd-runner-line"><span class="tok-com"># Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23)</span></span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 1</span>:  lo = 0,  hi = 9,  mid = 4,  nums[mid] = 16</span>
+<span class="bd-runner-line">step1 = {<span class="tok-str">"lo"</span>: <span class="tok-num">0</span>, <span class="tok-str">"hi"</span>: <span class="tok-num">9</span>, <span class="tok-str">"mid"</span>: <span class="tok-num">4</span>, <span class="tok-str">"val"</span>: <span class="tok-num">16</span>}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 2</span>:  lo = 5,  hi = 9,  mid = 6,  nums[mid] = 38</span>
+<span class="bd-runner-line">step2 = {<span class="tok-str">"lo"</span>: <span class="tok-num">5</span>, <span class="tok-str">"hi"</span>: <span class="tok-num">9</span>, <span class="tok-str">"mid"</span>: <span class="tok-num">6</span>, <span class="tok-str">"val"</span>: <span class="tok-num">38</span>}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># found at iter ?</span></span>
+<span class="bd-runner-line">result = <span class="tok-num">5</span></span>`,
+        showStudentMsg: false,
+        note: 'Step 2: student fills in iter 1 correctly, but iter 2 has a bug — mid should be 7 (because lo=5, hi=9 → (5+9)//2 = 7), not 6.',
+        inspectTitle: "Local state (frontend)",
+        inspect: `<span class="jc">// Local edits — not yet sent.</span>
+state.codeRunners[<span class="js">"trace-walk"</span>] = {
+  <span class="ji">id</span>: <span class="js">"trace-walk"</span>,
+  <span class="ji">lang</span>: <span class="js">"python"</span>,
+  <span class="ji">currentCode</span>: <span class="js">"... student's filled-in trace ..."</span>,
+  <span class="ji">lastRun</span>: <span class="jb">null</span>,    <span class="jc">// no run for worksheets</span>
+  <span class="ji">tests</span>: <span class="jb">null</span>
+}`,
+      },
+      // Step 3 — student says done
+      {
+        say: "Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23). Fill in lo, hi, mid for each iteration. No need to run anything — I'll check your work.",
+        editor: `<span class="bd-runner-line"><span class="tok-com"># Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23)</span></span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 1</span>:  lo = 0,  hi = 9,  mid = 4,  nums[mid] = 16</span>
+<span class="bd-runner-line">step1 = {<span class="tok-str">"lo"</span>: <span class="tok-num">0</span>, <span class="tok-str">"hi"</span>: <span class="tok-num">9</span>, <span class="tok-str">"mid"</span>: <span class="tok-num">4</span>, <span class="tok-str">"val"</span>: <span class="tok-num">16</span>}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 2</span>:  lo = 5,  hi = 9,  mid = 6,  nums[mid] = 38</span>
+<span class="bd-runner-line">step2 = {<span class="tok-str">"lo"</span>: <span class="tok-num">5</span>, <span class="tok-str">"hi"</span>: <span class="tok-num">9</span>, <span class="tok-str">"mid"</span>: <span class="tok-num">6</span>, <span class="tok-str">"val"</span>: <span class="tok-num">38</span>}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># found at iter ?</span></span>
+<span class="bd-runner-line">result = <span class="tok-num">5</span></span>`,
+        showStudentMsg: true,
+        studentMsg: "done",
+        note: 'Step 3: student types "done". The whole trace contents go into context with the message — same flow as Scenario B, just no run output.',
+        inspectTitle: "WebSocket MESSAGE payload",
+        inspect: `{
+  <span class="ji">type</span>: <span class="js">"MESSAGE"</span>,
+  <span class="ji">text</span>: <span class="js">"done"</span>,
+  <span class="ji">context</span>: [
+    { <span class="ji">description</span>: <span class="js">"Student Profile"</span>, ... },
+    { <span class="ji">description</span>: <span class="js">"Code Runners"</span>, <span class="ji">value</span>: {
+      <span class="js">"trace-walk"</span>: {
+        <span class="ji">lang</span>: <span class="js">"python"</span>,
+        <span class="ji">currentCode</span>: <span class="js">"# iter 1: lo=0, hi=9, mid=4, val=16\\nstep1 = {0,9,4,16}\\n# iter 2: lo=5, hi=9, mid=6, val=38\\nstep2 = {5,9,6,38}\\nresult = 5"</span>,
+        <span class="ji">lastRun</span>: <span class="jb">null</span>
+      }
+    } }
+  ]
+}`,
+      },
+      // Step 4 — tutor checks
+      {
+        say: "Iter 1 is perfect — lo=0, hi=9, mid=4, val=16. For iter 2 you have lo=5, hi=9 right, but mid should be 7, not 6 — (5+9)//2 = 7. nums[7] is 56, which is bigger than 23, so hi becomes 6. You end up at mid=5 on iter 3. Try again from there.",
+        editor: `<span class="bd-runner-line"><span class="tok-com"># Trace binary_search([2,5,8,12,16,23,38,56,72,91], 23)</span></span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># iter 1</span>:  lo = 0,  hi = 9,  mid = 4,  nums[mid] = 16</span>
+<span class="bd-runner-line">step1 = {<span class="tok-str">"lo"</span>: <span class="tok-num">0</span>, <span class="tok-str">"hi"</span>: <span class="tok-num">9</span>, <span class="tok-str">"mid"</span>: <span class="tok-num">4</span>, <span class="tok-str">"val"</span>: <span class="tok-num">16</span>}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line err"><span class="tok-com"># iter 2</span>:  lo = 5,  hi = 9,  mid = 6,  nums[mid] = 38</span>
+<span class="bd-runner-line err">step2 = {<span class="tok-str">"lo"</span>: <span class="tok-num">5</span>, <span class="tok-str">"hi"</span>: <span class="tok-num">9</span>, <span class="tok-str">"mid"</span>: <span class="tok-num">6</span>, <span class="tok-str">"val"</span>: <span class="tok-num">38</span>}</span>
+<span class="bd-runner-line"></span>
+<span class="bd-runner-line"><span class="tok-com"># found at iter ?</span></span>
+<span class="bd-runner-line">result = <span class="tok-num">5</span></span>`,
+        showStudentMsg: true,
+        studentMsg: "done",
+        note: 'Step 4: tutor reads the trace, identifies the wrong mid value, points at the line. <span class="pill ok">first beat is precise</span> — no clarifying questions needed because the tutor has the full trace already.',
+        inspectTitle: "Tutor's reasoning",
+        inspect: `<span class="jc">// Tutor sees the student's trace as text</span>
+<span class="jc">// in the context block. Computes locally:</span>
+
+iter 1: <span class="jp">lo=0, hi=9 → mid = (0+9)//2 = 4 ✓</span>
+        <span class="jp">nums[4] = 16, target 23 &gt; 16</span>
+        <span class="jp">→ lo = mid+1 = 5, hi stays 9</span>
+
+iter 2: <span class="jp">lo=5, hi=9 → mid = (5+9)//2 = </span><span class="jf">7 (student wrote 6 ✗)</span>
+        <span class="jp">nums[7] = 56, target 23 &lt; 56</span>
+        <span class="jp">→ hi = mid-1 = 6, lo stays 5</span>
+
+iter 3: <span class="jp">lo=5, hi=6 → mid = 5</span>
+        <span class="jp">nums[5] = 23 = target ✓ → return 5</span>
+
+<span class="jc">// Tutor's first beat already knows the bug</span>
+<span class="jc">// AND the correct continuation. No tool calls.</span>`,
+      },
+    ],
+  },
+};
+
+// Per-scenario index tracker
+const scenarioIdx = { sA: 0, sB: 0, sC: 0 };
+
+function applyScenarioFrame(scenarioId) {
+  const scn = scenarios[scenarioId];
+  if (!scn) return;
+  const idx = scenarioIdx[scenarioId];
+  const frame = scn.frames[idx];
+  if (!frame) return;
+
+  // Update timeline
+  const timeline = document.getElementById(scenarioId + '-timeline');
+  if (timeline) {
+    timeline.querySelectorAll('.scenario-beat').forEach((b, i) => {
+      b.classList.remove('active', 'done');
+      if (i < idx) b.classList.add('done');
+      else if (i === idx) b.classList.add('active');
+    });
+  }
+
+  // Update say bubble
+  const say = document.getElementById(scenarioId + '-say');
+  if (say && frame.say !== undefined) say.textContent = frame.say;
+
+  // Update editor (if frame defines one)
+  const editor = document.getElementById(scenarioId + '-editor');
+  if (editor && frame.editor !== undefined) editor.innerHTML = frame.editor;
+
+  // Update output panel (sA)
+  if (scenarioId === 'sA') {
+    const output = document.getElementById('sA-output');
+    if (output && frame.output !== undefined) {
+      output.className = 'bd-runner-output ' + (frame.outputClass || '');
+      output.innerHTML = frame.output;
+    }
+  }
+
+  // Update sB-specific panels
+  if (scenarioId === 'sB') {
+    const tests = document.getElementById('sB-tests-block');
+    const output = document.getElementById('sB-output');
+    const studentMsg = document.getElementById('sB-student-msg');
+    const runBtn = document.getElementById('sB-run-btn');
+    if (tests) tests.style.display = frame.showTests ? '' : 'none';
+    if (output) output.style.display = frame.showOutput ? '' : 'none';
+    if (studentMsg) {
+      studentMsg.style.display = frame.showStudentMsg ? '' : 'none';
+      if (frame.studentMsg) studentMsg.textContent = frame.studentMsg;
+    }
+    if (runBtn) {
+      if (frame.runBtnState === 'running') {
+        runBtn.innerHTML = 'running…';
+        runBtn.style.opacity = 0.6;
+      } else {
+        runBtn.innerHTML = 'Run';
+        runBtn.style.opacity = 1;
+      }
+    }
+  }
+
+  // Update sC-specific panels
+  if (scenarioId === 'sC') {
+    const studentMsg = document.getElementById('sC-student-msg');
+    if (studentMsg) {
+      studentMsg.style.display = frame.showStudentMsg ? '' : 'none';
+      if (frame.studentMsg) studentMsg.textContent = frame.studentMsg;
+    }
+  }
+
+  // Update note
+  const note = document.getElementById(scenarioId + '-note');
+  if (note && frame.note !== undefined) note.innerHTML = frame.note;
+
+  // Update inspector title + body
+  const inspectTitle = document.getElementById(scenarioId + '-inspect-title');
+  if (inspectTitle && frame.inspectTitle !== undefined) inspectTitle.textContent = frame.inspectTitle;
+  const inspect = document.getElementById(scenarioId + '-inspect');
+  if (inspect && frame.inspect !== undefined) inspect.innerHTML = frame.inspect;
+
+  // Update next button state
+  const controls = timeline ? timeline.querySelector('.scenario-controls') : null;
+  if (controls) {
+    const nextBtn = controls.querySelector('.next');
+    if (nextBtn) nextBtn.disabled = (idx >= scn.frames.length - 1);
+  }
+}
+
+// Wire up step controls
+document.querySelectorAll('.scenario-controls .next').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.scenario;
+    if (scenarioIdx[id] < scenarios[id].frames.length - 1) {
+      scenarioIdx[id]++;
+      applyScenarioFrame(id);
+    }
+  });
+});
+document.querySelectorAll('.scenario-controls .reset').forEach(btn => {
+  btn.addEventListener('click', () => {
+    const id = btn.dataset.scenario;
+    scenarioIdx[id] = 0;
+    applyScenarioFrame(id);
+  });
+});
+
+// Make timeline beats clickable too
+document.querySelectorAll('.scenario-beat').forEach(beat => {
+  beat.addEventListener('click', () => {
+    const timeline = beat.closest('.scenario-timeline');
+    if (!timeline) return;
+    const id = timeline.id.replace('-timeline', '');
+    scenarioIdx[id] = parseInt(beat.dataset.beat, 10);
+    applyScenarioFrame(id);
+  });
+});
+
+// Init scenarios to frame 0 on load
+['sA', 'sB', 'sC'].forEach(id => applyScenarioFrame(id));
+</script>
+</body>
+</html>

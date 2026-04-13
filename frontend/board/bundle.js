@@ -236,10 +236,51 @@ function placeElement(element, placement, cmd) {
       var narrationCol = fig.querySelector('.bd-figure-narration');
       if (narrationCol) {
         narrationCol.appendChild(element);
-        // Auto-scroll the narration column so the newest line is visible
         requestAnimationFrame(function() {
           narrationCol.scrollTop = narrationCol.scrollHeight;
         });
+
+        // ── AUTO-SYNC: reveal next animation phase when narration arrives ──
+        // Find animation inside this figure and advance its state.
+        var animEntry = null;
+        for (var ai = 0; ai < board.animations.length; ai++) {
+          var candidate = board.animations[ai];
+          if (candidate.container && fig.contains(candidate.container)) { animEntry = candidate; break; }
+        }
+        if (animEntry) {
+          var revealed = false;
+          // Path 1: p5 + AnimHelper
+          var p5inst = animEntry.instance;
+          var helper = p5inst && p5inst._animHelper;
+          if (helper && helper.state && helper._onControl) {
+            var keys = Object.keys(helper.state);
+            for (var ki = 0; ki < keys.length; ki++) {
+              if (helper.state[keys[ki]] < 0.5) {
+                helper._onControl({ action: 'set', param: keys[ki], value: 1 });
+                revealed = true;
+                break;
+              }
+            }
+          }
+          // Path 2: Three.js — reveal next hidden direct child (Group, Object3D, Mesh)
+          // with smooth scale-up. Checks any direct scene child, not just Groups.
+          if (!revealed && animEntry._threeScene) {
+            var children = animEntry._threeScene.children;
+            for (var ci = 0; ci < children.length; ci++) {
+              var child = children[ci];
+              // Skip lights, helpers, and already-visible objects
+              if (child.visible) continue;
+              if (child.type === 'AmbientLight' || child.type === 'DirectionalLight' ||
+                  child.type === 'PointLight' || child.type === 'AxesHelper' ||
+                  child.type === 'GridHelper') continue;
+              child.visible = true;
+              child.scale.setScalar(0);
+              child._revealProgress = 0;
+              revealed = true;
+              break;
+            }
+          }
+        }
         return;
       }
     }
@@ -596,10 +637,20 @@ function sanitizeCode(code) {
   code = code.replace(/\b(let|const|var)\s+(W|H)\b\s*=/g, '$2 =');
   code = code.replace(/\b(let|const|var)\s+S\b\s*=/g, 'S =');
 
+  // ── GLOBAL-MODE → INSTANCE-MODE CONVERSION ──
+  // LLMs often generate p5 "global mode" code: `function setup() { createCanvas(...) }`
+  // But we run in instance mode where p5 expects `p.setup = function() { ... };`.
+  // Convert top-level function declarations to p5 instance assignments,
+  // adding semicolons to prevent `}p.draw` being parsed as `}` then `p` (unexpected identifier).
+  code = code.replace(/\bfunction\s+setup\s*\(/g, '; p.setup = function(');
+  code = code.replace(/\bfunction\s+draw\s*\(/g, '; p.draw = function(');
+  code = code.replace(/\bfunction\s+mousePressed\s*\(/g, '; p.mousePressed = function(');
+  code = code.replace(/\bfunction\s+keyPressed\s*\(/g, '; p.keyPressed = function(');
+  code = code.replace(/\bfunction\s+windowResized\s*\(/g, '; p.windowResized = function(');
+  // Ensure closing brace of each converted function is followed by semicolon
+  code = code.replace(/\}(\s*)(p\.(setup|draw|mousePressed|keyPressed|windowResized)\s*=)/g, '};\n$1$2');
+
   // Replace p.background(...) / background(...) with board bg fill.
-  // Uses (?:[^()]|\([^()]*\))* to handle nested parens like p.color(r,g,b).
-  // Old regex broke on nested calls — matched only the inner ), leaving
-  // a stray ) that caused a syntax error and blank canvas.
   code = code.replace(/\bp\.background\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g, 'p.background(6,14,17)');
   code = code.replace(/(?<![\w.])background\s*\((?:[^()]|\((?:[^()]|\([^()]*\))*\))*\)/g, 'p.background(6,14,17)');
 
@@ -616,7 +667,65 @@ function sanitizeCode(code) {
 }
 
 function buildControlBridge(scale, isWebGL) {
-  return '\n' +
+  // ── LOCAL BINDINGS for global-mode p5 code ──
+  // LLMs generate code like `fill(255); text("hi",10,10)` (global mode)
+  // but we run in instance mode where those are `p.fill(...)`, `p.text(...)`.
+  // Create local variables that proxy to `p` so both styles work.
+  var p5Bindings =
+    '    var createCanvas=function(){return p.createCanvas.apply(p,arguments)};\n' +
+    '    var resizeCanvas=function(){return p.resizeCanvas.apply(p,arguments)};\n' +
+    '    var noLoop=function(){return p.noLoop()};\n' +
+    '    var loop=function(){return p.loop()};\n' +
+    '    var push=function(){return p.push()};\n' +
+    '    var pop=function(){return p.pop()};\n' +
+    '    var fill=function(){return p.fill.apply(p,arguments)};\n' +
+    '    var noFill=function(){return p.noFill()};\n' +
+    '    var stroke=function(){return p.stroke.apply(p,arguments)};\n' +
+    '    var noStroke=function(){return p.noStroke()};\n' +
+    '    var strokeWeight=function(){return p.strokeWeight.apply(p,arguments)};\n' +
+    '    var rect=function(){return p.rect.apply(p,arguments)};\n' +
+    '    var ellipse=function(){return p.ellipse.apply(p,arguments)};\n' +
+    '    var circle=function(){return p.circle.apply(p,arguments)};\n' +
+    '    var arc=function(){return p.arc.apply(p,arguments)};\n' +
+    '    var line=function(){return p.line.apply(p,arguments)};\n' +
+    '    var point=function(){return p.point.apply(p,arguments)};\n' +
+    '    var triangle=function(){return p.triangle.apply(p,arguments)};\n' +
+    '    var quad=function(){return p.quad.apply(p,arguments)};\n' +
+    '    var vertex=function(){return p.vertex.apply(p,arguments)};\n' +
+    '    var beginShape=function(){return p.beginShape.apply(p,arguments)};\n' +
+    '    var endShape=function(){return p.endShape.apply(p,arguments)};\n' +
+    '    var bezierVertex=function(){return p.bezierVertex.apply(p,arguments)};\n' +
+    '    var curveVertex=function(){return p.curveVertex.apply(p,arguments)};\n' +
+    '    var text=function(){return p.text.apply(p,arguments)};\n' +
+    '    var textSize=function(){return p.textSize.apply(p,arguments)};\n' +
+    '    var textAlign=function(){return p.textAlign.apply(p,arguments)};\n' +
+    '    var textFont=function(){return p.textFont.apply(p,arguments)};\n' +
+    '    var textStyle=function(){return p.textStyle.apply(p,arguments)};\n' +
+    '    var textWidth=function(){return p.textWidth.apply(p,arguments)};\n' +
+    '    var color=function(){return p.color.apply(p,arguments)};\n' +
+    '    var lerpColor=function(){return p.lerpColor.apply(p,arguments)};\n' +
+    '    var red=function(){return p.red.apply(p,arguments)};\n' +
+    '    var green=function(){return p.green.apply(p,arguments)};\n' +
+    '    var blue=function(){return p.blue.apply(p,arguments)};\n' +
+    '    var alpha=function(){return p.alpha.apply(p,arguments)};\n' +
+    '    var translate=function(){return p.translate.apply(p,arguments)};\n' +
+    '    var rotate=function(){return p.rotate.apply(p,arguments)};\n' +
+    '    var scale=function(){return p.scale.apply(p,arguments)};\n' +
+    '    var map=function(){return p.map.apply(p,arguments)};\n' +
+    '    var constrain=function(){return p.constrain.apply(p,arguments)};\n' +
+    '    var lerp=function(){return p.lerp.apply(p,arguments)};\n' +
+    '    var dist=function(){return p.dist.apply(p,arguments)};\n' +
+    '    var noise=function(){return p.noise.apply(p,arguments)};\n' +
+    '    var random=function(){return p.random.apply(p,arguments)};\n' +
+    '    var frameCount=0;\n' +
+    '    var mouseX=0,mouseY=0;\n' +
+    '    var width=W,height=H;\n' +
+    '    var PI=Math.PI,TWO_PI=Math.PI*2,HALF_PI=Math.PI/2,QUARTER_PI=Math.PI/4;\n' +
+    '    var CENTER=p.CENTER,LEFT=p.LEFT,RIGHT=p.RIGHT,TOP=p.TOP,BOTTOM=p.BOTTOM,BASELINE=p.BASELINE;\n' +
+    '    var BOLD=p.BOLD,NORMAL=p.NORMAL,ITALIC=p.ITALIC;\n' +
+    '    var CLOSE=p.CLOSE;\n';
+
+  return '\n' + p5Bindings +
     '    var _controlParams = {};\n' +
     '    var S = ' + scale.toFixed(2) + ';\n' +
     '    function onControl(params) {\n' +
@@ -690,15 +799,23 @@ function toggleAnimFullscreen(figure, animBox) {
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
-    // Resize p5 — delay to let CSS transition complete
+    // Resize p5 after CSS transition completes (not a hardcoded timeout)
     var inst = animBox._p5Instance;
     if (inst && typeof inst.resizeCanvas === 'function') {
+      figure.addEventListener('transitionend', function onEnd() {
+        figure.removeEventListener('transitionend', onEnd);
+        var r = animBox.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0) {
+          try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
+        }
+      });
+      // Fallback if transition doesn't fire (e.g., no transition property)
       setTimeout(function() {
         var r = animBox.getBoundingClientRect();
         if (r.width > 0 && r.height > 0) {
           try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
         }
-      }, 100);
+      }, 400);
     }
     // Escape key closes fullscreen
     figure._escHandler = function(e) {
@@ -708,8 +825,14 @@ function toggleAnimFullscreen(figure, animBox) {
   }
 }
 
-function createAnimation(cmd) {
+async function createAnimation(cmd) {
   if (!cmd.code) return;
+
+  // Auto-detect 3D: if code uses THREE.* APIs, route to Three.js renderer.
+  var is3D = /\bTHREE\b|\.Scene\(\)|\.PerspectiveCamera|\.WebGLRenderer|\.Mesh\(|\.BoxGeometry|\.SphereGeometry|\.BufferGeometry|\.InstancedMesh|\.Points\(/.test(cmd.code);
+  if (is3D) {
+    return renderScene3D(cmd);
+  }
 
   // ── Build the figure container (like matplotlib figure with title + legend) ──
   var figure = document.createElement('div');
@@ -762,8 +885,40 @@ function createAnimation(cmd) {
   // Register for {ref:id}
   if (cmd.id) registerElement(cmd.id, figure);
 
-  // Now measure actual rendered size
-  var elRect = el.getBoundingClientRect();
+  // Clear global skeleton — per-animation loader is about to appear
+  if (typeof _clearHeavyDrawPending === 'function') _clearHeavyDrawPending();
+
+  // Wait for the container to have a stable non-zero layout.
+  // ResizeObserver fires when the element actually has dimensions,
+  // which is more reliable than RAF-based guessing.
+  var elRect;
+  if (typeof ResizeObserver !== 'undefined') {
+    elRect = await new Promise(function(resolve) {
+      var settled = false;
+      var ro = new ResizeObserver(function(entries) {
+        var cr = entries[0].contentRect;
+        if (cr.width > 0 && cr.height > 0 && !settled) {
+          settled = true;
+          ro.disconnect();
+          resolve({ width: cr.width, height: cr.height });
+        }
+      });
+      ro.observe(el);
+      // Timeout fallback — don't hang if container is hidden
+      setTimeout(function() {
+        if (!settled) {
+          settled = true;
+          ro.disconnect();
+          var r = el.getBoundingClientRect();
+          resolve({ width: r.width, height: r.height });
+        }
+      }, 1000);
+    });
+  } else {
+    // Fallback for browsers without ResizeObserver
+    await new Promise(function(r) { requestAnimationFrame(function() { requestAnimationFrame(r); }); });
+    elRect = el.getBoundingClientRect();
+  }
   var pw = Math.round(elRect.width) || animW;
   var ph = Math.round(elRect.height) || animH;
 
@@ -787,43 +942,70 @@ function createAnimation(cmd) {
     }
   }
 
+  // Setup completion contract: the Promise resolves only after p5's
+  // setup() has ACTUALLY executed (not just queued). This guarantees
+  // AnimHelper exists before we register the animation entry, so figure
+  // auto-sync can find it immediately when narration beats arrive.
   var inst;
-  try {
-    inst = new p5(function(p) {
-      try { sketchFn(p, pw, ph); } catch (err) {
-        console.warn('[Animation] Sketch runtime error (Haiku fix disabled):', err.message);
-        canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation error</div>';
-        return;
-      }
-      var userDraw = p.draw;
-      if (userDraw) {
-        var errors = 0;
-        p.draw = function () {
-          try { userDraw.call(p); } catch (err) {
-            if (++errors === 1) console.log('[Animation] draw() has a minor error (animation still runs):', err.message);
-            if (errors >= 30) p.noLoop(); // Stop sooner to save CPU
-          }
-        };
-      }
-      var userSetup = p.setup;
-      p.setup = function () {
-        if (userSetup) userSetup.call(p);
-        try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
-        // Auto-inject AnimHelper if LLM didn't create one
-        if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
-          try {
-            var _a = new AnimHelper(p, p.width, p.height);
-            p._animHelper = _a;
-            console.log('[Animation] AnimHelper auto-injected');
-          } catch (e) { console.warn('[Animation] AnimHelper auto-inject failed:', e); }
+  var setupComplete = new Promise(function(resolveSetup, rejectSetup) {
+    try {
+      inst = new p5(function(p) {
+        try { sketchFn(p, pw, ph); } catch (err) {
+          console.warn('[Animation] Sketch runtime error:', err.message);
+          canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation error: ' + escapeHtml(err.message) + '</div>';
+          rejectSetup(err);
+          return;
         }
-      };
-      // Note: anim-control forwarding to AnimHelper is handled by buildControlBridge's onControl()
-    }, canvasWrap);
+
+        // Wrap draw() with board-bg fill + error boundary
+        var userDraw = p.draw;
+        if (userDraw) {
+          var errors = 0;
+          p.draw = function () {
+            try { p.background(6, 14, 17); } catch (e) {}
+            try { userDraw.call(p); } catch (err) {
+              if (++errors === 1) console.warn('[Animation] draw() error:', err.message);
+              if (errors >= 30) p.noLoop();
+            }
+          };
+        }
+
+        // Wrap setup() — runs AFTER user's createCanvas, so p.width/p.height
+        // are correct. AnimHelper injection uses live dimensions.
+        var userSetup = p.setup;
+        p.setup = function () {
+          // ALWAYS create canvas at container size FIRST. If the LLM's
+          // code skipped setup entirely (goes straight to p.draw without
+          // createCanvas), p5 defaults to 100x100 — way too small.
+          // p5 handles double createCanvas gracefully (replaces canvas).
+          try { p.createCanvas(pw, ph); } catch (e) {}
+          if (userSetup) userSetup.call(p);
+          try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+          // Auto-inject AnimHelper AFTER createCanvas (p.width/height valid)
+          if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
+            try {
+              p._animHelper = new AnimHelper(p, p.width, p.height);
+            } catch (e) { console.warn('[Animation] AnimHelper auto-inject failed:', e); }
+          }
+          p._setupComplete = true;
+          resolveSetup();
+        };
+      }, canvasWrap);
+    } catch (e) {
+      console.warn('[Animation] Init error:', e.message);
+      canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation init error</div>';
+      rejectSetup(e);
+    }
+  });
+
+  // Wait for setup() to actually execute before registering the entry.
+  // This is a CONTRACT — not a timing hack. The Promise resolves inside
+  // p5's setup(), guaranteeing AnimHelper and canvas dimensions are ready.
+  try {
+    await Promise.race([setupComplete, new Promise(function(_, rej) { setTimeout(function() { rej(new Error('setup timeout')); }, 5000); })]);
   } catch (e) {
-    console.warn('[Animation] Init error (Haiku fix disabled):', e.message);
-    canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation init error</div>';
-    return;
+    console.warn('[Animation] Setup did not complete:', e.message);
+    // Still register entry so cleanup works, but mark as incomplete
   }
 
   el._p5Instance = inst;
@@ -913,6 +1095,7 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
         }
         var userSetup = p.setup;
         p.setup = function () {
+          try { p.createCanvas(Math.round(rect.width) || 300, Math.round(rect.height) || 200); } catch (e) {}
           if (userSetup) userSetup.call(p);
           try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
           if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
@@ -946,12 +1129,22 @@ async function renderFigure(cmd) {
   wrapper.id = cmd.id;
   wrapper.dataset.cmd = 'figure';
 
+  var hasAnimation = !!(cmd.code && cmd.code.trim());
+
   var animSlot = document.createElement('div');
   animSlot.className = 'bd-figure-anim';
+  if (!hasAnimation) {
+    // No animation code — hide the slot so narration gets full width
+    animSlot.style.display = 'none';
+  }
   wrapper.appendChild(animSlot);
 
   var narration = document.createElement('div');
   narration.className = 'bd-figure-narration';
+  if (!hasAnimation) {
+    // Full width narration when there's no animation
+    narration.style.flex = '1 1 100%';
+  }
   if (cmd.title) {
     var head = document.createElement('div');
     head.className = 'bd-figure-narration-title';
@@ -963,18 +1156,22 @@ async function renderFigure(cmd) {
   // Place wrapper into the scene FIRST so child layout can measure
   placeElement(wrapper, cmd.placement || 'below', cmd);
 
-  // Now create the animation INSIDE the left slot. createAnimation calls
-  // placeElement(figure, cmd.placement, cmd) which writes into board.liveScene,
-  // so we temporarily swap liveScene to the anim slot. We also strip cmd.id
-  // (already used by the wrapper) and force placement to 'below' so the
-  // anim figure just appends.
-  var savedScene = board.liveScene;
-  board.liveScene = animSlot;
-  try {
-    var animCmd = Object.assign({}, cmd, { id: cmd.id + '-anim', placement: 'below' });
-    await createAnimation(animCmd);
-  } finally {
-    board.liveScene = savedScene;
+  // Create animation inside the left slot (only if code was provided)
+  if (hasAnimation) {
+    var savedScene = board.liveScene;
+    board.liveScene = animSlot;
+    try {
+      var animCmd = Object.assign({}, cmd, { id: cmd.id + '-anim', placement: 'below' });
+      await createAnimation(animCmd);
+    } finally {
+      board.liveScene = savedScene;
+    }
+    // If animation creation failed (no canvas, no content), collapse the slot
+    // so narration gets full width instead of showing a blank 65% area.
+    if (!animSlot.querySelector('canvas') && !animSlot.querySelector('.bd-scene3d')) {
+      animSlot.style.display = 'none';
+      narration.style.flex = '1 1 100%';
+    }
   }
 }
 
@@ -1782,126 +1979,192 @@ function escapeHtml(t) {
   return String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 }
 
-// ── Three.js 3D scene ───────────────────────────────────────────────
+// ── Three.js 3D scene — production quality rendering ────────────────
 async function renderScene3D(cmd) {
-  // Show skeleton placeholder immediately
   var container = createElement('div', cmd, 'bd-scene3d');
-  container.style.width = (cmd.width || 400) + 'px';
-  container.style.height = (cmd.height || 300) + 'px';
+  container.style.width = '100%';
+  container.style.maxWidth = (cmd.width || 700) + 'px';
+  container.style.height = (cmd.height || 450) + 'px';
   container.style.borderRadius = '10px';
   container.style.overflow = 'hidden';
   container.style.border = 'none';
-  container.style.background = '#1a1d2e';
+  container.style.background = '#060e11';
   container.style.position = 'relative';
   placeElement(container, cmd.placement, cmd);
 
-  // Skeleton animation while loading
-  container.innerHTML = '<div class="bd-3d-skeleton"><div class="bd-3d-skeleton-orb"></div><span>' + (cmd.title || 'Loading 3D scene...') + '</span></div>';
+  // Loading indicator
+  container.innerHTML = '<div class="bd-anim-loading"><div class="bd-anim-loading-bars"><div></div><div></div><div></div></div>' +
+    '<div class="bd-anim-loading-text">Euler is drawing: ' + escapeHtml(cmd.title || '3D scene') + '</div></div>';
+
+  // Clear global skeleton — per-animation loader is now visible
+  if (typeof _clearHeavyDrawPending === 'function') _clearHeavyDrawPending();
+
+  // YIELD — let the browser paint the loading indicator
+  await new Promise(function(r) { requestAnimationFrame(function() { requestAnimationFrame(r); }); });
 
   if (typeof THREE === 'undefined') {
-    console.warn('[Board] Three.js not loaded — showing fallback');
-    container.innerHTML = '<div class="bd-3d-fallback">' +
-      '<div class="bd-3d-fallback-icon">&#9674;</div>' +
-      '<span>3D: ' + (cmd.title || 'visualization') + '</span>' +
+    container.innerHTML = '<div class="bd-3d-fallback"><div class="bd-3d-fallback-icon">&#9674;</div>' +
+      '<span>3D: ' + escapeHtml(cmd.title || 'visualization') + '</span>' +
       '<span class="bd-3d-fallback-sub">Interactive 3D not available</span></div>';
     return;
   }
 
-  // Clear skeleton, set up Three.js
+  // Clear loading, build controls bar + canvas
   container.innerHTML = '';
-  var w = cmd.width || 400, h = cmd.height || 300;
+
+  // Controls bar
+  var controlsBar = document.createElement('div');
+  controlsBar.className = 'bd-3d-controls';
+  controlsBar.innerHTML = '<button class="bd-3d-ctrl-btn" data-action="toggle">Pause</button>' +
+    '<label class="bd-3d-ctrl-label">Speed <input type="range" min="0" max="100" value="50" class="bd-3d-speed"></label>' +
+    (cmd.title ? '<span class="bd-3d-ctrl-title">' + escapeHtml(cmd.title) + '</span>' : '');
+  container.appendChild(controlsBar);
+
+  // Legend bar
+  if (cmd.legend && Array.isArray(cmd.legend) && cmd.legend.length > 0) {
+    var legendBar = document.createElement('div');
+    legendBar.className = 'bd-3d-legend';
+    legendBar.innerHTML = cmd.legend.map(function(l) {
+      return '<span class="bd-3d-legend-item"><span class="bd-3d-legend-dot" style="background:' + (l.color || '#fff') + '"></span>' + escapeHtml(l.text || l.label || '') + '</span>';
+    }).join('');
+    container.appendChild(legendBar);
+  }
+
+  var rect = container.getBoundingClientRect();
+  var w = Math.round(rect.width) || cmd.width || 700;
+  var h = Math.round(rect.height - 40) || cmd.height || 420;
   var scene = new THREE.Scene();
-  scene.background = new THREE.Color(0x1a1d2e);
-  var camera = new THREE.PerspectiveCamera(50, w / h, 0.1, 1000);
-  camera.position.set(cmd.cameraX || 3, cmd.cameraY || 2, cmd.cameraZ || 5);
+  scene.background = new THREE.Color(0x060e11);
+  var camera = new THREE.PerspectiveCamera(48, w / h, 0.01, 500);
+  camera.position.set(cmd.cameraX || 0, cmd.cameraY || 0, cmd.cameraZ || 18);
   camera.lookAt(0, 0, 0);
 
-  var renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-  renderer.setSize(w, h);
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  container.appendChild(renderer.domElement);
+  var threeRenderer = new THREE.WebGLRenderer({ antialias: true, alpha: false });
+  threeRenderer.setSize(w, h);
+  threeRenderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
+  threeRenderer.setClearColor(0x060e11, 1);
+  threeRenderer.domElement.style.pointerEvents = 'auto';
+  threeRenderer.domElement.style.touchAction = 'none';
+  threeRenderer.domElement.style.cursor = 'grab';
+  container.appendChild(threeRenderer.domElement);
 
-  // Orbit controls for interaction
+  // Orbit controls
+  var controls = null;
   if (THREE.OrbitControls) {
-    var controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls = new THREE.OrbitControls(camera, threeRenderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
     controls.autoRotate = cmd.autoRotate !== false;
     controls.autoRotateSpeed = cmd.rotateSpeed || 1;
+    controls.enableZoom = true;
+    controls.enablePan = true;
   }
 
-  // Lighting
-  var ambient = new THREE.AmbientLight(0x404040, 0.6);
-  scene.add(ambient);
-  var dir = new THREE.DirectionalLight(0xffffff, 0.8);
-  dir.position.set(5, 5, 5);
-  scene.add(dir);
+  // High-quality lighting
+  scene.add(new THREE.AmbientLight(0xffffff, 0.42));
+  var dir1 = new THREE.DirectionalLight(0xffffff, 0.9);
+  dir1.position.set(6, 12, 9);
+  scene.add(dir1);
+  var dir2 = new THREE.DirectionalLight(0x3355ff, 0.28);
+  dir2.position.set(-6, -4, 5);
+  scene.add(dir2);
 
-  // Grid helper
-  if (cmd.grid !== false) {
-    var grid = new THREE.GridHelper(10, 10, 0x1a3a2a, 0x111413);
-    scene.add(grid);
-  }
+  // Grid/axes only if explicitly requested
+  if (cmd.grid === true) scene.add(new THREE.GridHelper(10, 10, 0x1a3a2a, 0x111413));
+  if (cmd.axes === true) scene.add(new THREE.AxesHelper(2));
 
-  // Axes helper
-  if (cmd.axes !== false) {
-    var axes = new THREE.AxesHelper(2);
-    scene.add(axes);
-  }
+  // Pause/speed state + RAF interception for LLM animation loops
+  var paused = false, speed = 0.5;
+  var pendingRAFs = [], rafIdCounter = 1, rafIdMap = {};
+  function interceptedRAF(cb) { var id = rafIdCounter++; rafIdMap[id] = cb; pendingRAFs.push(id); return id; }
+  function interceptedCAF(id) { delete rafIdMap[id]; }
 
-  // Execute the setup code (LLM-generated Three.js code)
+  // Execute LLM code — pass intercepted RAF so Pause/Speed controls work
   if (cmd.code) {
     try {
-      var setupFn = new Function('THREE', 'scene', 'camera', 'renderer', cmd.code);
-      setupFn(THREE, scene, camera, renderer);
+      var setupFn = new Function('THREE', 'scene', 'camera', 'renderer', 'requestAnimationFrame', 'cancelAnimationFrame', cmd.code);
+      setupFn(THREE, scene, camera, threeRenderer, interceptedRAF, interceptedCAF);
     } catch (e) {
       console.error('[Board] scene3d code error:', e);
-      // Auto-fix via Haiku — same as p5 animation fix but for Three.js
       if (board.apiUrl) {
         fetch(board.apiUrl + '/api/fix-animation', {
           method: 'POST',
           headers: Object.assign({ 'Content-Type': 'application/json' }, board.getAuthHeaders ? board.getAuthHeaders() : {}),
           body: JSON.stringify({ code: cmd.code, error: e.message, type: 'threejs' }),
-        })
-          .then(function(r) { return r.ok ? r.json() : null; })
+        }).then(function(r) { return r.ok ? r.json() : null; })
           .then(function(data) {
             if (!data || !data.code) return;
             try {
-              // Clear scene objects (except camera, lights, axes)
               var toRemove = [];
               scene.traverse(function(obj) {
-                if (obj !== scene && obj !== camera && obj.type !== 'AmbientLight' && obj.type !== 'DirectionalLight' && obj.type !== 'AxesHelper') {
-                  toRemove.push(obj);
-                }
+                if (obj !== scene && obj !== camera && obj.type !== 'AmbientLight' && obj.type !== 'DirectionalLight') toRemove.push(obj);
               });
               toRemove.forEach(function(obj) { scene.remove(obj); });
-              // Re-execute with fixed code
-              var fixedFn = new Function('THREE', 'scene', 'camera', 'renderer', data.code);
-              fixedFn(THREE, scene, camera, renderer);
-              console.log('[Board] scene3d fixed by Haiku');
-            } catch (e2) {
-              console.error('[Board] scene3d fix also failed:', e2);
-            }
-          })
-          .catch(function() {});
+              var fixedFn = new Function('THREE', 'scene', 'camera', 'renderer', 'requestAnimationFrame', 'cancelAnimationFrame', data.code);
+              fixedFn(THREE, scene, camera, threeRenderer, interceptedRAF, interceptedCAF);
+            } catch (e2) { console.error('[Board] scene3d fix also failed:', e2); }
+          }).catch(function() {});
       }
     }
   }
 
-  // Animation loop
-  var animId;
-  function animate() {
+  // Animation loop — drains LLM's pending RAFs + renders
+  var animId, speedAccum = 0, lastTs = 0;
+  function animate(ts) {
     animId = requestAnimationFrame(animate);
-    if (controls) controls.update();
-    renderer.render(scene, camera);
-  }
-  animate();
+    if (!paused) {
+      speedAccum += speed * 2;
+      while (speedAccum >= 1 && pendingRAFs.length > 0) {
+        speedAccum -= 1;
+        var batch = pendingRAFs.slice(); pendingRAFs.length = 0;
+        for (var i = 0; i < batch.length; i++) {
+          var cb = rafIdMap[batch[i]]; delete rafIdMap[batch[i]];
+          if (cb) { try { cb(ts); } catch (err) {} }
+        }
+      }
+      if (speedAccum > 2) speedAccum = 2;
+      if (controls) { controls.autoRotateSpeed = (cmd.rotateSpeed || 1) * speed * 2; controls.update(); }
+    } else { lastTs = 0; }
 
-  // Store for cleanup
+    // Smooth scale-up reveal — animate groups that were just revealed
+    scene.traverse(function(obj) {
+      if (obj._revealProgress !== undefined && obj._revealProgress < 1) {
+        obj._revealProgress = Math.min(1, obj._revealProgress + 0.04);
+        var t = obj._revealProgress;
+        var ease = t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        obj.scale.setScalar(ease);
+      }
+    });
+
+    threeRenderer.render(scene, camera);
+  }
+  animate(performance.now());
+
+  // Wire Pause/Speed controls
+  var toggleBtn = controlsBar.querySelector('[data-action="toggle"]');
+  var speedSlider = controlsBar.querySelector('.bd-3d-speed');
+  if (toggleBtn) toggleBtn.addEventListener('click', function(e) {
+    e.stopPropagation(); paused = !paused;
+    this.textContent = paused ? 'Resume' : 'Pause';
+    if (controls) controls.autoRotate = !paused;
+  });
+  if (speedSlider) {
+    speedSlider.addEventListener('input', function(e) { e.stopPropagation(); speed = this.value / 100; });
+    speedSlider.addEventListener('click', function(e) { e.stopPropagation(); });
+  }
+
+  // Store for cleanup + figure auto-sync
   board.animations.push({
+    container: container,
+    _threeScene: scene,
     instance: {
-      remove: function() { cancelAnimationFrame(animId); renderer.dispose(); },
-      noLoop: function() { cancelAnimationFrame(animId); }
+      remove: function() {
+        cancelAnimationFrame(animId);
+        pendingRAFs.length = 0;  // clear queued LLM callbacks
+        for (var k in rafIdMap) delete rafIdMap[k];  // release closures
+        try { threeRenderer.dispose(); } catch (e) {}
+      },
+      noLoop: function() { cancelAnimationFrame(animId); paused = true; }
     }
   });
 }

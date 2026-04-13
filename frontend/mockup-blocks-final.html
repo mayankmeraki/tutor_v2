@@ -1,0 +1,437 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Final Blocks — Complete Teaching Set</title>
+<link href="https://fonts.googleapis.com/css2?family=Lexend:wght@200;300;400;500;600&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:#080a09;--white:#eeeeec;--body:#b0b0ac;--dim:#555855;
+  --math:#A8E6CF;--gold:#fbbf24;--cyan:#53d8fb;--green:#34d399;
+  --red:#ef6b6b;--purple:#c4b5fd;
+  --font:'Lexend',system-ui,sans-serif;--mono:'JetBrains Mono',monospace;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:var(--font);background:var(--bg);color:var(--body);-webkit-font-smoothing:antialiased;font-weight:300;
+  background-image:repeating-linear-gradient(90deg,rgba(255,255,255,0.005) 0,rgba(255,255,255,0.005) .5px,transparent .5px,transparent 40px),repeating-linear-gradient(0deg,rgba(255,255,255,0.005) 0,rgba(255,255,255,0.005) .5px,transparent .5px,transparent 40px)}
+.nav{position:fixed;top:0;left:0;right:0;z-index:100;display:flex;justify-content:center;gap:4px;padding:10px;background:linear-gradient(var(--bg) 60%,transparent)}
+.nav button{padding:5px 13px;border-radius:20px;border:1px solid rgba(255,255,255,0.04);background:rgba(0,0,0,0.6);color:var(--dim);font-size:11px;cursor:pointer;font-family:var(--font);backdrop-filter:blur(8px)}
+.nav button.active{color:var(--math);border-color:rgba(168,230,207,0.15)}
+.tab{display:none}.tab.active{display:block}
+.board{max-width:880px;margin:0 auto;padding:80px 40px 160px}
+.lbl{font-size:10px;color:var(--dim);text-transform:uppercase;letter-spacing:1.5px;margin:48px 0 20px;font-weight:400}
+.lbl:first-child{margin-top:0}
+.sep{height:1px;background:rgba(255,255,255,0.04);margin:48px 0}
+
+/* ═══ SPLIT ═══ */
+.split{display:flex;align-items:baseline;gap:32px;margin:16px 0}
+.split-l{flex:0 0 auto;font-family:var(--mono);font-size:20px;font-weight:400;color:var(--math)}
+.split-r{flex:1;font-size:15px;line-height:1.55;color:var(--body)}
+.split.lg .split-l{font-size:28px}.split.lg .split-r{font-size:17px}
+.split.sm .split-l{font-size:16px}.split.sm .split-r{font-size:14px;color:var(--dim)}
+
+/* ═══ FLOW ═══ */
+.flow{display:flex;align-items:flex-start;justify-content:center;margin:24px 0}
+.flow-node{display:flex;flex-direction:column;align-items:center;text-align:center;min-width:72px}
+.flow-dot{width:8px;height:8px;border-radius:50%;margin-bottom:10px}
+.flow-name{font-size:16px;font-weight:500;margin-bottom:4px}
+.flow-sub{font-size:11px;color:var(--dim);max-width:100px;line-height:1.35}
+.flow-edge{display:flex;flex-direction:column;align-items:center;padding:2px 14px 0}
+.flow-line{width:48px;height:1px;background:rgba(255,255,255,0.08)}
+.flow-verb{font-size:9px;color:var(--dim);letter-spacing:.5px;margin-top:6px;white-space:nowrap}
+.flow.compact .flow-node{min-width:56px}.flow.compact .flow-name{font-size:14px}
+.flow.compact .flow-edge{padding:2px 8px 0}.flow.compact .flow-line{width:28px}
+
+/* ═══ DIFF — mode:fix AND mode:compare ═══ */
+.diff{display:flex;gap:0;margin:24px 0;max-width:780px}
+.diff-side{flex:1;padding:16px 24px}
+.diff-label{font-size:10px;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:14px;font-weight:400}
+.diff-body{font-family:var(--mono);font-size:14px;line-height:1.8;white-space:pre}
+.diff-bar{width:1px;background:rgba(255,255,255,0.05);flex-shrink:0}
+/* fix mode */
+.diff.fix .diff-before{opacity:.35}
+.diff.fix .diff-before .diff-label{color:var(--red)}
+.diff.fix .diff-before .diff-body{text-decoration:line-through;text-decoration-color:rgba(255,107,107,.25)}
+.diff.fix .diff-after .diff-label{color:var(--green)}
+.diff.fix .diff-after .diff-body{color:var(--white)}
+.diff.fix .diff-after .fix{color:var(--green);font-weight:500}
+/* compare mode */
+.diff.compare .diff-side{opacity:1}
+.diff.compare .diff-body{font-family:var(--font);font-size:15px;white-space:normal;line-height:1.55;color:var(--body)}
+.diff.compare .diff-items{display:flex;flex-direction:column;gap:6px;margin-top:8px}
+.diff.compare .diff-item{font-size:14px;color:var(--body);padding-left:14px;position:relative}
+.diff.compare .diff-item::before{content:'·';position:absolute;left:0;color:var(--dim)}
+.diff-note{font-size:14px;color:var(--body);margin-top:12px;line-height:1.5;max-width:500px}
+.diff-note code{font-family:var(--mono);font-size:.9em;color:var(--math);background:rgba(168,230,207,.06);padding:1px 5px;border-radius:3px}
+
+/* ═══ QUESTION ═══ */
+.question{text-align:center;margin:40px auto;max-width:620px}
+.question-ctx{font-size:14px;color:var(--dim);margin-bottom:20px;line-height:1.5}
+.question-text{font-size:22px;font-weight:400;color:var(--white);line-height:1.5}
+.question-hint{font-size:13px;color:var(--dim);margin-top:20px;font-style:italic}
+.question::before{content:'';display:block;width:4px;height:4px;border-radius:50%;background:var(--cyan);box-shadow:0 0 12px var(--cyan);margin:0 auto 24px}
+
+/* ═══ CALLOUT (restyled — minimal accent) ═══ */
+.callout{margin:24px 0;padding-left:16px;border-left:2px solid;max-width:640px}
+.callout-text{font-size:16px;line-height:1.55}
+.callout.gold{border-color:rgba(251,191,36,.4)}.callout.gold .callout-text{color:var(--gold)}
+.callout.mint{border-color:rgba(168,230,207,.4)}.callout.mint .callout-text{color:var(--math)}
+.callout.cyan{border-color:rgba(83,216,251,.3)}.callout.cyan .callout-text{color:var(--body)}
+.callout.red{border-color:rgba(239,107,107,.3)}.callout.red .callout-text{color:var(--body)}
+.callout-label{font-size:10px;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px;font-weight:400}
+.callout.gold .callout-label{color:var(--gold)}
+.callout.mint .callout-label{color:var(--math)}
+.callout.red .callout-label{color:var(--red)}
+
+/* Title */
+.title{font-size:24px;font-weight:500;color:var(--white);text-align:center;margin-bottom:4px}
+.subtitle{font-size:12px;color:var(--dim);text-align:center;margin-bottom:48px}
+.heading{font-size:17px;font-weight:500;color:var(--white);margin:32px 0 12px}
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <button class="active" data-t="t1">Split</button>
+  <button data-t="t2">Flow</button>
+  <button data-t="t3">Diff (fix)</button>
+  <button data-t="t4">Diff (compare)</button>
+  <button data-t="t5">Question</button>
+  <button data-t="t6">Callout (restyled)</button>
+  <button data-t="t7">Scene: Biology</button>
+  <button data-t="t8">Scene: DSA</button>
+  <button data-t="t9">Scene: Physics</button>
+  <button data-t="t10">Scene: ML</button>
+</div>
+
+<!-- ═══ SPLIT ═══ -->
+<div class="tab t1 active"><div class="board">
+  <div class="lbl">Equation + meaning</div>
+  <div class="split lg"><div class="split-l">E = mc²</div><div class="split-r">energy equals mass times the speed of light squared</div></div>
+  <div class="split"><div class="split-l">O(log n)</div><div class="split-r">halving each step — 1 billion elements, 30 comparisons</div></div>
+  <div class="split sm"><div class="split-l">mid = lo+(hi-lo)//2</div><div class="split-r">overflow-safe midpoint</div></div>
+
+  <div class="lbl">Term + definition</div>
+  <div class="split"><div class="split-l" style="color:var(--cyan)">mRNA</div><div class="split-r">messenger RNA — a disposable copy of one gene</div></div>
+  <div class="split"><div class="split-l" style="color:var(--gold)">Gradient</div><div class="split-r">vector of partial derivatives — which way is downhill</div></div>
+
+  <div class="lbl">Code line + annotation</div>
+  <div class="split sm"><div class="split-l" style="color:var(--green)">lo = mid + 1</div><div class="split-r" style="color:var(--green)">always makes progress</div></div>
+  <div class="split sm"><div class="split-l" style="color:var(--red)">lo = mid</div><div class="split-r" style="color:var(--red)">infinite loop — mid never advances</div></div>
+</div></div>
+
+<!-- ═══ FLOW ═══ -->
+<div class="tab t2"><div class="board">
+  <div class="lbl">Biology — central dogma</div>
+  <div class="flow">
+    <div class="flow-node"><div class="flow-dot" style="background:var(--cyan);box-shadow:0 0 12px var(--cyan)"></div><div class="flow-name" style="color:var(--cyan)">DNA</div><div class="flow-sub">blueprint</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">transcription</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--math);box-shadow:0 0 12px var(--math)"></div><div class="flow-name" style="color:var(--math)">mRNA</div><div class="flow-sub">copy</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">travels to</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--gold);box-shadow:0 0 12px var(--gold)"></div><div class="flow-name" style="color:var(--gold)">Ribosome</div><div class="flow-sub">factory</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">translation</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--green);box-shadow:0 0 12px var(--green)"></div><div class="flow-name" style="color:var(--green)">Protein</div><div class="flow-sub">product</div></div>
+  </div>
+
+  <div class="lbl">ML pipeline</div>
+  <div class="flow">
+    <div class="flow-node"><div class="flow-dot" style="background:var(--dim)"></div><div class="flow-name" style="color:var(--dim)">Data</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">clean</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--cyan);box-shadow:0 0 10px var(--cyan)"></div><div class="flow-name" style="color:var(--cyan)">Features</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">train</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--math);box-shadow:0 0 10px var(--math)"></div><div class="flow-name" style="color:var(--math)">Model</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">eval</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--gold);box-shadow:0 0 10px var(--gold)"></div><div class="flow-name" style="color:var(--gold)">Score</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">deploy</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--green);box-shadow:0 0 10px var(--green)"></div><div class="flow-name" style="color:var(--green)">Prod</div></div>
+  </div>
+
+  <div class="lbl">Algorithm — binary search decision</div>
+  <div class="flow compact" style="justify-content:center">
+    <div class="flow-node"><div class="flow-dot" style="background:var(--white);box-shadow:0 0 6px var(--white)"></div><div class="flow-name" style="color:var(--white)">Compare</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">equal</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--green);box-shadow:0 0 8px var(--green)"></div><div class="flow-name" style="color:var(--green)">Found</div></div>
+  </div>
+  <div style="display:flex;gap:32px;justify-content:center;margin-top:8px">
+    <div class="flow compact" style="margin:0"><div class="flow-node"><div class="flow-dot" style="background:var(--dim)"></div><div class="flow-name" style="color:var(--dim)">smaller</div></div><div class="flow-edge"><div class="flow-line"></div></div><div class="flow-node"><div class="flow-dot" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></div><div class="flow-name" style="color:var(--cyan)">lo=mid+1</div></div></div>
+    <div class="flow compact" style="margin:0"><div class="flow-node"><div class="flow-dot" style="background:var(--dim)"></div><div class="flow-name" style="color:var(--dim)">bigger</div></div><div class="flow-edge"><div class="flow-line"></div></div><div class="flow-node"><div class="flow-dot" style="background:var(--gold);box-shadow:0 0 8px var(--gold)"></div><div class="flow-name" style="color:var(--gold)">hi=mid-1</div></div></div>
+  </div>
+</div></div>
+
+<!-- ═══ DIFF fix ═══ -->
+<div class="tab t3"><div class="board">
+  <div class="lbl">Code bug fix</div>
+  <div class="diff fix">
+    <div class="diff-side diff-before"><div class="diff-label">bug</div><div class="diff-body">while lo < hi:
+  mid = (lo + hi) // 2</div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side diff-after"><div class="diff-label">fixed</div><div class="diff-body">while lo <span class="fix">&lt;=</span> hi:
+  mid = lo + <span class="fix">(hi - lo)</span> // 2</div></div>
+  </div>
+  <div class="diff-note"><code>&lt;</code> → <code>&lt;=</code> checks the last element. <code>lo+(hi-lo)//2</code> avoids overflow.</div>
+
+  <div class="lbl">Misconception correction</div>
+  <div class="diff fix">
+    <div class="diff-side diff-before"><div class="diff-label">wrong</div><div class="diff-body" style="font-family:var(--font);font-size:15px;white-space:normal;line-height:1.6">Heavier objects fall faster.</div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side diff-after"><div class="diff-label">right</div><div class="diff-body" style="font-family:var(--font);font-size:15px;white-space:normal;line-height:1.6">More mass = more force, but also more inertia. They cancel. All objects: <span class="fix">9.8 m/s²</span></div></div>
+  </div>
+
+  <div class="lbl">SQL optimization</div>
+  <div class="diff fix">
+    <div class="diff-side diff-before"><div class="diff-label">slow</div><div class="diff-body">SELECT * FROM orders
+WHERE YEAR(created_at) = 2025</div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side diff-after"><div class="diff-label">fast</div><div class="diff-body">SELECT * FROM orders
+WHERE created_at <span class="fix">&gt;= '2025-01-01'</span>
+  AND created_at <span class="fix">&lt; '2026-01-01'</span></div></div>
+  </div>
+</div></div>
+
+<!-- ═══ DIFF compare ═══ -->
+<div class="tab t4"><div class="board">
+  <div class="lbl">Classical vs Quantum</div>
+  <div class="diff compare">
+    <div class="diff-side"><div class="diff-label" style="color:var(--cyan)">Classical</div><div class="diff-items">
+      <div class="diff-item" style="color:var(--cyan)">Deterministic</div>
+      <div class="diff-item" style="color:var(--cyan)">Continuous energy</div>
+      <div class="diff-item" style="color:var(--cyan)">F = ma</div>
+      <div class="diff-item" style="color:var(--cyan)">Particles have definite position</div>
+    </div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side"><div class="diff-label" style="color:var(--gold)">Quantum</div><div class="diff-items">
+      <div class="diff-item" style="color:var(--gold)">Probabilistic</div>
+      <div class="diff-item" style="color:var(--gold)">Quantized energy levels</div>
+      <div class="diff-item" style="color:var(--gold)">Ĥψ = Eψ</div>
+      <div class="diff-item" style="color:var(--gold)">Particles exist as probability clouds</div>
+    </div></div>
+  </div>
+
+  <div class="lbl">Stack vs Queue</div>
+  <div class="diff compare">
+    <div class="diff-side"><div class="diff-label" style="color:var(--cyan)">Stack (LIFO)</div><div class="diff-items">
+      <div class="diff-item">Last in, first out</div>
+      <div class="diff-item">push() / pop()</div>
+      <div class="diff-item">Undo, recursion, DFS</div>
+      <div class="diff-item">Think: stack of plates</div>
+    </div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side"><div class="diff-label" style="color:var(--gold)">Queue (FIFO)</div><div class="diff-items">
+      <div class="diff-item">First in, first out</div>
+      <div class="diff-item">enqueue() / dequeue()</div>
+      <div class="diff-item">BFS, scheduling, buffers</div>
+      <div class="diff-item">Think: line at a store</div>
+    </div></div>
+  </div>
+
+  <div class="lbl">DNA vs RNA</div>
+  <div class="diff compare">
+    <div class="diff-side"><div class="diff-label" style="color:var(--cyan)">DNA</div><div class="diff-items">
+      <div class="diff-item">Double-stranded</div>
+      <div class="diff-item">Deoxyribose sugar</div>
+      <div class="diff-item">Bases: A T G C</div>
+      <div class="diff-item">Stays in the nucleus</div>
+      <div class="diff-item">Permanent storage</div>
+    </div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side"><div class="diff-label" style="color:var(--math)">RNA</div><div class="diff-items">
+      <div class="diff-item">Single-stranded</div>
+      <div class="diff-item">Ribose sugar</div>
+      <div class="diff-item">Bases: A <strong style="color:var(--math);font-weight:400">U</strong> G C</div>
+      <div class="diff-item">Exits the nucleus</div>
+      <div class="diff-item">Disposable copy</div>
+    </div></div>
+  </div>
+</div></div>
+
+<!-- ═══ QUESTION ═══ -->
+<div class="tab t5"><div class="board">
+  <div class="lbl">With context + hint</div>
+  <div class="question">
+    <div class="question-ctx">We saw that transcription copies DNA into mRNA, and mRNA travels to the ribosome.</div>
+    <div class="question-text">What happens to the original DNA after the copy is made?</div>
+    <div class="question-hint">Think about what "copy" means.</div>
+  </div>
+
+  <div class="lbl">Direct</div>
+  <div class="question">
+    <div class="question-text">[2, 5, 8, 12, 16, 23, 38, 56, 72, 91]<br>target = 23<br><br>After iteration 1 — lo, hi, mid = ?</div>
+  </div>
+
+  <div class="lbl">Challenge</div>
+  <div class="question">
+    <div class="question-ctx">Basic binary search works. Now push it.</div>
+    <div class="question-text">Modify binary search to find the <em>first occurrence</em> of a repeated element.</div>
+    <div class="question-hint">What changes when nums[mid] == target?</div>
+  </div>
+</div></div>
+
+<!-- ═══ CALLOUT (restyled) ═══ -->
+<div class="tab t6"><div class="board">
+  <div class="lbl">Takeaway (gold)</div>
+  <div class="callout gold">
+    <div class="callout-label">Takeaway</div>
+    <div class="callout-text">A paperclip holds enough energy to power a city. Mass IS energy, just locked up.</div>
+  </div>
+
+  <div class="lbl">Key result (mint)</div>
+  <div class="callout mint">
+    <div class="callout-label">Key result</div>
+    <div class="callout-text" style="font-family:var(--mono)">E₁ = ⟨ψ⁰|V̂|ψ⁰⟩ — first-order energy correction</div>
+  </div>
+
+  <div class="lbl">Warning (red)</div>
+  <div class="callout red">
+    <div class="callout-label">Common mistake</div>
+    <div class="callout-text">Using <code style="font-family:var(--mono);color:var(--math);background:rgba(168,230,207,.06);padding:1px 5px;border-radius:3px">lo = mid</code> instead of <code style="font-family:var(--mono);color:var(--math);background:rgba(168,230,207,.06);padding:1px 5px;border-radius:3px">lo = mid + 1</code> — the window never shrinks and the loop runs forever.</div>
+  </div>
+
+  <div class="lbl">Summary (gold)</div>
+  <div class="callout gold">
+    <div class="callout-label">Summary</div>
+    <div class="callout-text">Transcription → mRNA → ribosome → translation → protein. One direction. DNA never changes.</div>
+  </div>
+
+  <div class="lbl">Insight (cyan)</div>
+  <div class="callout cyan">
+    <div class="callout-text">The chain rule is just the product rule applied recursively. Each layer multiplies its local gradient by the gradient from above.</div>
+  </div>
+</div></div>
+
+<!-- ═══ SCENE: Biology ═══ -->
+<div class="tab t7"><div class="board">
+  <div class="title">Transcription</div>
+  <div class="subtitle">DNA → mRNA: the copying step</div>
+
+  <div class="split lg"><div class="split-l" style="color:var(--cyan)">①</div><div class="split-r"><span style="color:var(--white)">DNA → mRNA</span> <span style="color:var(--dim)">= copy (transcription)</span></div></div>
+  <div class="split lg"><div class="split-l" style="color:var(--cyan)">②</div><div class="split-r"><span style="color:var(--white)">mRNA → Protein</span> <span style="color:var(--dim)">= decode (translation)</span></div></div>
+
+  <div class="question" style="margin:32px auto">
+    <div class="question-text" style="font-size:18px">What exactly gets copied, and where does that copy go?</div>
+  </div>
+
+  <div style="font-size:14px;color:var(--dim);text-decoration:line-through;margin:0 0 24px"><span style="color:var(--red);text-decoration:none">✕ </span>"DNA gets copied" — too vague</div>
+
+  <div class="heading">What gets produced?</div>
+  <div style="font-size:15px;color:var(--body);line-height:1.6;max-width:600px;margin-bottom:8px">The product is <strong style="color:var(--math);font-weight:400">mRNA</strong> — messenger RNA. A photocopy of one gene from the master blueprint.</div>
+
+  <div class="split sm"><div class="split-l">m = messenger</div><div class="split-r">it carries a MESSAGE from DNA</div></div>
+
+  <div style="margin:32px 0">
+    <div class="flow">
+      <div class="flow-node"><div class="flow-dot" style="background:var(--cyan);box-shadow:0 0 12px var(--cyan)"></div><div class="flow-name" style="color:var(--cyan)">DNA</div><div class="flow-sub">stays in nucleus</div></div>
+      <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">transcription</div></div>
+      <div class="flow-node"><div class="flow-dot" style="background:var(--math);box-shadow:0 0 12px var(--math)"></div><div class="flow-name" style="color:var(--math)">mRNA</div><div class="flow-sub">photocopy</div></div>
+      <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">exits nucleus</div></div>
+      <div class="flow-node"><div class="flow-dot" style="background:var(--gold);box-shadow:0 0 12px var(--gold)"></div><div class="flow-name" style="color:var(--gold)">Ribosome</div><div class="flow-sub">builds protein</div></div>
+    </div>
+  </div>
+
+  <div class="callout gold">
+    <div class="callout-label">Takeaway</div>
+    <div class="callout-text">Transcription → mRNA → ribosome → translation → protein</div>
+  </div>
+</div></div>
+
+<!-- ═══ SCENE: DSA ═══ -->
+<div class="tab t8"><div class="board">
+  <div class="title">Binary Search</div>
+  <div class="subtitle">the bulletproof template</div>
+
+  <div style="font-size:15px;color:var(--body);text-align:center;max-width:480px;margin:0 auto 8px">Sorted array → cut in half → O(log n)</div>
+  <div style="font-family:var(--mono);font-size:13px;color:var(--math);text-align:center;margin-bottom:32px">1 billion → 30 comparisons</div>
+
+  <div class="flow compact" style="justify-content:center">
+    <div class="flow-node"><div class="flow-dot" style="background:var(--white);box-shadow:0 0 6px var(--white)"></div><div class="flow-name" style="color:var(--white)">Compare</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">match</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--green);box-shadow:0 0 8px var(--green)"></div><div class="flow-name" style="color:var(--green)">Return</div></div>
+  </div>
+  <div style="display:flex;gap:28px;justify-content:center;margin:8px 0 28px">
+    <div class="flow compact" style="margin:0"><div class="flow-node"><div class="flow-dot" style="background:var(--dim)"></div><div class="flow-name" style="color:var(--dim)">small</div></div><div class="flow-edge"><div class="flow-line"></div></div><div class="flow-node"><div class="flow-dot" style="background:var(--cyan);box-shadow:0 0 8px var(--cyan)"></div><div class="flow-name" style="color:var(--cyan)">lo=mid+1</div></div></div>
+    <div class="flow compact" style="margin:0"><div class="flow-node"><div class="flow-dot" style="background:var(--dim)"></div><div class="flow-name" style="color:var(--dim)">big</div></div><div class="flow-edge"><div class="flow-line"></div></div><div class="flow-node"><div class="flow-dot" style="background:var(--gold);box-shadow:0 0 8px var(--gold)"></div><div class="flow-name" style="color:var(--gold)">hi=mid-1</div></div></div>
+  </div>
+
+  <div class="heading">3 invariants</div>
+  <div class="split sm"><div class="split-l" style="color:var(--green)">lo ≤ hi</div><div class="split-r">check the last element</div></div>
+  <div class="split sm"><div class="split-l">lo+(hi-lo)//2</div><div class="split-r">overflow-safe</div></div>
+  <div class="split sm"><div class="split-l">mid ± 1</div><div class="split-r">never just mid</div></div>
+
+  <div style="margin:28px 0 0">
+    <div class="diff fix" style="max-width:520px">
+      <div class="diff-side diff-before" style="padding:12px 16px"><div class="diff-label">bug</div><div class="diff-body" style="font-size:13px">while lo &lt; hi:</div></div>
+      <div class="diff-bar"></div>
+      <div class="diff-side diff-after" style="padding:12px 16px"><div class="diff-label">fix</div><div class="diff-body" style="font-size:13px">while lo <span class="fix">&lt;=</span> hi:</div></div>
+    </div>
+  </div>
+
+  <div class="question" style="margin:28px auto">
+    <div class="question-text" style="font-size:17px">[2, 5, 8, 12, 16, 23, 38, 56, 72, 91] — target 23<br>Iteration 1: lo, hi, mid = ?</div>
+  </div>
+</div></div>
+
+<!-- ═══ SCENE: Physics ═══ -->
+<div class="tab t9"><div class="board">
+  <div class="title">Mass–Energy</div>
+  <div class="subtitle">the most famous equation</div>
+
+  <div style="font-family:var(--mono);font-size:48px;color:var(--white);text-align:center;margin:32px 0;letter-spacing:4px">E = mc²</div>
+
+  <div class="split"><div class="split-l" style="color:var(--cyan)">E</div><div class="split-r">energy, in joules</div></div>
+  <div class="split"><div class="split-l" style="color:var(--white)">m</div><div class="split-r">mass, in kilograms</div></div>
+  <div class="split"><div class="split-l" style="color:var(--gold)">c²</div><div class="split-r">speed of light squared = 9 × 10¹⁶</div></div>
+
+  <div class="heading">Example</div>
+  <div class="split"><div class="split-l" style="font-size:18px">1 kg</div><div class="split-r">→ 9 × 10¹⁶ J <span style="color:var(--gold)">≈ 21 megatons</span></div></div>
+
+  <div class="callout gold" style="margin-top:36px">
+    <div class="callout-label">Takeaway</div>
+    <div class="callout-text">A paperclip (1g) holds enough energy to power a city for a day</div>
+  </div>
+</div></div>
+
+<!-- ═══ SCENE: ML ═══ -->
+<div class="tab t10"><div class="board">
+  <div class="title">Backpropagation</div>
+  <div class="subtitle">how networks learn from mistakes</div>
+
+  <div class="flow" style="margin:32px 0">
+    <div class="flow-node"><div class="flow-dot" style="background:var(--cyan);box-shadow:0 0 10px var(--cyan)"></div><div class="flow-name" style="color:var(--cyan)">Input</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">forward</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--white);box-shadow:0 0 6px var(--white)"></div><div class="flow-name" style="color:var(--white)">Hidden</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">forward</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--math);box-shadow:0 0 10px var(--math)"></div><div class="flow-name" style="color:var(--math)">Output</div></div>
+    <div class="flow-edge"><div class="flow-line"></div><div class="flow-verb">compare</div></div>
+    <div class="flow-node"><div class="flow-dot" style="background:var(--red);box-shadow:0 0 10px var(--red)"></div><div class="flow-name" style="color:var(--red)">Loss</div></div>
+  </div>
+
+  <div class="diff compare" style="max-width:640px;margin:24px auto">
+    <div class="diff-side"><div class="diff-label" style="color:var(--cyan)">Forward</div><div class="diff-body">Data flows left → right. Each layer transforms. Final layer predicts.</div></div>
+    <div class="diff-bar"></div>
+    <div class="diff-side"><div class="diff-label" style="color:var(--red)">Backward</div><div class="diff-body">Loss flows right → left. Each weight learns how much it contributed to the error.</div></div>
+  </div>
+
+  <div class="split" style="margin:24px 0">
+    <div class="split-l" style="font-size:17px">∂L/∂w = ∂L/∂a · ∂a/∂w</div>
+    <div class="split-r">chain rule — blame flows backward</div>
+  </div>
+
+  <div class="callout mint" style="margin:24px 0">
+    <div class="callout-text" style="font-family:var(--mono);font-size:14px">forward = predict · loss = how wrong · backward = blame · update = fix</div>
+  </div>
+
+  <div class="question" style="margin:24px auto">
+    <div class="question-text" style="font-size:17px">If a weight has a large gradient — what does that mean?</div>
+    <div class="question-hint">gradient = blame</div>
+  </div>
+</div></div>
+
+<script>
+document.querySelectorAll('.nav button').forEach(b=>{b.addEventListener('click',()=>{
+  document.querySelectorAll('.nav button').forEach(x=>x.classList.remove('active'));
+  document.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
+  b.classList.add('active');document.querySelector('.'+b.dataset.t).classList.add('active');
+})});
+</script>
+</body>
+</html>

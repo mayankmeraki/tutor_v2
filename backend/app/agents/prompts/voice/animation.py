@@ -1,78 +1,239 @@
 """Voice mode animation design system.
 
-Teaches the LLM to generate p5.js animations using the AnimHelper library.
-Includes complete working examples the model can copy from.
+Teaches the LLM to generate production-quality animations in both:
+  - 2D (p5.js + AnimHelper) for flat diagrams, charts, algorithm vizzes
+  - 3D (Three.js) for molecules, fields, surfaces, spatial concepts
+
+The renderer auto-detects: if code uses THREE.* → Three.js engine.
+Otherwise → p5.js engine. Both use cmd:"animation".
 """
 
 VOICE_ANIMATION_CONTROL = r"""
 ═══ ANIMATION DESIGN SYSTEM ═══
 
-Animations are p5.js sketches on the board. Use the AnimHelper library for ALL drawing.
-AnimHelper is pre-loaded — you just use it.
+You generate BOTH 2D and 3D animations with cmd:"animation". The renderer
+auto-detects the engine from your code:
+  - Code uses THREE.* API → Three.js engine
+  - Code uses p5 API → p5.js engine (AnimHelper available)
 
-⚠️ MANDATORY: Every animation MUST follow this exact pattern.
+⚠️ QUALITY IS NON-NEGOTIABLE. Every animation must be production-grade —
+the level of Brilliant.org or 3Blue1Brown. NEVER output stub code,
+wireframes, axis-only plots, or fewer than 80 lines. Write 100–300 lines.
 
-═══ COMPLETE EXAMPLE — Wave Interference (copy this structure) ═══
+═══ 3D ANIMATIONS (Three.js) — PREFERRED for highest quality ═══
 
-Beat 1 creates the animation:
-<vb draw='{"cmd":"animation","id":"wave-demo","placement":"center","size":"lg","code":"const A=new AnimHelper(p,W,H);p._animHelper=A;A.init({wave1:0,wave2:0,showSum:0,phase:0});p.setup=()=>{p.createCanvas(W,H);};p.draw=()=>{A.tick();A.clear();A.grid(50,6);const s=A.state;const pad=40,wW=W-pad*2,y1=H*0.25,y2=H*0.5,y3=H*0.75;const pts1=[],pts2=[],ptsS=[];for(let i=0;i<200;i++){const x=pad+i/199*wW,t=A._t*2,xn=i/199*Math.PI*6;const v1=Math.sin(xn-t)*40,v2=Math.sin(xn-t+s.phase)*40;pts1.push([x,y1-v1]);pts2.push([x,y2-v2]);ptsS.push([x,y3-(v1+v2)]);}if(s.wave1>0.1){p.drawingContext.globalAlpha=Math.min(1,s.wave1);A.curve(pts1,A.colors.accent,2.5);A.label(W-pad+15,y1,\"A\",A.colors.accent,10);}if(s.wave2>0.1){p.drawingContext.globalAlpha=Math.min(1,s.wave2);A.curve(pts2,A.colors.pink,2.5);A.label(W-pad+15,y2,\"B\",A.colors.pink,10);}if(s.showSum>0.1){p.drawingContext.globalAlpha=Math.min(1,s.showSum);A.curve(ptsS,A.colors.accentAlt,3);A.filledCurve(ptsS,y3,A.colors.accentAlt,0.08);A.label(W-pad+15,y3,\"A+B\",A.colors.accentAlt,10);}p.drawingContext.globalAlpha=1;if(s.wave1>0.3)A.legend([{color:A.colors.accent,label:\"Wave A\"},{color:A.colors.pink,label:\"Wave B\"},{color:A.colors.accentAlt,label:\"Sum\"}]);}'
-    say="Let me show you two waves." cursor="point:id:wave-demo" />
+PREFER Three.js for ALL subjects except inherently flat 2D (arrays,
+trees, circuits, flowcharts). Three.js produces dramatically better visuals.
 
-Beat 2 controls it (NO new code — just state change):
-<vb anim-control='{"action":"set","param":"wave1","value":1}' say="Here's wave A — a simple sine wave." pause="0.8" />
+Variables available in your Three.js code:
+  THREE    — the Three.js library (r128)
+  scene    — THREE.Scene (ambient + 2 directional lights already added)
+  camera   — THREE.PerspectiveCamera (position 0,0,18 — adjust freely)
+  renderer — THREE.WebGLRenderer (antialiased, sized to container)
 
-Beat 3:
-<vb anim-control='{"action":"set","param":"wave2","value":1}' say="Now wave B arrives — same frequency." pause="0.5" />
+Canvas: ~700×450px. Background: #060e11. OrbitControls + auto-rotation
+are handled by the host. You ADD objects to the scene. Don't recreate
+scene/camera/renderer. You CAN use requestAnimationFrame for animation
+loops — the host intercepts it for Pause/Speed control.
 
-Beat 4:
-<vb anim-control='{"action":"set","param":"showSum","value":1}' say="Add them together — the green line is their superposition." pause="0.8" />
+── QUALITY TECHNIQUES (use these in every 3D animation) ──
 
-Beat 5:
-<vb anim-control='{"action":"set","param":"phase","value":3.14159}' say="Shift B by half a wavelength — destructive interference. They cancel!" />
+POINT CLOUDS (orbitals, probability, fields):
+  var geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(posArray, 3));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(colArray, 3));
+  scene.add(new THREE.Points(geo, new THREE.PointsMaterial({
+    size: 0.05, vertexColors: true, transparent: true, opacity: 0.75,
+    sizeAttenuation: true, blending: THREE.AdditiveBlending, depthWrite: false
+  })));
+  // AdditiveBlending makes high-density regions glow. 8k-15k points.
 
-═══ THE PATTERN (memorize this) ═══
+INSTANCED MESH (atoms, molecules, repeated objects):
+  var geo = new THREE.SphereGeometry(0.35, 14, 14);
+  var mat = new THREE.MeshPhongMaterial({ shininess: 110, specular: 0x446688 });
+  var im = new THREE.InstancedMesh(geo, mat, N);
+  // Per-instance transform + color via setMatrixAt / setColorAt
+  // Far more efficient than N separate Mesh objects.
 
-1. BEAT 1: Create animation with A.init({allStatesStartAtZero})
-   - Everything hidden initially (state = 0)
-   - Draw loop: only show things when state > 0.1
-   - Use A.glow() for particles, A.curve() for lines, A.arrow() for forces
-   - Use A.label() for text, A.legend() for legend (NEVER p.text())
+PARAMETRIC SURFACES (waves, fields, landscapes):
+  var pg = new THREE.PlaneGeometry(14, 14, gridN-1, gridN-1);
+  var pa = pg.attributes.position.array;
+  // In animation loop: update pa[(i*N+j)*3+2] = heightValue;
+  // pg.attributes.position.needsUpdate = true;
+  // pg.computeVertexNormals();
+  scene.add(new THREE.Mesh(pg, new THREE.MeshPhongMaterial({
+    color: 0x2277cc, shininess: 60, side: THREE.DoubleSide
+  })));
 
-2. BEATS 2+: Control via anim-control (no new code!)
-   - anim-control='{"action":"set","param":"showX","value":1}'
-   - AnimHelper smoothly lerps 0→1 (fade in)
-   - Tutor narrates while animation transitions
+ORGANIC STRANDS (DNA, bonds, paths, field lines):
+  var pts = []; // array of THREE.Vector3 from parametric equations
+  var curve = new THREE.CatmullRomCurve3(pts);
+  scene.add(new THREE.Mesh(
+    new THREE.TubeGeometry(curve, 200, 0.14, 8, false),
+    new THREE.MeshPhongMaterial({ color: 0x378ADD, shininess: 90 })
+  ));
 
-═══ AnimHelper REFERENCE ═══
+GLOW + ATMOSPHERE:
+  scene.fog = new THREE.FogExp2(0x060e11, 0.012);
+  // Emissive glow on materials:
+  new THREE.MeshPhongMaterial({ emissive: 0x2244ff, emissiveIntensity: 0.3 })
+  // Additive point lights for local glow:
+  var pl = new THREE.PointLight(0x88ccff, 0.7, 30);
 
-  A.clear()                        — dark bg (#0a0e1a)
+ANIMATION LOOP:
+  (function tick() {
+    requestAnimationFrame(tick);  // host intercepts for Pause/Speed
+    group.rotation.y += 0.004;
+    group.rotation.x = Math.sin(Date.now() * 0.0003) * 0.15;
+  })();
+
+── PHASE REVEAL FOR FIGURES (beat-by-beat build-up) ──
+
+⚠️ When inside cmd:"figure", the animation MUST build up piece by piece
+as narration beats arrive. The renderer auto-advances the next hidden
+state/group with each narration beat. THIS IS THE CORE TEACHING EFFECT.
+
+THREE.JS FIGURE REVEAL — use Groups with visible=false:
+  var g1 = new THREE.Group(); g1.visible = false; scene.add(g1);
+  // add DNA strand geometry to g1...
+  var g2 = new THREE.Group(); g2.visible = false; scene.add(g2);
+  // add polymerase geometry to g2...
+  var g3 = new THREE.Group(); g3.visible = false; scene.add(g3);
+  // add mRNA geometry to g3...
+
+  Beat 2 narration → g1 scales up (DNA appears)
+  Beat 3 narration → g2 scales up (polymerase appears)
+  Beat 4 narration → g3 scales up (mRNA appears)
+
+P5.JS FIGURE REVEAL — use AnimHelper with state guards:
+  ⚠️ NEVER use noLoop() in figure animations — draw() must keep running
+  so states can animate smoothly. The continuous loop is essential.
+
+  const A = new AnimHelper(p, W, H);
+  p._animHelper = A;
+  A.init({ strand: 0, bases: 0, rna: 0, labels: 0 });
+  p.draw = function() {
+    A.tick(); A.clear(); A.grid(50, 6);
+    var s = A.state;
+    // Phase 1: DNA strand (revealed by first narration beat)
+    if (s.strand > 0.1) {
+      p.stroke(53, 216, 251, 180 * s.strand);
+      p.line(60, 110, 640, 110);
+      // ... draw strand details
+    }
+    // Phase 2: base pairs (revealed by second narration beat)
+    if (s.bases > 0.1) {
+      // ... draw base pair letters with alpha * s.bases
+    }
+    // Phase 3: mRNA (revealed by third narration beat)
+    if (s.rna > 0.1) {
+      // ... draw growing mRNA strand
+    }
+    // Phase 4: labels (revealed by fourth narration beat)
+    if (s.labels > 0.1) {
+      A.label(350, 385, "RNA Pol reads 3'→5', builds 5'→3'", A.colors.warm);
+    }
+  };
+
+  Each narration beat auto-sets the next state to 1 (in A.init order).
+  AnimHelper smoothly lerps 0→1 so content fades in naturally.
+
+RULES:
+  ✗ NEVER noLoop() in figures — phases won't animate
+  ✗ NEVER draw everything unconditionally — use if(s.key > 0.1) guards
+  ✓ ALWAYS A.init({...}) with one state per reveal phase
+  ✓ ALWAYS A.tick() and A.clear() at the start of draw()
+  ✓ Use opacity * stateValue for smooth fade-in
+
+For standalone cmd:"animation" (NOT figure): draw everything from the
+start — no phase reveal needed. noLoop() is OK for static diagrams.
+
+── REFERENCE: what production quality looks like ──
+
+Quantum orbital (point cloud):     12k MCMC-sampled points, additive blend,
+  vertex colors by radius, FogExp2, subtle axis lines, nucleus glow sphere
+
+Molecular dynamics (instanced):    36 atoms as InstancedMesh, per-instance
+  color by kinetic energy, dynamic bond LineSegments, wireframe box, velocity
+  Verlet integration, temperature-controlled phase transitions
+
+Wave interference (parametric):    120×120 PlaneGeometry, FDTD wave equation,
+  direct vertex manipulation per frame, MeshPhongMaterial with specular,
+  wireframe overlay, PointLight for depth
+
+DNA helix (tube geometry):         CatmullRomCurve3 from parametric helix
+  equations → TubeGeometry backbones, SphereGeometry nucleotides,
+  CylinderGeometry base pair rungs, 50 rungs, 3.5 turns, auto-rotation
+
+Electromagnetic field:             ArrowHelper grid (8×8×4), color gradient
+  by magnitude, animated charge with emissive glow + trail, field lines
+  as TubeGeometry, animated dash offset for flow direction
+
+Loss landscape (ML):               ParametricGeometry from f(x,y), vertex
+  colors mapped to height, wireframe overlay, animated gradient descent
+  sphere + trail BufferGeometry
+
+MINIMUM EXPECTATIONS: 30+ distinct visual elements, 2+ material types,
+requestAnimationFrame animation loop, proper camera framing. NEVER just
+axes + a few spheres.
+
+═══ 2D ANIMATIONS (p5.js + AnimHelper) — for flat abstractions ═══
+
+For 2D: use AnimHelper for clean, consistent drawing.
+
+Pattern:
+  Beat 1: Create animation with A.init({allStatesStartAtZero})
+  Beat 2+: Control via anim-control (state changes only, no new code)
+  OR use cmd:"figure" — states auto-reveal as narration beats arrive.
+
+AnimHelper setup (required at the start of your code):
+  const A = new AnimHelper(p, W, H);
+  p._animHelper = A;
+  A.init({ wave1: 0, wave2: 0, showResult: 0 });
+
+AnimHelper API:
+  A.clear()                        — board bg fill
   A.grid(spacing, alpha)           — subtle grid
-  A.glow(x, y, r, color)          — glowing circle (particles, atoms)
+  A.glow(x, y, r, color)          — glowing circle
   A.label(x, y, text, color, sz)  — sans-serif label
-  A.arrow(x1,y1, x2,y2, color)    — arrow with head (forces)
+  A.arrow(x1,y1, x2,y2, color)    — arrow with head
   A.dashed(x1,y1, x2,y2, color)   — dashed line
-  A.curve(points, color, weight)   — smooth curve from [[x,y],...]
+  A.curve(points, color, weight)   — smooth curve
   A.filledCurve(pts, baseY, color) — shaded area under curve
   A.equation(x, y, text, color)    — boxed equation
-  A.legend([{color, label},...])   — glass overlay legend (top-right)
+  A.legend([{color, label},...])   — glass overlay legend
   A.nx(0.5), A.ny(0.3)            — normalized coords → pixels
   A.osc(freq, min, max)           — oscillating value
-  A.animateTo(key, value, speed)  — smooth state transition
 
-  COLORS: A.colors.accent=[59,130,246] cyan=[56,189,248] accentAlt=[52,211,153]
-          warm=[251,191,36] danger=[239,68,68] purple=[167,139,250] pink=[244,114,182]
+  COLORS: A.colors.accent, .cyan, .accentAlt, .warm, .danger, .purple, .pink
 
-═══ RULES ═══
+2D QUALITY TECHNIQUES (from production examples):
+  • createRadialGradient for glows (charges, particles, tips)
+  • Trail arrays with gradient-faded HSL alpha (pendulum, particle paths)
+  • setLineDash + lineDashOffset for animated flow direction (field lines)
+  • RK4 / Verlet / FDTD — use real physics, not fake motion
+  • 60+ frame trail histories for smooth paths
 
-  ✓ ALWAYS: const A = new AnimHelper(p,W,H); p._animHelper = A;
-  ✓ ALWAYS: A.init({...}) with all states starting at 0
-  ✓ ALWAYS: A.tick() first in draw(), A.clear() second
-  ✓ ALWAYS: Use A.label() not p.text() — sans-serif, properly sized
-  ✓ ALWAYS: Use A.glow() not p.ellipse() — particles need glow
-  ✓ ALWAYS: Use A.legend() — glass overlay, top-right
-  ✓ ALWAYS: Phased reveal — each beat adds, nothing appears all at once
-  ✗ NEVER: p.text(), p.background(), hardcoded colors, Caveat font
-  ✗ NEVER: Show everything at once — phase it with state values
-  ✗ NEVER: Bottom-strip legends — use A.legend() (glass overlay, top-right)
-  ✗ NEVER: "legend" property in the animation command JSON — A.legend() handles it inside the code
+2D RULES:
+  ✓ Use A.label() not p.text()
+  ✓ Use A.glow() not p.ellipse() for particles
+  ✓ States start at 0, fade in per beat
+  ✓ Use A.legend() for color legend
+  ✗ Never p.background() — use A.clear()
+  ✗ Never hardcode colors — use A.colors.*
+
+Controlling animations across beats (2D only):
+  <vb anim-control='{"action":"set","param":"wave1","value":1}' say="Here's the first wave." />
+
+═══ WHEN TO USE 3D vs 2D ═══
+
+USE 3D (Three.js): molecules, orbitals, fields, waves, surfaces, vectors,
+  protein structures, orbits, crystal lattices, neural networks, loss
+  landscapes, planetary motion, fluid dynamics — anything spatial.
+
+USE 2D (p5.js): arrays, trees, graphs, circuits, 2D geometry, function
+  plots, flowcharts, timelines, sorting algorithms, state machines.
+
+When in doubt, use 3D — it builds better spatial intuition and looks
+dramatically more professional.
 """
