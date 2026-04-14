@@ -19,6 +19,14 @@ import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
+# Pymongo's sync client raises _OperationCancelled when motor's thread-dispatched
+# op is cancelled — same semantics as asyncio cancel, different class.
+try:
+    from pymongo.errors import _OperationCancelled as _PyMongoCancelled
+    _CANCEL_EXCEPTIONS: tuple = (asyncio.CancelledError, _PyMongoCancelled)
+except ImportError:
+    _CANCEL_EXCEPTIONS = (asyncio.CancelledError,)
+
 from app.core.config import settings
 from app.core.llm import llm_call, is_retryable, extract_retry_after, LLMCallMetadata
 from app.tools import execute_tutor_tool
@@ -299,13 +307,14 @@ class AgentRuntime:
                 "agent_type": task.type,
                 "error": f"Timed out after {AGENT_TIMEOUT}s",
             })
-        except asyncio.CancelledError:
+        except _CANCEL_EXCEPTIONS as e:
+            # Catches asyncio.CancelledError + pymongo._OperationCancelled
             task.status = "error"
             task.error = "Cancelled"
             task.error_type = "permanent"
             task.completed_at = time.time()
             self.completed_queue.append(task)  # Must add so plan endpoint sees the error
-            log.info("%s cancelled", task.agent_id)
+            log.info("%s cancelled (%s)", task.agent_id, type(e).__name__)
             self._push_event({
                 "type": "AGENT_ERROR",
                 "agent_id": task.agent_id,

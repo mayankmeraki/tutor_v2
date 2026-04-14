@@ -16,6 +16,16 @@ from app.services.teaching.beat_parser import StreamingBeatDetector
 from app.services.teaching.tts_service import elevenlabs_tts
 from app.services.teaching.turn_queue import TurnQueue
 
+# Pymongo's sync client raises _OperationCancelled when motor dispatches
+# an operation to a thread and the outer asyncio task gets cancelled.
+# It's semantically a cancellation but doesn't subclass asyncio.CancelledError,
+# so we catch it alongside CancelledError everywhere cancellation is expected.
+try:
+    from pymongo.errors import _OperationCancelled as _PyMongoCancelled
+    _CANCEL_EXCEPTIONS: tuple = (asyncio.CancelledError, _PyMongoCancelled)
+except ImportError:
+    _CANCEL_EXCEPTIONS = (asyncio.CancelledError,)
+
 log = logging.getLogger(__name__)
 
 
@@ -268,9 +278,12 @@ class SessionRouter:
                         slog.log_event(evt_type, detail)
                     turn.put_json(event)
 
-        except asyncio.CancelledError:
-            log.info("[Turn %s] cancelled", turn.turn_id)
-            try: slog.log_event("CANCELLED_EXCEPTION", "asyncio.CancelledError"); slog.flush_generation(gen_counter)
+        except _CANCEL_EXCEPTIONS as e:
+            # Covers asyncio.CancelledError + pymongo._OperationCancelled
+            # (pymongo's sync client raises its own cancellation when a motor
+            # thread-dispatched op is cancelled — same semantics, different class)
+            log.info("[Turn %s] cancelled (%s)", turn.turn_id, type(e).__name__)
+            try: slog.log_event("CANCELLED_EXCEPTION", type(e).__name__); slog.flush_generation(gen_counter)
             except Exception: pass
         except Exception as e:
             log.exception("[Turn %s] error: %s", turn.turn_id, e)
@@ -317,7 +330,7 @@ class SessionRouter:
                 if hasattr(turn, '_slog'):
                     turn._slog.log_event("TTS_EMPTY", f"beat #{beat_num} — no audio returned")
 
-        except asyncio.CancelledError:
+        except _CANCEL_EXCEPTIONS:
             raise
         except asyncio.TimeoutError:
             log.warning("[Turn %s] TTS timeout for beat %d", turn.turn_id, beat_num)

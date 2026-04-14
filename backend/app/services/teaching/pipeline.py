@@ -17,6 +17,15 @@ import logging
 import re as _re
 import uuid
 
+# Pymongo's sync client raises _OperationCancelled when motor's thread-dispatched
+# op is cancelled. Semantically a cancellation, but not a subclass of
+# asyncio.CancelledError — catch both together everywhere cancel is expected.
+try:
+    from pymongo.errors import _OperationCancelled as _PyMongoCancelled
+    _CANCEL_EXCEPTIONS: tuple = (asyncio.CancelledError, _PyMongoCancelled)
+except ImportError:
+    _CANCEL_EXCEPTIONS = (asyncio.CancelledError,)
+
 from app.agents.agent_runtime import AgentRuntime, AssessmentState, DelegationState
 from app.agents.session import SessionPhase
 from app.core.llm import (
@@ -2610,8 +2619,9 @@ async def _generate_for_turn(
 
                             message = await stream.get_final_message()
                         break
-                    except asyncio.CancelledError:
-                        # Turn cancelled — save partial message cleanly
+                    except _CANCEL_EXCEPTIONS:
+                        # Turn cancelled (asyncio.CancelledError or pymongo._OperationCancelled)
+                        # Save partial message cleanly
                         partial = "".join(_partial_text_parts)
                         if partial:
                             cleaned = _clean_partial_content(partial)
