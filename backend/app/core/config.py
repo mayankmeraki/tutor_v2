@@ -38,6 +38,25 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = Field(default="")
     FEEDBACK_EMAIL: str = Field(default="mayank@seekcapacity.ai")
 
+    # ── LLM pricing (USD per million tokens) — override via env vars ──
+    # Official Anthropic rates as of 2026-04: cache-read = 0.1× input, 5m-cache-write = 1.25× input
+    PRICE_OPUS_INPUT: float = Field(default=5.0)
+    PRICE_OPUS_OUTPUT: float = Field(default=25.0)
+    PRICE_SONNET_INPUT: float = Field(default=3.0)
+    PRICE_SONNET_OUTPUT: float = Field(default=15.0)
+    PRICE_HAIKU_45_INPUT: float = Field(default=1.0)
+    PRICE_HAIKU_45_OUTPUT: float = Field(default=5.0)
+    PRICE_HAIKU_35_INPUT: float = Field(default=0.80)
+    PRICE_HAIKU_35_OUTPUT: float = Field(default=4.0)
+    # Fallback for unknown models (defaults to Sonnet tier)
+    PRICE_FALLBACK_INPUT: float = Field(default=3.0)
+    PRICE_FALLBACK_OUTPUT: float = Field(default=15.0)
+
+    # ── TTS pricing (cents per character) — override via env vars ──
+    # ElevenLabs Scale tier: Turbo v2.5 = $0.09/1000 chars, Multilingual v2 = $0.18/1000
+    TTS_CENTS_PER_CHAR_TURBO: float = Field(default=0.009)
+    TTS_CENTS_PER_CHAR_MULTILINGUAL: float = Field(default=0.018)
+
     @computed_field
     @property
     def tutor_model(self) -> str:

@@ -2201,7 +2201,7 @@ function handleSSEEvent(event) {
       break;
 
     case 'COST_UPDATE':
-      updateSessionCost(event.costCents);
+      updateCostDisplay(event);
       break;
 
     case 'TEACHING_DELEGATION_START':
@@ -7436,10 +7436,32 @@ function updateCostDisplay(evt) {
   const tts = evt.ttsCostCents || 0;
   const dollars = total / 100;
   costEl.textContent = dollars < 0.01 ? '<$0.01' : `$${dollars.toFixed(2)}`;
-  costEl.title =
-    `Total: $${dollars.toFixed(4)}\n` +
-    `  LLM: ${llm.toFixed(1)}¢ (${evt.callCount || 0} calls)\n` +
-    `  TTS: ${tts.toFixed(1)}¢ (${evt.ttsCharCount || 0} chars)`;
+
+  const lines = [
+    `Session total: $${dollars.toFixed(4)}`,
+    `  LLM: ${llm.toFixed(2)}¢ (${evt.callCount || 0} calls, ${(evt.inputTokens || 0).toLocaleString()} in / ${(evt.outputTokens || 0).toLocaleString()} out tokens)`,
+    `  TTS: ${tts.toFixed(2)}¢ (${(evt.ttsCharCount || 0).toLocaleString()} chars)`,
+  ];
+  const ct = evt.currentTurn;
+  if (ct && (ct.llmCents || ct.ttsCents)) {
+    const turnTotal = (ct.llmCents || 0) + (ct.ttsCents || 0);
+    lines.push('');
+    lines.push(`Turn ${ct.turn}: ${turnTotal.toFixed(2)}¢`);
+    lines.push(`  LLM: ${(ct.llmCents || 0).toFixed(2)}¢ (${ct.calls || 0} calls, ${(ct.inputTokens || 0).toLocaleString()} in / ${(ct.outputTokens || 0).toLocaleString()} out)`);
+    if (ct.ttsChars) {
+      lines.push(`  TTS: ${(ct.ttsCents || 0).toFixed(2)}¢ (${ct.ttsChars.toLocaleString()} chars)`);
+    }
+    const models = ct.models || {};
+    const modelEntries = Object.entries(models);
+    if (modelEntries.length) {
+      lines.push(`  Models:`);
+      for (const [mid, m] of modelEntries) {
+        const short = mid.replace('anthropic/', '').replace('openai/', '');
+        lines.push(`    ${short}: ${(m.cents || 0).toFixed(2)}¢ × ${m.calls || 0}`);
+      }
+    }
+  }
+  costEl.title = lines.join('\n');
 }
 
 function updateStats() {

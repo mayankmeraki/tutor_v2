@@ -494,6 +494,7 @@ async def sync_backend_state(session_id: str, session) -> None:
         "ttsCharCount": session.tts_char_count,
         "ttsCallCount": session.tts_call_count,
         "totalCostCents": session.total_cost_cents,
+        "perTurnCosts": session.per_turn_costs,
         "conversationSummary": session.conversation_summary,
         "summaryCoverCount": session.summary_covers_through,
         "assetRegistry": session.asset_registry,

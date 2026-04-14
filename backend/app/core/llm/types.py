@@ -61,15 +61,33 @@ class LLMResponse:
 
 # ── Cost computation ─────────────────────────────────────────────────────────
 
-_MODEL_PRICING: dict[str, tuple[float, float]] = {
-    # (input_per_M, output_per_M)
-    "claude-sonnet-4-6": (3.0, 15.0),
-    "anthropic/claude-sonnet-4-6": (3.0, 15.0),
-    "claude-haiku-4-5-20251001": (0.80, 4.0),
-    "anthropic/claude-haiku-4-5-20251001": (0.80, 4.0),
-    "anthropic/claude-haiku-4.5": (0.80, 4.0),
-    # Fallback for unknown models
-}
+def _pricing_table() -> dict[str, tuple[float, float]]:
+    """Build model pricing table from env-configured settings.
+
+    Rebuilt on each call so tests/hot-reload pick up env overrides.
+    Returns {model_id: (input_per_M, output_per_M)}.
+    """
+    from app.core.config import settings
+    opus = (settings.PRICE_OPUS_INPUT, settings.PRICE_OPUS_OUTPUT)
+    sonnet = (settings.PRICE_SONNET_INPUT, settings.PRICE_SONNET_OUTPUT)
+    haiku45 = (settings.PRICE_HAIKU_45_INPUT, settings.PRICE_HAIKU_45_OUTPUT)
+    haiku35 = (settings.PRICE_HAIKU_35_INPUT, settings.PRICE_HAIKU_35_OUTPUT)
+    return {
+        # Opus 4.6 — primary Tutor model
+        "claude-opus-4-6": opus,
+        "anthropic/claude-opus-4-6": opus,
+        # Sonnet 4.6
+        "claude-sonnet-4-6": sonnet,
+        "anthropic/claude-sonnet-4-6": sonnet,
+        # Haiku 4.5
+        "claude-haiku-4-5-20251001": haiku45,
+        "anthropic/claude-haiku-4-5-20251001": haiku45,
+        "anthropic/claude-haiku-4.5": haiku45,
+        "anthropic/claude-haiku-4-5": haiku45,
+        # Haiku 3.5 — kept for reference
+        "claude-haiku-3-5": haiku35,
+        "anthropic/claude-haiku-3.5": haiku35,
+    }
 
 
 def compute_cost_cents(
@@ -87,11 +105,13 @@ def compute_cost_cents(
     if provider_cost_usd is not None and provider_cost_usd > 0:
         return provider_cost_usd * 100  # USD to cents
 
-    # Fallback: estimate from token counts + pricing table
-    pricing = _MODEL_PRICING.get(model)
+    # Fallback: estimate from token counts + pricing table (from env config)
+    from app.core.config import settings
+    table = _pricing_table()
+    pricing = table.get(model)
     if not pricing:
         base = model.rsplit("/", 1)[-1] if "/" in model else model
-        pricing = _MODEL_PRICING.get(base, (3.0, 15.0))  # default to sonnet pricing
+        pricing = table.get(base, (settings.PRICE_FALLBACK_INPUT, settings.PRICE_FALLBACK_OUTPUT))
 
     input_cost = (input_tokens / 1_000_000) * pricing[0]
     output_cost = (output_tokens / 1_000_000) * pricing[1]

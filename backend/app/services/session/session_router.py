@@ -304,17 +304,11 @@ class SessionRouter:
                 if char_count > 0 and hasattr(turn, '_sessionId'):
                     try:
                         from app.agents.session import _sessions
+                        from app.services.teaching.pipeline import _cost_update_event
                         sess = _sessions.get(turn._sessionId)
                         if sess:
-                            cost_added = sess.track_tts_usage(char_count)
-                            turn.put_json({
-                                "type": "COST_UPDATE",
-                                "costCents": round(sess.llm_cost_cents + sess.tts_cost_cents, 2),
-                                "llmCostCents": round(sess.llm_cost_cents, 2),
-                                "ttsCostCents": round(sess.tts_cost_cents, 2),
-                                "callCount": sess.llm_call_count,
-                                "ttsCharCount": sess.tts_char_count,
-                            })
+                            sess.track_tts_usage(char_count)
+                            turn.put_json(_cost_update_event(sess))
                     except Exception as e:
                         log.warning("TTS cost tracking failed: %s", e)
                 del audio_bytes  # Release reference for GC

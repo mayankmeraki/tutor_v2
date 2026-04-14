@@ -129,11 +129,42 @@ async def fetch_stats():
     total_sessions = await db.sessions.count_documents({})
     active_sessions = await db.sessions.count_documents({"status": "active"})
     external_sessions = await db.sessions.count_documents({"userEmail": {"$ne": "mayank@test.com"}})
+
+    # Cost aggregation via MongoDB $group (pushes math to the DB)
+    # createdAt is stored as an ISO string, so we compare lexically with .isoformat()
+    now = datetime.now(timezone.utc)
+    today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
+    month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
+
+    async def _sum_cost(match_stage: dict) -> dict:
+        pipeline = [
+            {"$match": match_stage},
+            {"$group": {
+                "_id": None,
+                "llm": {"$sum": {"$ifNull": ["$backendState.llmCostCents", 0]}},
+                "tts": {"$sum": {"$ifNull": ["$backendState.ttsCostCents", 0]}},
+                "sessions": {"$sum": 1},
+            }},
+        ]
+        async for row in db.sessions.aggregate(pipeline):
+            return {"llm": row["llm"], "tts": row["tts"], "sessions": row["sessions"]}
+        return {"llm": 0, "tts": 0, "sessions": 0}
+
+    cost_all = await _sum_cost({})
+    cost_month = await _sum_cost({"createdAt": {"$gte": month_start}})
+    cost_today = await _sum_cost({"createdAt": {"$gte": today_start}})
+
     return {
         "totalUsers": total_users,
         "totalSessions": total_sessions,
         "activeSessions": active_sessions,
         "externalSessions": external_sessions,
+        # Cost in cents (frontend converts to $)
+        "costAllCents": cost_all["llm"] + cost_all["tts"],
+        "costAllLlmCents": cost_all["llm"],
+        "costAllTtsCents": cost_all["tts"],
+        "costMonthCents": cost_month["llm"] + cost_month["tts"],
+        "costTodayCents": cost_today["llm"] + cost_today["tts"],
         "ts": datetime.now(timezone.utc).isoformat(),
     }
 
@@ -144,10 +175,13 @@ async def fetch_users():
         {}, {"name": 1, "email": 1, "createdAt": 1}
     ).sort("createdAt", -1).to_list(length=500)
 
-    # Fetch all sessions with transcripts for accurate time calculation
+    # Fetch all sessions with transcripts + cost for aggregation
     all_sessions = await db.sessions.find(
         {},
-        {"userEmail": 1, "metrics": 1, "createdAt": 1, "transcript.timestamp": 1},
+        {"userEmail": 1, "metrics": 1, "createdAt": 1,
+         "transcript.timestamp": 1,
+         "backendState.llmCostCents": 1,
+         "backendState.ttsCostCents": 1},
     ).to_list(length=5000)
 
     # Aggregate per user
@@ -158,12 +192,19 @@ async def fetch_users():
             user_stats[email] = {
                 "sessionCount": 0, "totalActive": 0, "totalSpan": 0,
                 "totalTurns": 0, "totalStudentResponses": 0, "lastSession": "",
+                "totalCostCents": 0, "totalLlmCents": 0, "totalTtsCents": 0,
             }
         st = user_stats[email]
         st["sessionCount"] += 1
         metrics = s.get("metrics") or {}
         st["totalTurns"] += metrics.get("totalTurns", 0)
         st["totalStudentResponses"] += metrics.get("studentResponses", 0)
+        bs = s.get("backendState") or {}
+        llm_c = bs.get("llmCostCents") or 0
+        tts_c = bs.get("ttsCostCents") or 0
+        st["totalLlmCents"] += llm_c
+        st["totalTtsCents"] += tts_c
+        st["totalCostCents"] += llm_c + tts_c
         created = str(s.get("createdAt", ""))[:19]
         if created > st["lastSession"]:
             st["lastSession"] = created
@@ -186,6 +227,9 @@ async def fetch_users():
             "totalTurns": st.get("totalTurns", 0),
             "studentResponses": st.get("totalStudentResponses", 0),
             "lastSession": st.get("lastSession", ""),
+            "totalCostCents": round(st.get("totalCostCents", 0), 2),
+            "totalLlmCents": round(st.get("totalLlmCents", 0), 2),
+            "totalTtsCents": round(st.get("totalTtsCents", 0), 2),
         })
     return result
 
@@ -199,6 +243,12 @@ async def fetch_sessions():
             "createdAt": 1, "durationSec": 1, "metrics": 1, "intent": 1,
             "status": 1, "teachingMode": 1, "courseId": 1,
             "transcript.timestamp": 1, "transcript.role": 1,
+            "backendState.llmCostCents": 1,
+            "backendState.ttsCostCents": 1,
+            "backendState.llmCallCount": 1,
+            "backendState.llmTotalInputTokens": 1,
+            "backendState.llmTotalOutputTokens": 1,
+            "backendState.ttsCharCount": 1,
         },
     ).sort("createdAt", -1).to_list(length=200)
 
@@ -208,6 +258,9 @@ async def fetch_sessions():
         intent = s.get("intent") or {}
         raw_intent = intent.get("raw", "") if isinstance(intent, dict) else str(intent)
         timing = compute_interaction_time(s.get("transcript", []))
+        bs = s.get("backendState") or {}
+        llm_c = bs.get("llmCostCents") or 0
+        tts_c = bs.get("ttsCostCents") or 0
         result.append({
             "_id": str(s.get("_id", "")),
             "user": s.get("studentName", "?"),
@@ -225,8 +278,270 @@ async def fetch_sessions():
             "intent": raw_intent[:120],
             "mode": s.get("teachingMode", ""),
             "courseId": s.get("courseId", ""),
+            "costCents": round(llm_c + tts_c, 2),
+            "llmCents": round(llm_c, 2),
+            "ttsCents": round(tts_c, 2),
+            "llmCalls": bs.get("llmCallCount") or 0,
+            "inputTokens": bs.get("llmTotalInputTokens") or 0,
+            "outputTokens": bs.get("llmTotalOutputTokens") or 0,
+            "ttsChars": bs.get("ttsCharCount") or 0,
         })
     return result
+
+
+async def fetch_analytics(days: int = 30):
+    """Time-series + aggregates for the Analytics tab.
+
+    Returns buckets for signups/day, sessions/day, DAU/WAU/MAU, mode split,
+    top topics, avg turns, status breakdown, cost/turn distribution.
+
+    Note: createdAt is stored as an ISO string — we compare/bucket lexically.
+    """
+    db = get_db()
+    now = datetime.now(timezone.utc)
+
+    def _iso(dt: datetime) -> str:
+        return dt.isoformat()
+
+    since = _iso(now - datetime_timedelta(days=days))
+    week_ago = _iso(now - datetime_timedelta(days=7))
+    day_ago = _iso(now - datetime_timedelta(days=1))
+    month_ago = _iso(now - datetime_timedelta(days=30))
+
+    # ── Signups per day (last N days) — substring on string createdAt ──
+    signup_pipeline = [
+        {"$match": {"createdAt": {"$gte": since}}},
+        {"$group": {
+            "_id": {"$substrCP": ["$createdAt", 0, 10]},  # YYYY-MM-DD from ISO string
+            "count": {"$sum": 1},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    signup_series = [
+        {"date": r["_id"], "count": r["count"]}
+        async for r in db.users.aggregate(signup_pipeline)
+    ]
+
+    # ── Sessions per day ──
+    sess_pipeline = [
+        {"$match": {"createdAt": {"$gte": since}}},
+        {"$group": {
+            "_id": {"$substrCP": ["$createdAt", 0, 10]},
+            "count": {"$sum": 1},
+            "cost": {"$sum": {"$add": [
+                {"$ifNull": ["$backendState.llmCostCents", 0]},
+                {"$ifNull": ["$backendState.ttsCostCents", 0]},
+            ]}},
+            "turns": {"$sum": {"$ifNull": ["$backendState.assistantTurnCount", 0]}},
+        }},
+        {"$sort": {"_id": 1}},
+    ]
+    session_series = [
+        {"date": r["_id"], "count": r["count"], "costCents": round(r["cost"], 2), "turns": r["turns"]}
+        async for r in db.sessions.aggregate(sess_pipeline)
+    ]
+
+    # ── DAU/WAU/MAU (unique users with a session in window) ──
+    async def _unique_users(gte_iso: str) -> int:
+        result = await db.sessions.distinct("userEmail", {"createdAt": {"$gte": gte_iso}})
+        return len([u for u in result if u])
+    dau = await _unique_users(day_ago)
+    wau = await _unique_users(week_ago)
+    mau = await _unique_users(month_ago)
+
+    # ── Mode split (voice vs text) ──
+    mode_pipeline = [
+        {"$match": {"createdAt": {"$gte": since}}},
+        {"$group": {"_id": "$teachingMode", "count": {"$sum": 1}}},
+    ]
+    mode_split = {r["_id"] or "unknown": r["count"] async for r in db.sessions.aggregate(mode_pipeline)}
+
+    # ── Status breakdown ──
+    status_pipeline = [
+        {"$match": {"createdAt": {"$gte": since}}},
+        {"$group": {"_id": "$status", "count": {"$sum": 1}}},
+    ]
+    status_breakdown = {r["_id"] or "unknown": r["count"] async for r in db.sessions.aggregate(status_pipeline)}
+
+    # ── Top topics (from intent.raw / headline / title, whichever populated) ──
+    topic_pipeline = [
+        {"$match": {"createdAt": {"$gte": since}}},
+        # Prefer intent.raw → headline → title
+        {"$addFields": {
+            "_topic": {"$ifNull": [
+                "$intent.raw",
+                {"$ifNull": ["$headline", "$title"]},
+            ]},
+        }},
+        {"$match": {"_topic": {"$ne": None, "$ne": ""}}},
+        {"$group": {
+            "_id": {"$toLower": {"$substrCP": ["$_topic", 0, 60]}},
+            "count": {"$sum": 1},
+            "sample": {"$first": "$_topic"},
+        }},
+        {"$sort": {"count": -1}},
+        {"$limit": 10},
+    ]
+    top_topics = [
+        {"topic": r["sample"][:80], "count": r["count"]}
+        async for r in db.sessions.aggregate(topic_pipeline)
+    ]
+
+    # ── Aggregate averages ──
+    avg_pipeline = [
+        {"$match": {"createdAt": {"$gte": since}}},
+        {"$group": {
+            "_id": None,
+            "sessions": {"$sum": 1},
+            "totalTurns": {"$sum": {"$ifNull": ["$backendState.assistantTurnCount", 0]}},
+            "totalCost": {"$sum": {"$add": [
+                {"$ifNull": ["$backendState.llmCostCents", 0]},
+                {"$ifNull": ["$backendState.ttsCostCents", 0]},
+            ]}},
+        }},
+    ]
+    avg_row = None
+    async for r in db.sessions.aggregate(avg_pipeline):
+        avg_row = r
+        break
+
+    totals = {
+        "sessions": (avg_row or {}).get("sessions", 0),
+        "turns": (avg_row or {}).get("totalTurns", 0),
+        "costCents": round((avg_row or {}).get("totalCost", 0), 2),
+    }
+    avg_turns_per_session = totals["turns"] / totals["sessions"] if totals["sessions"] else 0
+    avg_cost_per_session = totals["costCents"] / totals["sessions"] if totals["sessions"] else 0
+    avg_cost_per_turn = totals["costCents"] / totals["turns"] if totals["turns"] else 0
+
+    # ── Return rate: cohort → returned in next window ──
+    async def _return_rate(cohort_start_iso: str, cohort_end_iso: str, return_since_iso: str) -> dict:
+        cohort = await db.sessions.distinct("userEmail", {
+            "createdAt": {"$gte": cohort_start_iso, "$lt": cohort_end_iso},
+        })
+        cohort = {u for u in cohort if u}
+        if not cohort:
+            return {"cohort": 0, "returned": 0, "rate": 0}
+        returned = await db.sessions.distinct("userEmail", {
+            "userEmail": {"$in": list(cohort)},
+            "createdAt": {"$gte": return_since_iso},
+        })
+        returned = {u for u in returned if u}
+        rate = len(returned) / len(cohort) * 100 if cohort else 0
+        return {"cohort": len(cohort), "returned": len(returned), "rate": round(rate, 1)}
+
+    td = datetime_timedelta
+    ret_1d = await _return_rate(_iso(now - td(days=2)), _iso(now - td(days=1)), _iso(now - td(days=1)))
+    ret_7d = await _return_rate(_iso(now - td(days=14)), _iso(now - td(days=7)), _iso(now - td(days=7)))
+    ret_30d = await _return_rate(_iso(now - td(days=60)), _iso(now - td(days=30)), _iso(now - td(days=30)))
+
+    return {
+        "windowDays": days,
+        "signupSeries": signup_series,
+        "sessionSeries": session_series,
+        "dau": dau, "wau": wau, "mau": mau,
+        "modeSplit": mode_split,
+        "statusBreakdown": status_breakdown,
+        "topTopics": top_topics,
+        "totals": totals,
+        "avgTurnsPerSession": round(avg_turns_per_session, 2),
+        "avgCostPerSessionCents": round(avg_cost_per_session, 2),
+        "avgCostPerTurnCents": round(avg_cost_per_turn, 2),
+        "returnRate1d": ret_1d,
+        "returnRate7d": ret_7d,
+        "returnRate30d": ret_30d,
+    }
+
+
+async def fetch_feedback():
+    """NPS + qualitative feedback from session_feedback collection."""
+    db = get_db()
+    docs = await db.session_feedback.find({}).sort("createdAt", -1).to_list(length=500)
+
+    ratings = []
+    comments = []
+    for d in docs:
+        # Common NPS field names
+        rating = d.get("rating") or d.get("nps") or d.get("score")
+        if rating is not None:
+            try:
+                ratings.append(int(rating))
+            except (ValueError, TypeError):
+                pass
+        comment = d.get("comment") or d.get("feedback") or d.get("text") or ""
+        if comment:
+            comments.append({
+                "rating": rating,
+                "comment": str(comment)[:500],
+                "email": d.get("userEmail", ""),
+                "createdAt": str(d.get("createdAt", ""))[:19],
+                "sessionId": str(d.get("sessionId", "")),
+            })
+
+    # Histogram 1-10
+    histogram = {str(i): 0 for i in range(1, 11)}
+    for r in ratings:
+        if 1 <= r <= 10:
+            histogram[str(r)] += 1
+
+    avg_rating = sum(ratings) / len(ratings) if ratings else 0
+
+    # NPS calculation: % promoters (9-10) minus % detractors (0-6)
+    if ratings:
+        promoters = sum(1 for r in ratings if r >= 9)
+        detractors = sum(1 for r in ratings if r <= 6)
+        nps = (promoters - detractors) / len(ratings) * 100
+    else:
+        nps = 0
+
+    return {
+        "totalResponses": len(ratings),
+        "avgRating": round(avg_rating, 2),
+        "npsScore": round(nps, 1),
+        "histogram": histogram,
+        "comments": comments[:50],
+    }
+
+
+# Helper: avoid importing timedelta at module level for clarity
+from datetime import timedelta as datetime_timedelta
+
+
+async def fetch_session_detail(session_id: str):
+    """Per-session details with perTurnCosts and model breakdown."""
+    from bson import ObjectId
+    db = get_db()
+    s = None
+    try:
+        s = await db.sessions.find_one(
+            {"_id": ObjectId(session_id)},
+            {"backendState.perTurnCosts": 1,
+             "backendState.llmCostCents": 1,
+             "backendState.ttsCostCents": 1,
+             "backendState.llmCallCount": 1,
+             "backendState.llmTotalInputTokens": 1,
+             "backendState.llmTotalOutputTokens": 1,
+             "backendState.ttsCharCount": 1,
+             "title": 1, "userEmail": 1, "studentName": 1},
+        )
+    except Exception:
+        pass
+    if not s:
+        return {"error": "not found"}
+    bs = s.get("backendState") or {}
+    return {
+        "title": s.get("title", ""),
+        "user": s.get("studentName", ""),
+        "email": s.get("userEmail", ""),
+        "llmCents": round(bs.get("llmCostCents") or 0, 2),
+        "ttsCents": round(bs.get("ttsCostCents") or 0, 2),
+        "totalCents": round((bs.get("llmCostCents") or 0) + (bs.get("ttsCostCents") or 0), 2),
+        "llmCalls": bs.get("llmCallCount") or 0,
+        "inputTokens": bs.get("llmTotalInputTokens") or 0,
+        "outputTokens": bs.get("llmTotalOutputTokens") or 0,
+        "ttsChars": bs.get("ttsCharCount") or 0,
+        "perTurnCosts": bs.get("perTurnCosts") or [],
+    }
 
 
 async def fetch_transcript(session_id: str):
@@ -441,6 +756,16 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 self._json(run_async(fetch_users()))
             elif path == "/api/sessions":
                 self._json(run_async(fetch_sessions()))
+            elif path == "/api/analytics":
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed.query or "")
+                days = int((qs.get("days") or ["30"])[0])
+                self._json(run_async(fetch_analytics(days)))
+            elif path == "/api/feedback":
+                self._json(run_async(fetch_feedback()))
+            elif path.startswith("/api/session-detail/"):
+                sid = path.split("/api/session-detail/", 1)[1]
+                self._json(run_async(fetch_session_detail(sid)))
             elif path.startswith("/api/transcript/"):
                 sid = path.split("/api/transcript/", 1)[1]
                 self._json(run_async(fetch_transcript(sid)))
@@ -590,6 +915,96 @@ DASHBOARD_HTML = """\
   .hidden { display: none !important; }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
+
+  /* ── Cost-related styles ── */
+  .cost { font-weight: 700; color: var(--orange); font-family: 'SF Mono', Monaco, monospace; }
+  .cost-sm { font-size: 11px; font-weight: 500; color: var(--text2); font-family: 'SF Mono', Monaco, monospace; }
+  .stat-card .value.c5 { color: var(--red); }
+  .stat-card .value.c6 { color: var(--accent2); }
+  .stat-card .sub { font-size: 10px; color: var(--text2); margin-top: 3px; letter-spacing: .3px; }
+
+  /* ── Analytics tab ── */
+  .analytics-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                    gap: 16px; margin-bottom: 20px; }
+  .chart-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+                padding: 18px; box-shadow: var(--shadow); }
+  .chart-card h3 { font-size: 13px; font-weight: 600; color: var(--text); margin-bottom: 4px;
+                   display: flex; justify-content: space-between; align-items: center; }
+  .chart-card .hdr-sub { font-size: 10px; color: var(--text2); font-weight: 400;
+                         text-transform: uppercase; letter-spacing: .5px; }
+  .chart-card .desc { font-size: 11px; color: var(--text2); margin-bottom: 12px; }
+
+  /* Bar chart (time series) */
+  .bar-chart { display: flex; align-items: flex-end; gap: 2px; height: 120px;
+               padding: 4px 0; border-bottom: 1px solid var(--border); position: relative; }
+  .bar-chart .bar { flex: 1; background: var(--accent); border-radius: 2px 2px 0 0;
+                    min-height: 2px; position: relative; transition: opacity .15s; opacity: .85; }
+  .bar-chart .bar:hover { opacity: 1; background: var(--accent2); }
+  .bar-chart .bar[data-mode="sessions"] { background: var(--blue); }
+  .bar-chart .bar[data-mode="cost"] { background: var(--orange); }
+  .bar-labels { display: flex; justify-content: space-between; font-size: 9px;
+                color: var(--text2); margin-top: 4px; font-family: 'SF Mono', monospace; }
+
+  /* Pie/donut replacement: horizontal bars */
+  .pct-bar { margin-bottom: 8px; }
+  .pct-bar-row { display: flex; justify-content: space-between; font-size: 11px; margin-bottom: 3px; }
+  .pct-bar-row .lbl { color: var(--text); font-weight: 500; }
+  .pct-bar-row .val { color: var(--text2); font-family: 'SF Mono', monospace; }
+  .pct-bar-track { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
+  .pct-bar-fill { height: 100%; background: var(--accent); transition: width .3s ease; }
+  .pct-bar-fill.c-voice { background: var(--accent2); }
+  .pct-bar-fill.c-text { background: var(--blue); }
+  .pct-bar-fill.c-active { background: var(--green); }
+  .pct-bar-fill.c-ended { background: var(--red); }
+  .pct-bar-fill.c-paused { background: var(--orange); }
+
+  /* Metric grid inside chart card */
+  .metric-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+  .metric-row .m { text-align: center; }
+  .metric-row .m .n { font-size: 22px; font-weight: 800; color: var(--accent); line-height: 1; }
+  .metric-row .m .n.c2 { color: var(--green); }
+  .metric-row .m .n.c3 { color: var(--blue); }
+  .metric-row .m .l { font-size: 10px; color: var(--text2); text-transform: uppercase;
+                       letter-spacing: .5px; margin-top: 4px; }
+
+  /* NPS histogram */
+  .nps-hist { display: flex; align-items: flex-end; gap: 3px; height: 100px;
+              border-bottom: 1px solid var(--border); padding-top: 4px; }
+  .nps-hist .nb { flex: 1; border-radius: 2px 2px 0 0; position: relative; min-height: 2px;
+                  transition: opacity .15s; }
+  .nps-hist .nb.detractor { background: var(--red); }
+  .nps-hist .nb.passive { background: var(--orange); }
+  .nps-hist .nb.promoter { background: var(--green); }
+  .nps-hist .nb:hover { opacity: .8; }
+  .nps-labels { display: flex; gap: 3px; margin-top: 4px; font-size: 9px;
+                color: var(--text2); font-family: 'SF Mono', monospace; }
+  .nps-labels div { flex: 1; text-align: center; }
+
+  /* Comment card */
+  .fb-comment { background: var(--surface2); border-radius: 8px; padding: 10px 14px;
+                margin-bottom: 10px; font-size: 12px; }
+  .fb-comment .fb-meta { display: flex; justify-content: space-between; gap: 8px;
+                          margin-bottom: 6px; font-size: 10px; color: var(--text2); }
+  .fb-comment .fb-rating { display: inline-block; padding: 1px 8px; border-radius: 999px;
+                            font-weight: 700; font-size: 11px; }
+  .fb-rating.d { background: rgba(248,113,113,.15); color: var(--red); }
+  .fb-rating.p { background: rgba(251,191,36,.15); color: var(--orange); }
+  .fb-rating.m { background: rgba(52,211,153,.15); color: var(--green); }
+
+  /* Per-turn cost table in session modal */
+  .turn-cost-table { width: 100%; font-size: 11px; margin-top: 10px; border-collapse: collapse; }
+  .turn-cost-table th { padding: 6px 8px; font-size: 10px; }
+  .turn-cost-table td { padding: 5px 8px; font-family: 'SF Mono', monospace; }
+  .turn-cost-table .mdl { font-size: 9.5px; color: var(--text2); }
+
+  /* Topic list */
+  .topic-list { list-style: none; }
+  .topic-list li { padding: 6px 0; border-bottom: 1px solid var(--border);
+                    font-size: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .topic-list li:last-child { border-bottom: none; }
+  .topic-list .tn { color: var(--text); flex: 1; margin-right: 12px; overflow: hidden;
+                     text-overflow: ellipsis; white-space: nowrap; }
+  .topic-list .tc { color: var(--accent); font-weight: 700; font-family: 'SF Mono', monospace; }
 </style>
 </head>
 <body>
@@ -618,6 +1033,8 @@ DASHBOARD_HTML = """\
   <div class="tabs">
     <button class="active" data-tab="users" onclick="switchTab('users')">Users</button>
     <button data-tab="sessions" onclick="switchTab('sessions')">Sessions</button>
+    <button data-tab="analytics" onclick="switchTab('analytics')">Analytics</button>
+    <button data-tab="feedback" onclick="switchTab('feedback')">Feedback</button>
   </div>
 
   <div class="search-bar">
@@ -634,7 +1051,7 @@ DASHBOARD_HTML = """\
         <th onclick="sortTable('users','sessions')">Sessions <span class="arr">&#9650;</span></th>
         <th onclick="sortTable('users','totalActive')">Active Time <span class="arr">&#9650;</span></th>
         <th onclick="sortTable('users','totalTurns')">Turns <span class="arr">&#9650;</span></th>
-        <th onclick="sortTable('users','studentResponses')">Student Msgs <span class="arr">&#9650;</span></th>
+        <th onclick="sortTable('users','totalCostCents')">$ Spent <span class="arr">&#9650;</span></th>
         <th onclick="sortTable('users','lastSession')">Last Session <span class="arr">&#9650;</span></th>
       </tr></thead>
       <tbody></tbody>
@@ -650,12 +1067,24 @@ DASHBOARD_HTML = """\
         <th onclick="sortTable('sessions','createdAt')">Started <span class="arr on">&#9660;</span></th>
         <th onclick="sortTable('sessions','activeSec')">Active Time <span class="arr">&#9650;</span></th>
         <th onclick="sortTable('sessions','turns')">Turns <span class="arr">&#9650;</span></th>
-        <th>Intent</th>
+        <th onclick="sortTable('sessions','costCents')">Cost <span class="arr">&#9650;</span></th>
         <th>Mode</th>
         <th onclick="sortTable('sessions','status')">Status <span class="arr">&#9650;</span></th>
       </tr></thead>
       <tbody></tbody>
     </table></div>
+  </div>
+
+  <div id="tab-analytics" class="tab-panel">
+    <div class="analytics-grid" id="analyticsGrid">
+      <div class="chart-card"><p class="muted">Loading analytics...</p></div>
+    </div>
+  </div>
+
+  <div id="tab-feedback" class="tab-panel">
+    <div class="analytics-grid" id="feedbackGrid">
+      <div class="chart-card"><p class="muted">Loading feedback...</p></div>
+    </div>
   </div>
 </div>
 
@@ -695,12 +1124,25 @@ function ago(d) {
 function esc(s) { if (!s) return ''; const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
 function zeroWrap(v) { return v ? String(v) : '<span class="zero">0</span>'; }
 
+function fmtCost(cents, compact) {
+  if (cents == null || cents === 0) return compact ? '$0' : '<span class="zero">$0</span>';
+  const d = cents / 100;
+  if (d >= 100) return '$' + d.toFixed(0);
+  if (d >= 1) return '$' + d.toFixed(2);
+  if (d >= 0.01) return '$' + d.toFixed(3);
+  return '<\\$0.01';
+}
+
 function renderStats(d) {
+  const llmPct = d.costAllCents > 0 ? Math.round(d.costAllLlmCents / d.costAllCents * 100) : 0;
+  const ttsPct = d.costAllCents > 0 ? Math.round(d.costAllTtsCents / d.costAllCents * 100) : 0;
   document.getElementById('statsCards').innerHTML = `
     <div class="stat-card"><div class="label">Total Users</div><div class="value c1">${d.totalUsers}</div></div>
     <div class="stat-card"><div class="label">Total Sessions</div><div class="value c2">${d.totalSessions}</div></div>
     <div class="stat-card"><div class="label">Active Sessions</div><div class="value c3">${d.activeSessions}</div></div>
-    <div class="stat-card"><div class="label">External Sessions</div><div class="value c4">${d.externalSessions}</div></div>
+    <div class="stat-card"><div class="label">Total Spend</div><div class="value c5">${fmtCost(d.costAllCents, true)}</div><div class="sub">${llmPct}% LLM · ${ttsPct}% TTS</div></div>
+    <div class="stat-card"><div class="label">This Month</div><div class="value c6">${fmtCost(d.costMonthCents, true)}</div><div class="sub">month to date</div></div>
+    <div class="stat-card"><div class="label">Today</div><div class="value c4">${fmtCost(d.costTodayCents, true)}</div><div class="sub">UTC midnight</div></div>
   `;
 }
 
@@ -726,7 +1168,12 @@ function renderUsers() {
   let data = sortData(usersData, sortState.users.col, sortState.users.dir);
   if (q) data = data.filter(u =>
     (u.name||'').toLowerCase().includes(q) || (u.email||'').toLowerCase().includes(q));
-  document.querySelector('#usersTable tbody').innerHTML = data.map((u, i) => `<tr>
+  document.querySelector('#usersTable tbody').innerHTML = data.map((u, i) => {
+    const costLabel = (u.totalCostCents && u.totalCostCents > 0)
+      ? '<span class="cost">' + fmtCost(u.totalCostCents) + '</span>' +
+        '<br><span class="cost-sm">' + fmtCost(u.totalLlmCents) + ' LLM · ' + fmtCost(u.totalTtsCents) + ' TTS</span>'
+      : '<span class="zero">$0</span>';
+    return `<tr>
     <td class="muted">${i + 1}</td>
     <td class="bold">${esc(u.name)}</td>
     <td class="mono">${esc(u.email)}</td>
@@ -734,9 +1181,9 @@ function renderUsers() {
     <td class="bold">${zeroWrap(u.sessions)}</td>
     <td class="dur">${fmtDur(u.totalActive)}</td>
     <td>${zeroWrap(u.totalTurns)}</td>
-    <td>${zeroWrap(u.studentResponses)}</td>
+    <td>${costLabel}</td>
     <td class="sm">${u.lastSession ? fmtDate(u.lastSession) : '\\u2014'}</td>
-  </tr>`).join('');
+  </tr>`;}).join('');
 }
 
 function renderSessions() {
@@ -748,15 +1195,19 @@ function renderSessions() {
   document.querySelector('#sessionsTable tbody').innerHTML = data.map((s, i) => {
     const activeStr = fmtDur(s.activeSec);
     const spanStr = s.spanSec > 0 && s.spanSec !== s.activeSec ? ' <span class="dur-raw">(' + fmtDur(s.spanSec) + ' span)</span>' : '';
+    const costLabel = (s.costCents && s.costCents > 0)
+      ? '<span class="cost">' + fmtCost(s.costCents) + '</span>' +
+        '<br><span class="cost-sm">' + fmtCost(s.llmCents) + '/' + fmtCost(s.ttsCents) + '</span>'
+      : '<span class="zero">$0</span>';
     return `<tr>
     <td class="muted">${i + 1}</td>
     <td><span class="bold">${esc(s.user)}</span><br><span class="mono muted">${esc(s.email)}</span></td>
-    <td><span class="link" onclick="viewTranscript('${s._idx}')" title="View transcript">${esc(s.title)}</span>
+    <td><span class="link" onclick="viewTranscript('${s._idx}')" title="View transcript + cost breakdown">${esc(s.title)}</span>
         <br><a class="mono muted" href="/replay/${s._id}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none" title="Open replay">&#9654; replay</a></td>
     <td class="sm">${fmtDate(s.createdAt)}<br><span class="muted">${ago(s.createdAt)}</span></td>
     <td><span class="dur">${activeStr}</span>${spanStr}</td>
     <td>${zeroWrap(s.turns)}</td>
-    <td class="sm muted" style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${esc(s.intent)}</td>
+    <td>${costLabel}</td>
     <td>${s.mode ? `<span class="badge ${s.mode==='voice'?'b-voice':'b-text'}">${s.mode}</span>` : '\\u2014'}</td>
     <td><span class="badge ${s.status==='active'?'b-active':'b-ended'}">${s.status}</span></td>
   </tr>`;}).join('');
@@ -767,19 +1218,242 @@ function filterTable() { renderUsers(); renderSessions(); }
 function switchTab(tab) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
+  if (tab === 'analytics') loadAnalytics();
+  if (tab === 'feedback') loadFeedback();
+}
+
+// ── Analytics ──
+let analyticsLoaded = false;
+async function loadAnalytics() {
+  if (analyticsLoaded) return;
+  analyticsLoaded = true;
+  try {
+    const r = await fetch(API + '/api/analytics?days=30');
+    const a = await r.json();
+    renderAnalytics(a);
+  } catch (e) {
+    document.getElementById('analyticsGrid').innerHTML =
+      '<div class="chart-card"><p style="color:var(--red)">Failed to load: ' + e.message + '</p></div>';
+  }
+}
+
+function renderBarChart(series, accessor, mode, emptyMsg) {
+  if (!series || !series.length) return '<p class="muted">' + (emptyMsg || 'No data') + '</p>';
+  const vals = series.map(accessor);
+  const max = Math.max(...vals, 1);
+  const bars = series.map((d, i) => {
+    const h = Math.max(2, Math.round(vals[i] / max * 100));
+    const title = d.date + '\\n' + vals[i] + (mode === 'cost' ? ' cents' : '');
+    return '<div class="bar" data-mode="' + mode + '" style="height:' + h + '%" title="' + title + '"></div>';
+  }).join('');
+  const first = series[0].date.slice(5);
+  const last = series[series.length - 1].date.slice(5);
+  return '<div class="bar-chart">' + bars + '</div>' +
+         '<div class="bar-labels"><span>' + first + '</span><span>' + last + '</span></div>';
+}
+
+function renderPctBars(map, order) {
+  const total = Object.values(map).reduce((a, b) => a + b, 0) || 1;
+  const keys = order ? order.filter(k => map[k]) : Object.keys(map).sort((a,b) => map[b] - map[a]);
+  return keys.map(k => {
+    const v = map[k] || 0;
+    const pct = Math.round(v / total * 100);
+    const cls = 'c-' + k.replace(/[^a-z]/gi, '').toLowerCase();
+    return '<div class="pct-bar">' +
+      '<div class="pct-bar-row"><span class="lbl">' + esc(k) + '</span><span class="val">' + v + ' (' + pct + '%)</span></div>' +
+      '<div class="pct-bar-track"><div class="pct-bar-fill ' + cls + '" style="width:' + pct + '%"></div></div>' +
+      '</div>';
+  }).join('');
+}
+
+function renderAnalytics(a) {
+  const html = `
+    <div class="chart-card">
+      <h3>Signups per day <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">New user registrations.</p>
+      ${renderBarChart(a.signupSeries, d => d.count, 'signups', 'No signups in window')}
+    </div>
+
+    <div class="chart-card">
+      <h3>Sessions per day <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">${a.totals.sessions} total sessions, ${fmtCost(a.totals.costCents)} spend.</p>
+      ${renderBarChart(a.sessionSeries, d => d.count, 'sessions', 'No sessions in window')}
+    </div>
+
+    <div class="chart-card">
+      <h3>Daily spend <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">Total cost (LLM + TTS) per day.</p>
+      ${renderBarChart(a.sessionSeries, d => d.costCents, 'cost', 'No cost data in window')}
+    </div>
+
+    <div class="chart-card">
+      <h3>Active users <span class="hdr-sub">rolling</span></h3>
+      <p class="desc">Unique users who had a session in the window.</p>
+      <div class="metric-row">
+        <div class="m"><div class="n">${a.dau}</div><div class="l">DAU</div></div>
+        <div class="m"><div class="n c2">${a.wau}</div><div class="l">WAU</div></div>
+        <div class="m"><div class="n c3">${a.mau}</div><div class="l">MAU</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Return rate <span class="hdr-sub">cohort → returned</span></h3>
+      <p class="desc">% of cohort who came back within the window.</p>
+      <div class="metric-row">
+        <div class="m"><div class="n">${a.returnRate1d.rate}%</div><div class="l">1-day (${a.returnRate1d.returned}/${a.returnRate1d.cohort})</div></div>
+        <div class="m"><div class="n c2">${a.returnRate7d.rate}%</div><div class="l">7-day (${a.returnRate7d.returned}/${a.returnRate7d.cohort})</div></div>
+        <div class="m"><div class="n c3">${a.returnRate30d.rate}%</div><div class="l">30-day (${a.returnRate30d.returned}/${a.returnRate30d.cohort})</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Session averages <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <div class="metric-row">
+        <div class="m"><div class="n">${a.avgTurnsPerSession}</div><div class="l">Turns/session</div></div>
+        <div class="m"><div class="n c2">${fmtCost(a.avgCostPerSessionCents)}</div><div class="l">Cost/session</div></div>
+        <div class="m"><div class="n c3">${fmtCost(a.avgCostPerTurnCents)}</div><div class="l">Cost/turn</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Mode split <span class="hdr-sub">voice vs text</span></h3>
+      <p class="desc">Which experience students choose.</p>
+      ${renderPctBars(a.modeSplit, ['voice', 'text'])}
+    </div>
+
+    <div class="chart-card">
+      <h3>Session status <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">Lifecycle of sessions in window.</p>
+      ${renderPctBars(a.statusBreakdown, ['active', 'ended', 'paused', 'completed'])}
+    </div>
+
+    <div class="chart-card" style="grid-column: span 2">
+      <h3>Top topics <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">What students are asking about most.</p>
+      <ul class="topic-list">
+        ${(a.topTopics || []).map(t => '<li><span class="tn">' + esc(t.topic) + '</span><span class="tc">' + t.count + '</span></li>').join('')
+          || '<li class="muted">No topics in window</li>'}
+      </ul>
+    </div>
+  `;
+  document.getElementById('analyticsGrid').innerHTML = html;
+}
+
+// ── Feedback ──
+let feedbackLoaded = false;
+async function loadFeedback() {
+  if (feedbackLoaded) return;
+  feedbackLoaded = true;
+  try {
+    const r = await fetch(API + '/api/feedback');
+    const f = await r.json();
+    renderFeedback(f);
+  } catch (e) {
+    document.getElementById('feedbackGrid').innerHTML =
+      '<div class="chart-card"><p style="color:var(--red)">Failed to load: ' + e.message + '</p></div>';
+  }
+}
+
+function renderFeedback(f) {
+  const max = Math.max(...Object.values(f.histogram || {}), 1);
+  const bars = [];
+  for (let i = 1; i <= 10; i++) {
+    const v = f.histogram[String(i)] || 0;
+    const h = Math.max(2, Math.round(v / max * 100));
+    const cls = i <= 6 ? 'detractor' : (i <= 8 ? 'passive' : 'promoter');
+    bars.push('<div class="nb ' + cls + '" style="height:' + h + '%" title="' + i + ': ' + v + ' responses"></div>');
+  }
+  let labels = '';
+  for (let i = 1; i <= 10; i++) labels += '<div>' + i + '</div>';
+
+  const comments = (f.comments || []).map(c => {
+    const r = c.rating;
+    const rCls = r == null ? '' : (r <= 6 ? 'd' : (r <= 8 ? 'p' : 'm'));
+    const rLbl = r == null ? '' : '<span class="fb-rating ' + rCls + '">' + r + '</span>';
+    return '<div class="fb-comment">' +
+      '<div class="fb-meta"><span>' + esc(c.email || 'anonymous') + ' · ' + (c.createdAt ? fmtDate(c.createdAt) : '') + '</span>' + rLbl + '</div>' +
+      '<div>' + esc(c.comment) + '</div></div>';
+  }).join('') || '<p class="muted">No qualitative feedback yet.</p>';
+
+  document.getElementById('feedbackGrid').innerHTML = `
+    <div class="chart-card">
+      <h3>NPS <span class="hdr-sub">${f.totalResponses} responses</span></h3>
+      <p class="desc">Promoters (9-10) minus Detractors (0-6).</p>
+      <div class="metric-row">
+        <div class="m"><div class="n">${f.npsScore}</div><div class="l">NPS</div></div>
+        <div class="m"><div class="n c2">${f.avgRating}</div><div class="l">Avg rating</div></div>
+        <div class="m"><div class="n c3">${f.totalResponses}</div><div class="l">Total</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Rating distribution <span class="hdr-sub">1 → 10</span></h3>
+      <p class="desc">Red = detractors, orange = passives, green = promoters.</p>
+      <div class="nps-hist">${bars.join('')}</div>
+      <div class="nps-labels">${labels}</div>
+    </div>
+
+    <div class="chart-card" style="grid-column: span 2">
+      <h3>Latest comments <span class="hdr-sub">up to 50</span></h3>
+      <div style="max-height: 500px; overflow-y: auto">${comments}</div>
+    </div>
+  `;
+}
+
+function renderPerTurnCosts(detail) {
+  const rows = (detail.perTurnCosts || []);
+  if (!rows.length) return '';
+  let html = '<div style="margin-top:14px;padding-top:12px;border-top:1px solid var(--border)">' +
+    '<h4 style="font-size:12px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px">Per-turn cost</h4>' +
+    '<table class="turn-cost-table">' +
+    '<thead><tr><th>Turn</th><th>Calls</th><th>Input</th><th>Output</th><th>LLM</th><th>TTS</th><th>Total</th></tr></thead><tbody>';
+  for (const t of rows) {
+    const total = (t.llmCents || 0) + (t.ttsCents || 0);
+    const models = t.models || {};
+    const modelBits = Object.entries(models)
+      .map(([m, v]) => m.replace('anthropic/', '').replace('openai/', '') + ': ' + fmtCost(v.cents) + '×' + v.calls)
+      .join(' · ');
+    html += '<tr>' +
+      '<td><strong>#' + t.turn + '</strong>' + (modelBits ? '<br><span class="mdl">' + esc(modelBits) + '</span>' : '') + '</td>' +
+      '<td>' + (t.calls || 0) + '</td>' +
+      '<td>' + (t.inputTokens || 0).toLocaleString() + '</td>' +
+      '<td>' + (t.outputTokens || 0).toLocaleString() + '</td>' +
+      '<td>' + fmtCost(t.llmCents) + '</td>' +
+      '<td>' + fmtCost(t.ttsCents) + '</td>' +
+      '<td class="cost">' + fmtCost(total) + '</td>' +
+      '</tr>';
+  }
+  const grand = (detail.llmCents || 0) + (detail.ttsCents || 0);
+  html += '<tr style="background:var(--surface2)"><td><strong>Total</strong></td>' +
+    '<td>' + (detail.llmCalls || 0) + '</td>' +
+    '<td>' + (detail.inputTokens || 0).toLocaleString() + '</td>' +
+    '<td>' + (detail.outputTokens || 0).toLocaleString() + '</td>' +
+    '<td>' + fmtCost(detail.llmCents) + '</td>' +
+    '<td>' + fmtCost(detail.ttsCents) + '</td>' +
+    '<td class="cost">' + fmtCost(grand) + '</td></tr>';
+  html += '</tbody></table></div>';
+  return html;
 }
 
 async function viewTranscript(idx) {
   const s = sessionsData[idx];
   if (!s || !s._id) return;
   const title = (s.user || '?') + ' \\u2014 ' + (s.title || 'Session');
-  const subtitle = 'Active: ' + fmtDur(s.activeSec) + ' | Span: ' + fmtDur(s.spanSec) + ' | ' + s.turns + ' turns';
+  const costStr = (s.costCents && s.costCents > 0)
+    ? ' | ' + fmtCost(s.costCents) + ' (' + fmtCost(s.llmCents) + ' LLM, ' + fmtCost(s.ttsCents) + ' TTS)'
+    : '';
+  const subtitle = 'Active: ' + fmtDur(s.activeSec) + ' | Span: ' + fmtDur(s.spanSec) + ' | ' + s.turns + ' turns' + costStr;
   document.getElementById('modalTitle').innerHTML = esc(title) + '<br><span class="muted sm">' + subtitle + '</span>';
   document.getElementById('modalBody').innerHTML = '<p class="muted">Loading transcript...</p>';
   document.getElementById('modal').classList.add('show');
   try {
-    const resp = await fetch(API + '/api/transcript/' + s._id);
-    const data = await resp.json();
+    // Load transcript + detail in parallel
+    const [transResp, detailResp] = await Promise.all([
+      fetch(API + '/api/transcript/' + s._id),
+      fetch(API + '/api/session-detail/' + s._id),
+    ]);
+    const data = await transResp.json();
+    const detail = await detailResp.json();
     const turns = data.transcript || [];
     if (!turns.length) {
       document.getElementById('modalBody').innerHTML = '<p class="muted">No transcript data.</p>';
@@ -802,6 +1476,8 @@ async function viewTranscript(idx) {
         '<div class="role ' + t.role + '">' + esc(t.role) + (tsLabel ? ' <span class="ts">' + tsLabel + '</span>' : '') + '</div>' +
         '<div class="msg ' + (t.role === 'user' ? 'u' : 'a') + '">' + esc(t.content) + '</div></div>';
     }
+    // Append per-turn cost breakdown below the transcript
+    html += renderPerTurnCosts(detail || {});
     document.getElementById('modalBody').innerHTML = html;
   } catch (e) {
     document.getElementById('modalBody').innerHTML = '<p style="color:var(--red)">Failed to load transcript.</p>';

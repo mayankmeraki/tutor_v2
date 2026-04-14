@@ -56,6 +56,26 @@ MAX_RETRIES = 3
 RETRY_BASE_DELAY = 2.0  # seconds, doubles each retry
 
 
+def _cost_update_event(session) -> dict:
+    """Build the canonical COST_UPDATE payload.
+
+    Includes session totals + the current in-flight turn's breakdown so the
+    client can show per-turn spend alongside the running total.
+    """
+    current = session.current_turn_cost()
+    return {
+        "type": "COST_UPDATE",
+        "costCents": round(session.llm_cost_cents + session.tts_cost_cents, 2),
+        "llmCostCents": round(session.llm_cost_cents, 2),
+        "ttsCostCents": round(session.tts_cost_cents, 2),
+        "callCount": session.llm_call_count,
+        "ttsCharCount": session.tts_char_count,
+        "inputTokens": session.llm_total_input_tokens,
+        "outputTokens": session.llm_total_output_tokens,
+        "currentTurn": current,  # {turn, llmCents, ttsCents, inputTokens, outputTokens, calls, models}
+    }
+
+
 # ── Message validation ────────────────────────────────────────────────────────
 
 def _validate_messages(messages: list[dict]) -> list[dict]:
@@ -1644,14 +1664,7 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
 
                     message = await stream.get_final_message()
                 # Cost tracked by centralized callback — emit SSE update
-                yield _sse({
-                    "type": "COST_UPDATE",
-                    "costCents": round(session.llm_cost_cents + session.tts_cost_cents, 2),
-                    "llmCostCents": round(session.llm_cost_cents, 2),
-                    "ttsCostCents": round(session.tts_cost_cents, 2),
-                    "callCount": session.llm_call_count,
-                    "ttsCharCount": session.tts_char_count,
-                })
+                yield _sse(_cost_update_event(session))
                 break  # Success
             except Exception as e:
                 if is_retryable(e) and attempt < MAX_RETRIES - 1:
@@ -1857,14 +1870,7 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
 
                     message = await stream.get_final_message()
                 # Cost tracked by centralized callback — emit SSE update
-                yield _sse({
-                    "type": "COST_UPDATE",
-                    "costCents": round(session.llm_cost_cents + session.tts_cost_cents, 2),
-                    "llmCostCents": round(session.llm_cost_cents, 2),
-                    "ttsCostCents": round(session.tts_cost_cents, 2),
-                    "callCount": session.llm_call_count,
-                    "ttsCharCount": session.tts_char_count,
-                })
+                yield _sse(_cost_update_event(session))
                 break
             except Exception as e:
                 if is_retryable(e) and attempt < MAX_RETRIES - 1:
@@ -2664,7 +2670,7 @@ async def _generate_for_turn(
                 if text_started and not has_tool_calls:
                     yield _sse({"type": "TEXT_MESSAGE_END"})
 
-                yield _sse({"type": "COST_UPDATE", "costCents": round(session.llm_cost_cents, 2), "callCount": session.llm_call_count})
+                yield _sse(_cost_update_event(session))
 
                 if not has_tool_calls:
                     session.messages.append({"role": "assistant", "content": _serialize_content(message.content)})
