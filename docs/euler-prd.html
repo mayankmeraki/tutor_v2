@@ -1,0 +1,941 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Euler — Product Requirements Document</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap');
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html { font-size: 14px; }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    color: #1a1a2e;
+    line-height: 1.6;
+    background: #fff;
+    max-width: 850px;
+    margin: 0 auto;
+    padding: 60px 50px;
+  }
+
+  /* Cover page */
+  .cover {
+    page-break-after: always;
+    height: 95vh;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+  .cover h1 {
+    font-size: 64px;
+    font-weight: 800;
+    letter-spacing: -2px;
+    background: linear-gradient(135deg, #5ba8ff 0%, #34d399 50%, #fbbf24 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    margin-bottom: 16px;
+  }
+  .cover .tagline {
+    font-size: 22px;
+    color: #4a5568;
+    margin-bottom: 60px;
+    font-weight: 300;
+  }
+  .cover .meta {
+    border-top: 1px solid #e2e8f0;
+    padding-top: 24px;
+    font-size: 13px;
+    color: #718096;
+  }
+  .cover .meta strong { color: #2d3748; }
+  .cover-badge {
+    display: inline-block;
+    background: linear-gradient(135deg, rgba(91,168,255,0.1), rgba(52,211,153,0.1));
+    border: 1px solid rgba(91,168,255,0.2);
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 11px;
+    font-weight: 600;
+    color: #5ba8ff;
+    letter-spacing: 1.5px;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+    width: fit-content;
+  }
+
+  h1.section-title {
+    font-size: 32px;
+    font-weight: 700;
+    color: #1a1a2e;
+    margin: 60px 0 8px;
+    letter-spacing: -0.5px;
+    border-top: 3px solid #5ba8ff;
+    padding-top: 24px;
+  }
+  h1.section-title:first-of-type { margin-top: 0; }
+  .section-num {
+    color: #94a3b8;
+    font-weight: 400;
+    margin-right: 12px;
+  }
+
+  h2 {
+    font-size: 22px;
+    font-weight: 600;
+    color: #2d3748;
+    margin: 36px 0 12px;
+    letter-spacing: -0.3px;
+  }
+  h3 {
+    font-size: 16px;
+    font-weight: 600;
+    color: #4a5568;
+    margin: 24px 0 8px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  p { margin-bottom: 14px; color: #2d3748; font-size: 14.5px; }
+
+  ul, ol { margin: 12px 0 18px 24px; }
+  li { margin-bottom: 8px; color: #2d3748; font-size: 14.5px; }
+  li strong { color: #1a1a2e; }
+
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    margin: 18px 0;
+    font-size: 13px;
+  }
+  th {
+    background: linear-gradient(135deg, #5ba8ff 0%, #34d399 100%);
+    color: white;
+    padding: 12px 14px;
+    text-align: left;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+  }
+  td {
+    padding: 10px 14px;
+    border-bottom: 1px solid #e2e8f0;
+    vertical-align: top;
+  }
+  tr:nth-child(even) td { background: #f7fafc; }
+  td code { background: #edf2f7; padding: 2px 6px; border-radius: 4px; font-size: 12px; font-family: 'JetBrains Mono', monospace; color: #5ba8ff; }
+
+  .pull-quote {
+    border-left: 4px solid #5ba8ff;
+    background: linear-gradient(90deg, rgba(91,168,255,0.05), transparent);
+    padding: 16px 24px;
+    margin: 24px 0;
+    font-size: 16px;
+    font-style: italic;
+    color: #2d3748;
+  }
+
+  .feature-card {
+    background: #f7fafc;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px 24px;
+    margin: 14px 0;
+  }
+  .feature-card h4 {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1a1a2e;
+    margin-bottom: 6px;
+  }
+  .feature-card p { font-size: 13.5px; color: #4a5568; margin: 0; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin: 18px 0; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin: 18px 0; }
+
+  .stat-card {
+    background: linear-gradient(135deg, rgba(91,168,255,0.08), rgba(52,211,153,0.04));
+    border: 1px solid rgba(91,168,255,0.15);
+    border-radius: 10px;
+    padding: 18px;
+    text-align: center;
+  }
+  .stat-num { font-size: 32px; font-weight: 700; color: #5ba8ff; line-height: 1; }
+  .stat-label { font-size: 11px; color: #718096; text-transform: uppercase; letter-spacing: 1px; margin-top: 6px; font-weight: 600; }
+
+  .badge {
+    display: inline-block;
+    padding: 2px 10px;
+    border-radius: 4px;
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    text-transform: uppercase;
+  }
+  .badge-live { background: #d4f4dd; color: #16a34a; }
+  .badge-dev { background: #fef3c7; color: #d97706; }
+  .badge-future { background: #e0e7ff; color: #6366f1; }
+
+  code {
+    font-family: 'JetBrains Mono', monospace;
+    background: #1a202c;
+    color: #34d399;
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 12.5px;
+  }
+  pre {
+    background: #1a202c;
+    color: #e2e8f0;
+    padding: 16px 20px;
+    border-radius: 8px;
+    overflow-x: auto;
+    margin: 14px 0;
+    font-size: 12.5px;
+    line-height: 1.5;
+    font-family: 'JetBrains Mono', monospace;
+  }
+  pre code { background: none; padding: 0; color: inherit; }
+
+  .callout {
+    background: linear-gradient(135deg, rgba(251,191,36,0.08), rgba(251,191,36,0.02));
+    border-left: 4px solid #fbbf24;
+    padding: 14px 20px;
+    margin: 18px 0;
+    border-radius: 0 8px 8px 0;
+  }
+  .callout strong { color: #92400e; }
+
+  .toc { background: #f7fafc; border-radius: 12px; padding: 24px 32px; margin: 24px 0 60px; }
+  .toc h2 { margin-top: 0; color: #5ba8ff; }
+  .toc ol { list-style: none; counter-reset: section; margin-left: 0; }
+  .toc ol li { counter-increment: section; padding: 6px 0; border-bottom: 1px dashed #e2e8f0; font-size: 14px; }
+  .toc ol li::before { content: counter(section, decimal-leading-zero) "  "; color: #94a3b8; font-weight: 600; margin-right: 8px; }
+  .toc ol li:last-child { border-bottom: none; }
+
+  @media print {
+    body { padding: 30px 40px; max-width: none; }
+    h1.section-title { page-break-before: always; margin-top: 30px; }
+    h1.section-title:first-of-type, .cover + h1.section-title { page-break-before: avoid; }
+    .feature-card, table { page-break-inside: avoid; }
+    pre { page-break-inside: avoid; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ─── COVER ─── -->
+<div class="cover">
+  <span class="cover-badge">Product Requirements Document</span>
+  <h1>Euler</h1>
+  <p class="tagline">Not a chatbot. A tutor that draws, speaks, adapts, and assesses — in real time.</p>
+  <div class="meta">
+    <p><strong>Product:</strong> Euler — AI Tutoring Platform</p>
+    <p><strong>Stage:</strong> Beta (Live Production)</p>
+    <p><strong>Document Owner:</strong> Mayank Sharma</p>
+    <p><strong>Last Updated:</strong> April 2026</p>
+    <p><strong>Status:</strong> Internal — Product Team</p>
+  </div>
+</div>
+
+<!-- ─── TABLE OF CONTENTS ─── -->
+<div class="toc">
+  <h2>Contents</h2>
+  <ol>
+    <li>Executive Summary</li>
+    <li>The Problem & Vision</li>
+    <li>What is Euler?</li>
+    <li>Who is it for?</li>
+    <li>Core Capabilities</li>
+    <li>Teaching Modes & Entry Points</li>
+    <li>The Live Board</li>
+    <li>Voice Teaching</li>
+    <li>Animations</li>
+    <li>Adaptive Pedagogy Engine</li>
+    <li>Assessment System</li>
+    <li>Code Execution & Interactive Code</li>
+    <li>How Euler Stays Fast</li>
+    <li>Triage Mode (Calibration)</li>
+    <li>Session Persistence & Student Model</li>
+    <li>Cost Model & Pricing Transparency</li>
+    <li>What Makes Euler Unique</li>
+    <li>Roadmap & In-Development</li>
+    <li>Success Metrics</li>
+  </ol>
+</div>
+
+<!-- ─── 01 EXEC SUMMARY ─── -->
+<h1 class="section-title"><span class="section-num">01</span>Executive Summary</h1>
+
+<p>Euler is an AI tutoring platform that delivers the experience of a 1-on-1 expert tutor at scale. Unlike traditional AI chatbots that respond with text, Euler <strong>draws on a live board, speaks aloud, adapts to each student's level, and assesses understanding</strong> through a multi-modal real-time interface that mirrors a human professor at a chalkboard.</p>
+
+<div class="pull-quote">
+  Bloom's "2-sigma problem" (1984) showed 1-on-1 tutoring produces students 2 standard deviations above classroom learners. Euler is the first AI platform engineered specifically to replicate that effect — not by mimicking a chatbot, but by replicating the cognitive scaffolding and visual reasoning of a great human tutor.
+</div>
+
+<div class="grid-3">
+  <div class="stat-card"><div class="stat-num">6</div><div class="stat-label">Teaching Modes</div></div>
+  <div class="stat-card"><div class="stat-num">20+</div><div class="stat-label">Board Components</div></div>
+  <div class="stat-card"><div class="stat-num">7</div><div class="stat-label">Assessment Types</div></div>
+  <div class="stat-card"><div class="stat-num">6</div><div class="stat-label">Subject Profiles</div></div>
+  <div class="stat-card"><div class="stat-num">2D+3D</div><div class="stat-label">Animations</div></div>
+  <div class="stat-card"><div class="stat-num">~$0.30</div><div class="stat-label">Avg Cost per Session</div></div>
+</div>
+
+<!-- ─── 02 PROBLEM ─── -->
+<h1 class="section-title"><span class="section-num">02</span>The Problem & Vision</h1>
+
+<h2>The Problem</h2>
+<p>Today's learning options force a tradeoff between <strong>quality, scale, and cost</strong>:</p>
+
+<table>
+  <tr><th>Option</th><th>Quality</th><th>Scale</th><th>Cost</th><th>Limitation</th></tr>
+  <tr><td>Human Tutor</td><td>Excellent</td><td>Tiny</td><td>$40-150/hr</td><td>Cost &amp; availability</td></tr>
+  <tr><td>Recorded Lectures (Khan, Coursera)</td><td>Good</td><td>Massive</td><td>Low</td><td>Passive, one-way, no adaptation</td></tr>
+  <tr><td>Textbooks</td><td>Variable</td><td>Massive</td><td>Low</td><td>Static, no feedback loop</td></tr>
+  <tr><td>ChatGPT / Claude</td><td>Variable</td><td>Massive</td><td>Low</td><td>Wall of text. No board, no voice, no adaptation, no assessment</td></tr>
+  <tr><td><strong>Euler</strong></td><td><strong>Excellent</strong></td><td><strong>Massive</strong></td><td><strong>~$0.30/session</strong></td><td>The first to break the triangle</td></tr>
+</table>
+
+<h2>The Vision</h2>
+<p>Every student should have access to a tutor that:</p>
+<ul>
+  <li>Knows exactly what they understand and what they don't</li>
+  <li>Adapts pace and depth in real time based on their responses</li>
+  <li>Draws diagrams and animations to make abstract concepts concrete</li>
+  <li>Speaks naturally instead of producing walls of text</li>
+  <li>Asks the right question at the right moment to deepen understanding</li>
+  <li>Remembers them across sessions and builds on prior knowledge</li>
+</ul>
+
+<!-- ─── 03 WHAT IS EULER ─── -->
+<h1 class="section-title"><span class="section-num">03</span>What is Euler?</h1>
+
+<p>Euler is a <strong>real-time, multi-modal AI tutor</strong> that runs in the browser. The student opens a session, asks a topic ("teach me string theory" or "I'm stuck on chain rule"), and within seconds Euler:</p>
+
+<ol>
+  <li><strong>Triages</strong> their current understanding through 2-4 calibration questions</li>
+  <li><strong>Plans</strong> a personalized lesson structure (sections, topics, checkpoints)</li>
+  <li><strong>Teaches</strong> using a live chalkboard with synchronized voice narration</li>
+  <li><strong>Adapts</strong> in real time based on engagement signals and student responses</li>
+  <li><strong>Assesses</strong> understanding through inline questions and code exercises</li>
+  <li><strong>Remembers</strong> what worked, what didn't, and what the student knows for next time</li>
+</ol>
+
+<h2>The Core Experience</h2>
+<p>Imagine a top professor at a chalkboard. They write the equation, point at it as they explain, draw a diagram beside it, ask "what happens if we change this term?", wait for your answer, then update the diagram to show the consequence. <strong>That's the experience Euler delivers</strong>, but personalized to each student and scalable to millions.</p>
+
+<!-- ─── 04 WHO IS IT FOR ─── -->
+<h1 class="section-title"><span class="section-num">04</span>Who is it for?</h1>
+
+<div class="grid-2">
+  <div class="feature-card">
+    <h4>University Students</h4>
+    <p>Studying STEM subjects (math, physics, CS, biology, chemistry). Need tutoring for exams, homework help, deeper understanding. Currently using textbooks + YouTube + maybe a TA.</p>
+  </div>
+  <div class="feature-card">
+    <h4>High School Students (AP/IB)</h4>
+    <p>Preparing for advanced placement exams. Need targeted concept reinforcement and practice. Parents currently pay $40-100/hr for tutors.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Self-Directed Learners</h4>
+    <p>Adults learning new technical fields (ML, programming, data science). Want depth beyond Coursera but can't afford 1-on-1 tutoring.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Interview Candidates</h4>
+    <p>Software engineers preparing for technical interviews. Need DSA practice with visual algorithm tracing, code execution, and adaptive difficulty.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Professionals Upskilling</h4>
+    <p>Engineers, scientists learning adjacent topics. Need efficient, high-bandwidth concept transfer without sitting through hours of lectures.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Educational Institutions</h4>
+    <p>Universities and schools licensing the platform for course-aligned tutoring (B2B). Enrich existing curricula with on-demand 1:1 support.</p>
+  </div>
+</div>
+
+<!-- ─── 05 CORE CAPABILITIES ─── -->
+<h1 class="section-title"><span class="section-num">05</span>Core Capabilities</h1>
+
+<div class="grid-2">
+  <div class="feature-card">
+    <h4>🎨 Live Board Drawing</h4>
+    <p>20+ visual primitives — equations, diagrams, code, 3D scenes, comparisons, flows. Tutor draws as it speaks, like a professor at a chalkboard.</p>
+  </div>
+  <div class="feature-card">
+    <h4>🗣️ Voice-First Teaching</h4>
+    <p>Natural spoken narration streams in sync with board updates. Student listens (low cognitive load) instead of reading walls of text.</p>
+  </div>
+  <div class="feature-card">
+    <h4>🧠 Adaptive Depth</h4>
+    <p>Tracks every concept against Bloom's Taxonomy (Remember → Create). Always teaches one level above where student currently is.</p>
+  </div>
+  <div class="feature-card">
+    <h4>🎬 Production-Quality Animations</h4>
+    <p>2D diagrams and 3D scenes for molecules, fields, surfaces. Animation builds piece-by-piece as tutor narrates, so students see the idea form.</p>
+  </div>
+  <div class="feature-card">
+    <h4>💻 Runnable Code</h4>
+    <p>Python runs directly in the browser with no server round-trip. Student edits, tutor runs tests, predicts output, debugs together.</p>
+  </div>
+  <div class="feature-card">
+    <h4>📊 Inline Assessments</h4>
+    <p>7 question formats woven into teaching: MCQ, free-response, fill-blank, spot-error, confidence check, teach-back, canvas derivation.</p>
+  </div>
+  <div class="feature-card">
+    <h4>🎤 Hold-to-Talk</h4>
+    <p>Student speaks naturally back to tutor. Voice is transcribed and routed through the same teaching pipeline.</p>
+  </div>
+  <div class="feature-card">
+    <h4>📚 Persistent Student Model</h4>
+    <p>Every concept's mastery, every misconception, every effective explanation stored. Future sessions build on this profile.</p>
+  </div>
+  <div class="feature-card">
+    <h4>🎥 Video Follow-Along</h4>
+    <p>Watch any YouTube lecture with Euler beside you. Pause anytime, ask questions, tutor knows the transcript context.</p>
+  </div>
+  <div class="feature-card">
+    <h4>📁 BYO Materials</h4>
+    <p>Upload PDFs, lecture notes, homework problems. Tutor teaches from your specific materials, not just generic content.</p>
+  </div>
+</div>
+
+<!-- ─── 06 TEACHING MODES ─── -->
+<h1 class="section-title"><span class="section-num">06</span>Teaching Modes & Entry Points</h1>
+
+<table>
+  <tr><th>Mode</th><th>Entry</th><th>Best For</th></tr>
+  <tr>
+    <td><strong>On-Demand Tutoring</strong></td>
+    <td>Type any topic or question</td>
+    <td>"Teach me eigenvalues" — instant lesson, no setup</td>
+  </tr>
+  <tr>
+    <td><strong>Course-Based</strong></td>
+    <td>Browse course catalog</td>
+    <td>Structured curriculum with module → lesson → section progression</td>
+  </tr>
+  <tr>
+    <td><strong>Video Follow-Along</strong></td>
+    <td>Paste YouTube URL or pick from library</td>
+    <td>Watch 3Blue1Brown, MIT OCW, etc. with tutor as your study buddy</td>
+  </tr>
+  <tr>
+    <td><strong>Exam Prep</strong></td>
+    <td>Specify exam topic + date</td>
+    <td>Time-boxed drills, practice problems, weak-spot targeting</td>
+  </tr>
+  <tr>
+    <td><strong>BYO Materials</strong></td>
+    <td>Upload PDFs, images, video</td>
+    <td>Teach from your textbook chapter, your homework, your lecture notes</td>
+  </tr>
+  <tr>
+    <td><strong>Voice Mode</strong></td>
+    <td>Default for all sessions</td>
+    <td>Conversational interaction — speak or type, hear tutor respond</td>
+  </tr>
+</table>
+
+<!-- ─── 07 LIVE BOARD ─── -->
+<h1 class="section-title"><span class="section-num">07</span>The Live Board</h1>
+
+<p>The board is the heart of Euler — a live chalkboard where the tutor draws everything it explains. Unlike slides (static, pre-made) or chat (linear text dump), the board is <strong>built incrementally beat-by-beat</strong>, with each piece of content synchronized to spoken narration.</p>
+
+<h2>What the Tutor Can Draw</h2>
+
+<h3>Layout Blocks</h3>
+<p>Smart containers the tutor uses to organize thinking on the board:</p>
+<table>
+  <tr><th>Block</th><th>What it shows</th><th>Used For</th></tr>
+  <tr><td><strong>Split view</strong></td><td>Equation or term on the left, meaning on the right</td><td>Formulas paired with intuition, code with comments</td></tr>
+  <tr><td><strong>Process flow</strong></td><td>A chain A → B → C with glowing nodes</td><td>Biology pipelines, algorithms, request lifecycles</td></tr>
+  <tr><td><strong>Diff / compare</strong></td><td>Before and after, or side-by-side options</td><td>Bug fixes, correcting a misconception, A vs B</td></tr>
+  <tr><td><strong>Question block</strong></td><td>A visually distinct prompt the student must answer</td><td>Real assessments woven into teaching</td></tr>
+</table>
+
+<h3>Drawing Vocabulary</h3>
+<p>The tutor picks the right visual for each idea — not a wall of text, and not generic slides. Common visuals include:</p>
+<ul>
+  <li><strong>Headings and titled text</strong> for structure and emphasis</li>
+  <li><strong>Rendered math equations</strong> with optional side-notes explaining each symbol</li>
+  <li><strong>Callout boxes</strong> for takeaways, warnings, and key insights</li>
+  <li><strong>Code snippets</strong> in three flavors: read-only, editable worksheet, or fully-runnable</li>
+  <li><strong>Numbered steps, bullet lists, ✓/✗ markers</strong> for sequences and checks</li>
+  <li><strong>Animations</strong> — 2D diagrams or 3D scenes that render alongside narration</li>
+  <li><strong>Figures</strong> that pair an animation with a beat-by-beat narration column</li>
+  <li><strong>Flowcharts, state diagrams, sequences</strong> for system-level thinking</li>
+  <li><strong>Arrows between elements</strong> to show how ideas connect</li>
+  <li><strong>Edit, strikeout, or erase</strong> existing elements as the lesson evolves</li>
+</ul>
+
+<div class="callout">
+  <strong>Why this matters:</strong> Each visual has a cognitive purpose. Split views teach via duality (notation ↔ meaning). Diffs teach via contrast. Flows teach via causality. The tutor picks the right tool for the concept — like a great professor knowing when to draw a diagram, write an equation, or show a comparison.
+</div>
+
+<!-- ─── 08 VOICE ─── -->
+<h1 class="section-title"><span class="section-num">08</span>Voice Teaching</h1>
+
+<p>A lesson unfolds in <strong>beats</strong> — short units where a new idea is drawn on the board while being spoken aloud. Speech and visuals are locked together so the student sees the exact thing being explained at the moment it's explained.</p>
+
+<h2>How Voice Teaching Works</h2>
+<ul>
+  <li><strong>Speech complements the board, doesn't narrate it.</strong> The tutor says "Here's the equation" and writes it — it doesn't say "I'm now writing the equation."</li>
+  <li><strong>Every beat has real substance.</strong> No filler or silent beats — each beat advances the lesson.</li>
+  <li><strong>One idea per beat.</strong> Short spoken chunks (~15 words) keep cognitive load low.</li>
+  <li><strong>Attention pointers.</strong> When the tutor says "notice <em>this term</em>," that specific element on the board pulses or gets highlighted, so the student's eye follows.</li>
+  <li><strong>Short scenes, frequent check-ins.</strong> Every 6–8 beats the tutor asks a question, preventing passive watching.</li>
+</ul>
+
+<h2>Cursor and Attention</h2>
+<p>A visible cursor shows where the tutor is "looking" on the board at any moment — writing new content, tapping a specific element for emphasis, or pulsing to highlight something mentioned in speech. This replicates the way a human teacher's hand gestures direct attention during a lecture.</p>
+
+<!-- ─── 09 ANIMATION ─── -->
+<h1 class="section-title"><span class="section-num">09</span>Animations</h1>
+
+<p>Euler generates production-quality animations on the fly — the kind you'd see in a 3Blue1Brown video or a Brilliant.org interactive — but built live during the lesson, tailored to what's being taught in that moment.</p>
+
+<h2>3D Scenes</h2>
+<p>For anything with spatial structure — molecules, orbitals, fields, waves, surfaces, protein structures, crystal lattices, neural network loss landscapes, planetary motion. Students can drag to rotate and scroll to zoom, turning an abstract concept into something they can inspect from any angle.</p>
+
+<h2>2D Diagrams</h2>
+<p>For arrays, trees, graphs, circuits, function plots, sorting algorithms, flowcharts, geometry. Clean, high-contrast visuals with a consistent design language.</p>
+
+<h2>What Makes the Animations Special</h2>
+<ul>
+  <li><strong>Phase reveal.</strong> Animations build piece-by-piece in sync with narration — students see the idea form, not a finished image.</li>
+  <li><strong>Interactive.</strong> Drag to rotate 3D scenes, pause or speed up playback, explore from any angle.</li>
+  <li><strong>Purpose-built.</strong> Each animation is generated for this lesson, this concept — not pulled from a stock library.</li>
+  <li><strong>Design consistency.</strong> Unified color palette, typography, and visual language across every animation so the platform feels coherent.</li>
+</ul>
+
+<!-- ─── 10 PEDAGOGY ─── -->
+<h1 class="section-title"><span class="section-num">10</span>Adaptive Pedagogy Engine</h1>
+
+<p>Euler doesn't follow a script. It reads the student's pulse and adapts in real time.</p>
+
+<h2>Engagement Detection</h2>
+<table>
+  <tr><th>Signal</th><th>Tutor's Response</th></tr>
+  <tr>
+    <td><strong>Engaged</strong> (long answers, follow-up questions, "oh wait...")</td>
+    <td>Match energy. Push deeper. Introduce edge cases.</td>
+  </tr>
+  <tr>
+    <td><strong>Coasting</strong> (correct but short, following without thinking)</td>
+    <td>Draw incomplete diagram → "What goes here?" Force their opinion.</td>
+  </tr>
+  <tr>
+    <td><strong>Disengaging</strong> (one-word: "ok", "sure")</td>
+    <td>Switch to VISUAL: build interactive widget, animation. More text never re-engages.</td>
+  </tr>
+  <tr>
+    <td><strong>Lost</strong> ("I don't know")</td>
+    <td>Build something concrete they can play with. Never just explain more.</td>
+  </tr>
+  <tr>
+    <td><strong>Wrong</strong></td>
+    <td>Build visual that reveals error. Don't correct in text — show why.</td>
+  </tr>
+  <tr>
+    <td><strong>Frustrated</strong> ("just tell me")</td>
+    <td>Acknowledge briefly. Build interactive immediately. Let them choose what's next.</td>
+  </tr>
+</table>
+
+<h2>Bloom's Taxonomy Tracking</h2>
+<p>Every concept is tracked at one of six levels:</p>
+<div class="grid-3">
+  <div class="feature-card"><h4>Remember</h4><p>Recall the definition</p></div>
+  <div class="feature-card"><h4>Understand</h4><p>Explain in own words</p></div>
+  <div class="feature-card"><h4>Apply</h4><p>Use in familiar problems</p></div>
+  <div class="feature-card"><h4>Analyze</h4><p>Adapt to novel setups</p></div>
+  <div class="feature-card"><h4>Evaluate</h4><p>Judge when it breaks</p></div>
+  <div class="feature-card"><h4>Create</h4><p>Design new solutions</p></div>
+</div>
+
+<div class="callout">
+  <strong>Golden Rule:</strong> Always teach <em>one level above</em> where the student currently is. Detect their level by asking one level above — if they handle it, they're at the higher level; if not, drop down.
+</div>
+
+<h2>Subject-Specific Profiles</h2>
+<p>Six deep pedagogical frameworks tuned per discipline:</p>
+<table>
+  <tr><th>Subject</th><th>Approach</th></tr>
+  <tr><td><strong>Mathematics</strong></td><td>Function intuition first, calculus through motion, limits via tables/graphs</td></tr>
+  <tr><td><strong>Physics</strong></td><td>Phenomena first, build mental models, equations come last</td></tr>
+  <tr><td><strong>Chemistry</strong></td><td>Molecular thinking (atoms/bonds/fields), macro observations</td></tr>
+  <tr><td><strong>Computer Science</strong></td><td>Make abstract computation concrete via algorithm tracing</td></tr>
+  <tr><td><strong>Biology</strong></td><td>Process chains (DNA→RNA→protein), system-level thinking</td></tr>
+  <tr><td><strong>Business</strong></td><td>Real-world cases, metrics + decision-making, scenario modeling</td></tr>
+</table>
+
+<!-- ─── 11 ASSESSMENT ─── -->
+<h1 class="section-title"><span class="section-num">11</span>Assessment System</h1>
+
+<p>Assessments are <strong>woven into teaching</strong>, not bolted on as separate quiz modules. Seven formats, mixed for variety:</p>
+
+<table>
+  <tr><th>Format</th><th>Purpose</th><th>Example</th></tr>
+  <tr>
+    <td><strong>MCQ</strong></td>
+    <td>Quick recall, common warm-up</td>
+    <td>"Which of these is NOT conserved?"</td>
+  </tr>
+  <tr>
+    <td><strong>Free Response</strong></td>
+    <td>Open-ended explanation</td>
+    <td>"Explain why entropy increases"</td>
+  </tr>
+  <tr>
+    <td><strong>Fill-in-the-Blank</strong></td>
+    <td>Recall key terms/formulas</td>
+    <td>"E = ___ c²"</td>
+  </tr>
+  <tr>
+    <td><strong>Spot the Error</strong></td>
+    <td>Debugging mindset</td>
+    <td>Show flawed proof, find the mistake</td>
+  </tr>
+  <tr>
+    <td><strong>Confidence Check</strong></td>
+    <td>Metacognitive calibration</td>
+    <td>Rate own understanding before reveal</td>
+  </tr>
+  <tr>
+    <td><strong>Teach-Back</strong></td>
+    <td>Deep comprehension test</td>
+    <td>"Explain this back to me in your words"</td>
+  </tr>
+  <tr>
+    <td><strong>Canvas Derivation</strong></td>
+    <td>Active production</td>
+    <td>Student writes proof on board, tutor gives feedback</td>
+  </tr>
+</table>
+
+<h2>Question Design Principles</h2>
+<ul>
+  <li><strong>Grounded in this course's content</strong> — not generic textbook</li>
+  <li><strong>Distractors are weapons</strong> — each wrong option targets a specific misconception</li>
+  <li><strong>Mix formats</strong> — never repeat the same format twice in a row</li>
+  <li><strong>Anchor every question to the board</strong> — speech is transient, text is referenceable</li>
+  <li><strong>Misconception-targeted</strong> — ask questions where confused concepts collide</li>
+</ul>
+
+<!-- ─── 12 CODE ─── -->
+<h1 class="section-title"><span class="section-num">12</span>Code Execution & Interactive Code</h1>
+
+<p>For programming topics, Euler offers true interactive code execution — Python runs directly in the student's browser with no server round-trip, so it's instant and scales without infrastructure cost.</p>
+
+<h2>Three Code Modes</h2>
+<div class="grid-3">
+  <div class="feature-card">
+    <h4>Read-Only</h4>
+    <p>Static syntax-highlighted code. Used for reference, templates, examples to study.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Editable Worksheet</h4>
+    <p>Student fills in blanks or edits inline. Tutor sees their answer automatically. Used for trace exercises and fill-in practice.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Full Runner</h4>
+    <p>Editor + Run button + test case table. Code executes, pass/fail shown live.</p>
+  </div>
+</div>
+
+<h2>Predict-Verify Pattern</h2>
+<ol>
+  <li>Tutor builds code line-by-line (beats), narrating each piece</li>
+  <li>Tutor predicts the output BEFORE running ("this should print 49")</li>
+  <li>Code runs, actual output appears</li>
+  <li>If they match, move on. If not, debug together in real time.</li>
+</ol>
+
+<h2>Tutor Sees the Student's Code</h2>
+<p>When the student edits or runs code, the tutor automatically sees their current code, which tests passed or failed, and what the failure was — so it can respond to the actual state of the student's work without them needing to copy-paste or re-explain.</p>
+
+<!-- ─── 13 SPEED ─── -->
+<h1 class="section-title"><span class="section-num">13</span>How Euler Stays Fast</h1>
+
+<p>From the student's view there's one seamless tutor. Underneath, the platform quietly runs several specialized capabilities in parallel so the student never waits for the system to "think."</p>
+
+<div class="grid-2">
+  <div class="feature-card">
+    <h4>Teaching</h4>
+    <p>Generates board content, spoken narration, and questions. The primary student-facing experience.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Lesson Planning (background)</h4>
+    <p>As soon as the session starts, a personalized lesson structure is being drawn up in the background — topics, checkpoints, teaching approach — while teaching begins.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Assessment</h4>
+    <p>Generates questions matched to what was just taught, and evaluates the depth of the student's responses.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Content Retrieval</h4>
+    <p>Pulls relevant sections from curriculum, uploaded materials, or prior lectures for context-grounded teaching.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Research</h4>
+    <p>Web and image search for external knowledge, current examples, and supplementary material beyond the curriculum.</p>
+  </div>
+  <div class="feature-card">
+    <h4>Focused Practice</h4>
+    <p>When a drill is needed, a time-boxed practice session is spun up and handed back to the main tutor when done — so practice stays focused.</p>
+  </div>
+</div>
+
+<div class="callout">
+  <strong>Why it matters:</strong> The student never waits. Lesson planning happens while the first board is being drawn. Content retrieval, assessment evaluation, and research all run alongside teaching, not in sequence. The system feels instant because work is distributed — not because any single piece is unusually fast.
+</div>
+
+<!-- ─── 14 TRIAGE ─── -->
+<h1 class="section-title"><span class="section-num">14</span>Triage Mode (Calibration)</h1>
+
+<p>Every session starts with a 2-4 turn diagnostic conversation. <strong>Not a test — a warm chat.</strong></p>
+
+<p>Goal: figure out where the student actually is so the session can be precisely targeted. Five dimensions probed:</p>
+
+<table>
+  <tr><th>Dimension</th><th>Why it matters</th></tr>
+  <tr>
+    <td><strong>Goal Clarity</strong></td>
+    <td>Exam? Curiosity? Stuck? Foundations? — Determines session structure</td>
+  </tr>
+  <tr>
+    <td><strong>Starting Knowledge</strong></td>
+    <td>Ask them to recall/describe — what they say reveals truth (not self-rating)</td>
+  </tr>
+  <tr>
+    <td><strong>Boundary of Mastery</strong></td>
+    <td>"You know calculus basics — derivative of x³? Chain rule for sin(x²)?" — finds exact edge</td>
+  </tr>
+  <tr>
+    <td><strong>Prerequisites</strong></td>
+    <td>"For eigenvalues you need linear algebra — can you multiply 2×2 matrices?"</td>
+  </tr>
+  <tr>
+    <td><strong>Misconceptions</strong></td>
+    <td>"When you hear 'wave function' what picture comes to mind?" — surfaces wrong models</td>
+  </tr>
+</table>
+
+<p>Triage is conversational — each question reacts to the previous answer. Stops when there's enough signal (no fixed quota).</p>
+
+<!-- ─── 15 PERSISTENCE ─── -->
+<h1 class="section-title"><span class="section-num">15</span>Session Persistence & Student Model</h1>
+
+<p>Euler remembers everything across sessions:</p>
+
+<h2>What's Persisted</h2>
+<ul>
+  <li><strong>Full transcript</strong> of every beat and message</li>
+  <li><strong>Lesson plan state</strong> with completed and remaining topics</li>
+  <li><strong>Board snapshots</strong> at every point in the session</li>
+  <li><strong>Assessment scores</strong> and per-concept mastery</li>
+  <li><strong>Full session context</strong> so resumption is seamless</li>
+</ul>
+
+<h2>The Student Model</h2>
+<div class="feature-card">
+  <h4>Per-Concept Mastery</h4>
+  <p>For each concept the student has encountered, Euler records what they know, what they don't, any observed misconceptions, their current Bloom's level, and which teaching approach worked for them.</p>
+</div>
+<div class="feature-card">
+  <h4>Profile Notes</h4>
+  <p>Cross-cutting patterns: how the student learns best (visual, kinesthetic, conceptual), where they tend to get stuck, what's worked before, and how calibrated their confidence is.</p>
+</div>
+<div class="feature-card">
+  <h4>Session Continuity</h4>
+  <p>Resume picks up exactly where you left off. The tutor reads previous context, sees the board state, jumps to the next planned topic, and carries forward everything it learned about the student.</p>
+</div>
+
+<h2>Auto-Generated Study Materials</h2>
+<ul>
+  <li>Flashcards with spaced repetition stats</li>
+  <li>Personalized study plans</li>
+  <li>Revision notes from session content</li>
+  <li>Searchable by concept across all past sessions</li>
+</ul>
+
+<!-- ─── 16 COST ─── -->
+<h1 class="section-title"><span class="section-num">16</span>Cost Model & Pricing Transparency</h1>
+
+<p>Euler tracks every cent of API usage in real time, giving students full transparency into what their session costs.</p>
+
+<h2>Cost Sources</h2>
+<table>
+  <tr><th>Source</th><th>Cost Behaviour</th></tr>
+  <tr>
+    <td>Language model (teaching, planning, assessment)</td>
+    <td>Charged per token — input plus output. Varies with model chosen for quality-vs-cost tradeoff.</td>
+  </tr>
+  <tr>
+    <td>Voice synthesis (TTS)</td>
+    <td>Charged per character spoken. Only applies in voice mode.</td>
+  </tr>
+  <tr>
+    <td>Code execution</td>
+    <td>$0 — runs on the student's own device with no server.</td>
+  </tr>
+  <tr>
+    <td>Content search</td>
+    <td>Negligible per query.</td>
+  </tr>
+</table>
+
+<h2>Typical Session Cost</h2>
+<table>
+  <tr><th>Session Type</th><th>LLM</th><th>Voice</th><th>Total</th></tr>
+  <tr><td>Quick concept (5-10 min)</td><td>~$0.05</td><td>~$0.02</td><td><strong>~$0.07</strong></td></tr>
+  <tr><td>Standard lesson (20-30 min)</td><td>~$0.20</td><td>~$0.10</td><td><strong>~$0.30</strong></td></tr>
+  <tr><td>Deep dive (60+ min)</td><td>~$0.60</td><td>~$0.30</td><td><strong>~$0.90</strong></td></tr>
+</table>
+
+<div class="callout">
+  <strong>Compare:</strong> A 30-minute human tutor session costs $20-50. Euler delivers comparable quality at <strong>~1/100th the cost</strong>, available 24/7, with perfect memory of every prior session.
+</div>
+
+<!-- ─── 17 UNIQUE (was 18) ─── -->
+<h1 class="section-title"><span class="section-num">17</span>What Makes Euler Unique</h1>
+
+<h2>Competitive Moat</h2>
+
+<div class="feature-card">
+  <h4>1. Live Board Drawing</h4>
+  <p>Not slides, not chat — a real chalkboard. The student watches a lesson unfold visually, synchronized with voice. Replicates an MIT professor at the blackboard.</p>
+</div>
+
+<div class="feature-card">
+  <h4>2. Voice-First Teaching</h4>
+  <p>Speech + visual instead of dump of prose. Student LISTENS while watching the board (low cognitive load) instead of reading walls of text.</p>
+</div>
+
+<div class="feature-card">
+  <h4>3. Adaptive Bloom's Tracking</h4>
+  <p>Every concept tracked at Remember/Understand/Apply/Analyze/Evaluate/Create level. Always teaches one level above. Persistent profile prevents re-teaching.</p>
+</div>
+
+<div class="feature-card">
+  <h4>4. Predict-Verify Code Execution</h4>
+  <p>Tutor predicts output BEFORE code runs. Student sees actual output immediately after. Zero latency, high interactivity.</p>
+</div>
+
+<div class="feature-card">
+  <h4>5. Misconception-Targeted Assessments</h4>
+  <p>Distractors designed around observed student misconceptions. Question design grounded in this course's content. Handback to tutor if misconception resurfaces.</p>
+</div>
+
+<div class="feature-card">
+  <h4>6. Always-Ready Responsiveness</h4>
+  <p>Lesson planning, content retrieval, and assessment all run in the background while teaching continues. The student never waits for the system to think.</p>
+</div>
+
+<div class="feature-card">
+  <h4>7. Video Follow-Along with Tutor Awareness</h4>
+  <p>Tutor knows the lecture transcript and context. Pauses when the student has questions. Resumes seamlessly.</p>
+</div>
+
+<div class="feature-card">
+  <h4>8. Persistent Student Memory</h4>
+  <p>Every concept's mastery, every misconception, every effective explanation persists across sessions. Future sessions build on this profile.</p>
+</div>
+
+<div class="feature-card">
+  <h4>9. Production-Quality Animations</h4>
+  <p>3D molecules, fields, surfaces; 2D algorithm visualizations. Animations build beat-by-beat as the tutor narrates. Brilliant.org / 3Blue1Brown level quality.</p>
+</div>
+
+<div class="feature-card">
+  <h4>10. Cost Transparency</h4>
+  <p>Per-session cost tracked in real time. Students see exactly what they're spending. Vastly cheaper than human tutors.</p>
+</div>
+
+<h2>Comparison Matrix</h2>
+<table>
+  <tr><th>Capability</th><th>Euler</th><th>ChatGPT</th><th>Khan Academy</th><th>Human Tutor</th></tr>
+  <tr><td>Real-time voice</td><td>✓</td><td>Voice mode (text-equivalent)</td><td>✗ (recorded)</td><td>✓</td></tr>
+  <tr><td>Live board drawing</td><td>✓</td><td>✗</td><td>Pre-made videos</td><td>✓</td></tr>
+  <tr><td>3D animations</td><td>✓</td><td>✗</td><td>Pre-made</td><td>✗</td></tr>
+  <tr><td>Code execution</td><td>✓ (Python)</td><td>✓ (limited)</td><td>Limited</td><td>External tools</td></tr>
+  <tr><td>Adaptive depth</td><td>✓ (Bloom's)</td><td>Limited</td><td>Track-based</td><td>✓</td></tr>
+  <tr><td>Persistent memory</td><td>✓ (per concept)</td><td>Memory feature</td><td>Progress only</td><td>Their notes</td></tr>
+  <tr><td>Cost per session</td><td>~$0.30</td><td>$20/mo subscription</td><td>$5/mo</td><td>$20-50</td></tr>
+  <tr><td>Available 24/7</td><td>✓</td><td>✓</td><td>✓</td><td>By appointment</td></tr>
+</table>
+
+<!-- ─── 19 ROADMAP ─── -->
+<h1 class="section-title"><span class="section-num">18</span>Roadmap & In-Development</h1>
+
+<h2>Recently Shipped <span class="badge badge-live">LIVE</span></h2>
+<ul>
+  <li>Streaming indicator so students know when Euler is thinking</li>
+  <li>Per-session feedback form (NPS + qualitative)</li>
+  <li>Real-time cost tracking for LLM and voice</li>
+  <li>Full 3D scene support with Pause, Speed, and Drag controls</li>
+  <li>Phase-reveal animations that build in sync with narration</li>
+  <li>Before/after diff component with beat-by-beat build-up</li>
+</ul>
+
+<h2>In Development <span class="badge badge-dev">DEV</span></h2>
+<ul>
+  <li><strong>Live avatar with lip sync</strong> — small video-call-style face in corner during voice mode (audio-reactive)</li>
+  <li><strong>Expanded language support</strong> — JavaScript, SQL, Java, C++ for runnable code</li>
+  <li><strong>Mobile-responsive UI</strong> — current platform is desktop-optimized</li>
+</ul>
+
+<h2>Future Roadmap <span class="badge badge-future">PLANNED</span></h2>
+<ul>
+  <li><strong>Native mobile apps</strong> (iOS/Android)</li>
+  <li><strong>Offline mode</strong> for downloaded sessions</li>
+  <li><strong>Collaborative tutoring</strong> (small group sessions)</li>
+  <li><strong>Parent/teacher dashboards</strong> for K-12 markets</li>
+  <li><strong>Whiteboard imports</strong> (upload student sketches for tutor feedback)</li>
+  <li><strong>Voice cloning</strong> (institutions can have their own professor's voice)</li>
+  <li><strong>Multi-language support</strong> (teaching in Hindi, Mandarin, Spanish, etc.)</li>
+</ul>
+
+<!-- ─── 20 METRICS ─── -->
+<h1 class="section-title"><span class="section-num">19</span>Success Metrics</h1>
+
+<h2>Product Metrics (Beta)</h2>
+<table>
+  <tr><th>Metric</th><th>Target</th><th>How Measured</th></tr>
+  <tr><td>Session Completion Rate</td><td>&gt;75%</td><td>Sessions reaching planned conclusion (not abandoned)</td></tr>
+  <tr><td>Concept Mastery Improvement</td><td>+1 Bloom level/session</td><td>Pre/post assessment delta on covered concepts</td></tr>
+  <tr><td>NPS Score</td><td>&gt;50</td><td>Post-session feedback form (1-10 scale)</td></tr>
+  <tr><td>Animation Render Success</td><td>&gt;95%</td><td>Animations that render correctly (no truncation, no errors)</td></tr>
+  <tr><td>Voice Sync Accuracy</td><td>&gt;98%</td><td>Beats with audio matching board state</td></tr>
+  <tr><td>Avg Session Length</td><td>15-30 min</td><td>Engaged time (excluding idle gaps)</td></tr>
+  <tr><td>Return Rate (7-day)</td><td>&gt;40%</td><td>Students returning within a week</td></tr>
+</table>
+
+<h2>Cost Metrics</h2>
+<table>
+  <tr><th>Metric</th><th>Target</th></tr>
+  <tr><td>Avg cost per session</td><td>&lt;$0.50</td></tr>
+  <tr><td>Cost per minute of tutoring</td><td>&lt;$0.02</td></tr>
+  <tr><td>TTS cost ratio</td><td>~30% of total</td></tr>
+</table>
+
+<h2>Quality Metrics (Pedagogy)</h2>
+<table>
+  <tr><th>Metric</th><th>Definition</th></tr>
+  <tr><td>Adaptation Rate</td><td>% of turns where tutor adjusts approach based on student response</td></tr>
+  <tr><td>Visual Density</td><td>Average board components per session (target: 15-25)</td></tr>
+  <tr><td>Question Quality</td><td>% of questions targeting actual misconceptions vs generic recall</td></tr>
+  <tr><td>Attention Direction</td><td>% of spoken beats that visually highlight a specific element on the board</td></tr>
+</table>
+
+<!-- ─── FOOTER ─── -->
+<div style="margin-top: 80px; padding-top: 24px; border-top: 1px solid #e2e8f0; text-align: center; color: #94a3b8; font-size: 11px;">
+  <p>Euler — Confidential Product Document</p>
+  <p>For internal use only. Do not distribute.</p>
+</div>
+
+</body>
+</html>
