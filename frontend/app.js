@@ -1690,7 +1690,7 @@ function _wsOnMessage(msg) {
       break;
 
     case 'COST_UPDATE':
-      if (typeof updateCostDisplay === 'function') updateCostDisplay(evt);
+      updateCostDisplay(evt);
       break;
 
     case 'DONE':
@@ -7424,7 +7424,22 @@ function updateSessionCost(costCents) {
   if (!costEl) return;
   const dollars = costCents / 100;
   costEl.textContent = dollars < 0.01 ? '<$0.01' : `$${dollars.toFixed(2)}`;
-  costEl.title = `Estimated LLM cost: $${dollars.toFixed(4)} (${costCents.toFixed(1)}¢)`;
+  costEl.title = `Session cost: $${dollars.toFixed(4)} (${costCents.toFixed(1)}¢)`;
+}
+
+// Called on every COST_UPDATE event — shows combined LLM + TTS cost with tooltip breakdown
+function updateCostDisplay(evt) {
+  const costEl = $('#session-cost');
+  if (!costEl) return;
+  const total = evt.costCents || 0;
+  const llm = evt.llmCostCents || 0;
+  const tts = evt.ttsCostCents || 0;
+  const dollars = total / 100;
+  costEl.textContent = dollars < 0.01 ? '<$0.01' : `$${dollars.toFixed(2)}`;
+  costEl.title =
+    `Total: $${dollars.toFixed(4)}\n` +
+    `  LLM: ${llm.toFixed(1)}¢ (${evt.callCount || 0} calls)\n` +
+    `  TTS: ${tts.toFixed(1)}¢ (${evt.ttsCharCount || 0} chars)`;
 }
 
 function updateStats() {

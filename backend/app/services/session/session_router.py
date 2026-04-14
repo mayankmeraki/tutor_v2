@@ -138,6 +138,7 @@ class SessionRouter:
             gen_counter = getattr(self, '_gen_counter', 0) + 1
             self._gen_counter = gen_counter
             turn._slog = slog  # attach so _produce_audio can log TTS outcomes
+            turn._sessionId = session_id  # for TTS cost tracking
             slog.log_event("STUDENT_INPUT", text or "(no text)")
             if context:
                 ctx_summary = ", ".join(c.get("description", "?")[:40] for c in context[:5]) if isinstance(context, list) else str(context)[:100]
@@ -285,10 +286,11 @@ class SessionRouter:
             return
 
         try:
-            audio_bytes = await asyncio.wait_for(
+            result = await asyncio.wait_for(
                 elevenlabs_tts(text),
                 timeout=6.0,
             )
+            audio_bytes, char_count = result if isinstance(result, tuple) else (result, 0)
 
             if turn.cancelled.is_set():
                 return
@@ -296,7 +298,25 @@ class SessionRouter:
             if audio_bytes:
                 turn.put_audio(beat_num, audio_bytes)
                 if hasattr(turn, '_slog'):
-                    turn._slog.log_event("TTS_OK", f"beat #{beat_num} ({len(audio_bytes)} bytes)")
+                    turn._slog.log_event("TTS_OK", f"beat #{beat_num} ({len(audio_bytes)} bytes, {char_count} chars)")
+
+                # Track TTS cost on the session + emit COST_UPDATE
+                if char_count > 0 and hasattr(turn, '_sessionId'):
+                    try:
+                        from app.agents.session import _sessions
+                        sess = _sessions.get(turn._sessionId)
+                        if sess:
+                            cost_added = sess.track_tts_usage(char_count)
+                            turn.put_json({
+                                "type": "COST_UPDATE",
+                                "costCents": round(sess.llm_cost_cents + sess.tts_cost_cents, 2),
+                                "llmCostCents": round(sess.llm_cost_cents, 2),
+                                "ttsCostCents": round(sess.tts_cost_cents, 2),
+                                "callCount": sess.llm_call_count,
+                                "ttsCharCount": sess.tts_char_count,
+                            })
+                    except Exception as e:
+                        log.warning("TTS cost tracking failed: %s", e)
                 del audio_bytes  # Release reference for GC
             else:
                 turn.put_json({"type": "AUDIO_SKIP", "beat": beat_num})

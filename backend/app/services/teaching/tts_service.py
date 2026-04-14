@@ -64,24 +64,26 @@ def voice_clean_text(text: str) -> str:
     return s
 
 
-async def elevenlabs_tts(text: str, voice_id: str | None = None) -> bytes | None:
-    """Call ElevenLabs streaming TTS and return complete MP3 bytes.
+async def elevenlabs_tts(text: str, voice_id: str | None = None) -> tuple[bytes | None, int]:
+    """Call ElevenLabs streaming TTS.
 
-    Returns None if TTS is not configured, text is too short/empty,
-    or the API call fails.
+    Returns (mp3_bytes, char_count). char_count is the actual number of
+    characters sent to the API (after cleaning + truncation) — used for
+    cost tracking. Returns (None, 0) on failure.
     """
     if not settings.ELEVENLABS_API_KEY:
-        return None
+        return None, 0
 
     clean = voice_clean_text(text)
     if not clean or len(clean) < MIN_TEXT_LENGTH:
-        return None
+        return None, 0
 
     # Truncate to stay within ElevenLabs limit
     if len(clean) > MAX_TEXT_LENGTH:
         clean = clean[:MAX_TEXT_LENGTH - 3] + "..."
 
     vid = voice_id or VOICE_ID
+    char_count = len(clean)
 
     try:
         async with httpx.AsyncClient(timeout=TTS_TIMEOUT) as client:
@@ -102,17 +104,22 @@ async def elevenlabs_tts(text: str, voice_id: str | None = None) -> bytes | None
 
             if resp.status_code == 429:
                 log.warning("ElevenLabs rate limited (429)")
-                return None
+                return None, 0
 
             if resp.status_code != 200:
                 log.warning("ElevenLabs error: %d", resp.status_code)
-                return None
+                return None, 0
 
-            return resp.content
+            # Prefer exact count from response header; fallback to our clean text length
+            header_count = resp.headers.get("x-character-count")
+            if header_count and header_count.isdigit():
+                char_count = int(header_count)
+
+            return resp.content, char_count
 
     except httpx.TimeoutException:
         log.warning("ElevenLabs timeout for text: %s...", clean[:50])
-        return None
+        return None, 0
     except Exception as e:
         log.warning("ElevenLabs TTS failed: %s", e)
-        return None
+        return None, 0

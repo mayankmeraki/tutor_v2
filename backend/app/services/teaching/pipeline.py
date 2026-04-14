@@ -1646,8 +1646,11 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                 # Cost tracked by centralized callback — emit SSE update
                 yield _sse({
                     "type": "COST_UPDATE",
-                    "costCents": round(session.llm_cost_cents, 2),
+                    "costCents": round(session.llm_cost_cents + session.tts_cost_cents, 2),
+                    "llmCostCents": round(session.llm_cost_cents, 2),
+                    "ttsCostCents": round(session.tts_cost_cents, 2),
                     "callCount": session.llm_call_count,
+                    "ttsCharCount": session.tts_char_count,
                 })
                 break  # Success
             except Exception as e:
@@ -1856,8 +1859,11 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                 # Cost tracked by centralized callback — emit SSE update
                 yield _sse({
                     "type": "COST_UPDATE",
-                    "costCents": round(session.llm_cost_cents, 2),
+                    "costCents": round(session.llm_cost_cents + session.tts_cost_cents, 2),
+                    "llmCostCents": round(session.llm_cost_cents, 2),
+                    "ttsCostCents": round(session.tts_cost_cents, 2),
                     "callCount": session.llm_call_count,
+                    "ttsCharCount": session.tts_char_count,
                 })
                 break
             except Exception as e:

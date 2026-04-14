@@ -100,6 +100,11 @@ class Session:
     llm_total_output_tokens: int = 0    # Total output tokens across all calls
     llm_call_count: int = 0             # Number of LLM calls made
 
+    # ── TTS cost tracking (ElevenLabs) ──
+    tts_cost_cents: float = 0.0         # Accumulated TTS cost in cents
+    tts_char_count: int = 0             # Total characters sent to TTS
+    tts_call_count: int = 0             # Number of TTS calls made
+
 
     def track_llm_usage(
         self, model: str, input_tokens: int, output_tokens: int,
@@ -113,6 +118,27 @@ class Session:
         self.llm_total_output_tokens += output_tokens
         self.llm_call_count += 1
         return cost
+
+    def track_tts_usage(self, char_count: int, model_id: str = "eleven_turbo_v2_5") -> float:
+        """Accumulate TTS cost. Returns cost in cents for this call.
+
+        ElevenLabs pricing (Scale tier, $0.18/1000 chars standard):
+          - Turbo v2.5: 0.5 credits/char → $0.09/1000 chars → 0.009¢/char
+          - Multilingual v2: 1 credit/char → $0.18/1000 chars → 0.018¢/char
+        We use Turbo v2.5 (MODEL_ID in tts_service.py).
+        """
+        # Turbo v2.5 = 0.5 credits per character at Scale tier price
+        COST_PER_CHAR_CENTS = 0.009 if "turbo" in model_id.lower() else 0.018
+        cost = char_count * COST_PER_CHAR_CENTS
+        self.tts_cost_cents += cost
+        self.tts_char_count += char_count
+        self.tts_call_count += 1
+        return cost
+
+    @property
+    def total_cost_cents(self) -> float:
+        """Combined LLM + TTS cost in cents."""
+        return self.llm_cost_cents + self.tts_cost_cents
 
 
 _sessions: dict[str, Session] = {}
@@ -281,6 +307,9 @@ async def _try_restore_session(session_id: str) -> Session | None:
             llm_total_input_tokens=bs.get("llmTotalInputTokens", 0),
             llm_total_output_tokens=bs.get("llmTotalOutputTokens", 0),
             llm_call_count=bs.get("llmCallCount", 0),
+            tts_cost_cents=bs.get("ttsCostCents", 0.0),
+            tts_char_count=bs.get("ttsCharCount", 0),
+            tts_call_count=bs.get("ttsCallCount", 0),
             conversation_summary=bs.get("conversationSummary"),
             summary_covers_through=bs.get("summaryCoverCount", 0),
             asset_registry=bs.get("assetRegistry", []),
