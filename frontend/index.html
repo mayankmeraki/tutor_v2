@@ -892,93 +892,194 @@
 <script>
 // ── Session Feedback Form ──
 var _fbScore = null;
+var _fbSessionId = '';  // captured at form-open so submit can use it even if state resets
 
 function showFeedbackForm() {
-  var overlay = document.getElementById('session-feedback-overlay');
-  if (!overlay) return;
-  // Check if already shown this session
-  if (sessionStorage.getItem('fb_shown_' + (window._appState?.sessionId || ''))) return;
-  sessionStorage.setItem('fb_shown_' + (window._appState?.sessionId || ''), '1');
+  // Wrapped in try/catch — if anything fails, skip the form and let any pending
+  // navigation (_fbOnClose) proceed so the user is never trapped.
+  try {
+    var overlay = document.getElementById('session-feedback-overlay');
+    if (!overlay) {
+      // No form in DOM — proceed with whatever navigation was queued
+      if (window._fbOnClose) { try { window._fbOnClose(); } catch (e) {} window._fbOnClose = null; }
+      return;
+    }
 
-  // Build NPS buttons
-  var row = document.getElementById('fb-nps-row');
-  row.innerHTML = '';
-  for (var i = 1; i <= 10; i++) {
-    var btn = document.createElement('button');
-    btn.textContent = i;
-    btn.dataset.score = i;
-    btn.style.cssText = 'flex:1;padding:8px 0;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.15s';
-    btn.addEventListener('click', function() {
-      _fbScore = parseInt(this.dataset.score);
-      row.querySelectorAll('button').forEach(function(b) {
-        b.style.background = 'rgba(255,255,255,0.03)';
-        b.style.borderColor = 'rgba(255,255,255,0.08)';
-        b.style.color = 'rgba(255,255,255,0.5)';
+    // Don't double-show — sessionStorage may throw in private mode, fall through if so
+    var sid = '';
+    try { sid = (window._appState && window._appState.sessionId) || ''; } catch (e) {}
+    // Capture now — survives later state resets (e.g. cleanupActiveSession on navigation)
+    _fbSessionId = sid;
+    console.log('[Feedback] showFeedbackForm — captured sessionId:', sid || '(empty)');
+    var key = 'fb_shown_' + sid;
+    try {
+      if (sessionStorage.getItem(key)) return;
+      sessionStorage.setItem(key, '1');
+    } catch (e) { /* storage disabled — keep going, may show again */ }
+
+    // Build NPS buttons
+    var row = document.getElementById('fb-nps-row');
+    if (!row) {
+      // Form is broken — don't try to render, just close and continue
+      if (window._fbOnClose) { try { window._fbOnClose(); } catch (e) {} window._fbOnClose = null; }
+      return;
+    }
+    row.innerHTML = '';
+    for (var i = 1; i <= 10; i++) {
+      var btn = document.createElement('button');
+      btn.textContent = i;
+      btn.dataset.score = i;
+      btn.style.cssText = 'flex:1;padding:8px 0;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.15s';
+      btn.addEventListener('click', function() {
+        try {
+          _fbScore = parseInt(this.dataset.score);
+          row.querySelectorAll('button').forEach(function(b) {
+            b.style.background = 'rgba(255,255,255,0.03)';
+            b.style.borderColor = 'rgba(255,255,255,0.08)';
+            b.style.color = 'rgba(255,255,255,0.5)';
+          });
+          this.style.background = _fbScore >= 7 ? 'rgba(52,211,153,0.15)' : 'rgba(255,107,107,0.15)';
+          this.style.borderColor = _fbScore >= 7 ? 'rgba(52,211,153,0.3)' : 'rgba(255,107,107,0.3)';
+          this.style.color = _fbScore >= 7 ? '#34d399' : '#ff6b6b';
+          // Show reason if low, highlight if high
+          _fbSetDisplay('fb-reason-wrap', _fbScore < 7 ? 'block' : 'none');
+          _fbSetDisplay('fb-highlight-wrap', _fbScore >= 7 ? 'block' : 'none');
+        } catch (e) { console.warn('[Feedback] NPS click handler error:', e); }
       });
-      this.style.background = _fbScore >= 7 ? 'rgba(52,211,153,0.15)' : 'rgba(255,107,107,0.15)';
-      this.style.borderColor = _fbScore >= 7 ? 'rgba(52,211,153,0.3)' : 'rgba(255,107,107,0.3)';
-      this.style.color = _fbScore >= 7 ? '#34d399' : '#ff6b6b';
-      // Show reason if low, highlight if high
-      document.getElementById('fb-reason-wrap').style.display = _fbScore < 7 ? 'block' : 'none';
-      document.getElementById('fb-highlight-wrap').style.display = _fbScore >= 7 ? 'block' : 'none';
-    });
-    row.appendChild(btn);
-  }
+      row.appendChild(btn);
+    }
 
-  overlay.style.display = 'flex';
+    overlay.style.display = 'flex';
+  } catch (e) {
+    console.warn('[Feedback] showFeedbackForm crashed — skipping:', e);
+    // Failsafe: run pending navigation so the user is never stuck
+    if (window._fbOnClose) { try { window._fbOnClose(); } catch (_) {} window._fbOnClose = null; }
+  }
 }
 
 function closeFeedbackForm() {
-  var overlay = document.getElementById('session-feedback-overlay');
-  if (overlay) overlay.style.display = 'none';
-  // If triggered from back button, navigate after closing
-  if (window._fbOnClose) { var fn = window._fbOnClose; window._fbOnClose = null; fn(); }
+  // Hide overlay — defensive against missing element / DOM changes
+  try {
+    var overlay = document.getElementById('session-feedback-overlay');
+    if (overlay) overlay.style.display = 'none';
+  } catch (e) { /* don't block navigation */ }
+  // If triggered from back button, ALWAYS navigate even if the callback throws
+  if (window._fbOnClose) {
+    var fn = window._fbOnClose;
+    window._fbOnClose = null;
+    try { fn(); } catch (e) { console.warn('[Feedback] _fbOnClose threw:', e); }
+  }
+}
+
+// Set display on an element, swallow errors if missing (defensive UI helper)
+function _fbSetDisplay(id, val) {
+  try {
+    var el = document.getElementById(id);
+    if (el) el.style.display = val;
+  } catch (e) { /* never break user flow */ }
+}
+
+function _fbShowThanksAndClose(delayMs) {
+  _fbSetDisplay('fb-submit-btn', 'none');
+  _fbSetDisplay('fb-nps-row', 'none');
+  _fbSetDisplay('fb-reason-wrap', 'none');
+  _fbSetDisplay('fb-highlight-wrap', 'none');
+  _fbSetDisplay('fb-thanks', 'block');
+  setTimeout(closeFeedbackForm, delayMs || 2000);
 }
 
 function submitSessionFeedback() {
-  if (!_fbScore) return;
-  var body = {
-    sessionId: window._appState?.sessionId || '',
-    score: _fbScore,
-    reason: (document.getElementById('fb-reason')?.value || '').trim(),
-    highlight: (document.getElementById('fb-highlight')?.value || '').trim(),
-  };
-  fetch('/api/v1/session-feedback', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  }).catch(function() {});
+  // Wrapped in try/catch — any unexpected error must NOT trap the user on the form.
+  try {
+    console.log('[Feedback] submitSessionFeedback called, score=', _fbScore);
+    if (!_fbScore) { console.warn('[Feedback] No score selected — abort'); return; }
 
-  document.getElementById('fb-submit-btn').style.display = 'none';
-  document.getElementById('fb-nps-row').style.display = 'none';
-  document.getElementById('fb-reason-wrap').style.display = 'none';
-  document.getElementById('fb-highlight-wrap').style.display = 'none';
-  document.getElementById('fb-thanks').style.display = 'block';
-  setTimeout(function() {
-    closeFeedbackForm(); // this also triggers _fbOnClose navigation if set
-  }, 2000);
+    // Prefer the sessionId we captured when the form was OPENED — state may
+    // have been cleared since (navigation, cleanupActiveSession). Fall back
+    // to current state if the captured value is missing.
+    var sid = _fbSessionId || '';
+    if (!sid) {
+      try { sid = (window._appState && window._appState.sessionId) || ''; } catch (e) {}
+    }
+    console.log('[Feedback] sessionId at submit — captured:', _fbSessionId || '(empty)', 'live:',
+      (window._appState && window._appState.sessionId) || '(empty)', 'using:', sid || '(empty)');
+
+    // Refuse to submit orphan feedback (no session) — close gracefully without writing junk to DB
+    if (!sid || sid.length < 5) {
+      console.warn('[Feedback] No active sessionId (length=' + sid.length + ') — NOT submitting. Pick a session that started teaching.');
+      _fbShowThanksAndClose(1500);
+      return;
+    }
+
+    var body = {
+      sessionId: sid,
+      score: _fbScore,
+      reason: (document.getElementById('fb-reason')?.value || '').trim(),
+      highlight: (document.getElementById('fb-highlight')?.value || '').trim(),
+    };
+
+    // Attach JWT so backend records the real userEmail (else falls back to dev@local in dev)
+    var headers = { 'Content-Type': 'application/json' };
+    var hasToken = false;
+    try {
+      var token = localStorage.getItem('mockup_auth_token');
+      if (token) { headers['Authorization'] = 'Bearer ' + token; hasToken = true; }
+    } catch (e) { /* localStorage disabled (private mode, quota) — submit anonymously */ }
+    console.log('[Feedback] POST /api/v1/session-feedback', { sid: sid.slice(0,12), score: _fbScore, hasToken: hasToken });
+
+    // Fire-and-forget — never await, never block the UI
+    try {
+      fetch('/api/v1/session-feedback', {
+        method: 'POST',
+        headers: headers,
+        body: JSON.stringify(body),
+      })
+        .then(function (r) {
+          console.log('[Feedback] response status:', r.status, r.ok ? 'OK' : 'FAILED');
+          if (!r.ok) {
+            return r.text().then(function (t) { console.warn('[Feedback] body:', t); });
+          }
+        })
+        .catch(function (e) { console.warn('[Feedback] network error:', e && e.message); });
+    } catch (e) {
+      console.warn('[Feedback] fetch threw synchronously:', e);
+    }
+
+    _fbShowThanksAndClose(2000);
+  } catch (e) {
+    // Last-resort safety net — close and navigate even on completely unexpected errors
+    console.warn('[Feedback] submitSessionFeedback crashed:', e);
+    try { closeFeedbackForm(); } catch (_) {}
+  }
 }
 
 // Track turns for feedback trigger
 window._fbTurnCount = 0;
 
-// Back button handler — ALWAYS navigates, optionally shows feedback first
+// Back button handler — ALWAYS navigates home, optionally shows feedback first.
+// Wrapped to guarantee navigation even if anything below throws.
 function handleBackButton() {
   function goHome() {
-    if (typeof Router !== 'undefined') Router.navigate('/home');
-    else window.location.href = '/home';
+    try {
+      if (typeof Router !== 'undefined') Router.navigate('/home');
+      else window.location.href = '/home';
+    } catch (e) { window.location.href = '/home'; }
   }
-  // Show feedback if a session is active (has a sessionId) and feedback hasn't been shown
-  var sid = window._appState?.sessionId || '';
-  var fbKey = 'fb_shown_' + sid;
-  var hasSession = sid && sid.length > 5;
-  if (hasSession && typeof showFeedbackForm === 'function' && !sessionStorage.getItem(fbKey)) {
-    window._fbOnClose = goHome;
-    showFeedbackForm();
-    // Safety: navigate after 30s even if user doesn't interact with form
-    setTimeout(goHome, 30000);
-    return;
-  }
+  try {
+    var sid = '';
+    try { sid = (window._appState && window._appState.sessionId) || ''; } catch (e) {}
+    var hasSession = sid && sid.length > 5;
+    var alreadyShown = false;
+    try { alreadyShown = !!sessionStorage.getItem('fb_shown_' + sid); } catch (e) {}
+
+    if (hasSession && !alreadyShown && typeof showFeedbackForm === 'function') {
+      window._fbOnClose = goHome;
+      showFeedbackForm();
+      // Safety: navigate after 30s even if user doesn't interact with form
+      setTimeout(goHome, 30000);
+      return;
+    }
+  } catch (e) { console.warn('[Feedback] handleBackButton crashed:', e); }
   goHome();
 }
 </script>

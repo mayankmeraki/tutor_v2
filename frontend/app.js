@@ -11345,8 +11345,10 @@ async function initSetup() {
   });
 
   $('#btn-back')?.addEventListener('click', () => {
-    // Show feedback form before navigating (if session had any turns)
-    if (window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function') {
+    // Show feedback form before navigating — only if a real session exists with turns
+    const sid = window._appState?.sessionId || '';
+    const hasSession = sid && sid.length > 5;
+    if (hasSession && window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function') {
       window._fbOnClose = () => Router.navigate('/home');
       showFeedbackForm();
       return;
