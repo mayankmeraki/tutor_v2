@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler Avatar — Audio-Reactive Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0e14; color: #e0e0e0; font-family: 'Inter', system-ui, sans-serif; min-height: 100vh; display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+  h2 { font-size: 14px; color: rgba(255,255,255,0.3); margin-bottom: 20px; letter-spacing: 1px; text-transform: uppercase; }
+
+  /* Simulated board background */
+  .board {
+    width: 800px; height: 500px; background: #060e11; border-radius: 16px;
+    border: 1px solid rgba(255,255,255,0.06); position: relative; overflow: hidden;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+  }
+  .board-content {
+    padding: 40px; color: rgba(255,255,255,0.6); font-size: 15px; line-height: 1.8;
+  }
+  .board-content h1 { color: #e8c872; font-size: 28px; margin-bottom: 12px; }
+  .board-content p { margin-bottom: 10px; }
+
+  /* ── Avatar container — bottom-left like a Zoom call ── */
+  .avatar-wrap {
+    position: absolute;
+    bottom: 16px;
+    left: 16px;
+    width: 120px;
+    height: 120px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid rgba(52, 211, 153, 0.3);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 20px rgba(52, 211, 153, 0.08);
+    background: #111827;
+    z-index: 10;
+    transition: border-color 0.3s;
+  }
+  .avatar-wrap.speaking {
+    border-color: rgba(52, 211, 153, 0.7);
+    box-shadow: 0 4px 24px rgba(0,0,0,0.5), 0 0 30px rgba(52, 211, 153, 0.15);
+  }
+
+  /* Name tag */
+  .avatar-name {
+    position: absolute;
+    bottom: -4px;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 9px;
+    font-weight: 600;
+    color: rgba(255,255,255,0.7);
+    background: rgba(0,0,0,0.6);
+    padding: 2px 8px;
+    border-radius: 4px;
+    letter-spacing: 0.5px;
+    white-space: nowrap;
+    z-index: 2;
+  }
+
+  /* SVG avatar fills the circle */
+  .avatar-wrap svg {
+    width: 100%;
+    height: 100%;
+  }
+
+  /* Controls */
+  .controls {
+    margin-top: 20px;
+    display: flex;
+    gap: 10px;
+    align-items: center;
+  }
+  button {
+    background: rgba(52, 211, 153, 0.1);
+    border: 1px solid rgba(52, 211, 153, 0.25);
+    color: #34d399;
+    padding: 10px 20px;
+    border-radius: 8px;
+    font-size: 13px;
+    cursor: pointer;
+    font-family: inherit;
+    transition: all 0.2s;
+  }
+  button:hover { background: rgba(52, 211, 153, 0.2); }
+  .note { font-size: 11px; color: rgba(255,255,255,0.25); margin-top: 12px; max-width: 500px; text-align: center; line-height: 1.6; }
+</style>
+</head>
+<body>
+
+<h2>Euler Avatar — Audio-Reactive Lip Sync Demo</h2>
+
+<div class="board">
+  <div class="board-content">
+    <h1>Wave Interference</h1>
+    <p>When two waves meet, they combine. If they're in phase — peaks align — they amplify each other. That's constructive interference.</p>
+    <p>If they're out of phase — peak meets trough — they cancel. Destructive interference.</p>
+    <p>This is why noise-cancelling headphones work. They generate the exact opposite wave to cancel ambient sound.</p>
+  </div>
+
+  <!-- Avatar in bottom-left corner -->
+  <div class="avatar-wrap" id="avatar-wrap">
+    <svg viewBox="0 0 120 120" id="avatar-svg">
+      <!-- Background gradient -->
+      <defs>
+        <radialGradient id="faceBg" cx="50%" cy="45%" r="50%">
+          <stop offset="0%" stop-color="#2d1f3d"/>
+          <stop offset="100%" stop-color="#1a1028"/>
+        </radialGradient>
+        <radialGradient id="skinGrad" cx="50%" cy="40%" r="50%">
+          <stop offset="0%" stop-color="#c8956c"/>
+          <stop offset="100%" stop-color="#a67850"/>
+        </radialGradient>
+      </defs>
+
+      <!-- Background -->
+      <circle cx="60" cy="60" r="60" fill="url(#faceBg)"/>
+
+      <!-- Shoulders / body hint -->
+      <ellipse cx="60" cy="115" rx="45" ry="25" fill="#1e293b"/>
+
+      <!-- Neck -->
+      <rect x="50" y="85" width="20" height="12" rx="4" fill="url(#skinGrad)"/>
+
+      <!-- Head -->
+      <ellipse cx="60" cy="58" rx="28" ry="32" fill="url(#skinGrad)"/>
+
+      <!-- Hair -->
+      <ellipse cx="60" cy="38" rx="30" ry="20" fill="#1a1a2e"/>
+      <ellipse cx="42" cy="48" rx="8" ry="18" fill="#1a1a2e"/>
+      <ellipse cx="78" cy="48" rx="8" ry="18" fill="#1a1a2e"/>
+
+      <!-- Ears -->
+      <ellipse cx="32" cy="60" rx="5" ry="7" fill="#b8845a"/>
+      <ellipse cx="88" cy="60" rx="5" ry="7" fill="#b8845a"/>
+
+      <!-- Eyes -->
+      <ellipse cx="48" cy="56" rx="5" ry="3.5" fill="#1a1a2e"/>
+      <circle cx="49" cy="55.5" r="1.5" fill="#ffffff" opacity="0.8"/>
+      <ellipse cx="72" cy="56" rx="5" ry="3.5" fill="#1a1a2e"/>
+      <circle cx="73" cy="55.5" r="1.5" fill="#ffffff" opacity="0.8"/>
+
+      <!-- Eyebrows -->
+      <path d="M42 49 Q48 46 54 49" stroke="#1a1a2e" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+      <path d="M66 49 Q72 46 78 49" stroke="#1a1a2e" stroke-width="1.8" fill="none" stroke-linecap="round"/>
+
+      <!-- Nose -->
+      <path d="M58 62 Q60 66 62 62" stroke="#a07048" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+
+      <!-- Mouth — animated via JS -->
+      <ellipse id="mouth" cx="60" cy="73" rx="7" ry="2" fill="#4a2020"/>
+
+      <!-- Glasses (optional — makes it look more tutor-like) -->
+      <circle cx="48" cy="56" r="9" stroke="rgba(255,255,255,0.15)" stroke-width="1.2" fill="none"/>
+      <circle cx="72" cy="56" r="9" stroke="rgba(255,255,255,0.15)" stroke-width="1.2" fill="none"/>
+      <line x1="57" y1="56" x2="63" y2="56" stroke="rgba(255,255,255,0.12)" stroke-width="1"/>
+    </svg>
+    <div class="avatar-name">Euler</div>
+  </div>
+</div>
+
+<div class="controls">
+  <button onclick="speakDemo()">▶ Play TTS Demo</button>
+  <button onclick="speakCustom()">🎤 Use Your Mic</button>
+  <button onclick="stopAll()">■ Stop</button>
+</div>
+<div class="note">
+  The mouth opens/closes based on audio amplitude via Web Audio API AnalyserNode.
+  No ML, no server — runs entirely in the browser. Works with any audio source (TTS, mic, file).
+</div>
+
+<script>
+// ═══════════════════════════════════════════
+//  AUDIO-REACTIVE AVATAR — ~60 lines of code
+// ═══════════════════════════════════════════
+
+const mouth = document.getElementById('mouth');
+const wrap = document.getElementById('avatar-wrap');
+let audioCtx, analyser, animId;
+
+function setupAnalyser(source) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.4;
+  source.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  startMouthAnimation();
+}
+
+function startMouthAnimation() {
+  wrap.classList.add('speaking');
+  const data = new Uint8Array(analyser.frequencyBinCount);
+
+  function tick() {
+    animId = requestAnimationFrame(tick);
+    analyser.getByteFrequencyData(data);
+
+    // Average amplitude of low-mid frequencies (voice range ~100-3000Hz)
+    let sum = 0;
+    const start = 2, end = 40; // bins ~100Hz to ~3kHz at 44.1kHz
+    for (let i = start; i < end; i++) sum += data[i];
+    const avg = sum / (end - start);
+    const norm = Math.min(avg / 128, 1); // 0 to 1
+
+    // Map to mouth shape
+    const minRy = 1.5;   // closed
+    const maxRy = 6;      // wide open
+    const minRx = 6;
+    const maxRx = 9;
+    const ry = minRy + norm * (maxRy - minRy);
+    const rx = minRx + norm * (maxRx - minRx);
+
+    // Add slight jaw movement (cy shifts down when open)
+    const cy = 73 + norm * 2;
+
+    mouth.setAttribute('ry', ry.toFixed(1));
+    mouth.setAttribute('rx', rx.toFixed(1));
+    mouth.setAttribute('cy', cy.toFixed(1));
+
+    // Subtle head bob
+    const svg = document.getElementById('avatar-svg');
+    const bob = Math.sin(Date.now() * 0.003) * 0.5;
+    svg.style.transform = `translateY(${bob}px)`;
+  }
+  tick();
+}
+
+function stopAnimation() {
+  if (animId) cancelAnimationFrame(animId);
+  wrap.classList.remove('speaking');
+  mouth.setAttribute('ry', '1.5');
+  mouth.setAttribute('rx', '6');
+  mouth.setAttribute('cy', '73');
+}
+
+// ── Demo: TTS via browser SpeechSynthesis ──
+let currentUtterance = null;
+function speakDemo() {
+  stopAll();
+  const text = "When two waves meet, they combine. If they're in phase, peaks align, and they amplify each other. That's constructive interference. If they're out of phase, peak meets trough, and they cancel. Destructive interference. This is why noise-cancelling headphones work.";
+
+  // Use Web Audio API oscillator to simulate speech (since SpeechSynthesis doesn't expose audio nodes)
+  // For real TTS audio (ElevenLabs), we'd connect the Audio element to analyser
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+
+  // Create a realistic speech simulation using noise + formants
+  const duration = 12;
+  const bufferSize = audioCtx.sampleRate * duration;
+  const buffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+  const channel = buffer.getChannelData(0);
+
+  // Simulate speech envelope with pauses between words
+  const words = text.split(' ');
+  const wordDur = duration / words.length;
+  for (let w = 0; w < words.length; w++) {
+    const wordStart = Math.floor(w * wordDur * audioCtx.sampleRate);
+    const wordLen = Math.floor((wordDur * 0.7) * audioCtx.sampleRate); // 70% speaking, 30% pause
+    for (let i = 0; i < wordLen; i++) {
+      const t = i / audioCtx.sampleRate;
+      const env = Math.sin(Math.PI * i / wordLen); // smooth envelope per word
+      // Mix of formants to sound speech-like
+      const f1 = Math.sin(2 * Math.PI * 200 * t) * 0.3;
+      const f2 = Math.sin(2 * Math.PI * 800 * t) * 0.2;
+      const f3 = Math.sin(2 * Math.PI * 2400 * t) * 0.1;
+      const noise = (Math.random() - 0.5) * 0.15;
+      channel[wordStart + i] = (f1 + f2 + f3 + noise) * env * 0.5;
+    }
+  }
+
+  const source = audioCtx.createBufferSource();
+  source.buffer = buffer;
+  analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 256;
+  analyser.smoothingTimeConstant = 0.4;
+  source.connect(analyser);
+  analyser.connect(audioCtx.destination);
+  source.start();
+  source.onended = stopAnimation;
+  startMouthAnimation();
+
+  // Also use real SpeechSynthesis for actual voice
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.rate = 1.0;
+  utter.pitch = 0.9;
+  utter.onend = () => {};
+  speechSynthesis.speak(utter);
+  currentUtterance = utter;
+}
+
+// ── Demo: Mic input ──
+let micStream = null;
+function speakCustom() {
+  stopAll();
+  navigator.mediaDevices.getUserMedia({ audio: true }).then(stream => {
+    micStream = stream;
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const source = audioCtx.createMediaStreamSource(stream);
+    analyser = audioCtx.createAnalyser();
+    analyser.fftSize = 256;
+    analyser.smoothingTimeConstant = 0.4;
+    source.connect(analyser);
+    // Don't connect to destination (would create feedback)
+    startMouthAnimation();
+  }).catch(err => alert('Mic access denied: ' + err.message));
+}
+
+// ── Connect real Audio element (for ElevenLabs TTS) ──
+// Usage: connectAudioElement(document.querySelector('audio'))
+function connectAudioElement(audioEl) {
+  if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const source = audioCtx.createMediaElementSource(audioEl);
+  setupAnalyser(source);
+}
+
+function stopAll() {
+  stopAnimation();
+  if (speechSynthesis.speaking) speechSynthesis.cancel();
+  if (micStream) { micStream.getTracks().forEach(t => t.stop()); micStream = null; }
+}
+</script>
+</body>
+</html>

@@ -18017,11 +18017,8 @@ function setVoiceBarState(newState) {
       if (vmSend) vmSend.classList.remove('hidden');
       _hideBoardStreaming();
       _hideBoardDrawingSkeleton();
-      // Count turns for feedback trigger
-      if (typeof window._fbTurnCount === 'number') {
-        window._fbTurnCount++;
-        if (window._fbTurnCount >= 8 && typeof showFeedbackForm === 'function') showFeedbackForm();
-      }
+      // Feedback form is triggered ONLY on back button click — not auto-shown
+      // (idle state fires too often: page load, cancels, errors, transitions)
       break;
 
     case 'thinking':
