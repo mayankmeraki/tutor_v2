@@ -13,8 +13,11 @@ import asyncio
 import json
 import os
 import sys
-from datetime import datetime, timezone
+import time
+import threading
+from datetime import datetime, timedelta as datetime_timedelta, timezone
 from http.server import HTTPServer, BaseHTTPRequestHandler
+from socketserver import ThreadingMixIn
 from urllib.parse import urlparse
 
 import certifi
@@ -67,6 +70,24 @@ def get_client():
 
 def get_db():
     return get_client()["tutor_v2"]
+
+
+# ── TTL cache ───────────────────────────────────────────────────────
+
+_cache: dict[str, tuple[float, object]] = {}
+_cache_lock = threading.Lock()
+CACHE_TTL = 25  # seconds
+
+def cache_get(key: str):
+    with _cache_lock:
+        entry = _cache.get(key)
+        if entry and (time.time() - entry[0]) < CACHE_TTL:
+            return entry[1]
+    return None
+
+def cache_set(key: str, val):
+    with _cache_lock:
+        _cache[key] = (time.time(), val)
 
 
 # ── Interaction time calculation ────────────────────────────────────
@@ -124,6 +145,9 @@ def compute_interaction_time(transcript: list) -> dict:
 # ── API handlers ────────────────────────────────────────────────────
 
 async def fetch_stats():
+    cached = cache_get("stats")
+    if cached:
+        return cached
     db = get_db()
     total_users = await db.users.count_documents({})
     total_sessions = await db.sessions.count_documents({})
@@ -154,12 +178,11 @@ async def fetch_stats():
     cost_month = await _sum_cost({"createdAt": {"$gte": month_start}})
     cost_today = await _sum_cost({"createdAt": {"$gte": today_start}})
 
-    return {
+    result = {
         "totalUsers": total_users,
         "totalSessions": total_sessions,
         "activeSessions": active_sessions,
         "externalSessions": external_sessions,
-        # Cost in cents (frontend converts to $)
         "costAllCents": cost_all["llm"] + cost_all["tts"],
         "costAllLlmCents": cost_all["llm"],
         "costAllTtsCents": cost_all["tts"],
@@ -167,82 +190,74 @@ async def fetch_stats():
         "costTodayCents": cost_today["llm"] + cost_today["tts"],
         "ts": datetime.now(timezone.utc).isoformat(),
     }
+    cache_set("stats", result)
+    return result
 
 
 async def fetch_users():
+    cached = cache_get("users")
+    if cached:
+        return cached
     db = get_db()
-    users = await db.users.find(
+
+    # Run users list + session aggregation in parallel
+    users_fut = db.users.find(
         {}, {"name": 1, "email": 1, "createdAt": 1}
     ).sort("createdAt", -1).to_list(length=500)
 
-    # Fetch all sessions with transcripts + cost for aggregation
-    all_sessions = await db.sessions.find(
-        {},
-        {"userEmail": 1, "metrics": 1, "createdAt": 1,
-         "transcript.timestamp": 1,
-         "backendState.llmCostCents": 1,
-         "backendState.ttsCostCents": 1},
-    ).to_list(length=5000)
+    # Push all per-user aggregation to MongoDB — no transcripts pulled
+    agg_fut = db.sessions.aggregate([
+        {"$group": {
+            "_id": "$userEmail",
+            "sessionCount": {"$sum": 1},
+            "totalTurns": {"$sum": {"$ifNull": ["$metrics.totalTurns", 0]}},
+            "totalStudentResponses": {"$sum": {"$ifNull": ["$metrics.studentResponses", 0]}},
+            "totalDuration": {"$sum": {"$ifNull": ["$durationSec", 0]}},
+            "lastSession": {"$max": "$createdAt"},
+            "totalLlm": {"$sum": {"$ifNull": ["$backendState.llmCostCents", 0]}},
+            "totalTts": {"$sum": {"$ifNull": ["$backendState.ttsCostCents", 0]}},
+        }},
+    ]).to_list(length=1000)
 
-    # Aggregate per user
-    user_stats: dict[str, dict] = {}
-    for s in all_sessions:
-        email = s.get("userEmail", "")
-        if email not in user_stats:
-            user_stats[email] = {
-                "sessionCount": 0, "totalActive": 0, "totalSpan": 0,
-                "totalTurns": 0, "totalStudentResponses": 0, "lastSession": "",
-                "totalCostCents": 0, "totalLlmCents": 0, "totalTtsCents": 0,
-            }
-        st = user_stats[email]
-        st["sessionCount"] += 1
-        metrics = s.get("metrics") or {}
-        st["totalTurns"] += metrics.get("totalTurns", 0)
-        st["totalStudentResponses"] += metrics.get("studentResponses", 0)
-        bs = s.get("backendState") or {}
-        llm_c = bs.get("llmCostCents") or 0
-        tts_c = bs.get("ttsCostCents") or 0
-        st["totalLlmCents"] += llm_c
-        st["totalTtsCents"] += tts_c
-        st["totalCostCents"] += llm_c + tts_c
-        created = str(s.get("createdAt", ""))[:19]
-        if created > st["lastSession"]:
-            st["lastSession"] = created
-
-        timing = compute_interaction_time(s.get("transcript", []))
-        st["totalActive"] += timing["activeSec"]
-        st["totalSpan"] += timing["spanSec"]
+    users, agg = await asyncio.gather(users_fut, agg_fut)
+    session_map = {a["_id"]: a for a in agg}
 
     result = []
     for u in users:
         email = u.get("email", "")
-        st = user_stats.get(email, {})
+        st = session_map.get(email, {})
+        llm_c = st.get("totalLlm", 0) or 0
+        tts_c = st.get("totalTts", 0) or 0
         result.append({
             "name": u.get("name", "?"),
             "email": email,
             "createdAt": str(u.get("createdAt", ""))[:19],
             "sessions": st.get("sessionCount", 0),
-            "totalActive": st.get("totalActive", 0),
-            "totalSpan": st.get("totalSpan", 0),
+            "totalActive": st.get("totalDuration", 0),
+            "totalSpan": st.get("totalDuration", 0),
             "totalTurns": st.get("totalTurns", 0),
             "studentResponses": st.get("totalStudentResponses", 0),
-            "lastSession": st.get("lastSession", ""),
-            "totalCostCents": round(st.get("totalCostCents", 0), 2),
-            "totalLlmCents": round(st.get("totalLlmCents", 0), 2),
-            "totalTtsCents": round(st.get("totalTtsCents", 0), 2),
+            "lastSession": str(st.get("lastSession", ""))[:19],
+            "totalCostCents": round(llm_c + tts_c, 2),
+            "totalLlmCents": round(llm_c, 2),
+            "totalTtsCents": round(tts_c, 2),
         })
+    cache_set("users", result)
     return result
 
 
 async def fetch_sessions():
+    cached = cache_get("sessions")
+    if cached:
+        return cached
     db = get_db()
+    # Lightweight projection — NO transcript, NO big backendState fields
     sessions = await db.sessions.find(
         {},
         {
             "userEmail": 1, "studentName": 1, "title": 1, "headline": 1,
             "createdAt": 1, "durationSec": 1, "metrics": 1, "intent": 1,
             "status": 1, "teachingMode": 1, "courseId": 1,
-            "transcript.timestamp": 1, "transcript.role": 1,
             "backendState.llmCostCents": 1,
             "backendState.ttsCostCents": 1,
             "backendState.llmCallCount": 1,
@@ -257,7 +272,7 @@ async def fetch_sessions():
         metrics = s.get("metrics") or {}
         intent = s.get("intent") or {}
         raw_intent = intent.get("raw", "") if isinstance(intent, dict) else str(intent)
-        timing = compute_interaction_time(s.get("transcript", []))
+        dur = s.get("durationSec") or 0
         bs = s.get("backendState") or {}
         llm_c = bs.get("llmCostCents") or 0
         tts_c = bs.get("ttsCostCents") or 0
@@ -267,11 +282,9 @@ async def fetch_sessions():
             "email": s.get("userEmail", ""),
             "title": s.get("title") or s.get("headline") or "(no title)",
             "createdAt": str(s.get("createdAt", ""))[:19],
-            "durationRaw": s.get("durationSec") or 0,
-            "activeSec": timing["activeSec"],
-            "spanSec": timing["spanSec"],
-            "firstMsg": timing["firstMsg"],
-            "lastMsg": timing["lastMsg"],
+            "durationRaw": dur,
+            "activeSec": dur,
+            "spanSec": dur,
             "turns": metrics.get("totalTurns", 0),
             "studentResponses": metrics.get("studentResponses", 0),
             "status": s.get("status", "?"),
@@ -286,17 +299,15 @@ async def fetch_sessions():
             "outputTokens": bs.get("llmTotalOutputTokens") or 0,
             "ttsChars": bs.get("ttsCharCount") or 0,
         })
+    cache_set("sessions", result)
     return result
 
 
 async def fetch_analytics(days: int = 30):
-    """Time-series + aggregates for the Analytics tab.
-
-    Returns buckets for signups/day, sessions/day, DAU/WAU/MAU, mode split,
-    top topics, avg turns, status breakdown, cost/turn distribution.
-
-    Note: createdAt is stored as an ISO string — we compare/bucket lexically.
-    """
+    """Time-series + aggregates for the Analytics tab."""
+    cached = cache_get(f"analytics_{days}")
+    if cached:
+        return cached
     db = get_db()
     now = datetime.now(timezone.utc)
 
@@ -435,7 +446,7 @@ async def fetch_analytics(days: int = 30):
     ret_7d = await _return_rate(_iso(now - td(days=14)), _iso(now - td(days=7)), _iso(now - td(days=7)))
     ret_30d = await _return_rate(_iso(now - td(days=60)), _iso(now - td(days=30)), _iso(now - td(days=30)))
 
-    return {
+    result = {
         "windowDays": days,
         "signupSeries": signup_series,
         "sessionSeries": session_series,
@@ -451,10 +462,15 @@ async def fetch_analytics(days: int = 30):
         "returnRate7d": ret_7d,
         "returnRate30d": ret_30d,
     }
+    cache_set(f"analytics_{days}", result)
+    return result
 
 
 async def fetch_feedback():
     """NPS + qualitative feedback from session_feedback collection."""
+    cached = cache_get("feedback")
+    if cached:
+        return cached
     db = get_db()
     docs = await db.session_feedback.find({}).sort("createdAt", -1).to_list(length=500)
 
@@ -494,21 +510,22 @@ async def fetch_feedback():
     else:
         nps = 0
 
-    return {
+    result = {
         "totalResponses": len(ratings),
         "avgRating": round(avg_rating, 2),
         "npsScore": round(nps, 1),
         "histogram": histogram,
         "comments": comments[:50],
     }
-
-
-# Helper: avoid importing timedelta at module level for clarity
-from datetime import timedelta as datetime_timedelta
+    cache_set("feedback", result)
+    return result
 
 
 async def fetch_session_detail(session_id: str):
     """Per-session details with perTurnCosts and model breakdown."""
+    cached = cache_get(f"detail_{session_id}")
+    if cached:
+        return cached
     from bson import ObjectId
     db = get_db()
     s = None
@@ -529,7 +546,7 @@ async def fetch_session_detail(session_id: str):
     if not s:
         return {"error": "not found"}
     bs = s.get("backendState") or {}
-    return {
+    result = {
         "title": s.get("title", ""),
         "user": s.get("studentName", ""),
         "email": s.get("userEmail", ""),
@@ -542,9 +559,14 @@ async def fetch_session_detail(session_id: str):
         "ttsChars": bs.get("ttsCharCount") or 0,
         "perTurnCosts": bs.get("perTurnCosts") or [],
     }
+    cache_set(f"detail_{session_id}", result)
+    return result
 
 
 async def fetch_transcript(session_id: str):
+    cached = cache_get(f"transcript_{session_id}")
+    if cached:
+        return cached
     from bson import ObjectId
     db = get_db()
     s = None
@@ -576,7 +598,9 @@ async def fetch_transcript(session_id: str):
             if content.startswith("[SYSTEM]"):
                 continue
             cleaned.append({"role": role, "content": content[:2000], "ts": str(ts)[:19] if ts else ""})
-    return {"transcript": cleaned}
+    result = {"transcript": cleaned}
+    cache_set(f"transcript_{session_id}", result)
+    return result
 
 
 # ── Replay data ─────────────────────────────────────────────────────
@@ -609,13 +633,17 @@ def _parse_scene_title(text: str) -> str:
 
 
 async def fetch_replay(session_id: str):
+    cached = cache_get(f"replay_{session_id}")
+    if cached:
+        return cached
     from bson import ObjectId
     db = get_db()
     s = None
     try:
         s = await db.sessions.find_one(
             {"_id": ObjectId(session_id)},
-            {"transcript": 1, "backendState.messages": 1,
+            {"transcript.timestamp": 1, "transcript.role": 1,
+             "transcript.content": 1, "backendState.messages": 1,
              "studentName": 1, "title": 1, "headline": 1, "intent": 1,
              "createdAt": 1, "metrics": 1},
         )
@@ -706,18 +734,32 @@ async def fetch_replay(session_id: str):
         "totalSteps": len(steps),
         "metrics": s.get("metrics") or {},
     }
-    return {"steps": steps, "meta": meta}
+    result = {"steps": steps, "meta": meta}
+    cache_set(f"replay_{session_id}", result)
+    return result
 
 
 # ── HTTP server ─────────────────────────────────────────────────────
 
-_loop = None
+# Dedicated async event loop running in a background thread
+_bg_loop = asyncio.new_event_loop()
+
+def _start_bg_loop(loop):
+    asyncio.set_event_loop(loop)
+    loop.run_forever()
+
+_bg_thread = threading.Thread(target=_start_bg_loop, args=(_bg_loop,), daemon=True)
+_bg_thread.start()
+
 
 def run_async(coro):
-    global _loop
-    if _loop is None or _loop.is_closed():
-        _loop = asyncio.new_event_loop()
-    return _loop.run_until_complete(coro)
+    """Submit a coroutine to the background event loop and wait for the result (thread-safe)."""
+    future = asyncio.run_coroutine_threadsafe(coro, _bg_loop)
+    return future.result(timeout=60)
+
+
+class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
+    daemon_threads = True
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
@@ -1931,7 +1973,7 @@ if __name__ == "__main__":
     print(f"\n  Euler Admin Dashboard")
     print(f"  http://localhost:{args.port}\n")
 
-    server = HTTPServer(("0.0.0.0", args.port), DashboardHandler)
+    server = ThreadedHTTPServer(("0.0.0.0", args.port), DashboardHandler)
     try:
         server.serve_forever()
     except KeyboardInterrupt:
