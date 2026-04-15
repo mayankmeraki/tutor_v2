@@ -34,6 +34,23 @@ async def create_user(name: str, email: str, password: str) -> dict:
     return doc
 
 
+async def create_user_oauth(name: str, email: str, provider: str, picture: str = "") -> dict:
+    """Create a new user authenticated via OAuth (no password). Returns the inserted doc."""
+    doc = {
+        "name": name.strip() or email.split("@")[0],
+        "email": email.strip().lower(),
+        "role": "student",
+        "createdAt": datetime.now(timezone.utc).isoformat(),
+        "authProvider": provider,        # "google", "github", etc
+        "emailVerified": True,           # OAuth providers verify email for us
+        "picture": picture,
+    }
+    result = await _users().insert_one(doc)
+    doc["_id"] = str(result.inserted_id)
+    log.info("OAuth user created via %s: %s (%s)", provider, doc["email"], doc["name"])
+    return doc
+
+
 async def get_user_by_email(email: str) -> dict | None:
     """Find a user by email (case-insensitive, stored lowercase)."""
     doc = await _users().find_one({"email": email.strip().lower()})

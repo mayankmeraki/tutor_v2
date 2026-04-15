@@ -165,6 +165,8 @@ async def get_config():
     """Return frontend-safe config values. No secrets exposed."""
     return {
         "tts_enabled": bool(settings.ELEVENLABS_API_KEY),
+        # Public OAuth client id — safe to expose; secret stays server-side
+        "googleClientId": settings.GOOGLE_CLIENT_ID_MYPROFESSOR,
     }
 
 

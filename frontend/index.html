@@ -10,6 +10,8 @@
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Lexend:wght@300;400;500;600;700&family=Caveat:wght@400;500;600;700&family=Pangolin&display=swap" rel="stylesheet">
+  <!-- Google Identity Services — used for signup-only via OAuth -->
+  <script src="https://accounts.google.com/gsi/client" async defer></script>
 </head>
 <body>
   <div id="app">
@@ -296,34 +298,25 @@
       </div>
     </div>
 
-    <!-- ═══ LOGIN SCREEN ═══ -->
-    <div id="login-panel" style="display:none">
-      <div class="setup-inner">
-        <div class="auth-tabs">
-          <button class="auth-tab active" data-tab="signin">Sign In</button>
-          <button class="auth-tab" data-tab="signup">Create Account</button>
-        </div>
-        <div id="auth-signin" class="auth-form-section">
-          <p class="setup-subtitle">Log in with your account to start learning.</p>
-          <div class="setup-form">
-            <div class="setup-row"><label for="login-email">Email</label><input type="email" id="login-email" placeholder="you@example.com" autocomplete="email"></div>
-            <div class="setup-row"><label for="login-password">Password</label><input type="password" id="login-password" placeholder="Password" autocomplete="current-password"></div>
-            <div class="setup-status" id="login-status"></div>
-            <button class="btn btn-primary setup-start" id="btn-login">Sign In</button>
-          </div>
-        </div>
-        <div id="auth-signup" class="auth-form-section" style="display:none">
-          <p class="setup-subtitle">Create a new account to get started.</p>
-          <div class="setup-form">
-            <div class="setup-row"><label for="signup-name">Name</label><input type="text" id="signup-name" placeholder="Your name" autocomplete="name"></div>
-            <div class="setup-row"><label for="signup-email">Email</label><input type="email" id="signup-email" placeholder="you@example.com" autocomplete="email"></div>
-            <div class="setup-row"><label for="signup-password">Password</label><input type="password" id="signup-password" placeholder="At least 6 characters" autocomplete="new-password"></div>
-            <div class="setup-status" id="signup-status"></div>
-            <button class="btn btn-primary setup-start" id="btn-signup">Create Account</button>
+    <!-- ═══ LOGIN MODAL — overlay shown on top of landing ═══ -->
+    <div id="login-modal-overlay" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(0,0,0,0.7);backdrop-filter:blur(6px);align-items:center;justify-content:center" onclick="if(event.target===this)closeLoginModal()">
+      <div id="login-modal" style="background:#0d1117;border:1px solid rgba(255,255,255,0.1);border-radius:16px;padding:32px 36px;width:92%;max-width:420px;color:#e0e0e0;font-family:'Inter',system-ui,sans-serif;position:relative;box-shadow:0 24px 80px rgba(0,0,0,0.5)">
+        <button onclick="closeLoginModal()" aria-label="Close" style="position:absolute;top:12px;right:14px;background:none;border:none;color:rgba(255,255,255,0.4);font-size:22px;cursor:pointer;padding:4px;line-height:1">&times;</button>
+        <div id="auth-signin" class="auth-form-section" style="display:block">
+          <h2 style="font-size:22px;font-weight:600;margin-bottom:6px;text-align:center">Welcome to Euler</h2>
+          <p class="setup-subtitle" style="text-align:center;font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:4px">Sign in with Google to start learning. New here? We'll create your account automatically.</p>
+          <div class="setup-form" style="align-items:center;gap:14px;margin-top:20px;display:flex;flex-direction:column">
+            <div id="g-signup-btn" style="margin-top:8px"></div>
+            <div class="setup-status" id="signup-status" style="font-size:12px"></div>
+            <p style="font-size:11px;color:rgba(255,255,255,0.5);text-align:center;line-height:1.5;margin-top:8px;max-width:300px">
+              We use Google to verify your email — quick, secure, no passwords to remember. We never see your Google password.
+            </p>
           </div>
         </div>
       </div>
     </div>
+    <!-- legacy hidden div kept so any old refs (showLoginPanel) don't crash -->
+    <div id="login-panel" style="display:none"></div>
     <canvas id="dash-bg-canvas"></canvas>
     <div class="dash-bg-mask"></div>
 

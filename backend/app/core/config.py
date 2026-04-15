@@ -38,6 +38,15 @@ class Settings(BaseSettings):
     RESEND_API_KEY: str = Field(default="")
     FEEDBACK_EMAIL: str = Field(default="mayank@seekcapacity.ai")
 
+    # ── Google OAuth — signup-only for myprofessor.live ──
+    # Suffixed with _MYPROFESSOR so multiple apps in the same GCP project can
+    # have their own GOOGLE_* env vars without collision.
+    # Client ID is sent to the browser (public). Secret is server-side only,
+    # currently unused (we use the ID-token flow which doesn't need it),
+    # but kept for future Authorization Code flow (Calendar/Gmail integrations).
+    GOOGLE_CLIENT_ID_MYPROFESSOR: str = Field(default="")
+    GOOGLE_CLIENT_SECRET_MYPROFESSOR: str = Field(default="")
+
     # ── LLM pricing (USD per million tokens) — override via env vars ──
     # Official Anthropic rates as of 2026-04: cache-read = 0.1× input, 5m-cache-write = 1.25× input
     PRICE_OPUS_INPUT: float = Field(default=5.0)
@@ -98,7 +107,7 @@ class Settings(BaseSettings):
 
     # Auth
     MOCKUP_JWT_SECRET: str = Field(default="")
-    MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=43200)  # 30 days
+    MOCKUP_JWT_EXPIRE_MINUTES: int = Field(default=86400)  # 60 days — overridable via env
 
     PORT: int = Field(default=3001)
 

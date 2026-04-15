@@ -58,20 +58,26 @@ const AuthManager = (() => {
   }
 
   async function signup(name, email, password) {
+    // Email/password signup is disabled — keep the function for compatibility
+    // but redirect to Google. (Backend will return 410 if called directly.)
+    throw new Error('Email/password signup is no longer available. Please sign up with Google.');
+  }
+
+  async function googleAuth(credential) {
+    // Send Google's ID token (credential) to backend for verification.
+    // Backend will create the account if new, or log in if existing.
     const apiUrl = $('#api-url')?.value?.trim() || window.location.origin;
-    const res = await fetch(`${apiUrl}/api/v1/auth/signup`, {
+    const res = await fetch(`${apiUrl}/api/v1/auth/google`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, email, password }),
+      body: JSON.stringify({ credential }),
     });
-    if (res.status === 409) throw new Error('An account with this email already exists');
-    if (res.status === 400) {
-      const data = await res.json().catch(() => ({}));
-      throw new Error(data.detail || 'Please fill in all fields');
+    if (res.status === 403) {
+      throw new Error('Your Google email is not verified. Please verify it with Google and try again.');
     }
     if (!res.ok) {
-      const text = await res.text();
-      throw new Error(text.slice(0, 200) || `Signup failed (${res.status})`);
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.detail || `Google sign-in failed (${res.status})`);
     }
     const data = await res.json();
     setAuth(data.token, data.user);
@@ -91,8 +97,9 @@ const AuthManager = (() => {
     }
   }
 
-  return { getToken, getUser, isLoggedIn, setAuth, clearAuth, authHeaders, login, signup, logout, validateSession };
+  return { getToken, getUser, isLoggedIn, setAuth, clearAuth, authHeaders, login, signup, googleAuth, logout, validateSession };
 })();
+window.AuthManager = AuthManager;  // expose for inline scripts (Google callback)
 
 // ═══════════════════════════════════════════════════════════
 // Module 0b: First-time UI Hints
@@ -7972,14 +7979,36 @@ function showScreen(screenName, param) {
 function showLandingPanel() { showScreen('landing'); }
 function showSetupPanel() { showScreen('browse'); }
 
+// Auth is now a modal over the landing page — no separate full screen
 function showLoginPanel() {
-  UIHints.removeAll();
-  _hideAllScreens();
-  if (typeof DashBg !== 'undefined') DashBg.start();
-  document.getElementById('login-panel').style.display = 'flex';
-  document.body.style.overflow = 'hidden';
-  document.body.style.height = '100vh';
+  // Ensure landing is visible underneath, then open modal
+  if (typeof showScreen === 'function') showScreen('landing');
+  openLoginModal();
 }
+
+function openLoginModal() {
+  const overlay = document.getElementById('login-modal-overlay');
+  if (!overlay) return;
+  overlay.style.display = 'flex';
+  document.body.style.overflow = 'hidden';
+  // ESC closes
+  document.addEventListener('keydown', _loginModalEsc);
+}
+
+function closeLoginModal() {
+  const overlay = document.getElementById('login-modal-overlay');
+  if (overlay) overlay.style.display = 'none';
+  document.body.style.overflow = '';
+  document.removeEventListener('keydown', _loginModalEsc);
+}
+
+function _loginModalEsc(e) {
+  if (e.key === 'Escape') closeLoginModal();
+}
+
+// Expose for inline onclick handlers
+window.openLoginModal = openLoginModal;
+window.closeLoginModal = closeLoginModal;
 
 function updateCourseCardSelection() { /* no-op — old dashboard compat */ }
 
@@ -10999,96 +11028,79 @@ function handleAuthExpired() {
 }
 
 function initLoginForm() {
-  const emailInput = $('#login-email');
-  const passwordInput = $('#login-password');
-  const loginBtn = $('#btn-login');
-  const statusEl = $('#login-status');
-
-  // ─── Tab switching ─────────────────────────────────────
-  const tabs = $$('.auth-tab');
-  tabs.forEach(tab => {
-    tab.addEventListener('click', () => {
-      const target = tab.dataset.tab;
-      tabs.forEach(t => t.classList.toggle('active', t === tab));
-      $('#auth-signin').style.display = target === 'signin' ? '' : 'none';
-      $('#auth-signup').style.display = target === 'signup' ? '' : 'none';
-      // Clear status messages on tab switch
-      if (statusEl) { statusEl.textContent = ''; statusEl.className = 'setup-status'; }
-      const signupStatus = $('#signup-status');
-      if (signupStatus) { signupStatus.textContent = ''; signupStatus.className = 'setup-status'; }
-    });
-  });
-
-  // ─── Login handler ─────────────────────────────────────
-  async function doLogin() {
-    const email = emailInput.value.trim();
-    const password = passwordInput.value;
-    if (!email || !password) {
-      statusEl.textContent = 'Please enter email and password.';
-      statusEl.className = 'setup-status error';
-      return;
-    }
-    loginBtn.disabled = true;
-    statusEl.textContent = 'Signing in...';
-    statusEl.className = 'setup-status';
-    try {
-      await AuthManager.login(email, password);
-      statusEl.textContent = '';
-      wsConnect();
-      Router.navigate('/home');
-    } catch (e) {
-      statusEl.textContent = e.message || 'Login failed';
-      statusEl.className = 'setup-status error';
-    } finally {
-      loginBtn.disabled = false;
-    }
-  }
-
-  loginBtn.addEventListener('click', doLogin);
-  passwordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doLogin(); });
-  emailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') passwordInput.focus(); });
-
-  // ─── Signup handler ────────────────────────────────────
-  const signupNameInput = $('#signup-name');
-  const signupEmailInput = $('#signup-email');
-  const signupPasswordInput = $('#signup-password');
-  const signupBtn = $('#btn-signup');
+  // Single-page Google-only auth. The /api/v1/auth/google endpoint does
+  // find-or-create — first-time users are auto-signed-up, returning users
+  // are logged in. No tabs, no email/password form.
   const signupStatus = $('#signup-status');
 
-  async function doSignup() {
-    const name = signupNameInput.value.trim();
-    const email = signupEmailInput.value.trim();
-    const password = signupPasswordInput.value;
-    if (!name || !email || !password) {
-      signupStatus.textContent = 'Please fill in all fields.';
-      signupStatus.className = 'setup-status error';
-      return;
-    }
-    if (password.length < 8) {
-      signupStatus.textContent = 'Password must be at least 8 characters.';
-      signupStatus.className = 'setup-status error';
-      return;
-    }
-    signupBtn.disabled = true;
-    signupStatus.textContent = 'Creating account...';
-    signupStatus.className = 'setup-status';
-    try {
-      await AuthManager.signup(name, email, password);
-      signupStatus.textContent = '';
-      wsConnect();
-      Router.navigate('/home');
-    } catch (e) {
-      signupStatus.textContent = e.message || 'Signup failed';
-      signupStatus.className = 'setup-status error';
-    } finally {
-      signupBtn.disabled = false;
-    }
+  // Wait for the GSI script (loaded async in <head>) before rendering
+  function _waitForGoogle(cb, attempts) {
+    attempts = attempts || 0;
+    if (window.google && window.google.accounts && window.google.accounts.id) return cb();
+    if (attempts > 50) return; // ~5s — give up silently if GSI never loads
+    setTimeout(() => _waitForGoogle(cb, attempts + 1), 100);
   }
 
-  if (signupBtn) signupBtn.addEventListener('click', doSignup);
-  if (signupPasswordInput) signupPasswordInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') doSignup(); });
-  if (signupEmailInput) signupEmailInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') signupPasswordInput.focus(); });
-  if (signupNameInput) signupNameInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') signupEmailInput.focus(); });
+  function _initGoogleSignIn(clientId) {
+    if (!clientId) {
+      if (signupStatus) {
+        signupStatus.textContent = 'Google sign-up is not configured. Contact support.';
+        signupStatus.className = 'setup-status error';
+      }
+      return;
+    }
+    _waitForGoogle(() => {
+      try {
+        google.accounts.id.initialize({
+          client_id: clientId,
+          callback: async (response) => {
+            if (!response || !response.credential) return;
+            try {
+              if (signupStatus) {
+                signupStatus.textContent = 'Verifying with Google...';
+                signupStatus.className = 'setup-status';
+              }
+              await AuthManager.googleAuth(response.credential);
+              if (signupStatus) signupStatus.textContent = '';
+              if (typeof closeLoginModal === 'function') closeLoginModal();
+              wsConnect();
+              Router.navigate('/home');
+            } catch (e) {
+              if (signupStatus) {
+                signupStatus.textContent = e.message || 'Google sign-in failed';
+                signupStatus.className = 'setup-status error';
+              }
+            }
+          },
+          auto_select: false,
+          ux_mode: 'popup',
+        });
+        const target = document.getElementById('g-signup-btn');
+        if (target) {
+          google.accounts.id.renderButton(target, {
+            type: 'standard',
+            theme: 'filled_black',
+            size: 'large',
+            text: 'signin_with',  // "Sign in with Google" — handles both new + returning
+            shape: 'pill',
+            logo_alignment: 'left',
+            width: 280,
+          });
+        }
+      } catch (e) {
+        console.warn('[Google] init failed:', e);
+        if (signupStatus) {
+          signupStatus.textContent = 'Could not initialize Google sign-up. Try again or refresh.';
+          signupStatus.className = 'setup-status error';
+        }
+      }
+    });
+  }
+
+  // Fetch the public client_id from /api/config and init the button
+  fetch('/api/config').then(r => r.ok ? r.json() : null).then(cfg => {
+    _initGoogleSignIn((cfg && cfg.googleClientId) || '');
+  }).catch(() => _initGoogleSignIn(''));
 }
 
 async function initSetup() {
