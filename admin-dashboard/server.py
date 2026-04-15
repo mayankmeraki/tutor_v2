@@ -72,11 +72,28 @@ def get_db():
     return get_client()["tutor_v2"]
 
 
+async def ensure_indexes():
+    """Create indexes used by dashboard queries — idempotent / no-op if exist."""
+    db = get_db()
+    try:
+        # Sessions: filtering by user, time windows, transcript timestamps
+        await db.sessions.create_index("userEmail")
+        await db.sessions.create_index("createdAt")
+        await db.sessions.create_index("transcript.timestamp")
+        await db.sessions.create_index([("userEmail", 1), ("createdAt", -1)])
+        await db.users.create_index("email", unique=True)
+        await db.users.create_index("createdAt")
+        await db.session_feedback.create_index("createdAt")
+        print("  ✓ Indexes ensured")
+    except Exception as e:
+        print(f"  ⚠ Could not ensure indexes: {e}")
+
+
 # ── TTL cache ───────────────────────────────────────────────────────
 
 _cache: dict[str, tuple[float, object]] = {}
 _cache_lock = threading.Lock()
-CACHE_TTL = 25  # seconds
+CACHE_TTL = 60  # seconds — long enough that browse-around sessions stay cached
 
 def cache_get(key: str):
     with _cache_lock:
@@ -106,12 +123,27 @@ def _parse_ts(raw) -> float | None:
         return None
 
 
+    # Gap larger than this → treat as session paused (tab left open, resumed
+    # later). The next message starts a new active period.
+ACTIVE_PERIOD_GAP_SEC = 15 * 60  # 15 minutes
+
+
 def compute_interaction_time(transcript: list) -> dict:
-    """Compute actual interaction time from transcript message timestamps.
+    """Compute true interaction time, ignoring time when student wasn't engaging.
+
+    A session can have messages spanning days if the student left the tab open
+    and came back. Raw "last - first" overcounts. So we detect "active periods"
+    — runs of messages with gaps <= ACTIVE_PERIOD_GAP_SEC — and sum each
+    period's duration (its own last - first). Long gaps are discounted.
+
+    Examples:
+      - Messages all within 30 min → activeTime = 30 min, spanTime = 30 min
+      - 2 bursts of 20 min each, 5h apart → activeTime = 40 min, spanTime = 5h40m
+      - Single message → activeTime = 0 (no duration to measure)
 
     Returns {
-        activeSec: int — sum of gaps between consecutive msgs, each capped at INTERACTION_GAP_CAP_SEC,
-        spanSec: int — wall-clock from first to last message,
+        activeSec: int — sum of active periods (the metric we display),
+        spanSec: int — raw first → last (kept for diagnostics),
         firstMsg: str, lastMsg: str — ISO timestamps,
     }
     """
@@ -127,15 +159,23 @@ def compute_interaction_time(transcript: list) -> dict:
 
     timestamps.sort()
     span = int(timestamps[-1] - timestamps[0])
-    active = 0
+
+    # Walk timestamps, splitting on long gaps into active periods.
+    active_total = 0
+    period_start = timestamps[0]
     for i in range(1, len(timestamps)):
         gap = timestamps[i] - timestamps[i - 1]
-        active += int(min(gap, INTERACTION_GAP_CAP_SEC))
+        if gap > ACTIVE_PERIOD_GAP_SEC:
+            # Close out the previous period, start a new one
+            active_total += timestamps[i - 1] - period_start
+            period_start = timestamps[i]
+    # Add the final period
+    active_total += timestamps[-1] - period_start
 
     first_dt = datetime.fromtimestamp(timestamps[0], tz=timezone.utc)
     last_dt = datetime.fromtimestamp(timestamps[-1], tz=timezone.utc)
     return {
-        "activeSec": active,
+        "activeSec": int(active_total),
         "spanSec": span,
         "firstMsg": first_dt.isoformat()[:19],
         "lastMsg": last_dt.isoformat()[:19],
@@ -195,37 +235,116 @@ async def fetch_stats():
 
 
 async def fetch_users():
+    """Optimized user-aggregation:
+      1. Mongo $group — counts/costs/per-session min/max timestamps (server-side, fast)
+      2. For "outlier" sessions (span > 4h, suggesting tab-open) pull transcript
+         timestamps and refine via active-period split. ~5% of sessions.
+      3. For normal sessions, span ≈ active (continuous interaction).
+    """
     cached = cache_get("users")
     if cached:
         return cached
     db = get_db()
+    OUTLIER_GAP_SEC = 4 * 3600  # 4 hours — sessions with span>this need refinement
 
-    # Run users list + session aggregation in parallel
+    # Single aggregation: counts + costs + min/max timestamp per session, then
+    # group by user. We sum span-from-min/max here and tag outlier sessions for
+    # later refinement.
     users_fut = db.users.find(
         {}, {"name": 1, "email": 1, "createdAt": 1}
     ).sort("createdAt", -1).to_list(length=500)
 
-    # Push all per-user aggregation to MongoDB — no transcripts pulled
-    agg_fut = db.sessions.aggregate([
+    sessions_agg_fut = db.sessions.aggregate([
+        # Compute per-session min/max timestamp (uses indexed transcript.timestamp)
+        {"$addFields": {
+            "_minTs": {"$min": "$transcript.timestamp"},
+            "_maxTs": {"$max": "$transcript.timestamp"},
+        }},
+        {"$addFields": {
+            # Convert ISO strings to milliseconds; null-safe
+            "_spanSec": {
+                "$cond": {
+                    "if": {"$and": [{"$ne": ["$_minTs", None]}, {"$ne": ["$_maxTs", None]}]},
+                    "then": {
+                        "$divide": [
+                            {"$subtract": [
+                                {"$dateFromString": {"dateString": "$_maxTs", "onError": None}},
+                                {"$dateFromString": {"dateString": "$_minTs", "onError": None}},
+                            ]},
+                            1000,
+                        ]
+                    },
+                    "else": 0,
+                }
+            },
+        }},
         {"$group": {
             "_id": "$userEmail",
             "sessionCount": {"$sum": 1},
             "totalTurns": {"$sum": {"$ifNull": ["$metrics.totalTurns", 0]}},
             "totalStudentResponses": {"$sum": {"$ifNull": ["$metrics.studentResponses", 0]}},
-            "totalDuration": {"$sum": {"$ifNull": ["$durationSec", 0]}},
             "lastSession": {"$max": "$createdAt"},
             "totalLlm": {"$sum": {"$ifNull": ["$backendState.llmCostCents", 0]}},
             "totalTts": {"$sum": {"$ifNull": ["$backendState.ttsCostCents", 0]}},
+            "totalSpan": {"$sum": {"$ifNull": ["$_spanSec", 0]}},
+            # Collect outlier session ids per user for refinement
+            "outlierSessionIds": {
+                "$push": {
+                    "$cond": [
+                        {"$gt": ["$_spanSec", OUTLIER_GAP_SEC]},
+                        "$_id",
+                        None,
+                    ]
+                }
+            },
         }},
-    ]).to_list(length=1000)
+    ], allowDiskUse=True).to_list(length=1000)
 
-    users, agg = await asyncio.gather(users_fut, agg_fut)
+    users, agg = await asyncio.gather(users_fut, sessions_agg_fut)
     session_map = {a["_id"]: a for a in agg}
+
+    # ── Refinement pass: only for outlier sessions, pull transcript.timestamp
+    # and recompute active time per session, then adjust each user's totalSpan
+    # down to true totalActive. ~5% of sessions per typical dataset.
+    outlier_ids = []
+    for entry in agg:
+        for sid in entry.get("outlierSessionIds", []):
+            if sid is not None:
+                outlier_ids.append(sid)
+
+    # Map: session_id -> (active_for_this_session, span_for_this_session)
+    refined: dict = {}
+    if outlier_ids:
+        cur = db.sessions.find(
+            {"_id": {"$in": outlier_ids}},
+            {"userEmail": 1, "transcript.timestamp": 1},
+        )
+        async for s in cur:
+            sid = s["_id"]
+            timing = compute_interaction_time(s.get("transcript", []))
+            refined[sid] = (timing["activeSec"], timing["spanSec"])
+
+    # Build per-user totals: start with totalSpan from agg, then subtract span
+    # of outlier sessions and add their active counterpart.
+    timing_per_user: dict[str, dict] = {}
+    for entry in agg:
+        email = entry["_id"]
+        if not email:
+            continue
+        active = entry["totalSpan"]  # start with span (= active for non-outliers)
+        for sid in entry.get("outlierSessionIds", []):
+            if sid is None or sid not in refined:
+                continue
+            ref_active, ref_span = refined[sid]
+            # Replace this session's contribution: active = total - this_span + this_active
+            active = active - ref_span + ref_active
+        timing_per_user[email] = {"active": int(active), "span": int(entry["totalSpan"])}
 
     result = []
     for u in users:
         email = u.get("email", "")
         st = session_map.get(email, {})
+        timing = timing_per_user.get(email, {"active": 0, "span": 0})
         llm_c = st.get("totalLlm", 0) or 0
         tts_c = st.get("totalTts", 0) or 0
         result.append({
@@ -233,8 +352,8 @@ async def fetch_users():
             "email": email,
             "createdAt": str(u.get("createdAt", ""))[:19],
             "sessions": st.get("sessionCount", 0),
-            "totalActive": st.get("totalDuration", 0),
-            "totalSpan": st.get("totalDuration", 0),
+            "totalActive": timing["active"],   # active-period sum (excludes idle)
+            "totalSpan": timing["span"],       # raw last - first per session, summed
             "totalTurns": st.get("totalTurns", 0),
             "studentResponses": st.get("totalStudentResponses", 0),
             "lastSession": str(st.get("lastSession", ""))[:19],
@@ -246,18 +365,49 @@ async def fetch_users():
     return result
 
 
-async def fetch_sessions():
-    cached = cache_get("sessions")
+async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
+    """Paginated sessions list. Default 50/page; supports search filter on
+    userEmail / studentName / title / intent.
+    """
+    cache_key = f"sessions_{limit}_{offset}_{q.lower()}"
+    cached = cache_get(cache_key)
     if cached:
         return cached
     db = get_db()
-    # Lightweight projection — NO transcript, NO big backendState fields
+
+    # Build search filter — server-side, uses indexes when possible
+    match = {}
+    if q:
+        ql = q.strip()
+        if ql:
+            import re
+            # Case-insensitive substring across the relevant fields
+            qre = re.compile(re.escape(ql), re.IGNORECASE)
+            match = {"$or": [
+                {"userEmail": qre},
+                {"studentName": qre},
+                {"title": qre},
+                {"headline": qre},
+                {"intent.raw": qre},
+            ]}
+
+    # Get total count (cached separately so we don't recount each page)
+    count_key = f"sessions_count_{q.lower()}"
+    cached_count = cache_get(count_key)
+    if cached_count is None:
+        total = await db.sessions.count_documents(match)
+        cache_set(count_key, total)
+    else:
+        total = cached_count
+
+    # Pull transcript timestamps (small) so we can compute true active time
     sessions = await db.sessions.find(
-        {},
+        match,
         {
             "userEmail": 1, "studentName": 1, "title": 1, "headline": 1,
             "createdAt": 1, "durationSec": 1, "metrics": 1, "intent": 1,
             "status": 1, "teachingMode": 1, "courseId": 1,
+            "transcript.timestamp": 1,
             "backendState.llmCostCents": 1,
             "backendState.ttsCostCents": 1,
             "backendState.llmCallCount": 1,
@@ -265,7 +415,7 @@ async def fetch_sessions():
             "backendState.llmTotalOutputTokens": 1,
             "backendState.ttsCharCount": 1,
         },
-    ).sort("createdAt", -1).to_list(length=200)
+    ).sort("createdAt", -1).skip(offset).limit(limit).to_list(length=limit)
 
     result = []
     for s in sessions:
@@ -276,6 +426,7 @@ async def fetch_sessions():
         bs = s.get("backendState") or {}
         llm_c = bs.get("llmCostCents") or 0
         tts_c = bs.get("ttsCostCents") or 0
+        timing = compute_interaction_time(s.get("transcript", []))
         result.append({
             "_id": str(s.get("_id", "")),
             "user": s.get("studentName", "?"),
@@ -283,8 +434,10 @@ async def fetch_sessions():
             "title": s.get("title") or s.get("headline") or "(no title)",
             "createdAt": str(s.get("createdAt", ""))[:19],
             "durationRaw": dur,
-            "activeSec": dur,
-            "spanSec": dur,
+            "activeSec": timing["activeSec"],   # active periods (not tab-open)
+            "spanSec": timing["spanSec"],
+            "firstMsg": timing["firstMsg"],
+            "lastMsg": timing["lastMsg"],
             "turns": metrics.get("totalTurns", 0),
             "studentResponses": metrics.get("studentResponses", 0),
             "status": s.get("status", "?"),
@@ -299,8 +452,15 @@ async def fetch_sessions():
             "outputTokens": bs.get("llmTotalOutputTokens") or 0,
             "ttsChars": bs.get("ttsCharCount") or 0,
         })
-    cache_set("sessions", result)
-    return result
+    response = {
+        "items": result,
+        "total": total,
+        "offset": offset,
+        "limit": limit,
+        "hasMore": offset + len(result) < total,
+    }
+    cache_set(cache_key, response)
+    return response
 
 
 async def fetch_analytics(days: int = 30):
@@ -352,13 +512,26 @@ async def fetch_analytics(days: int = 30):
         async for r in db.sessions.aggregate(sess_pipeline)
     ]
 
-    # ── DAU/WAU/MAU (unique users with a session in window) ──
-    async def _unique_users(gte_iso: str) -> int:
-        result = await db.sessions.distinct("userEmail", {"createdAt": {"$gte": gte_iso}})
-        return len([u for u in result if u])
-    dau = await _unique_users(day_ago)
-    wau = await _unique_users(week_ago)
-    mau = await _unique_users(month_ago)
+    # ── DAU/WAU/MAU (unique users ACTIVE in window — not just session-creators) ──
+    # A user counts as active if any of their session transcripts contains a
+    # message timestamp inside the window. createdAt-only counted misses
+    # users who started a session earlier and are still actively using it.
+    async def _unique_active_users(gte_iso: str) -> int:
+        pipeline = [
+            # Find sessions with at least one message inside the window.
+            # transcript.timestamp is an array field — Mongo's elemMatch-like
+            # implicit semantics on dotted paths picks any element matching.
+            {"$match": {"transcript.timestamp": {"$gte": gte_iso}}},
+            {"$group": {"_id": "$userEmail"}},
+        ]
+        users = set()
+        async for r in db.sessions.aggregate(pipeline):
+            if r["_id"]:
+                users.add(r["_id"])
+        return len(users)
+    dau = await _unique_active_users(day_ago)
+    wau = await _unique_active_users(week_ago)
+    mau = await _unique_active_users(month_ago)
 
     # ── Mode split (voice vs text) ──
     mode_pipeline = [
@@ -797,7 +970,12 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif path == "/api/users":
                 self._json(run_async(fetch_users()))
             elif path == "/api/sessions":
-                self._json(run_async(fetch_sessions()))
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed.query or "")
+                limit = max(1, min(200, int((qs.get("limit") or ["50"])[0])))
+                offset = max(0, int((qs.get("offset") or ["0"])[0]))
+                q = (qs.get("q") or [""])[0]
+                self._json(run_async(fetch_sessions(limit=limit, offset=offset, q=q)))
             elif path == "/api/analytics":
                 from urllib.parse import parse_qs
                 qs = parse_qs(parsed.query or "")
@@ -1115,6 +1293,7 @@ DASHBOARD_HTML = """\
       </tr></thead>
       <tbody></tbody>
     </table></div>
+    <div id="sessions-footer" style="text-align:center;padding:14px;color:var(--text2)"></div>
   </div>
 
   <div id="tab-analytics" class="tab-panel">
@@ -1229,11 +1408,8 @@ function renderUsers() {
 }
 
 function renderSessions() {
-  const q = getQ();
+  // No client-side filtering — search is server-side via /api/sessions?q=
   let data = sortData(sessionsData, sortState.sessions.col, sortState.sessions.dir);
-  if (q) data = data.filter(s =>
-    (s.user||'').toLowerCase().includes(q) || (s.email||'').toLowerCase().includes(q) ||
-    (s.title||'').toLowerCase().includes(q) || (s.intent||'').toLowerCase().includes(q));
   document.querySelector('#sessionsTable tbody').innerHTML = data.map((s, i) => {
     const activeStr = fmtDur(s.activeSec);
     const spanStr = s.spanSec > 0 && s.spanSec !== s.activeSec ? ' <span class="dur-raw">(' + fmtDur(s.spanSec) + ' span)</span>' : '';
@@ -1253,15 +1429,39 @@ function renderSessions() {
     <td>${s.mode ? `<span class="badge ${s.mode==='voice'?'b-voice':'b-text'}">${s.mode}</span>` : '\\u2014'}</td>
     <td><span class="badge ${s.status==='active'?'b-active':'b-ended'}">${s.status}</span></td>
   </tr>`;}).join('');
+
+  // Render "Load more" footer for pagination
+  const footer = document.getElementById('sessions-footer');
+  if (footer) {
+    if (_sessionsPagination.hasMore) {
+      footer.innerHTML = '<button onclick="loadSessions(false)" style="padding:8px 18px;border:1px solid var(--border);background:var(--surface2);color:var(--text);border-radius:6px;cursor:pointer;font-size:12px">Load more (' + (_sessionsPagination.total - sessionsData.length) + ' remaining)</button>';
+    } else {
+      footer.innerHTML = '<span class="muted sm">' + sessionsData.length + ' of ' + _sessionsPagination.total + ' sessions</span>';
+    }
+  }
 }
 
-function filterTable() { renderUsers(); renderSessions(); }
+// Debounced server-side search (sessions tab only)
+let _searchTimer = null;
+function filterTable() {
+  // Users tab still client-side filter (light data)
+  renderUsers();
+  // Sessions tab → debounced server-side query
+  clearTimeout(_searchTimer);
+  _searchTimer = setTimeout(() => {
+    _sessionsPagination.query = getQ();
+    loadSessions(true);
+  }, 250);
+}
 
 function switchTab(tab) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
-  if (tab === 'analytics') loadAnalytics();
-  if (tab === 'feedback') loadFeedback();
+  // Lazy-load each tab's data on first switch
+  if (tab === 'users') loadUsers();
+  else if (tab === 'sessions' && !_sessionsLoaded) loadSessions(true);
+  else if (tab === 'analytics') loadAnalytics();
+  else if (tab === 'feedback') loadFeedback();
 }
 
 // ── Analytics ──
@@ -1529,28 +1729,73 @@ function closeModal() { document.getElementById('modal').classList.remove('show'
 document.getElementById('modal').addEventListener('click', e => { if (e.target === e.currentTarget) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
+// ── Pagination state ──
+let _sessionsPagination = { offset: 0, limit: 50, total: 0, hasMore: false, query: '' };
+let _usersLoaded = false;
+let _sessionsLoaded = false;
+
+// On first load: fetch only stats + the active tab's data (lazy)
 async function refreshAll() {
   const t0 = performance.now();
   document.getElementById('statusBar').textContent = 'refreshing...';
   try {
-    const [sr, ur, sesr] = await Promise.all([
-      fetch(API + '/api/stats'), fetch(API + '/api/users'), fetch(API + '/api/sessions'),
-    ]);
-    const stats = await sr.json();
-    usersData = await ur.json();
-    const raw = await sesr.json();
-    sessionsData = raw.map((s, i) => ({ ...s, _idx: i }));
+    // Stats card always loads (cheap)
+    const sr = await fetch(API + '/api/stats');
+    renderStats(await sr.json());
 
-    renderStats(stats);
-    renderUsers();
-    renderSessions();
+    // Load whichever tab is currently active; defer the rest
+    const activeTab = document.querySelector('.tabs button.active')?.dataset.tab || 'users';
+    if (activeTab === 'users') await loadUsers();
+    else if (activeTab === 'sessions') await loadSessions(true);
 
     const ms = Math.round(performance.now() - t0);
     document.getElementById('statusBar').textContent =
-      'updated ' + new Date().toLocaleTimeString() + ' (' + ms + 'ms) \\u2014 ' +
-      usersData.length + ' users, ' + sessionsData.length + ' sessions loaded';
+      'updated ' + new Date().toLocaleTimeString() + ' (' + ms + 'ms)';
   } catch (e) {
     document.getElementById('statusBar').textContent = 'error: ' + e.message;
+  }
+}
+
+async function loadUsers() {
+  if (_usersLoaded) return;
+  const t0 = performance.now();
+  try {
+    const r = await fetch(API + '/api/users');
+    usersData = await r.json();
+    renderUsers();
+    _usersLoaded = true;
+    const ms = Math.round(performance.now() - t0);
+    document.getElementById('statusBar').textContent =
+      'users: ' + usersData.length + ' loaded in ' + ms + 'ms';
+  } catch (e) {
+    document.getElementById('statusBar').textContent = 'users error: ' + e.message;
+  }
+}
+
+async function loadSessions(reset) {
+  if (reset) {
+    _sessionsPagination.offset = 0;
+    sessionsData = [];
+  }
+  const t0 = performance.now();
+  const p = _sessionsPagination;
+  const url = API + '/api/sessions?limit=' + p.limit + '&offset=' + p.offset +
+    (p.query ? '&q=' + encodeURIComponent(p.query) : '');
+  try {
+    const r = await fetch(url);
+    const data = await r.json();
+    const items = (data.items || []).map((s, i) => ({ ...s, _idx: sessionsData.length + i }));
+    sessionsData = sessionsData.concat(items);
+    _sessionsPagination.total = data.total || sessionsData.length;
+    _sessionsPagination.hasMore = !!data.hasMore;
+    _sessionsPagination.offset += items.length;
+    renderSessions();
+    _sessionsLoaded = true;
+    const ms = Math.round(performance.now() - t0);
+    document.getElementById('statusBar').textContent =
+      'sessions: ' + sessionsData.length + ' / ' + _sessionsPagination.total + ' loaded (' + ms + 'ms)';
+  } catch (e) {
+    document.getElementById('statusBar').textContent = 'sessions error: ' + e.message;
   }
 }
 
@@ -1971,7 +2216,14 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     print(f"\n  Euler Admin Dashboard")
-    print(f"  http://localhost:{args.port}\n")
+    print(f"  http://localhost:{args.port}")
+
+    # One-time index creation (no-op if they exist)
+    try:
+        run_async(ensure_indexes())
+    except Exception as _e:
+        print(f"  ⚠ index creation error (continuing): {_e}")
+    print()
 
     server = ThreadedHTTPServer(("0.0.0.0", args.port), DashboardHandler)
     try:
