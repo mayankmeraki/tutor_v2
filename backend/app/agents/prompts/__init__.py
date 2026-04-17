@@ -129,99 +129,91 @@ def _inject_experience_level(parts: list[str], context_data: dict):
 def _compile_teaching_overrides(context_data: dict) -> str | None:
     """Compile per-student teaching style overrides from _profile notes.
 
-    Parses the student model for _profile notes and extracts structured
-    teaching preferences. Also considers topic type from the current plan
-    to add topic-specific overrides.
+    Two sources of adaptation:
+      1. _profile notes (observed across sessions) → explicit overrides
+      2. Smart defaults (when no _profile exists yet) → explain-first
 
-    Returns an override block string, or None if no overrides are found.
+    Returns an override block string injected into the tutor's prompt.
     """
     import json as _json
 
     student_model = context_data.get("studentModel", "")
-    if not student_model:
-        return None
-
-    # Parse student model JSON
-    try:
-        model = _json.loads(student_model) if isinstance(student_model, str) else student_model
-    except (ValueError, TypeError):
-        return None
-
-    # Find _profile notes
+    has_profile = False
     profile_text = ""
-    notes = model.get("notes", [])
-    if isinstance(notes, list):
-        for note in notes:
-            concepts = note.get("concepts", [])
-            if "_profile" in concepts:
-                profile_text += note.get("note", "") + "\n"
-    elif isinstance(notes, dict):
-        # Handle dict-style notes
-        for key, note in notes.items():
-            if "_profile" in key:
-                if isinstance(note, str):
-                    profile_text += note + "\n"
-                elif isinstance(note, dict):
+
+    if student_model:
+        try:
+            model = _json.loads(student_model) if isinstance(student_model, str) else student_model
+        except (ValueError, TypeError):
+            model = {}
+
+        # Find _profile notes
+        notes = model.get("notes", [])
+        if isinstance(notes, list):
+            for note in notes:
+                concepts = note.get("concepts", [])
+                if "_profile" in concepts:
                     profile_text += note.get("note", "") + "\n"
+                    has_profile = True
+        elif isinstance(notes, dict):
+            for key, note in notes.items():
+                if "_profile" in key:
+                    if isinstance(note, str):
+                        profile_text += note + "\n"
+                    elif isinstance(note, dict):
+                        profile_text += note.get("note", "") + "\n"
+                    has_profile = True
 
-    if not profile_text.strip():
-        return None
+    overrides = []
+    overrides.append("═══ TEACHING STYLE — THIS STUDENT ═══")
+    overrides.append("")
 
-    # Extract current topic type from teaching plan for topic-level overrides
-    topic_type = None
+    if has_profile and profile_text.strip():
+        # ── Known student: override from observations ──
+        overrides.append("OBSERVED TEACHING PROFILE (from past sessions):")
+        overrides.append(profile_text.strip())
+        overrides.append("")
+        overrides.append("APPLY THESE OBSERVATIONS:")
+        overrides.append("  - Honor specific modality/style preferences recorded above.")
+        overrides.append("  - If notes say 'approach X worked' → use approach X again.")
+        overrides.append("  - If notes say 'approach X failed' → use a DIFFERENT approach.")
+        overrides.append("  - TOPIC-SPECIFIC observations override general preferences.")
+        overrides.append("  - Keep adapting: if something new works, update the profile.")
+    else:
+        # ── New student (session 1): smart defaults ──
+        overrides.append("NEW STUDENT — no profile yet. Using evidence-based defaults:")
+        overrides.append("")
+        overrides.append("DEFAULT TEACHING STYLE: EXPLAIN FIRST")
+        overrides.append("  - Lead with direct explanations + worked examples.")
+        overrides.append("  - Do NOT default to Socratic questioning.")
+        overrides.append("  - Use questions for VERIFICATION (after explaining), not discovery.")
+        overrides.append("  - Keep responses SHORT (1-2 sentences in chat, content on board).")
+        overrides.append("  - If the student asks 'why?' or challenges your explanation,")
+        overrides.append("    THAT is the moment to go deeper / use Socratic — they're ready.")
+        overrides.append("")
+        overrides.append("SIGNAL DETECTION (update _profile after observing):")
+        overrides.append("  - Asks 'why?' / 'what if?' → curious, try Socratic next topic")
+        overrides.append("  - Short replies ('ok', 'yeah') → keep explaining, don't probe")
+        overrides.append("  - 'Just tell me' → frustrated, give direct answers")
+        overrides.append("  - Solves fast → advanced, skip scaffolding, challenge harder")
+        overrides.append("  - Long pauses → needs smaller steps, more visuals")
+
+    # Add topic-type specific guidance if available
     current_topic = context_data.get("currentTopic", "")
     if current_topic:
         try:
             topic = _json.loads(current_topic) if isinstance(current_topic, str) else current_topic
             if isinstance(topic, dict):
-                # Look for delivery_pattern or topic type hints
                 steps = topic.get("steps", [])
                 if steps and isinstance(steps, list):
                     delivery = steps[0].get("delivery_pattern", "")
-                    guidelines = steps[0].get("tutor_guidelines", "")
                     if delivery:
-                        topic_type = delivery
+                        overrides.append("")
+                        overrides.append(f"CURRENT TOPIC DELIVERY HINT: {delivery}")
+                        overrides.append("  Adapt your style to this pattern, but student")
+                        overrides.append("  preferences (above) take priority.")
         except (ValueError, TypeError, IndexError, KeyError):
             pass
-
-    # Build the override block
-    overrides = []
-    overrides.append("═══ TEACHING STYLE OVERRIDES — THIS STUDENT ═══")
-    overrides.append("")
-    overrides.append("The following overrides are compiled from observed teaching")
-    overrides.append("preferences for THIS student. They SUPERSEDE the default")
-    overrides.append("pedagogy rules below. When an override conflicts with a")
-    overrides.append("default, FOLLOW THE OVERRIDE.")
-    overrides.append("")
-    overrides.append("FROM STUDENT _PROFILE:")
-    overrides.append(profile_text.strip())
-    overrides.append("")
-    overrides.append("HOW TO APPLY THESE OVERRIDES:")
-    overrides.append("  - If _profile says 'prefers explain-first': lead with explanation,")
-    overrides.append("    NOT Socratic questions. Ask ONE check question after explaining.")
-    overrides.append("  - If _profile says 'fast mover': skip scaffolding, move quickly,")
-    overrides.append("    one question per concept.")
-    overrides.append("  - If _profile says 'board-draw anchor': use board-draw as the")
-    overrides.append("    primary teaching tool, not video.")
-    overrides.append("  - If _profile mentions specific modality preferences: honor them")
-    overrides.append("    as default, but still vary (3+ same modality gets stale).")
-    overrides.append("  - If _profile says 'avoids Socratic' or 'disengages with questions':")
-    overrides.append("    use explain-then-discuss pattern, minimize cold-call questions.")
-    overrides.append("  - TOPIC-SPECIFIC overrides in _profile take priority over general")
-    overrides.append("    preferences (e.g., 'Socratic works for conceptual but not math').")
-    overrides.append("")
-    overrides.append("These overrides are NOT permanent. Keep testing what works.")
-    overrides.append("If the student engages well with a different approach on a new topic,")
-    overrides.append("note the updated preference via update_student_model.")
-
-    # Add topic-type specific guidance if available
-    if topic_type:
-        overrides.append("")
-        overrides.append(f"CURRENT TOPIC DELIVERY: {topic_type}")
-        overrides.append("  Adapt the overrides above to this delivery pattern.")
-        overrides.append("  If the student's preference conflicts with the delivery pattern,")
-        overrides.append("  PRIORITIZE THE STUDENT'S PREFERENCE — the delivery pattern is")
-        overrides.append("  a suggestion, the student's learning style is observed data.")
 
     return "\n".join(overrides)
 
@@ -277,7 +269,7 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
                 f"Course: {course_title}\n"
                 f"{course_desc[:300]}\n"
                 f"Structure:\n" + "\n".join(outline_lines) + "\n"
-                f"\nYou have FULL access to this course content via content_read/content_peek/content_search tools.\n"
+                f"\nYou have FULL access to this course content via search/fetch/peek/nearby tools (scope='course').\n"
                 f"You can teach ANY topic from this course on the board — even without the video playing.\n"
                 f"═══════════════════════════════════════════\n"
             )
@@ -314,8 +306,8 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
     # ─── COURSE CONTEXT ── REMOVED from per-turn injection ─────
     # Course map, concepts, simulations are NO LONGER sent every turn.
-    # The planner gets them at session start. The tutor uses content_read/
-    # content_search on demand. This saves ~1700 tokens per turn.
+    # The planner gets them at session start. The tutor uses search/fetch/peek
+    # on demand. This saves ~1700 tokens per turn.
 
     # ─── SECTION 2: STUDENT CONTEXT ─────────────────────────────
     # Who this student is and what they know — persists across sessions.
@@ -447,6 +439,62 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     session_scope = context_data.get("sessionScope")
     if session_scope:
         parts.append(f"\n[SESSION SCOPE]\n{session_scope}\n")
+
+    # BYO scope — when the student picked an uploaded collection, surface
+    # the collection_id directly so the tutor knows to fetch from it on
+    # turn 1 instead of asking clueless clarification questions.
+    session_ctx_str = context_data.get("sessionContext")
+    if session_ctx_str:
+        try:
+            import json as _json
+            sc = _json.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
+            cid = sc.get("collection_id") if isinstance(sc, dict) else None
+            if cid:
+                mode = (sc.get("mode") or "teach") if isinstance(sc, dict) else "teach"
+                enriched = (sc.get("enriched_intent") or "").strip() if isinstance(sc, dict) else ""
+                resource_ids = sc.get("resource_ids") if isinstance(sc, dict) else None
+                byo_lines = [
+                    "[BYO SCOPE — student is teaching from their own uploads]",
+                    f"Collection: {cid}",
+                    f"Mode: {mode}",
+                ]
+                if resource_ids and isinstance(resource_ids, list):
+                    byo_lines.append(f"Filtered to {len(resource_ids)} specific file(s) — search ONLY within these.")
+                if enriched:
+                    byo_lines.append(f"Stated goal: {enriched[:300]}")
+                byo_lines.extend([
+                    "",
+                    "RULES — MANDATORY:",
+                    f"  - Ground every claim in the collection content. Use search(scope='collection', collection_id='{cid}'"
+                    + (f", resource_id=...) for specific files" if resource_ids else ")") + " if you need more.",
+                    "  - Cite inline: (page N, resource name) so the student knows where it came from.",
+                    "  - Never ask 'which subject / which paper' — the content below already tells you.",
+                    "  - Use <prefetch_context> tag to pre-load content for the next turn (avoids tool call latency).",
+                ])
+                parts.append("\n" + "\n".join(byo_lines) + "\n")
+
+                # Inject pre-loaded collection content (fetched in pipeline.py)
+                byo_preloaded = context_data.get("_byoPreloaded")
+                if byo_preloaded:
+                    parts.append(
+                        "\n[COLLECTION CONTENT — pre-loaded, ready to teach from]\n"
+                        "The content below was fetched from the student's collection based on their intent.\n"
+                        "USE THIS DIRECTLY — no need to call search() or list_contents() unless you need more.\n"
+                        "Cite using the ref: and page info provided.\n\n"
+                        f"{byo_preloaded}\n"
+                    )
+
+        except (ValueError, TypeError, AttributeError):
+            pass
+
+    # Inject prefetched content from <prefetch_context> tag (requested by tutor last turn)
+    prefetched = context_data.get("_prefetchedContent")
+    if prefetched:
+        parts.append(
+            "\n[PREFETCHED CONTENT — you requested this via <prefetch_context> last turn]\n"
+            "Use this content DIRECTLY. No tool call needed — it's already here.\n\n"
+            f"{prefetched}\n"
+        )
 
     # Voice mode instructions are now in the STATIC block for prompt caching.
     # (see _get_voice_mode_prompt() called in static_parts above)
@@ -697,9 +745,17 @@ _ASSESSMENT_TOOLKIT = """═══ YOUR TOOLS (Assessment Mode) ═══
 
 You have a focused subset of tools for assessment:
 
-get_section_content(lesson_id, section_index)
-  Fetch the professor's transcript, key points, and formulas for a section.
-  Use to ground your questions in exact course content.
+search(query, scope?)
+  Semantic search across course + BYO content. Use to find refs when you
+  don't have them. scope: "course" (default), "collection", "both".
+
+fetch(ref)
+  Get the full content for a ref (transcript, key points, formulas).
+  Use to ground your questions in exact course / student material.
+  Refs: lesson:ID:section:IDX, lesson:ID, sim:ID, chunk:ID.
+
+peek(ref)
+  Cheap summary (~100 tokens). Use to pick the right section quickly.
 
 query_knowledge(query)
   Look up what you know about this student's understanding of a concept.
@@ -719,4 +775,4 @@ TOOLS YOU DO NOT HAVE (assessment is focused):
   Plan/agent control (handled by main tutor via housekeeping tags).
   Use complete_assessment / handback_to_tutor to return control.
 
-Keep it simple: read content → ask question → evaluate → log."""
+Keep it simple: search/fetch → ask question → evaluate → log."""

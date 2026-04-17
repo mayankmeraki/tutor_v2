@@ -369,6 +369,9 @@ _SPAWN_RE = _re.compile(
     r'(?:\s+instructions=["\']([^"\']*)["\'])?'
     r'\s*/?>',
 )
+_PREFETCH_RE = _re.compile(
+    r'<prefetch_context\s+([\s\S]*?)\s*/?>',
+)
 
 
 def _strip_housekeeping_tag(text: str) -> str:
@@ -607,9 +610,107 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                 agent_type=agent_type,
                 description=task_desc[:120],
                 instructions=instructions or task_desc,
-                context={},  # will be enriched by the runtime
+                context={},
             )
             slog.info("Agent spawned via tag", extra={"type": agent_type, "task": task_desc[:80]})
+
+    # Parse <prefetch_context> tags — tutor requests tool calls to be
+    # executed in the BACKGROUND. Results are injected into the next
+    # turn's prompt as [PREFETCHED CONTENT]. This avoids tool call
+    # latency: the tutor teaches while the system fetches content.
+    #
+    # Format: <prefetch_context tool="search" query="integration" scope="collection" k="3" />
+    #         <prefetch_context tool="fetch" ref="chunk:abc123" />
+    #         <prefetch_context tool="peek" ref="resource:xyz" />
+    #         <prefetch_context tool="web_search" query="Bernoulli equation derivation" />
+    #
+    # Max 5 per turn. Total output capped at ~4000 tokens.
+    prefetch_requests = list(_PREFETCH_RE.finditer(hk_content))[:5]
+    if prefetch_requests:
+        import asyncio as _pf_aio
+
+        async def _run_prefetch():
+            try:
+                parts = []
+                total_tokens = 0
+                MAX_TOKENS = 4000
+
+                _uid = ""
+                _cid = ""
+                try:
+                    _prof = json.loads(context_data.get("studentProfile", "{}"))
+                    _uid = _prof.get("userEmail", "")
+                    _sc = json.loads(context_data.get("sessionContext", "{}"))
+                    _cid = _sc.get("collection_id", "")
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                for m in prefetch_requests:
+                    if total_tokens >= MAX_TOKENS:
+                        break
+                    attrs_str = m.group(1) or ""
+                    # Parse key="value" pairs
+                    import re as _pre
+                    attrs = dict(_pre.findall(r'(\w+)=["\']([^"\']*)["\']', attrs_str))
+                    tool = attrs.get("tool", "search")
+                    query = attrs.get("query", "")
+                    ref = attrs.get("ref", "")
+                    scope = attrs.get("scope", "collection")
+                    k = min(int(attrs.get("k", "3")), 5)
+
+                    result_text = ""
+
+                    if tool == "search" and query and _uid:
+                        from app.services.content.embedding_service import generate_embedding
+                        from byo.shared.store import get_content_store
+                        emb = await generate_embedding(query)
+                        if emb:
+                            hits = await get_content_store().search(
+                                emb, user_id=_uid,
+                                collection_id=_cid if scope == "collection" else None,
+                                k=k, min_score=0.3,
+                            )
+                            for h in hits:
+                                result_text += (
+                                    f"\n--- ref: chunk:{h.chunk_id} | {h.resource_name} p.{h.anchor_page} ---\n"
+                                    f"{h.content[:600]}\n"
+                                )
+
+                    elif tool == "fetch" and ref and _uid:
+                        from byo.retrieval.service import fetch as _svc_fetch
+                        hit = await _svc_fetch(ref, user_id=_uid)
+                        if hit:
+                            result_text = (
+                                f"--- ref: {ref} | {hit.resource_name} p.{hit.anchor.page if hit.anchor else '?'} ---\n"
+                                f"{hit.content[:800]}\n"
+                            )
+
+                    elif tool == "peek" and ref and _uid:
+                        from byo.retrieval.service import peek as _svc_peek
+                        info = await _svc_peek(ref, user_id=_uid)
+                        if info:
+                            result_text = f"peek({ref}): {json.dumps(info, default=str)[:400]}\n"
+
+                    elif tool == "web_search" and query:
+                        try:
+                            from app.tools.web_search import web_search
+                            result_text = await web_search({"query": query, "limit": 3})
+                            result_text = f"web_search(\"{query}\"):\n{(result_text or '')[:600]}\n"
+                        except Exception:
+                            pass
+
+                    if result_text:
+                        parts.append(f"[prefetch: {tool}({query or ref})]\n{result_text}")
+                        total_tokens += len(result_text) // 4
+
+                if parts:
+                    session.prefetched_content = "\n".join(parts)
+                    slog.info("prefetch_context completed: %d calls, ~%d tokens",
+                              len(parts), total_tokens)
+            except Exception as e:
+                slog.warning("prefetch_context failed: %s", e)
+
+        _pf_aio.get_event_loop().create_task(_run_prefetch())
 
 
 
@@ -661,7 +762,7 @@ def _extract_user_email(context_data: dict) -> str | None:
         return None
 
 
-CONTENT_TOOL_NAMES = {"content_read", "content_peek", "content_search"}
+CONTENT_TOOL_NAMES = {"search", "fetch", "peek", "nearby", "list_contents"}
 
 
 # ── Session Phase Controller ──────────────────────────────────────────────────
@@ -717,32 +818,9 @@ def _check_phase_transition(session, agent_output: dict) -> SessionPhase | None:
     return None  # Stay in current phase
 
 
-async def _run_content_tool(tool_name: str, tool_input: dict, context_data: dict, request) -> str:
-    """Dispatch a content tool through the ContentProvider adapter."""
-    course_id, _ = _extract_student_info(context_data)
-    if not course_id:
-        return "No course context available."
-
-    from app.services.content.providers import create_adapter
-    from app.core.database import get_db
-
-    db_session = request.state.db if hasattr(request.state, "db") else None
-    if not db_session:
-        db_gen = get_db()
-        db_session = await db_gen.__anext__()
-    adapter = create_adapter(course_id, db_session)
-
-    if tool_name == "content_map":
-        return await adapter.content_map()
-    elif tool_name == "content_read":
-        return await adapter.content_read(tool_input.get("ref", ""))
-    elif tool_name == "content_peek":
-        return await adapter.content_peek(tool_input.get("ref", ""))
-    elif tool_name == "content_search":
-        return await adapter.content_search(
-            tool_input.get("query", ""), limit=int(tool_input.get("limit", 5))
-        )
-    return f"Unknown content tool: {tool_name}"
+# NOTE: `_run_content_tool` was removed in task #11 — content dispatch is now
+# unified in `app.tools.retrieval` (search/fetch/peek/nearby/list_contents).
+# The adapter is still used internally by those handlers.
 
 
 async def _load_knowledge_context(context_data: dict) -> dict:
@@ -1142,7 +1220,7 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
     This way the plan is often ready by the time turn 2 starts.
 
     The planner gets: intent + student model + course map + grounding tools
-    (content_read, web_search). Uses Sonnet for high-quality plans.
+    (search, fetch, peek, list_contents, web_search). Uses Sonnet for high-quality plans.
     """
     slog.info("[PLANNER_SPAWN] called — current_plan=%s _planner_spawned=%s",
               bool(session.current_plan),
@@ -1202,7 +1280,11 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
             try:
                 ctx = json.loads(session_ctx_str) if isinstance(session_ctx_str, str) else session_ctx_str
                 if ctx.get("collection_id"):
-                    byo_text = f"Student uploaded content (collection: {ctx['collection_id']}). Use byo_read/byo_list to access."
+                    byo_text = (
+                        f"Student uploaded content (collection: {ctx['collection_id']}). "
+                        f"Use search(scope='collection', collection_id='{ctx['collection_id']}') or "
+                        f"list_contents(scope='collection') to access."
+                    )
                 if ctx.get("enriched_intent"):
                     byo_text += f"\nEnriched intent: {ctx['enriched_intent'][:300]}"
             except (json.JSONDecodeError, TypeError, AttributeError):
@@ -1210,7 +1292,7 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
 
         has_course = bool(context_data.get("courseMap"))
         course_instruction = (
-            "Use content_read/content_peek to inspect relevant course sections and ground your plan in the professor's material."
+            "Use search(scope='course') and fetch/peek on returned refs to inspect relevant course sections and ground your plan in the professor's material."
             if has_course else
             "No structured course available. Use web_search to find authoritative resources and plan from your knowledge."
         )
@@ -1255,8 +1337,8 @@ Output a single JSON object (not JSONL).
 def _auto_spawn_enrichment(session, runtime, context_data: dict, slog):
     """Auto-spawn shadow enrichment agent on turn 1.
 
-    Runs in background with Haiku + tools (web_search, content_search,
-    get_section_content, query_knowledge). Results injected on turn 2+.
+    Runs in background with Haiku + tools (web_search, search, fetch,
+    query_knowledge). Results injected on turn 2+.
     """
     _spawn_enrichment_agent(session, runtime, context_data, slog, is_initial=True)
 
@@ -1309,7 +1391,7 @@ def _spawn_enrichment_agent(session, runtime, context_data: dict, slog, is_initi
     if is_initial:
         instructions += (
             "\n\nThis is the START of the session. Focus on:\n"
-            f"1. Fetch course content for '{topic_title}' (use content_search + get_section_content)\n"
+            f"1. Fetch course content for '{topic_title}' (use search(scope='course') then fetch on the best ref)\n"
             "2. Web search for supplementary examples/references\n"
             "3. Check student's knowledge gaps (use query_knowledge)\n"
             "Call tools IN PARALLEL for speed."
@@ -1756,19 +1838,11 @@ async def _handle_delegated_teaching(session, session_id, claude_messages, conte
                     )
                     result = f"Simulation control sent: {step_descs}."
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
-                elif block.name in CONTENT_TOOL_NAMES:
-                    try:
-                        result = await _run_content_tool(block.name, block.input, context_data, request)
-                    except Exception as e:
-                        slog.error("Content adapter failed (delegation): %s", e, exc_info=True, extra={"tool": block.name})
-                        result = f"Content tool error: {str(e)[:200]}"
-                    result_str = result if isinstance(result, str) else json.dumps(result)
-                    if not result_str.strip():
-                        result_str = "(no output)"
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result_str})
                 else:
                     try:
-                        result = await execute_tutor_tool(block.name, block.input)
+                        result = await execute_tutor_tool(
+                            block.name, block.input, context_data=context_data,
+                        )
                     except Exception as e:
                         slog.error("Delegation tool failed: %s", e, exc_info=True, extra={"agent": "delegation", "tool": block.name})
                         result = f"Tool error ({block.name}): {str(e)[:200]}"
@@ -2070,22 +2144,12 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                         result = "Cannot query knowledge: missing student info"
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result})
 
-                # ── Content provider tools ─────────────────────
-                elif block.name in CONTENT_TOOL_NAMES:
-                    try:
-                        result = await _run_content_tool(block.name, block.input, context_data, request)
-                    except Exception as e:
-                        slog.error("Content adapter failed (assessment): %s", e, exc_info=True, extra={"tool": block.name})
-                        result = f"Content tool error: {str(e)[:200]}"
-                    result_str = result if isinstance(result, str) else json.dumps(result)
-                    if not result_str.strip():
-                        result_str = "(no output)"
-                    tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": result_str})
-
-                # ── Normal content tools ────────────────────────
+                # ── All other tools (including unified retrieval) ──
                 else:
                     try:
-                        result = await execute_tutor_tool(block.name, block.input)
+                        result = await execute_tutor_tool(
+                            block.name, block.input, context_data=context_data,
+                        )
                     except Exception as e:
                         slog.error("Assessment tool failed: %s", e, exc_info=True, extra={"agent": "assessment", "tool": block.name})
                         result = f"Tool error ({block.name}): {str(e)[:200]}"
@@ -2124,21 +2188,21 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
     inp = block.input or {}
 
     try:
-        if name == "get_section_content":
-            section_id = inp.get("section_id", "")
-            result = await get_section_content(section_id, context_data=context_data)
-            return result or f"No content found for section: {section_id}"
+        # ── Unified retrieval tools (task #11) ───────────────────────
+        if name in ("search", "fetch", "peek", "nearby", "list_contents"):
+            try:
+                result = await execute_tutor_tool(name, inp, context_data=context_data)
+                return result or f"No results for {name}"
+            except Exception as e:
+                slog.warning("Retrieval tool %s failed: %s", name, e)
+                return f"Retrieval tool error: {e}"
 
         elif name == "search_images":
+            from app.tools.search_images import search_images as _search_images
             query = inp.get("query", "")
             limit = int(inp.get("limit", 3))
-            results = await search_images(query, limit=limit)
+            results = await _search_images(query, limit=limit)
             return json.dumps(results) if results else "No images found"
-
-        elif name == "get_simulation_details":
-            sim_id = inp.get("simulation_id", "")
-            result = await get_simulation_details(sim_id)
-            return result or f"No simulation found: {sim_id}"
 
         elif name == "complete_triage":
             session.triage_result = {
@@ -2164,15 +2228,6 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             query = inp.get("query", "")
             results = await _web_search(query) if query else None
             return json.dumps(results) if results else "No results found"
-
-        elif name in CONTENT_TOOL_NAMES:
-            # Content tools — route through content adapter
-            try:
-                result = await _run_content_tool(name, inp, context_data, request)
-                return result or f"No content found for {name}"
-            except Exception as e:
-                slog.warning("Content tool %s failed: %s", name, e)
-                return f"Content tool error: {e}"
 
         else:
             slog.warning("Unknown tool: %s", name)
@@ -2450,6 +2505,85 @@ async def _generate_for_turn(
                 "student_model": bool(session.student_model),
             })
 
+            # ── Auto-inject BYO collection context ──
+            # When a BYO collection is in scope, pre-fetch the collection
+            # overview + intent-relevant chunks so the tutor has grounded
+            # content from turn 1 — no tool calls needed for first response.
+            _sc_str = context_data.get("sessionContext", "")
+            if _sc_str and not context_data.get("_byoPreloaded"):
+                try:
+                    _sc = json.loads(_sc_str) if isinstance(_sc_str, str) else _sc_str
+                    _byo_cid = _sc.get("collection_id") if isinstance(_sc, dict) else None
+                    if _byo_cid:
+                        from byo.shared.store import get_content_store
+                        _store = get_content_store()
+                        _byo_uid = None
+                        try:
+                            _prof = json.loads(context_data.get("studentProfile", "{}"))
+                            _byo_uid = _prof.get("userEmail", "")
+                        except (json.JSONDecodeError, TypeError):
+                            pass
+
+                        if _byo_uid:
+                            import asyncio as _aio
+                            # Parallel: list overview + search by intent
+                            _intent = session.student_intent or ""
+                            _overview_task = _store.list_chunks(
+                                user_id=_byo_uid, collection_id=_byo_cid, limit=30,
+                            )
+                            if _intent:
+                                from app.services.content.embedding_service import generate_embedding
+                                _emb = await generate_embedding(_intent)
+                                _search_task = _store.search(
+                                    _emb, user_id=_byo_uid,
+                                    collection_id=_byo_cid, k=5, min_score=0.3,
+                                ) if _emb else _aio.sleep(0)
+                            else:
+                                _search_task = _aio.sleep(0)
+
+                            _ov_result, _search_result = await _aio.gather(
+                                _overview_task, _search_task, return_exceptions=True,
+                            )
+
+                            # Build overview text
+                            _byo_ctx_parts = []
+                            if isinstance(_ov_result, list) and _ov_result:
+                                # Group by resource
+                                _by_res = {}
+                                for h in _ov_result:
+                                    _by_res.setdefault(h.resource_name or h.resource_id[:8], []).append(h)
+                                _ov_lines = [f"Collection contains {len(_ov_result)} chunks across {len(_by_res)} resources:"]
+                                for rname, chunks in _by_res.items():
+                                    pages = sorted(set(c.anchor_page for c in chunks if c.anchor_page))
+                                    _ov_lines.append(f"  • {rname} — {len(chunks)} chunks, pages {pages[:10]}")
+                                _byo_ctx_parts.append("\n".join(_ov_lines))
+
+                            # Build relevant content
+                            if isinstance(_search_result, list) and _search_result:
+                                _rel_lines = [f"Most relevant content for \"{_intent[:80]}\":"]
+                                for i, h in enumerate(_search_result[:5], 1):
+                                    pg = h.anchor_page or "?"
+                                    _rel_lines.append(
+                                        f"\n--- ref: chunk:{h.chunk_id} | {h.resource_name} p.{pg} ---\n"
+                                        f"{h.content[:600]}"
+                                    )
+                                _byo_ctx_parts.append("\n".join(_rel_lines))
+
+                            if _byo_ctx_parts:
+                                context_data["_byoPreloaded"] = "\n\n".join(_byo_ctx_parts)
+                                slog.info(
+                                    "BYO context pre-loaded: %d overview chunks, %d search hits",
+                                    len(_ov_result) if isinstance(_ov_result, list) else 0,
+                                    len(_search_result) if isinstance(_search_result, list) else 0,
+                                )
+                except Exception as _byo_err:
+                    log.debug("BYO context pre-load failed: %s", _byo_err)
+
+            # ── Inject prefetched content from previous turn's <prefetch> tag ──
+            if hasattr(session, 'prefetched_content') and session.prefetched_content:
+                context_data["_prefetchedContent"] = session.prefetched_content
+                session.prefetched_content = None  # one-shot: clear after use
+
             # ── Auto-inject context for video follow-along ──
             # Pre-fetch transcript + section content so tutor doesn't need tool calls
             video_state_raw = context_data.get("videoState")
@@ -2528,7 +2662,6 @@ async def _generate_for_turn(
             _removed_tools = {
                 "web_search", "search_images",  # disabled — not working reliably
                 "query_knowledge",              # student model already in context
-                "byo_read", "byo_list", "byo_transcript_context",  # sub-agents only
                 "update_student_model",         # tutor uses <notes> housekeeping tag
             }
             is_first_turn = (session.assistant_turn_count == 0)
@@ -2537,11 +2670,30 @@ async def _generate_for_turn(
             if session.phase != SessionPhase.TRIAGE:
                 _removed_tools.add("complete_triage")
 
-            # First 3 turns: remove ALL content lookup tools — tutor should
+            # First 3 turns: remove retrieval lookup tools — tutor should
             # teach from plan + course map context, not fetch content. Teaches
-            # immediately. Re-enabled from turn 4 onwards.
-            if session.assistant_turn_count < 3 and session.phase != SessionPhase.TRIAGE:
-                _removed_tools |= {"content_search", "get_section_content", "content_read", "content_peek"}
+            # immediately. Re-enabled from turn 4 onwards. (Unified retrieval
+            # surface: search/fetch/peek/nearby/list_contents.)
+            #
+            # EXCEPTION: when a BYO collection is in scope, the tutor MUST
+            # be able to discover what the student uploaded — there is no
+            # static map for BYO content the way there is for course content.
+            # Stripping retrieval here makes the tutor ask clueless
+            # clarifying questions instead of just listing the materials.
+            byo_in_scope = False
+            _sc_str = context_data.get("sessionContext", "")
+            if _sc_str:
+                try:
+                    _sc = json.loads(_sc_str) if isinstance(_sc_str, str) else _sc_str
+                    byo_in_scope = bool(_sc.get("collection_id"))
+                except (json.JSONDecodeError, TypeError, AttributeError):
+                    pass
+            if (
+                session.assistant_turn_count < 3
+                and session.phase != SessionPhase.TRIAGE
+                and not byo_in_scope
+            ):
+                _removed_tools |= {"search", "fetch", "peek", "nearby", "list_contents"}
 
             if is_video_mode:
                 # Determine if this is a NEW pause (fresh timestamp) or a follow-up at same spot

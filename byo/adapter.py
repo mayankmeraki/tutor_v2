@@ -1,13 +1,21 @@
 """BYOCollectionAdapter — ContentProvider for student-uploaded materials.
 
-Implements the same 4-method protocol as CapacityCourseAdapter,
-so the tutor uses the same tools regardless of content source.
+Implements the same 4-method protocol as CapacityCourseAdapter, so the
+tutor uses the same tools regardless of content source.
+
+Thin wrappers over `byo.retrieval.service`:
+  - content_search  → service.search (string-formatted)
+  - content_read    → service.fetch
+  - content_peek    → service.peek
+  - content_map     → service.list_contents(group_by="resource")
+  - content_nearby  → service.nearby
 """
 
 from __future__ import annotations
 
 import logging
-from typing import Any
+
+from byo.retrieval import service as retrieval_service
 
 log = logging.getLogger(__name__)
 
@@ -17,10 +25,32 @@ def _get_db():
     return get_mongo_db()
 
 
+def _format_anchor(anchor) -> str:
+    if anchor is None:
+        return ""
+    parts: list[str] = []
+    page = getattr(anchor, "page", None)
+    section = getattr(anchor, "section", None)
+    start = getattr(anchor, "start_time", None)
+    if page is not None:
+        parts.append(f"p. {page}")
+    if section:
+        parts.append(str(section))
+    if start is not None:
+        m = int(start // 60)
+        s = int(start % 60)
+        parts.append(f"{m}:{s:02d}")
+    return " · ".join(parts)
+
+
 class BYOCollectionAdapter:
     """ContentProvider for BYO student materials."""
 
     def __init__(self, collection_id: str, user_id: str):
+        if not user_id:
+            raise ValueError(
+                "BYOCollectionAdapter requires user_id (security boundary)"
+            )
         self.collection_id = collection_id
         self.user_id = user_id
 
@@ -29,192 +59,125 @@ class BYOCollectionAdapter:
         db = _get_db()
 
         col = await db.collections.find_one(
-            {"collection_id": self.collection_id},
+            {"collection_id": self.collection_id, "user_id": self.user_id},
             {"_id": 0, "title": 1, "stats": 1, "intent": 1},
         )
         if not col:
+            # Back-compat: some legacy collections may not have user_id denormalized yet
+            col = await db.collections.find_one(
+                {"collection_id": self.collection_id},
+                {"_id": 0, "title": 1, "stats": 1, "intent": 1},
+            )
+        if not col:
             return "Collection not found."
 
-        lines = [
-            f"{col.get('title', 'Collection')}",
-            f"Intent: {col.get('intent', 'study')}" if col.get("intent") else "",
-            "",
-        ]
+        lines = [f"{col.get('title', 'Collection')}"]
+        if col.get("intent"):
+            lines.append(f"Intent: {col['intent']}")
+        lines.append("")
 
-        # List resources
-        resources = []
-        async for res in db.byo_resources.find(
-            {"collection_id": self.collection_id, "status": "ready"},
-            {"_id": 0, "resource_id": 1, "original_name": 1, "mime_type": 1,
-             "chunk_count": 1, "meta": 1},
-        ):
-            resources.append(res)
-
-        if resources:
+        refs = await retrieval_service.list_contents(
+            self.collection_id,
+            user_id=self.user_id,
+            group_by="resource",
+            limit=50,
+        )
+        if refs:
             lines.append("Resources:")
-            for r in resources:
-                name = r.get("original_name", "?")
-                chunks = r.get("chunk_count", 0)
-                mime = r.get("mime_type", "")
-                type_str = "PDF" if "pdf" in mime else "Video" if "video" in mime or "youtube" in mime else "Text"
-                lines.append(f"  {type_str}: {name} ({chunks} chunks)")
+            for r in refs:
+                lines.append(f"  {r.title} — {r.snippet}")
 
-        # Topics
-        stats = col.get("stats", {})
-        topics = stats.get("topics", [])
+        stats = col.get("stats") or {}
+        topics = stats.get("topics") or []
         if topics:
-            lines.append(f"\nTopics: {', '.join(topics[:20])}")
+            lines.append("")
+            lines.append(f"Topics: {', '.join(topics[:20])}")
 
         return "\n".join(lines)
 
     async def content_read(self, ref: str) -> str:
-        """Read a chunk by ID. Returns full content with citation."""
-        db = _get_db()
-        chunk_id = ref.replace("chunk:", "").strip()
+        """Read a chunk/segment/resource by ref. Returns full content with citation."""
+        # Preserve legacy plain-id input
+        if ":" not in ref:
+            ref = f"chunk:{ref}"
+        hit = await retrieval_service.fetch(ref, user_id=self.user_id)
+        if not hit:
+            return f"{ref} not found."
 
-        chunk = await db.byo_chunks.find_one(
-            {"chunk_id": chunk_id, "collection_id": self.collection_id},
-            {"_id": 0, "embedding": 0},
-        )
-        if not chunk:
-            return f"Chunk {chunk_id} not found."
+        citation_parts: list[str] = []
+        if hit.resource_name:
+            citation_parts.append(hit.resource_name)
+        anchor_str = _format_anchor(hit.anchor)
+        if anchor_str:
+            citation_parts.append(anchor_str)
+        citation = " — ".join(citation_parts) if citation_parts else hit.chunk_id
 
-        # Build citation
-        anchor = chunk.get("anchor", {})
-        resource = await db.byo_resources.find_one(
-            {"resource_id": chunk.get("resource_id")},
-            {"_id": 0, "original_name": 1},
-        )
-        source_name = resource.get("original_name", "Unknown") if resource else "Unknown"
-
-        citation_parts = [source_name]
-        if anchor.get("page"):
-            citation_parts.append(f"p. {anchor['page']}")
-        if anchor.get("section"):
-            citation_parts.append(anchor["section"])
-        if anchor.get("start_time") is not None:
-            m = int(anchor["start_time"] // 60)
-            s = int(anchor["start_time"] % 60)
-            citation_parts.append(f"{m}:{s:02d}")
-
-        citation = " — ".join(citation_parts)
-
-        content = chunk.get("content", "")
-        labels = chunk.get("labels", [])
-        topics = chunk.get("topics", [])
-
-        result_parts = [content]
-        if labels:
-            result_parts.append(f"\nType: {', '.join(labels)}")
-        if topics:
-            result_parts.append(f"Topics: {', '.join(topics)}")
-        result_parts.append(f"Source: {citation}")
-
-        return "\n".join(result_parts)
+        parts = [hit.content or ""]
+        if hit.labels:
+            parts.append(f"\nType: {', '.join(hit.labels)}")
+        if hit.topics:
+            parts.append(f"Topics: {', '.join(hit.topics)}")
+        parts.append(f"Source: {citation}")
+        return "\n".join(parts)
 
     async def content_search(self, query: str, limit: int = 5) -> str:
-        """Vector search across all chunks in this collection."""
-        db = _get_db()
-
+        """Hybrid search across this collection."""
         try:
-            from app.services.embedding_service import generate_embedding
-            embedding = await generate_embedding(query)
-
-            if embedding:
-                pipeline = [
-                    {
-                        "$vectorSearch": {
-                            "index": "byo_chunks_vector",
-                            "path": "embedding",
-                            "queryVector": embedding,
-                            "numCandidates": limit * 5,
-                            "limit": limit,
-                            "filter": {"collection_id": self.collection_id},
-                        }
-                    },
-                    {
-                        "$project": {
-                            "_id": 0, "chunk_id": 1, "content": 1, "labels": 1,
-                            "topics": 1, "anchor": 1, "resource_id": 1,
-                            "score": {"$meta": "vectorSearchScore"},
-                        }
-                    },
-                ]
-                results = []
-                async for doc in db.byo_chunks.aggregate(pipeline):
-                    results.append(doc)
-
-                if results:
-                    lines = [f'Search results for "{query}":']
-                    for r in results:
-                        ref = f"chunk:{r.get('chunk_id', '?')}"
-                        preview = r.get("content", "")[:100]
-                        labels = ", ".join(r.get("labels", []))
-                        lines.append(f"  {ref}  [{labels}] {preview}...")
-                    return "\n".join(lines)
-
+            hits = await retrieval_service.search(
+                query,
+                user_id=self.user_id,
+                scope="collection",
+                collection_id=self.collection_id,
+                k=limit,
+            )
         except Exception as e:
-            log.warning("Vector search failed: %s", e)
+            log.warning("BYO content_search failed: %s", e)
+            hits = []
 
-        # Fallback: text search
-        cursor = db.byo_chunks.find(
-            {
-                "collection_id": self.collection_id,
-                "$or": [
-                    {"content": {"$regex": query, "$options": "i"}},
-                    {"topics": {"$regex": query, "$options": "i"}},
-                ],
-            },
-            {"_id": 0, "chunk_id": 1, "content": 1, "labels": 1, "topics": 1},
-        ).limit(limit)
-
-        results = [doc async for doc in cursor]
-        if not results:
+        if not hits:
             return "No results found."
 
-        lines = [f'Text search results for "{query}":']
-        for r in results:
-            ref = f"chunk:{r.get('chunk_id', '?')}"
-            preview = r.get("content", "")[:100]
-            lines.append(f"  {ref}  {preview}...")
+        lines = [f'Search results for "{query}":']
+        for h in hits:
+            ref = f"chunk:{h.chunk_id}"
+            preview = (h.content or "")[:100].replace("\n", " ")
+            labels = ", ".join(h.labels) if h.labels else ""
+            tag = f"[{labels}] " if labels else ""
+            lines.append(f"  {ref}  {tag}{preview}...")
         return "\n".join(lines)
 
     async def content_peek(self, ref: str) -> str:
-        """Brief summary of a chunk or resource."""
-        db = _get_db()
+        """Brief summary of a chunk, segment, or resource."""
+        if ":" not in ref:
+            ref = f"chunk:{ref}"
+        summary = await retrieval_service.peek(ref, user_id=self.user_id)
+        if not summary:
+            return f"{ref} not found."
 
-        # Check if it's a resource ref
-        if ref.startswith("resource:"):
-            resource_id = ref.replace("resource:", "").strip()
-            res = await db.byo_resources.find_one(
-                {"resource_id": resource_id, "collection_id": self.collection_id},
-                {"_id": 0},
-            )
-            if not res:
-                return f"Resource {resource_id} not found."
+        preview = summary.snippet
+        title = summary.title
+        lines = [f"[{title}] {preview}"] if title else [preview]
+        anchor_str = _format_anchor(summary.anchor)
+        if anchor_str:
+            lines.append(f"At: {anchor_str}")
+        return "\n".join(lines)
 
-            name = res.get("original_name", "?")
-            chunks = res.get("chunk_count", 0)
-            meta = res.get("meta", {})
-            lines = [f"{name} — {chunks} chunks"]
-            if meta.get("pages"):
-                lines.append(f"Pages: {meta['pages']}")
-            if meta.get("duration"):
-                lines.append(f"Duration: {int(meta['duration'] // 60)} min")
-            return "\n".join(lines)
-
-        # Chunk ref
-        chunk_id = ref.replace("chunk:", "").strip()
-        chunk = await db.byo_chunks.find_one(
-            {"chunk_id": chunk_id, "collection_id": self.collection_id},
-            {"_id": 0, "content": 1, "labels": 1, "topics": 1, "anchor": 1},
+    async def content_nearby(self, ref: str, window: int = 1) -> str:
+        """Deterministic anchor walk around a ref. Returns joined content."""
+        if ":" not in ref:
+            ref = f"chunk:{ref}"
+        hits = await retrieval_service.nearby(
+            ref, user_id=self.user_id, window=window,
         )
-        if not chunk:
-            return f"Chunk {chunk_id} not found."
-
-        content = chunk.get("content", "")
-        preview = content[:150] + "..." if len(content) > 150 else content
-        labels = ", ".join(chunk.get("labels", []))
-        topics = ", ".join(chunk.get("topics", []))
-
-        return f"[{labels}] {preview}\nTopics: {topics}"
+        if not hits:
+            return f"No nearby content for {ref}."
+        lines: list[str] = []
+        for h in hits:
+            anchor_str = _format_anchor(h.anchor)
+            header = f"chunk:{h.chunk_id}"
+            if anchor_str:
+                header = f"{header} ({anchor_str})"
+            lines.append(header)
+            lines.append(h.content or "")
+            lines.append("")
+        return "\n".join(lines).rstrip()

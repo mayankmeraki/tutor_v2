@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/v1/byo", tags=["byo"])
 def _validate_local_path(storage_path: str) -> bool:
     """Validate that a local storage path is safe to serve (no path traversal)."""
     import os
-    from byo.storage.local import UPLOAD_DIR
+    from byo.shared.storage.local import UPLOAD_DIR
     resolved = os.path.realpath(storage_path)
     base = os.path.realpath(UPLOAD_DIR)
     return resolved.startswith(base + os.sep) or resolved.startswith(base)
@@ -45,7 +45,7 @@ def _get_db():
 
 
 def _get_storage():
-    from byo.storage import default_storage
+    from byo.shared.storage import default_storage
     return default_storage
 
 
@@ -202,7 +202,7 @@ async def move_resource_to_collection(collection_id: str, request: Request, user
     )
 
     # Update stats on both collections
-    from byo.pipeline.orchestrator import _update_collection_stats
+    from byo.processing.orchestrator import _update_collection_stats
     await _update_collection_stats(db, old_collection_id)
     await _update_collection_stats(db, collection_id)
 
@@ -362,7 +362,27 @@ async def add_resource(
         meta = {"mime_type": mime, "storage_path": storage_path}
 
     elif url:
-        # URL (YouTube, article)
+        # URL (YouTube, article) — dedupe against the same source_url in
+        # this collection. Mirrors the file_hash dedupe above. We skip
+        # resources that previously errored so the student can retry a
+        # failed URL by pasting it again.
+        existing = await db.byo_resources.find_one(
+            {
+                "collection_id": collection_id,
+                "source_url": url,
+                "status": {"$ne": "error"},
+            },
+            {"resource_id": 1, "original_name": 1, "source_url": 1},
+        )
+        if existing:
+            return {
+                "resource_id": existing["resource_id"],
+                "job_id": None,
+                "status": "duplicate",
+                "message": (
+                    f"Already added as '{existing.get('original_name', url[:60])}'"
+                ),
+            }
         mime = "application/x-youtube" if "youtube" in url or "youtu.be" in url else "text/html"
         doc = {
             "resource_id": resource_id,
@@ -422,7 +442,7 @@ async def add_resource(
     # Submit processing job (wrapped in try/except — resource already exists)
     job_id = None
     try:
-        from byo.pipeline.orchestrator import submit_processing_job
+        from byo.processing.orchestrator import submit_processing_job
         job_id = await submit_processing_job(resource_id, collection_id, user["email"], meta)
     except Exception as e:
         log.error("Failed to submit processing job for %s: %s", resource_id[:8], e)
@@ -452,27 +472,86 @@ async def list_resources(collection_id: str, request: Request, user: dict = Depe
     return [doc async for doc in cursor]
 
 
+@router.post("/collections/{collection_id}/resources/{resource_id}/retry")
+async def retry_resource(collection_id: str, resource_id: str, request: Request, user: dict = Depends(_get_user)):
+    """Re-submit a failed resource for processing.
+
+    Resets the resource's status to queued, clears stale chunks/segments,
+    and enqueues a fresh processing job. Returns the new job_id.
+    """
+    db = _get_db()
+    resource = await db.byo_resources.find_one(
+        {"resource_id": resource_id, "collection_id": collection_id, "user_id": user["email"]},
+    )
+    if not resource:
+        raise HTTPException(status_code=404, detail="Resource not found")
+
+    # Reset resource state
+    await db.byo_resources.update_one(
+        {"resource_id": resource_id},
+        {"$set": {"status": "queued", "progress": 0.0, "error": None}},
+    )
+    # Clear stale chunks/segments from the previous (failed) attempt
+    await db.byo_chunks.delete_many({"resource_id": resource_id})
+    await db.byo_segments.delete_many({"resource_id": resource_id})
+
+    # Build the meta the orchestrator needs
+    meta = {
+        "mime_type": resource.get("mime_type", ""),
+        "storage_path": resource.get("storage_path"),
+        "source_url": resource.get("source_url"),
+    }
+    if resource.get("meta", {}).get("text"):
+        meta["text"] = resource["meta"]["text"]
+
+    job_id = None
+    try:
+        from byo.processing.orchestrator import submit_processing_job
+        job_id = await submit_processing_job(resource_id, collection_id, user["email"], meta)
+    except Exception as e:
+        log.error("Retry job submission failed for %s: %s", resource_id[:8], e)
+        await db.byo_resources.update_one(
+            {"resource_id": resource_id},
+            {"$set": {"status": "error", "error": f"Retry failed: {str(e)[:200]}"}},
+        )
+        raise HTTPException(status_code=500, detail="Failed to re-submit job")
+
+    # Refresh collection status (it may have been stuck at 'error')
+    from byo.processing.orchestrator import _update_collection_stats
+    await _update_collection_stats(db, collection_id)
+
+    log.info("Retry resource %s in collection %s, new job %s",
+             resource_id[:8], collection_id[:8], (job_id or "?")[:8])
+    return {"resource_id": resource_id, "job_id": job_id, "status": "queued"}
+
+
 @router.delete("/collections/{collection_id}/resources/{resource_id}")
 async def delete_resource(collection_id: str, resource_id: str, request: Request, user: dict = Depends(_get_user)):
-    """Remove a resource, its chunks, and the underlying file."""
+    """Remove a resource, its chunks/segments, and the underlying file."""
     db = _get_db()
 
-    # Get the storage path before deleting
     resource = await db.byo_resources.find_one(
         {"resource_id": resource_id, "user_id": user["email"]},
         {"storage_path": 1},
     )
 
     await db.byo_chunks.delete_many({"resource_id": resource_id})
+    await db.byo_segments.delete_many({"resource_id": resource_id})
     await db.byo_resources.delete_one({"resource_id": resource_id, "user_id": user["email"]})
 
-    # Delete the actual file from storage
     if resource and resource.get("storage_path"):
         try:
             storage = _get_storage()
             await storage.delete(resource["storage_path"])
         except Exception as e:
             log.warning("Failed to delete file %s: %s", resource["storage_path"][:40], e)
+
+    # Refresh collection stats so item count + status updates
+    from byo.processing.orchestrator import _update_collection_stats
+    try:
+        await _update_collection_stats(db, collection_id)
+    except Exception:
+        pass
 
     return {"ok": True}
 
@@ -483,7 +562,7 @@ async def delete_resource(collection_id: str, resource_id: str, request: Request
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str, request: Request, user: dict = Depends(_get_user)):
     """Poll processing job status."""
-    from byo.pipeline.orchestrator import get_job_status
+    from byo.processing.orchestrator import get_job_status
     status = await get_job_status(job_id)
     if not status:
         raise HTTPException(status_code=404, detail="Job not found")
@@ -599,7 +678,7 @@ async def serve_audio(audio_id: str, request: Request, user: dict = Depends(_get
     storage_path = resource.get("storage_path", "")
     if storage_path.startswith("gs://"):
         storage = _get_storage()
-        from byo.storage.gcs import GCSStorage
+        from byo.shared.storage.gcs import GCSStorage
         if isinstance(storage, GCSStorage):
             signed_url = storage.generate_signed_url(storage_path, content_type="audio/mpeg")
             return RedirectResponse(url=signed_url, status_code=302)
@@ -639,7 +718,7 @@ async def serve_resource_file(resource_id: str, request: Request, user: dict = D
     # GCS path (gs://...) → redirect to signed URL
     if storage_path.startswith("gs://"):
         storage = _get_storage()
-        from byo.storage.gcs import GCSStorage
+        from byo.shared.storage.gcs import GCSStorage
         if isinstance(storage, GCSStorage):
             signed_url = storage.generate_signed_url(storage_path, content_type=mime_type)
             return RedirectResponse(url=signed_url, status_code=302)

@@ -1,0 +1,598 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — Actually understand anything</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=Lexend:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0a0b10;
+    --bg-elev: #10121a;
+    --bg-card: #161925;
+    --border: rgba(255,255,255,0.08);
+    --border-strong: rgba(255,255,255,0.14);
+    --text: #e8eaf0;
+    --text-mute: #8c94a8;
+    --text-dim: #5a6275;
+    --accent: #5ba8ff;
+    --accent-glow: rgba(91,168,255,0.18);
+    --accent-2: #a78bfa;
+    --mint: #34d399;
+    --coral: #ff8a8a;
+    --gold: #fbbf24;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { background: var(--bg); color: var(--text); }
+  body {
+    font-family: 'Inter', -apple-system, sans-serif;
+    font-size: 15px;
+    line-height: 1.55;
+    overflow-x: hidden;
+    background:
+      radial-gradient(ellipse 1200px 500px at 50% -100px, rgba(91,168,255,0.08), transparent 70%),
+      radial-gradient(ellipse 800px 400px at 85% 800px, rgba(167,139,250,0.05), transparent 70%),
+      var(--bg);
+  }
+  h1, h2, h3 { font-family: 'Lexend', sans-serif; letter-spacing: -0.02em; line-height: 1.15; }
+  .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
+
+  /* ═══ NAV ═══ */
+  nav {
+    position: sticky; top: 0; z-index: 100;
+    padding: 14px 0;
+    backdrop-filter: blur(12px);
+    background: rgba(10,11,16,0.78);
+    border-bottom: 1px solid var(--border);
+  }
+  nav .container { display: flex; align-items: center; justify-content: space-between; }
+  nav .logo { font-family: 'Lexend', sans-serif; font-weight: 800; font-size: 22px; letter-spacing: -0.03em; }
+  nav .logo em { color: var(--accent); font-style: normal; }
+  nav .right { display: flex; align-items: center; gap: 14px; }
+  nav .signin-btn {
+    padding: 9px 18px; border-radius: 10px; border: 1px solid var(--border-strong);
+    background: transparent; color: var(--text); font-family: inherit; font-size: 13px;
+    font-weight: 500; cursor: pointer; transition: all 0.15s;
+  }
+  nav .signin-btn:hover { background: var(--bg-elev); border-color: var(--accent); }
+
+  /* ═══ HERO ═══ */
+  .hero { padding: 96px 0 72px; text-align: center; }
+  .hero .eyebrow {
+    display: inline-block;
+    padding: 5px 12px;
+    background: rgba(91,168,255,0.08);
+    border: 1px solid rgba(91,168,255,0.18);
+    border-radius: 20px;
+    font-size: 11.5px;
+    font-weight: 500;
+    color: var(--accent);
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+    margin-bottom: 24px;
+  }
+  .hero h1 {
+    font-size: clamp(44px, 6vw, 72px);
+    font-weight: 700;
+    max-width: 880px;
+    margin: 0 auto 18px;
+  }
+  .hero h1 .accent { color: var(--accent); }
+  .hero h1 .strike { position: relative; }
+  .hero h1 .strike::after {
+    content: ''; position: absolute; left: -4%; right: -4%; top: 55%; height: 6px;
+    background: var(--coral); transform: rotate(-2deg); border-radius: 3px;
+  }
+  .hero p.sub {
+    font-size: clamp(16px, 1.6vw, 19px);
+    color: var(--text-mute);
+    max-width: 660px;
+    margin: 0 auto 42px;
+    line-height: 1.55;
+  }
+
+  /* Prompt input */
+  .prompt-box {
+    max-width: 720px; margin: 0 auto;
+    background: var(--bg-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 18px;
+    padding: 16px;
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 4px var(--accent-glow);
+    transition: all 0.2s;
+  }
+  .prompt-box:focus-within {
+    border-color: var(--accent);
+    box-shadow: 0 20px 60px rgba(0,0,0,0.4), 0 0 0 6px var(--accent-glow);
+  }
+  .prompt-box textarea {
+    width: 100%; background: transparent; border: none; outline: none;
+    color: var(--text); font-family: inherit; font-size: 16px; line-height: 1.5;
+    resize: none; min-height: 56px;
+  }
+  .prompt-box textarea::placeholder { color: var(--text-dim); }
+  .prompt-row {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border);
+  }
+  .attach-pill {
+    display: flex; align-items: center; gap: 6px;
+    padding: 7px 12px; background: rgba(255,255,255,0.04); border: 1px solid var(--border);
+    border-radius: 20px; font-size: 12px; color: var(--text-mute); cursor: pointer;
+    transition: all 0.15s;
+  }
+  .attach-pill:hover { background: rgba(255,255,255,0.08); color: var(--text); }
+  .send-btn {
+    display: flex; align-items: center; gap: 8px;
+    padding: 10px 22px; background: var(--accent); color: #0a0b10; border: none;
+    border-radius: 20px; font-family: inherit; font-size: 14px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .send-btn:hover { background: #4a9bf5; transform: translateY(-1px); }
+  .send-btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+
+  /* Subject chips */
+  .subject-chips {
+    display: flex; justify-content: center; flex-wrap: wrap; gap: 8px;
+    max-width: 720px; margin: 20px auto 0;
+  }
+  .chip {
+    padding: 7px 14px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 20px; font-size: 12.5px; color: var(--text-mute); cursor: pointer;
+    transition: all 0.15s; user-select: none;
+  }
+  .chip:hover { border-color: var(--accent); color: var(--text); background: rgba(91,168,255,0.06); }
+  .chip .emoji { margin-right: 5px; }
+
+  /* ═══ SECTION BASE ═══ */
+  section { padding: 80px 0; }
+  section.tight { padding: 56px 0; }
+  .section-head { text-align: center; margin-bottom: 48px; }
+  .section-head .label {
+    font-size: 12px; font-weight: 600; color: var(--accent); letter-spacing: 0.08em;
+    text-transform: uppercase; margin-bottom: 10px;
+  }
+  .section-head h2 {
+    font-size: clamp(30px, 4vw, 44px); font-weight: 700; max-width: 700px; margin: 0 auto 12px;
+  }
+  .section-head p {
+    font-size: 16px; color: var(--text-mute); max-width: 580px; margin: 0 auto;
+  }
+
+  /* ═══ USE CASE GRID ═══ */
+  .usecase-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px;
+  }
+  .usecase {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 24px 22px; cursor: pointer; transition: all 0.2s;
+    position: relative; overflow: hidden;
+  }
+  .usecase::before {
+    content: ''; position: absolute; inset: 0;
+    background: linear-gradient(135deg, transparent 60%, var(--_glow, rgba(91,168,255,0.08)));
+    opacity: 0; transition: opacity 0.2s; pointer-events: none;
+  }
+  .usecase:hover { border-color: var(--border-strong); transform: translateY(-2px); }
+  .usecase:hover::before { opacity: 1; }
+  .usecase .icon {
+    width: 42px; height: 42px; border-radius: 12px; display: flex; align-items: center;
+    justify-content: center; font-size: 22px; margin-bottom: 18px;
+    background: var(--_bg, rgba(91,168,255,0.12));
+  }
+  .usecase h3 {
+    font-size: 17px; font-weight: 600; margin-bottom: 8px; color: var(--text);
+    font-family: 'Inter', sans-serif; letter-spacing: -0.01em;
+  }
+  .usecase p { font-size: 13.5px; color: var(--text-mute); line-height: 1.55; }
+  .usecase .example {
+    margin-top: 14px; padding-top: 14px; border-top: 1px dashed var(--border);
+    font-size: 12px; color: var(--text-dim); font-family: 'JetBrains Mono', monospace;
+    font-style: italic;
+  }
+  .uc-teach  { --_bg: rgba(91,168,255,0.12); --_glow: rgba(91,168,255,0.08); }
+  .uc-hw     { --_bg: rgba(167,139,250,0.12); --_glow: rgba(167,139,250,0.08); }
+  .uc-exam   { --_bg: rgba(251,191,36,0.12); --_glow: rgba(251,191,36,0.08); }
+  .uc-video  { --_bg: rgba(255,138,138,0.12); --_glow: rgba(255,138,138,0.08); }
+  .uc-code   { --_bg: rgba(52,211,153,0.12); --_glow: rgba(52,211,153,0.08); }
+  .uc-byo    { --_bg: rgba(91,168,255,0.12); --_glow: rgba(91,168,255,0.08); }
+
+  /* ═══ HOW IT WORKS ═══ */
+  .steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px; }
+  .step {
+    padding: 28px 24px; background: var(--bg-card); border: 1px solid var(--border);
+    border-radius: 16px; position: relative;
+  }
+  .step .num {
+    position: absolute; top: -16px; left: 24px;
+    width: 32px; height: 32px; border-radius: 50%;
+    background: var(--accent); color: #0a0b10;
+    display: flex; align-items: center; justify-content: center;
+    font-weight: 700; font-size: 14px; font-family: 'Lexend', sans-serif;
+  }
+  .step h3 { font-size: 17px; font-weight: 600; margin-bottom: 8px; margin-top: 4px; font-family: 'Inter', sans-serif; }
+  .step p { font-size: 13.5px; color: var(--text-mute); }
+
+  /* ═══ DEMO STRIP ═══ */
+  .demo-strip {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+  }
+  .demo-card {
+    background: var(--bg-card); border: 1px solid var(--border); border-radius: 16px;
+    padding: 20px; min-height: 280px; display: flex; flex-direction: column;
+  }
+  .demo-card .subject {
+    font-size: 11px; font-weight: 600; color: var(--accent); text-transform: uppercase;
+    letter-spacing: 0.08em; margin-bottom: 8px;
+  }
+  .demo-card .demo-title {
+    font-family: 'Lexend', sans-serif; font-size: 18px; font-weight: 600; margin-bottom: 16px;
+    line-height: 1.3;
+  }
+  .demo-viz {
+    flex: 1; background: #0a0b10; border: 1px solid var(--border); border-radius: 10px;
+    display: flex; align-items: center; justify-content: center; overflow: hidden;
+    font-family: 'JetBrains Mono', monospace; font-size: 11px; color: var(--text-dim);
+    position: relative;
+  }
+  .demo-math { background: radial-gradient(circle at 30% 40%, rgba(91,168,255,0.15), transparent 50%); }
+  .demo-cs   { background: radial-gradient(circle at 70% 50%, rgba(52,211,153,0.15), transparent 50%); }
+  .demo-bio  { background: radial-gradient(circle at 50% 60%, rgba(167,139,250,0.15), transparent 50%); }
+  .demo-viz svg { max-width: 95%; max-height: 95%; }
+
+  /* ═══ FEATURES ═══ */
+  .features { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 18px; }
+  .feature { text-align: center; padding: 24px 16px; }
+  .feature .ico {
+    width: 48px; height: 48px; margin: 0 auto 14px;
+    border-radius: 14px;
+    background: linear-gradient(135deg, rgba(91,168,255,0.12), rgba(167,139,250,0.08));
+    display: flex; align-items: center; justify-content: center; font-size: 22px;
+  }
+  .feature h4 { font-size: 14px; font-weight: 600; margin-bottom: 6px; font-family: 'Inter', sans-serif; }
+  .feature p { font-size: 12.5px; color: var(--text-mute); }
+
+  /* ═══ FINAL CTA ═══ */
+  .final-cta {
+    background: linear-gradient(135deg, rgba(91,168,255,0.08), rgba(167,139,250,0.06));
+    border: 1px solid rgba(91,168,255,0.2);
+    border-radius: 22px;
+    padding: 56px 32px; text-align: center;
+    margin: 48px 0;
+  }
+  .final-cta h2 { font-size: clamp(28px, 3.5vw, 38px); font-weight: 700; margin-bottom: 10px; }
+  .final-cta p { font-size: 16px; color: var(--text-mute); max-width: 520px; margin: 0 auto 28px; }
+  .final-cta .google-btn {
+    display: inline-flex; align-items: center; gap: 12px;
+    padding: 14px 28px; background: #fff; color: #0a0b10; border: none;
+    border-radius: 14px; font-family: inherit; font-size: 15px; font-weight: 600;
+    cursor: pointer; transition: all 0.15s;
+  }
+  .final-cta .google-btn:hover { transform: translateY(-1px); box-shadow: 0 10px 30px rgba(255,255,255,0.12); }
+  .g-logo {
+    width: 20px; height: 20px; border-radius: 50%;
+    background: conic-gradient(from 0deg, #ea4335, #fbbc04, #34a853, #4285f4, #ea4335);
+    display: inline-block;
+  }
+
+  /* ═══ FOOTER ═══ */
+  footer {
+    padding: 40px 0; border-top: 1px solid var(--border);
+    color: var(--text-dim); font-size: 13px; text-align: center;
+  }
+
+  /* ═══ RESPONSIVE ═══ */
+  @media (max-width: 760px) {
+    .steps, .demo-strip { grid-template-columns: 1fr; }
+    .hero { padding: 60px 0 40px; }
+    section { padding: 56px 0; }
+  }
+</style>
+</head>
+<body>
+
+<!-- NAV -->
+<nav>
+  <div class="container">
+    <div class="logo"><em>E</em>uler</div>
+    <div class="right">
+      <button class="signin-btn" onclick="openSignIn()">Sign in</button>
+    </div>
+  </div>
+</nav>
+
+<!-- HERO -->
+<section class="hero">
+  <div class="container">
+    <div class="eyebrow">Live AI tutor · Not a chatbot</div>
+    <h1>
+      Learn anything.<br>
+      <span class="strike">Memorize</span> <span class="accent">Actually understand</span> it.
+    </h1>
+    <p class="sub">
+      Ask a question, upload your homework, or paste a lecture.
+      Euler draws on a whiteboard, explains out loud, and asks <em>you</em> questions back —
+      until you really get it.
+    </p>
+
+    <!-- Prompt input -->
+    <div class="prompt-box">
+      <textarea id="hero-input" placeholder="Type what you want to learn... e.g. &quot;teach me the chain rule&quot;, &quot;help with this organic chem homework&quot;, &quot;explain how transformers work&quot;"></textarea>
+      <div class="prompt-row">
+        <div style="display:flex;gap:8px">
+          <div class="attach-pill">📎 Attach file</div>
+          <div class="attach-pill">🎥 Paste video URL</div>
+        </div>
+        <button class="send-btn" onclick="openSignIn()">
+          Start learning
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Subject chips -->
+    <div class="subject-chips">
+      <div class="chip" onclick="setPrompt('Teach me the chain rule with examples')"><span class="emoji">🧮</span>Math</div>
+      <div class="chip" onclick="setPrompt('Explain entropy in plain words')"><span class="emoji">⚛️</span>Physics</div>
+      <div class="chip" onclick="setPrompt('Walk me through SN1 vs SN2 reactions')"><span class="emoji">🧪</span>Chemistry</div>
+      <div class="chip" onclick="setPrompt('Teach me how DNA transcription works')"><span class="emoji">🧬</span>Biology</div>
+      <div class="chip" onclick="setPrompt('Explain how transformers work for NLP')"><span class="emoji">💻</span>CS &amp; ML</div>
+      <div class="chip" onclick="setPrompt('Teach me DCF valuation for a startup')"><span class="emoji">📊</span>Business</div>
+      <div class="chip" onclick="setPrompt('Prep me for my AP Calc BC exam next month')"><span class="emoji">🎯</span>Exam prep</div>
+      <div class="chip" onclick="setPrompt('Help me debug this Python binary search')"><span class="emoji">🐛</span>Debug code</div>
+    </div>
+  </div>
+</section>
+
+<!-- USE CASES -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="label">What can I actually use this for?</div>
+      <h2>One tutor, six ways to learn</h2>
+      <p>Euler adapts to what you're trying to do — not a one-size-fits-all chatbot.</p>
+    </div>
+
+    <div class="usecase-grid">
+      <div class="usecase uc-teach" onclick="openSignIn()">
+        <div class="icon">🎓</div>
+        <h3>Teach me something new</h3>
+        <p>Pick any topic — Euler builds a personalized lesson, from first principles to advanced.</p>
+        <div class="example">"teach me Fourier transforms"</div>
+      </div>
+
+      <div class="usecase uc-hw" onclick="openSignIn()">
+        <div class="icon">📝</div>
+        <h3>Help me with homework</h3>
+        <p>Upload the problem (PDF, photo). Euler guides you through it — never just gives the answer.</p>
+        <div class="example">"explain problem 3 on this worksheet"</div>
+      </div>
+
+      <div class="usecase uc-exam" onclick="openSignIn()">
+        <div class="icon">🎯</div>
+        <h3>Prep me for an exam</h3>
+        <p>Tell Euler the exam date and syllabus. It runs targeted drills on your weak spots.</p>
+        <div class="example">"AP Biology exam in 3 weeks — focus on genetics"</div>
+      </div>
+
+      <div class="usecase uc-video" onclick="openSignIn()">
+        <div class="icon">🎥</div>
+        <h3>Watch a lecture with a tutor</h3>
+        <p>Paste a YouTube URL. Pause anytime to ask — Euler knows the lecture context.</p>
+        <div class="example">"walk through this 3Blue1Brown calculus video"</div>
+      </div>
+
+      <div class="usecase uc-code" onclick="openSignIn()">
+        <div class="icon">💻</div>
+        <h3>Understand &amp; debug code</h3>
+        <p>Python runs live in the board. Euler steps through, predicts output, finds bugs with you.</p>
+        <div class="example">"trace this binary search and fix the bug"</div>
+      </div>
+
+      <div class="usecase uc-byo" onclick="openSignIn()">
+        <div class="icon">📚</div>
+        <h3>Teach from my materials</h3>
+        <p>Upload your textbook chapter, notes, or slides. Euler teaches from <em>your</em> content.</p>
+        <div class="example">"teach from chapter 4 of Griffiths"</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- HOW IT WORKS -->
+<section class="tight">
+  <div class="container">
+    <div class="section-head">
+      <div class="label">How it works</div>
+      <h2>Say what you want. Learn it live.</h2>
+    </div>
+    <div class="steps">
+      <div class="step">
+        <div class="num">1</div>
+        <h3>Tell Euler what you're working on</h3>
+        <p>Type a question, paste a video, upload homework. Natural language — no course catalog to navigate.</p>
+      </div>
+      <div class="step">
+        <div class="num">2</div>
+        <h3>It teaches on a live whiteboard</h3>
+        <p>Diagrams, equations, 3D animations and code — drawn as Euler explains, synced to its voice.</p>
+      </div>
+      <div class="step">
+        <div class="num">3</div>
+        <h3>It asks <em>you</em> questions back</h3>
+        <p>No passive watching. Euler probes your understanding, adapts depth, and tracks what you know.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- DEMO STRIP -->
+<section class="tight">
+  <div class="container">
+    <div class="section-head">
+      <div class="label">Live on the board</div>
+      <h2>What a session actually looks like</h2>
+      <p>Not slides. Not chat. A real whiteboard being drawn, beat-by-beat.</p>
+    </div>
+
+    <div class="demo-strip">
+      <div class="demo-card">
+        <div class="subject">Math · Calculus</div>
+        <div class="demo-title">"Show me why the derivative of sin(x) is cos(x)"</div>
+        <div class="demo-viz demo-math">
+          <svg viewBox="0 0 260 160" xmlns="http://www.w3.org/2000/svg">
+            <path d="M 10 80 Q 40 20, 70 80 T 130 80 T 190 80 T 250 80" stroke="#5ba8ff" stroke-width="2" fill="none" opacity="0.9"/>
+            <path d="M 10 80 Q 40 140, 70 80 T 130 80 T 190 80 T 250 80" stroke="#a78bfa" stroke-width="2" fill="none" opacity="0.6"/>
+            <line x1="10" y1="80" x2="250" y2="80" stroke="#444" stroke-width="1"/>
+            <text x="130" y="20" fill="#5ba8ff" font-size="10" text-anchor="middle" font-family="JetBrains Mono">y = sin(x)</text>
+            <text x="130" y="140" fill="#a78bfa" font-size="10" text-anchor="middle" font-family="JetBrains Mono">y' = cos(x)</text>
+            <circle cx="70" cy="80" r="3" fill="#34d399"/>
+            <line x1="55" y1="80" x2="85" y2="80" stroke="#34d399" stroke-width="1.5"/>
+          </svg>
+        </div>
+      </div>
+
+      <div class="demo-card">
+        <div class="subject">CS · Algorithms</div>
+        <div class="demo-title">"Trace binary search on this array"</div>
+        <div class="demo-viz demo-cs">
+          <svg viewBox="0 0 260 160" xmlns="http://www.w3.org/2000/svg">
+            <g font-family="JetBrains Mono" font-size="11">
+              <rect x="10" y="40" width="28" height="28" rx="3" fill="#1a1d2e" stroke="#333"/><text x="24" y="58" text-anchor="middle" fill="#8c94a8">2</text>
+              <rect x="42" y="40" width="28" height="28" rx="3" fill="#1a1d2e" stroke="#333"/><text x="56" y="58" text-anchor="middle" fill="#8c94a8">5</text>
+              <rect x="74" y="40" width="28" height="28" rx="3" fill="#34d399" stroke="#34d399" opacity="0.4"/><text x="88" y="58" text-anchor="middle" fill="#34d399">8</text>
+              <rect x="106" y="40" width="28" height="28" rx="3" fill="#1a1d2e" stroke="#333"/><text x="120" y="58" text-anchor="middle" fill="#8c94a8">13</text>
+              <rect x="138" y="40" width="28" height="28" rx="3" fill="#fbbf24" stroke="#fbbf24" opacity="0.4"/><text x="152" y="58" text-anchor="middle" fill="#fbbf24">21</text>
+              <rect x="170" y="40" width="28" height="28" rx="3" fill="#1a1d2e" stroke="#333"/><text x="184" y="58" text-anchor="middle" fill="#8c94a8">34</text>
+              <rect x="202" y="40" width="28" height="28" rx="3" fill="#1a1d2e" stroke="#333"/><text x="216" y="58" text-anchor="middle" fill="#8c94a8">55</text>
+              <text x="88" y="95" text-anchor="middle" fill="#34d399" font-size="10">lo</text>
+              <text x="152" y="95" text-anchor="middle" fill="#fbbf24" font-size="10">mid</text>
+              <text x="130" y="125" text-anchor="middle" fill="#8c94a8" font-size="10">target: 21 ✓</text>
+            </g>
+          </svg>
+        </div>
+      </div>
+
+      <div class="demo-card">
+        <div class="subject">Biology · Molecular</div>
+        <div class="demo-title">"How does DNA become protein?"</div>
+        <div class="demo-viz demo-bio">
+          <svg viewBox="0 0 260 160" xmlns="http://www.w3.org/2000/svg">
+            <g font-family="JetBrains Mono" font-size="10">
+              <rect x="10" y="60" width="60" height="40" rx="6" fill="#1a1d2e" stroke="#a78bfa"/>
+              <text x="40" y="78" text-anchor="middle" fill="#a78bfa" font-weight="600">DNA</text>
+              <text x="40" y="92" text-anchor="middle" fill="#8c94a8" font-size="8">double helix</text>
+
+              <path d="M 70 80 L 95 80" stroke="#a78bfa" stroke-width="1.5" marker-end="url(#arrow)"/>
+              <text x="82" y="72" text-anchor="middle" fill="#8c94a8" font-size="8">transcribe</text>
+
+              <rect x="95" y="60" width="60" height="40" rx="6" fill="#1a1d2e" stroke="#5ba8ff"/>
+              <text x="125" y="78" text-anchor="middle" fill="#5ba8ff" font-weight="600">mRNA</text>
+              <text x="125" y="92" text-anchor="middle" fill="#8c94a8" font-size="8">single strand</text>
+
+              <path d="M 155 80 L 180 80" stroke="#5ba8ff" stroke-width="1.5" marker-end="url(#arrow2)"/>
+              <text x="167" y="72" text-anchor="middle" fill="#8c94a8" font-size="8">translate</text>
+
+              <rect x="180" y="60" width="60" height="40" rx="6" fill="#1a1d2e" stroke="#34d399"/>
+              <text x="210" y="78" text-anchor="middle" fill="#34d399" font-weight="600">Protein</text>
+              <text x="210" y="92" text-anchor="middle" fill="#8c94a8" font-size="8">folded</text>
+
+              <defs>
+                <marker id="arrow" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M 0 0 L 8 4 L 0 8 z" fill="#a78bfa"/>
+                </marker>
+                <marker id="arrow2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto">
+                  <path d="M 0 0 L 8 4 L 0 8 z" fill="#5ba8ff"/>
+                </marker>
+              </defs>
+            </g>
+          </svg>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- WHY IT'S DIFFERENT -->
+<section>
+  <div class="container">
+    <div class="section-head">
+      <div class="label">Why it's different</div>
+      <h2>Built on how students actually learn</h2>
+      <p>Not a chatbot with extra features — a teaching agent that replicates 1-on-1 tutoring.</p>
+    </div>
+
+    <div class="features">
+      <div class="feature">
+        <div class="ico">🎨</div>
+        <h4>Live whiteboard</h4>
+        <p>Watches an idea being drawn, not dumped as text</p>
+      </div>
+      <div class="feature">
+        <div class="ico">🗣️</div>
+        <h4>Synchronized voice</h4>
+        <p>Euler speaks as it draws — low cognitive load</p>
+      </div>
+      <div class="feature">
+        <div class="ico">🎬</div>
+        <h4>3D animations</h4>
+        <p>Molecules, fields, surfaces — explored from any angle</p>
+      </div>
+      <div class="feature">
+        <div class="ico">⚡</div>
+        <h4>Runs your code</h4>
+        <p>Python executes in the browser — predict, verify, debug</p>
+      </div>
+      <div class="feature">
+        <div class="ico">🧠</div>
+        <h4>Remembers you</h4>
+        <p>Tracks every concept you've mastered across sessions</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- FINAL CTA -->
+<section>
+  <div class="container">
+    <div class="final-cta">
+      <h2>Try Euler — it's free to start</h2>
+      <p>Sign in with Google. No passwords, no credit card, verified email.</p>
+      <button class="google-btn" onclick="openSignIn()">
+        <span class="g-logo"></span>
+        Sign in with Google
+      </button>
+    </div>
+  </div>
+</section>
+
+<!-- FOOTER -->
+<footer>
+  <div class="container">
+    Euler · Learn anything live · <span style="color:#444">© 2026</span>
+  </div>
+</footer>
+
+<script>
+  function setPrompt(text) {
+    const input = document.getElementById('hero-input');
+    if (input) {
+      input.value = text;
+      input.focus();
+      input.style.height = 'auto';
+      input.style.height = input.scrollHeight + 'px';
+    }
+  }
+  function openSignIn() {
+    // Placeholder — in real app this would call openLoginModal()
+    alert('In production: opens Google sign-in modal. Mockup — no action.');
+  }
+  // Auto-resize textarea
+  document.getElementById('hero-input')?.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = this.scrollHeight + 'px';
+  });
+</script>
+</body>
+</html>

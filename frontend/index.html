@@ -145,6 +145,44 @@
 
         </div>
 
+        <!-- ═══ BYO / Collections callout ═══ -->
+        <div style="max-width:860px;margin:56px auto 0;padding:0 24px">
+          <div style="text-align:center;margin-bottom:40px">
+            <div style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px">Study your way</div>
+            <h2 style="font-size:28px;font-weight:700;letter-spacing:-.3px;color:#fff;margin:0 0 12px">Your materials. Organized. Taught.</h2>
+            <p style="font-size:14px;color:var(--text-muted);line-height:1.7;max-width:540px;margin:0 auto">Group your study materials into <strong style="color:rgba(255,255,255,.8)">collections</strong> &mdash; exam papers, lecture notes, textbooks, YouTube playlists &mdash; and let Euler teach you directly from them.</p>
+          </div>
+
+          <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:20px;margin-bottom:16px">
+            <!-- card 1 -->
+            <div style="padding:22px 18px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
+              <div style="width:38px;height:38px;border-radius:10px;display:grid;place-items:center;margin-bottom:12px;background:rgba(52,211,153,.08)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+              </div>
+              <h3 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.9);margin:0 0 6px">Collections</h3>
+              <p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin:0">Group files by subject, exam, or topic. Each collection is a self-contained study pack the tutor searches when you ask a question.</p>
+            </div>
+            <!-- card 2 -->
+            <div style="padding:22px 18px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
+              <div style="width:38px;height:38px;border-radius:10px;display:grid;place-items:center;margin-bottom:12px;background:rgba(129,140,248,.08)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="1.8" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+              </div>
+              <h3 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.9);margin:0 0 6px">Any format</h3>
+              <p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin:0">PDFs, lecture slides, handwritten notes, YouTube links, images, audio recordings &mdash; even scanned exam papers are processed via AI vision.</p>
+            </div>
+            <!-- card 3 -->
+            <div style="padding:22px 18px;border-radius:14px;border:1px solid var(--border);background:var(--bg-card)">
+              <div style="width:38px;height:38px;border-radius:10px;display:grid;place-items:center;margin-bottom:12px;background:rgba(248,113,113,.08)">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#f87171" stroke-width="1.8" stroke-linecap="round"><circle cx="11" cy="11" r="8"/><line x1="21" x2="16.65" y1="21" y2="16.65"/></svg>
+              </div>
+              <h3 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.9);margin:0 0 6px">Smart retrieval</h3>
+              <p style="font-size:12px;color:var(--text-muted);line-height:1.6;margin:0">Euler finds the right page, the right paragraph, the right equation &mdash; then explains it with a live board, voice, and step-by-step animation.</p>
+            </div>
+          </div>
+
+          <p style="text-align:center;font-size:12px;color:var(--text-dim);margin:0 0 0">Type <kbd style="font-family:inherit;padding:1px 5px;border-radius:3px;border:1px solid var(--border);background:rgba(255,255,255,.04);color:rgba(255,255,255,.6);font-size:10px">/</kbd> in the chat to scope any question to a specific collection.</p>
+        </div>
+
         <footer style="text-align:center;padding:24px;border-top:1px solid var(--border);margin-top:48px;font-size:10px;color:var(--text-dim)">
           <a href="mailto:mayank@seekcapacity.ai" style="color:var(--text-dim)">mayank@seekcapacity.ai</a>
           <span style="margin:0 6px">&middot;</span>
@@ -337,80 +375,145 @@
       </nav>
 
       <!-- ── Tab bar ── -->
-      <div class="home-tabs">
+      <!-- Tab bar removed — single unified dashboard -->
+      <div class="home-tabs" style="display:none">
         <button class="home-tab active" data-home-tab="home">Home</button>
         <button class="home-tab" data-home-tab="stuff">My Stuff</button>
       </div>
 
-      <!-- ═══ TAB: Home ═══ -->
+      <!-- ═══ UNIFIED DASHBOARD ═══ -->
       <div class="home-tab-content active" id="tab-home">
-        <div style="padding:36px 40px 80px">
+        <div style="padding:36px 40px 80px;max-width:900px;margin:0 auto">
 
           <!-- Hero: greeting + input (centered) -->
-          <div style="text-align:center;margin-bottom:44px">
+          <div style="text-align:center;margin-bottom:40px">
             <div class="hero-greeting" id="browse-greeting" style="font-size:14px;color:var(--text-muted);margin-bottom:6px">Good evening</div>
             <h1 style="font-size:28px;font-weight:700;letter-spacing:-.4px;margin-bottom:22px;color:#fff">What would you like to learn?</h1>
             <div class="euler-input-bar" style="max-width:560px;margin:0 auto;border-radius:13px">
-              <button class="euler-attach" id="euler-attach-btn" title="Attach image or PDF">
+              <button class="euler-attach" id="euler-attach-btn" title="Attach file — images go inline, PDFs/docs are processed for teaching">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
               </button>
-              <input type="file" id="euler-file-input" multiple accept="image/*,.pdf,audio/*,video/*" style="display:none">
+              <button class="euler-attach" id="euler-collection-btn" title="Ground Euler to teach from your study materials" style="color:var(--text-dim)">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+              </button>
+              <input type="file" id="euler-file-input" multiple accept="image/*,.pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg" style="display:none">
               <textarea class="euler-input" id="euler-input" rows="1" placeholder="Teach me about quantum entanglement..." autocomplete="off"></textarea>
               <button class="euler-send" id="euler-send-btn" title="Send">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
             </div>
             <div id="euler-attach-preview" class="euler-attach-preview" style="max-width:560px;margin:8px auto 0;justify-content:center"></div>
-            <div style="font-size:11px;color:var(--text-dim);margin-top:6px">Attach PDFs, images, audio, or video to ask Euler</div>
+            <div id="euler-scope-chip-wrap" style="max-width:560px;margin:8px auto 0;display:none;justify-content:center"></div>
+            <!-- hint line removed -->
+            <div id="euler-slash-menu" style="display:none;position:absolute;z-index:50;max-width:420px;width:90%;left:50%;transform:translateX(-50%);background:var(--bg-surface);border:1px solid var(--border);border-radius:10px;box-shadow:0 10px 40px rgba(0,0,0,.45);overflow:hidden"></div>
             <div class="euler-chips" id="euler-chips" style="margin-top:12px;justify-content:center">
-              <span class="euler-chip">Teach me string theory</span>
-              <span class="euler-chip">Teach me linear regression</span>
-              <span class="euler-chip">Teach me DNA transcription</span>
-              <span class="euler-chip">Teach me Python OOP</span>
+              <span class="euler-chip">Teach me quantum mechanics</span>
+              <span class="euler-chip">Explain how neural networks learn</span>
+              <span class="euler-chip">Help me prepare for my calculus exam</span>
+              <span class="euler-chip">Walk me through this problem step by step</span>
             </div>
           </div>
 
-          <!-- Sessions + Courses + Videos (full-width) -->
+          <!-- ═══ Compact CTA suggestions ═══ -->
+          <!-- (removed large cards — replaced by collection-centric flow) -->
+
+          <!-- ═══ Sessions row ═══ -->
           <div class="home-browse-section" id="home-browse">
             <div id="home-sessions-section" class="section" style="display:none;margin-bottom:40px">
               <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Pick up where you left off</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">All sessions</span></div>
               <div class="session-row hscroll" id="home-sessions-row"></div>
             </div>
-
-            <div id="home-courses-section" class="section" style="display:none;margin-bottom:40px">
-              <div class="sec-head">
-                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Start a course <span id="home-course-count" style="color:var(--text-dim);font-weight:400"></span></h2>
-                <span class="sec-link" id="browse-all-btn" style="font-size:11px;color:var(--text-dim);cursor:pointer" onclick="window._toggleBrowseAll()">Browse all</span>
-              </div>
-              <div id="home-course-search" style="display:none;margin-bottom:10px">
-                <input type="text" id="home-course-search-input" placeholder="Search courses..."
-                  style="width:100%;padding:8px 14px;border-radius:8px;border:1px solid var(--border);background:var(--bg-surface);color:#fff;font-size:13px;outline:none"
-                  autocomplete="off">
-              </div>
-              <div class="session-row" id="home-courses-grid"></div>
-            </div>
-
+            <div id="home-courses-section" style="display:none"></div>
             <div id="home-videos-section" class="section" style="display:none;margin-bottom:40px">
               <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Follow along with a video</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">Upload new</span></div>
               <div class="session-row hscroll" id="home-videos-row"></div>
             </div>
           </div>
 
+          <!-- ═══ My Collections ═══ -->
+          <div id="byo-list-view">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px">
+              <div style="display:flex;align-items:center;gap:8px">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8);margin:0">My Collections</h2>
+              </div>
+              <button class="sc-btn sc-btn-accent" id="btn-new-collection" style="font-size:11px;padding:6px 12px;border-radius:7px;font-weight:600;white-space:nowrap">
+                <span style="display:inline-flex;align-items:center;gap:5px">
+                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
+                  New
+                </span>
+              </button>
+            </div>
+            <p style="font-size:11px;color:var(--text-dim);line-height:1.5;margin:0 0 12px">Upload PDFs, notes, or exam papers. Euler teaches, explains, solves, and tests you from your own content.</p>
+            <div id="collections-list" class="hscroll" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory"></div>
+          </div>
+
         </div>
       </div>
 
-      <!-- ═══ TAB: My Stuff (collections) ═══ -->
-      <div class="home-tab-content" id="tab-stuff">
-        <div style="padding:60px 40px 80px;display:flex;flex-direction:column;align-items:center;text-align:center;max-width:520px;margin:0 auto">
-          <div style="width:56px;height:56px;border-radius:16px;background:rgba(52,211,153,.08);display:grid;place-items:center;margin-bottom:20px">
-            <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/><path d="M12 10v6"/><path d="M9 13h6"/></svg>
+      <!-- ═══ Collection detail view (full-screen overlay when a collection is opened) ═══ -->
+      <div class="home-tab-content" id="tab-stuff" style="display:none">
+        <div id="byo-detail-view" style="padding:28px 40px 80px;max-width:720px;margin:0 auto">
+          <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px">
+            <button id="byo-back-btn" class="sc-btn" style="display:flex;align-items:center;gap:4px;font-size:12px;padding:7px 12px;border-radius:8px;background:rgba(255,255,255,.04);color:rgba(255,255,255,.8);border:1px solid var(--border);cursor:pointer;flex-shrink:0">
+              <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="m15 18-6-6 6-6"/></svg>
+              Back
+            </button>
+            <h2 id="byo-detail-title" style="flex:1;font-size:18px;font-weight:700;color:#fff;margin:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap"></h2>
+            <span id="byo-detail-status" style="font-size:11px;padding:3px 8px;border-radius:5px;font-weight:500;flex-shrink:0"></span>
+            <!-- Teach button removed — students start sessions from the main input with / scope -->
           </div>
-          <h2 style="font-size:20px;font-weight:700;margin-bottom:10px;color:#fff">My Stuff</h2>
-          <p style="font-size:14px;color:var(--text-muted);line-height:1.7;margin-bottom:28px">Upload your own collection of resources &mdash; PDFs, notes, lecture slides, problem sets &mdash; group them however you like, and ask Euler to teach you directly from your study materials.</p>
-          <button class="sc-btn" disabled style="font-size:13px;padding:10px 28px;border-radius:10px;background:rgba(255,255,255,.06);color:var(--text-dim);border:1px solid var(--border);cursor:default;font-weight:600;letter-spacing:.2px">Coming Soon</button>
+
+          <div id="byo-drop-area" style="border:1.5px dashed var(--border);border-radius:10px;padding:22px 18px;text-align:center;background:rgba(255,255,255,.015);transition:all .15s;cursor:pointer">
+            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--text-dim)" stroke-width="1.5" stroke-linecap="round" style="margin-bottom:8px"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" x2="12" y1="3" y2="15"/></svg>
+            <div style="font-size:13px;color:rgba(255,255,255,.75)">Drop files here or <a href="#" id="byo-browse-link" style="color:var(--accent);text-decoration:none">browse</a></div>
+            <div style="font-size:10px;color:var(--text-dim);margin-top:4px">PDF, DOCX, video, audio, images, or text</div>
+          </div>
+
+          <div style="display:flex;gap:6px;margin-top:10px;align-items:center">
+            <input type="text" id="byo-link-input" placeholder="…or paste a YouTube URL or article link"
+              style="flex:1;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:var(--bg-surface);color:#fff;font-size:12px;outline:none">
+            <button class="sc-btn" id="byo-link-btn" style="font-size:11px;padding:9px 14px;border-radius:8px;font-weight:600;background:rgba(255,255,255,.06);color:rgba(255,255,255,.85);border:1px solid var(--border);cursor:pointer">Add link</button>
+          </div>
+
+          <div style="margin-top:24px">
+            <div style="font-size:11px;font-weight:600;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;margin-bottom:10px">Materials in this collection</div>
+            <div id="byo-detail-resources"></div>
+          </div>
         </div>
-        <!-- BYO upload elements (hidden, used by JS) -->
+
         <input type="file" id="byo-file-input" style="display:none" multiple accept=".pdf,.txt,.md,.docx,.png,.jpg,.jpeg,.mp4,.webm,.mp3,.wav,.ogg">
+      </div>
+
+      <!-- ═══ Modal: Resource Picker ═══ -->
+      <div id="resource-picker-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.58);z-index:1200;align-items:center;justify-content:center">
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:14px;width:420px;max-width:92vw;max-height:70vh;display:flex;flex-direction:column;overflow:hidden">
+          <div style="padding:16px 18px 12px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between">
+            <h3 style="font-size:14px;font-weight:700;color:#fff;margin:0">Choose materials to ground Euler</h3>
+            <button id="rp-close" style="background:none;border:none;color:var(--text-dim);cursor:pointer;font-size:18px;padding:0 4px">&times;</button>
+          </div>
+          <div id="rp-body" style="flex:1;overflow-y:auto;padding:10px 14px"></div>
+          <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+            <span id="rp-count" style="font-size:11px;color:var(--text-dim)">0 selected</span>
+            <div style="display:flex;gap:8px">
+              <button class="sc-btn" id="rp-cancel" style="font-size:12px;padding:7px 14px;border-radius:8px;background:transparent;color:var(--text-dim);border:1px solid var(--border);cursor:pointer">Cancel</button>
+              <button class="sc-btn sc-btn-accent" id="rp-confirm" style="font-size:12px;padding:7px 14px;border-radius:8px;font-weight:600">Use selected</button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ═══ Modal: New Collection ═══ -->
+      <div id="new-collection-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,.58);z-index:1200;align-items:center;justify-content:center">
+        <div style="background:var(--bg-surface);border:1px solid var(--border);border-radius:12px;padding:22px;width:360px;max-width:92vw">
+          <h3 style="font-size:15px;font-weight:700;color:#fff;margin:0 0 14px">New collection</h3>
+          <input type="text" id="new-col-name" placeholder="Collection name, e.g. &quot;Physics 101 notes&quot;"
+            style="width:100%;padding:9px 12px;border-radius:8px;border:1px solid var(--border);background:rgba(0,0,0,.25);color:#fff;font-size:13px;outline:none;margin-bottom:14px;box-sizing:border-box">
+          <div style="display:flex;gap:8px;justify-content:flex-end">
+            <button class="sc-btn" id="btn-cancel-collection" style="font-size:12px;padding:8px 16px;border-radius:8px;background:transparent;color:var(--text-dim);border:1px solid var(--border);cursor:pointer">Cancel</button>
+            <button class="sc-btn sc-btn-accent" id="btn-create-collection" style="font-size:12px;padding:8px 16px;border-radius:8px;font-weight:600">Create</button>
+          </div>
+        </div>
       </div>
 
     </div>
@@ -657,10 +760,7 @@
             <div class="spotlight-header-left">
               <span class="spotlight-type-badge" id="spotlight-type-badge"></span>
               <span id="spotlight-title">Board</span>
-              <button class="board-pen-toggle" id="board-pen-toggle" onclick="toggleBoardPen()" title="Draw on board">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 3a2.83 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>
-                <span class="pen-label">Draw</span>
-              </button>
+              <!-- Draw button removed — pen toolbar was unused and confusing in BYO mode -->
             </div>
             <button class="board-live-btn hidden" id="board-live-btn" onclick="returnToLiveBoard()" title="Return to live board">&#9654; Live</button>
             <button class="board-fullscreen-btn" id="board-fullscreen" onclick="toggleBoardFullscreen()" title="Fullscreen">&#9974;</button>

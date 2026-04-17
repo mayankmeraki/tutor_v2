@@ -182,6 +182,241 @@ test.describe('Home / Browse Screen', () => {
     }
   });
 
+  test('modal Cancel closes without creating', async ({ page }) => {
+    const stuffTab = page.locator(SEL.home.tabStuff);
+    if (!(await stuffTab.isVisible())) return;
+    await stuffTab.click();
+    await page.waitForTimeout(400);
+    const newBtn = page.locator(SEL.home.collectionsBtn);
+    if (!(await newBtn.isVisible())) return;
+    await newBtn.click();
+    await page.waitForTimeout(300);
+    await page.locator('#btn-cancel-collection').click();
+    await page.waitForTimeout(200);
+    const modal = page.locator('#new-collection-modal');
+    // Modal is hidden via style.display — check it's not flex anymore.
+    const display = await modal.evaluate(el => el.style.display);
+    expect(display).toBe('none');
+  });
+
+  test('creating a collection POSTs to /byo/collections and refreshes list', async ({ page }) => {
+    const stuffTab = page.locator(SEL.home.tabStuff);
+    if (!(await stuffTab.isVisible())) return;
+    await stuffTab.click();
+    await page.waitForTimeout(400);
+    const newBtn = page.locator(SEL.home.collectionsBtn);
+    if (!(await newBtn.isVisible())) return;
+    await newBtn.click();
+    await page.waitForTimeout(300);
+    await page.fill('#new-col-name', 'Playwright test collection');
+
+    // Wait for the POST to be issued when Create is clicked.
+    const postPromise = page.waitForRequest(
+      req => req.url().includes('/api/v1/byo/collections') && req.method() === 'POST',
+      { timeout: 8000 },
+    ).catch(() => null);
+
+    await page.click('#btn-create-collection');
+    const postReq = await postPromise;
+    // POST was attempted (even if backend rejects for auth or 500s,
+    // the handler wiring is what we verify here).
+    expect(postReq).not.toBeNull();
+  });
+
+  test('typing / in home input opens slash menu', async ({ page }) => {
+    const input = page.locator(SEL.home.eulerInput);
+    await input.click();
+    await input.fill('/');
+    await page.waitForTimeout(200);
+    const menu = page.locator('#euler-slash-menu');
+    await expect(menu).toBeVisible();
+  });
+
+  test('Escape closes slash menu', async ({ page }) => {
+    const input = page.locator(SEL.home.eulerInput);
+    await input.click();
+    await input.fill('/');
+    await page.waitForTimeout(200);
+    await input.press('Escape');
+    await page.waitForTimeout(100);
+    const menu = page.locator('#euler-slash-menu');
+    await expect(menu).toBeHidden();
+  });
+
+  test('scope chip appears after selecting a collection from slash menu', async ({ page }) => {
+    // Seed the cache via the collections endpoint.
+    await page.route('**/api/v1/byo/collections', async (route) => {
+      if (route.request().method() === 'GET') {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify([
+            { collection_id: 'col-x', title: 'Lectures', status: 'ready', tags: [], stats: { resources: 2 } },
+          ]),
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    // Trigger a refresh by visiting My Stuff briefly, then return to Home.
+    await page.locator(SEL.home.tabStuff).click();
+    await page.waitForTimeout(400);
+    await page.locator(SEL.home.tabHome).click();
+    await page.waitForTimeout(200);
+
+    const input = page.locator(SEL.home.eulerInput);
+    await input.click();
+    await input.fill('/');
+    await page.waitForTimeout(200);
+    // Click the first menu row (the Lectures collection)
+    await page.locator('#euler-slash-menu [data-slash-idx="0"]').click();
+    await page.waitForTimeout(200);
+    await expect(page.locator('#euler-scope-chip-wrap')).toBeVisible();
+    await expect(page.locator('#euler-scope-chip-wrap')).toContainText('Scoped to: Lectures');
+    // Slash text removed from input
+    expect(await input.inputValue()).toBe('');
+  });
+
+  test('list view shows no drop zone by default; detail view does', async ({ page }) => {
+    const stuffTab = page.locator(SEL.home.tabStuff);
+    if (!(await stuffTab.isVisible())) return;
+    await stuffTab.click();
+    await page.waitForTimeout(400);
+    // In list view the detail container is hidden, so its children (drop
+    // zone + link input) should not be visible.
+    const detailView = page.locator('#byo-detail-view');
+    await expect(detailView).toBeHidden();
+  });
+
+  test('creating a collection jumps into its detail view with upload area', async ({ page }) => {
+    const stuffTab = page.locator(SEL.home.tabStuff);
+    if (!(await stuffTab.isVisible())) return;
+    await stuffTab.click();
+    await page.waitForTimeout(400);
+
+    // Mock the create + listing so the new collection shows up consistently.
+    await page.route('**/api/v1/byo/collections', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify({ collection_id: 'col-test-xyz' }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify([
+            { collection_id: 'col-test-xyz', title: 'Playwright col',
+              status: 'new', tags: [], stats: { resources: 0 } },
+          ]),
+        });
+      }
+    });
+    await page.route('**/api/v1/byo/collections/*/resources', async (route) => {
+      await route.fulfill({
+        status: 200, contentType: 'application/json', body: JSON.stringify([]),
+      });
+    });
+
+    await page.locator(SEL.home.collectionsBtn).click();
+    await page.waitForTimeout(200);
+    await page.fill('#new-col-name', 'Playwright col');
+    await page.click('#btn-create-collection');
+    await page.waitForTimeout(500);
+
+    // Detail view visible now, list hidden
+    await expect(page.locator('#byo-detail-view')).toBeVisible();
+    await expect(page.locator('#byo-list-view')).toBeHidden();
+    // Upload area and link input visible inside detail
+    await expect(page.locator('#byo-drop-area')).toBeVisible();
+    await expect(page.locator('#byo-link-input')).toBeVisible();
+    await expect(page.locator('#byo-link-btn')).toBeVisible();
+    await expect(page.locator('#byo-detail-teach')).toBeVisible();
+  });
+
+  test('adding a YouTube URL from detail view POSTs to that collection', async ({ page }) => {
+    const stuffTab = page.locator(SEL.home.tabStuff);
+    if (!(await stuffTab.isVisible())) return;
+    await stuffTab.click();
+    await page.waitForTimeout(400);
+
+    await page.route('**/api/v1/byo/collections', async (route) => {
+      const req = route.request();
+      if (req.method() === 'POST') {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify({ collection_id: 'col-abc' }),
+        });
+      } else {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify([
+            { collection_id: 'col-abc', title: 'Videos', status: 'new', tags: [], stats: { resources: 0 } },
+          ]),
+        });
+      }
+    });
+    await page.route('**/api/v1/byo/collections/col-abc/resources', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({
+          status: 200, contentType: 'application/json',
+          body: JSON.stringify({ resource_id: 'r1', job_id: 'j1', status: 'queued' }),
+        });
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+      }
+    });
+
+    // Create collection then paste URL
+    await page.locator(SEL.home.collectionsBtn).click();
+    await page.fill('#new-col-name', 'Videos');
+    await page.click('#btn-create-collection');
+    await page.waitForTimeout(400);
+
+    const resPostPromise = page.waitForRequest(
+      req => req.url().includes('/api/v1/byo/collections/col-abc/resources')
+        && req.method() === 'POST',
+      { timeout: 8000 },
+    ).catch(() => null);
+
+    await page.fill('#byo-link-input', 'https://www.youtube.com/watch?v=dQw4w9WgXcQ');
+    await page.click('#byo-link-btn');
+    const req = await resPostPromise;
+    expect(req).not.toBeNull();
+    // URL added to the EXISTING collection, not a newly created one.
+    expect(req.url()).toContain('/col-abc/resources');
+  });
+
+  test('back button returns to list view from detail', async ({ page }) => {
+    const stuffTab = page.locator(SEL.home.tabStuff);
+    if (!(await stuffTab.isVisible())) return;
+    await stuffTab.click();
+    await page.waitForTimeout(400);
+
+    await page.route('**/api/v1/byo/collections', async (route) => {
+      if (route.request().method() === 'POST') {
+        await route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify({ collection_id: 'col-back-test' }) });
+      } else {
+        await route.fulfill({ status: 200, contentType: 'application/json',
+          body: JSON.stringify([{ collection_id: 'col-back-test', title: 'Back', status: 'new', tags: [], stats: { resources: 0 } }]) });
+      }
+    });
+    await page.route('**/api/v1/byo/collections/*/resources', async (route) => {
+      await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify([]) });
+    });
+
+    await page.locator(SEL.home.collectionsBtn).click();
+    await page.fill('#new-col-name', 'Back test');
+    await page.click('#btn-create-collection');
+    await page.waitForTimeout(400);
+    await expect(page.locator('#byo-detail-view')).toBeVisible();
+
+    await page.click('#byo-back-btn');
+    await page.waitForTimeout(200);
+    await expect(page.locator('#byo-list-view')).toBeVisible();
+    await expect(page.locator('#byo-detail-view')).toBeHidden();
+  });
+
   // ──────────── On-Demand Send ────────────
 
   test('sending euler query triggers session creation flow', async ({ page }) => {

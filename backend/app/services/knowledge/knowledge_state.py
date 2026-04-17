@@ -69,6 +69,9 @@ async def upsert_concept_note(
     concepts: list[str],
     note_text: str,
     lesson: str | None = None,
+    blooms: str | None = None,
+    approach_tried: str | None = None,
+    approach_worked: bool | None = None,
 ) -> dict:
     """Upsert a freehand note by concept overlap.
 
@@ -103,7 +106,10 @@ async def upsert_concept_note(
         log.info("Profile updated: %s (%d chars)", user_email, len(note_text))
         return {"action": "profile_updated", "primary_concept": "_profile"}
 
-    # Build concept note with courseId metadata
+    # Build concept note with courseId metadata + structured adaptation fields.
+    # blooms/approach_tried/approach_worked enable data-driven teaching:
+    # the override compiler can query "what approaches worked for this student
+    # on this concept" instead of relying on freehand text parsing.
     new_note = {
         "text": note_text,
         "tags": concepts,
@@ -111,6 +117,12 @@ async def upsert_concept_note(
         "sessionId": session_id,
         "at": now,
     }
+    if blooms:
+        new_note["blooms"] = blooms.lower()  # remember|understand|apply|analyze|evaluate|create
+    if approach_tried:
+        new_note["approach_tried"] = approach_tried  # worked_example|socratic|visual|algebraic|simulation
+    if approach_worked is not None:
+        new_note["approach_worked"] = approach_worked
     if lesson:
         new_note["lesson"] = lesson
 

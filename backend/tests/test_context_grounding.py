@@ -39,10 +39,12 @@ class TestToolAvailability:
         "handoff_to_assessment", "delegate_teaching",
     }
 
-    # Additional tools removed on turn 1
+    # Additional tools removed on turn 1 (unified retrieval surface post-task#11).
+    # On the first turn the tutor shouldn't go fishing — it gets brief/plan-anchored
+    # data only. Retrieval tools come back from turn 2.
     TURN1_REMOVED = {
-        "content_search", "get_section_content", "query_knowledge",
-        "content_read", "content_peek", "content_map",
+        "search", "fetch", "peek", "nearby", "list_contents",
+        "query_knowledge",
     }
 
     def _get_available_tools(self, is_first_turn=False, is_video=False):
@@ -58,11 +60,13 @@ class TestToolAvailability:
         names = {t["name"] for t in tools}
         print(f"\n  Turn 1 tools ({len(names)}): {sorted(names)}")
 
-        # Should NOT have content/agent tools
-        assert "content_search" not in names, "content_search should be stripped on turn 1"
-        assert "get_section_content" not in names
+        # Should NOT have retrieval/agent tools on turn 1
+        assert "search" not in names, "search should be stripped on turn 1"
+        assert "fetch" not in names
+        assert "peek" not in names
+        assert "nearby" not in names
+        assert "list_contents" not in names
         assert "query_knowledge" not in names
-        assert "content_map" not in names
         assert "spawn_agent" not in names
         assert "update_student_model" not in names
 
@@ -71,14 +75,17 @@ class TestToolAvailability:
         assert "control_simulation" in names
 
     def test_turn2_tools(self):
-        """Turn 2+: content tools available."""
+        """Turn 2+: unified retrieval tools available."""
         tools = self._get_available_tools(is_first_turn=False)
         names = {t["name"] for t in tools}
         print(f"\n  Turn 2+ tools ({len(names)}): {sorted(names)}")
 
-        # Content tools should be back
-        assert "content_search" in names, "content_search should be available on turn 2+"
-        assert "get_section_content" in names
+        # New unified retrieval surface should be available on turn 2+
+        assert "search" in names, "search should be available on turn 2+"
+        assert "fetch" in names
+        assert "peek" in names
+        assert "nearby" in names
+        assert "list_contents" in names
         assert "web_search" in names
         assert "search_images" in names
 
@@ -94,12 +101,24 @@ class TestToolAvailability:
         print(f"\n  Total TUTOR_TOOLS: {len(TUTOR_TOOLS)}")
         print(f"  Names: {[t['name'] for t in TUTOR_TOOLS]}")
 
-    def test_byo_tools_in_tutor_tools(self):
-        """BYO tools should be in TUTOR_TOOLS."""
+    def test_unified_retrieval_tools_in_tutor_tools(self):
+        """Post-consolidation: unified retrieval surface covers BYO + course.
+
+        The old byo_read / byo_list / byo_transcript_context were folded into
+        search / fetch / peek / nearby / list_contents in task #11.
+        """
         names = {t["name"] for t in TUTOR_TOOLS}
-        print(f"\n  BYO tools present: byo_read={'byo_read' in names}, byo_list={'byo_list' in names}, byo_transcript={'byo_transcript_context' in names}")
-        assert "byo_read" in names, "byo_read missing from TUTOR_TOOLS"
-        assert "byo_list" in names, "byo_list missing from TUTOR_TOOLS"
+        unified = {"search", "fetch", "peek", "nearby", "list_contents"}
+        missing = unified - names
+        print(f"\n  Unified retrieval tools present: {unified - missing}")
+        assert not missing, f"Missing unified retrieval tools: {missing}"
+
+        # Old BYO-specific names must NOT resurrect.
+        legacy = {"byo_read", "byo_list", "byo_transcript_context",
+                  "content_read", "content_peek", "content_search",
+                  "get_section_content", "get_simulation_details"}
+        still_there = legacy & names
+        assert not still_there, f"Legacy tool names leaked back in: {still_there}"
 
     def test_content_tool_names_constant(self):
         """CONTENT_TOOL_NAMES should match what exists in TUTOR_TOOLS."""

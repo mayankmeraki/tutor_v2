@@ -15,39 +15,61 @@ from .schemas import (
 from .handlers import get_section_content, get_simulation_details, get_transcript_context, get_section_brief
 from .search_images import search_images
 from .web_search import web_search
-from .byo import _execute_byo_read, _execute_byo_list, _execute_byo_transcript
+from .retrieval import (
+    search_tool,
+    fetch_tool,
+    peek_tool,
+    nearby_tool,
+    list_contents_tool,
+)
 
 log = logging.getLogger(__name__)
 
 
 # ── Dispatcher ───────────────────────────────────────────────────────────────
 
-async def execute_tutor_tool(name: str, tool_input: dict) -> str:
+async def execute_tutor_tool(
+    name: str,
+    tool_input: dict,
+    *,
+    context_data: dict | None = None,
+) -> str:
+    """Execute a tool call. `context_data` (the turn's studentProfile +
+    sessionContext) is threaded through so retrieval tools can resolve
+    user_id / course_id / collection_id without a globalling re-query."""
     try:
-        if name == "search_images":
+        # ── Unified retrieval (task #11) ──
+        if name == "search":
+            return await search_tool(tool_input, context_data=context_data)
+        elif name == "fetch":
+            return await fetch_tool(tool_input, context_data=context_data)
+        elif name == "peek":
+            return await peek_tool(tool_input, context_data=context_data)
+        elif name == "nearby":
+            return await nearby_tool(tool_input, context_data=context_data)
+        elif name == "list_contents":
+            return await list_contents_tool(tool_input, context_data=context_data)
+
+        # ── External content ──
+        elif name == "search_images":
             return await search_images(tool_input["query"], tool_input.get("limit", 3))
         elif name == "web_search":
             return await web_search(tool_input["query"], tool_input.get("limit", 5))
-        elif name == "get_simulation_details":
-            return await get_simulation_details(tool_input["simulation_id"])
-        elif name in ("content_map", "content_read", "content_peek", "content_search"):
-            # Handled by adapter in chat.py (needs course_id + db session)
-            return "Content tool must be routed through the adapter. Check chat.py dispatch."
-        elif name == "byo_read":
-            return await _execute_byo_read(tool_input)
-        elif name == "byo_list":
-            return await _execute_byo_list(tool_input)
-        elif name == "byo_transcript_context":
-            return await _execute_byo_transcript(tool_input)
-        elif name == "get_section_content":
-            return await get_section_content(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
+
+        # ── Video follow-along helpers (legacy, still used in video mode) ──
         elif name == "get_transcript_context":
-            return await get_transcript_context(int(tool_input["lesson_id"]), float(tool_input["timestamp"]))
+            return await get_transcript_context(
+                int(tool_input["lesson_id"]), float(tool_input["timestamp"])
+            )
         elif name == "get_section_brief":
-            return await get_section_brief(int(tool_input["lesson_id"]), int(tool_input["section_index"]))
+            return await get_section_brief(
+                int(tool_input["lesson_id"]), int(tool_input["section_index"])
+            )
         elif name in ("resume_video", "seek_video"):
             return "OK"  # control tools handled by chat.py SSE
+
         else:
+            log.warning("Unknown tool: %s", name)
             return f"Unknown tool: {name}"
     except KeyError as e:
         log.warning("Tool %s missing required param: %s", name, e)

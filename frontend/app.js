@@ -739,6 +739,17 @@ const state = window._appState = {
   studentName: '',
   userEmail: '',
 
+  // BYO collection scope. `collectionId` = set by _startFromCollection when
+  // the student clicks "Teach me this" on a collection card. `homeCollectionId`
+  // = set by the picker above the home input. `buildContext()` reads either
+  // and passes it to the backend as sessionContext.collection_id so the tutor
+  // searches the right corpus.
+  collectionId: null,
+  homeCollectionId: null,
+  byoMode: null,  // 'teach' | 'follow_along'
+  byoDetailCollectionId: null,  // non-null when the detail view is open
+  byoDetailCollection: null,
+
   // Course map from REST
   courseMap: null,
 
@@ -1486,12 +1497,22 @@ function wsConnect() {
       _ws.state = 'closed';
       _ws.conn = null;
 
-      // Auth failure — redirect to login
+      // Auth failure — only redirect if explicitly flagged (not on every disconnect)
       if (evt.code === 4001 || _ws._authFailed) {
-        console.warn('[WS] Auth failed — redirecting to login');
         _ws._authFailed = false;
-        AuthManager.clearAuth();
-        Router.navigate('/login', { replace: true });
+        // Verify the token is actually invalid before nuking the session
+        const token = AuthManager?.getToken?.();
+        if (!token) {
+          console.warn('[WS] No token — redirecting to login');
+          AuthManager.clearAuth();
+          Router.navigate('/login', { replace: true });
+          return;
+        }
+        // Token exists — try reconnecting first (backend might have restarted)
+        console.warn('[WS] Auth error but token exists — retrying reconnect');
+        const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 15000);
+        _ws.retryCount++;
+        _ws.reconnectTimer = setTimeout(wsConnect, delay);
         return;
       }
 
@@ -1766,8 +1787,10 @@ function _wsOnMessage(msg) {
 
     case 'RUN_ERROR':
       console.error('[WS] Error:', evt.message);
-      // Auth failure — flag so onclose doesn't reconnect
-      if (evt.message && (evt.message.includes('Signature has expired') || evt.message.includes('Auth failed'))) {
+      // Auth failure — ONLY flag if the error is specifically about auth,
+      // not pipeline errors that happen to contain "expired" in their text
+      // (e.g., "lock_expires", "The read operation timed out").
+      if (evt.message && evt.message.startsWith('Auth failed:')) {
         _ws._authFailed = true;
       }
       // Only affect state if this is for the current generation
@@ -2436,6 +2459,28 @@ function buildContext() {
       value: state.pendingSpotlightEvent,
     });
     state.pendingSpotlightEvent = null;
+  }
+
+  // Session context — carries BYO collection scope so the tutor's retrieval
+  // tools search the right collection. Backend pipeline.py:extract_context
+  // maps description 'session context' → context_data['sessionContext'],
+  // which pipeline.py:1177 reads to surface search(scope='collection', ...).
+  const collectionId = state.collectionId || state.homeCollectionId;
+  if (collectionId || (state.homeResourceIds && state.homeResourceIds.length)) {
+    const ctx = {
+      collection_id: collectionId || '',
+      mode: state.byoMode || 'teach',
+      enriched_intent: state.studentIntent || '',
+    };
+    // File-level selection — pass specific resource_ids so the agent
+    // searches only within those files, not the whole collection.
+    if (state.homeResourceIds && state.homeResourceIds.length) {
+      ctx.resource_ids = state.homeResourceIds;
+    }
+    items.push({
+      description: 'Session context',
+      value: JSON.stringify(ctx),
+    });
   }
 
   // Context 1: Student Profile & Course Progress
@@ -3162,6 +3207,13 @@ function cleanupActiveSession() {
   state.pendingFallbackTimer && clearTimeout(state.pendingFallbackTimer);
   state.pendingFallbackTimer = null;
   state.currentScript = null;
+
+  // ── 13. BYO collection scope — DO NOT clear here.
+  // _startFromCollection sets state.collectionId BEFORE calling
+  // _startOnDemandSession, and startNewSession invokes cleanupActiveSession
+  // before buildContext runs. Clearing here would erase the user's chosen
+  // scope before the tutor sees it. Clearing happens only when the user
+  // explicitly removes the scope chip or navigates back to the list view.
 
   // ── 13. Visual engagement counters ──
   state.totalAssistantTurns = 0;
@@ -5969,15 +6021,10 @@ function handleToolCallStart(event) {
   disablePreviousInteractive();
 
   if (toolName) {
-    // For visible tools, show a user-friendly indicator
+    // For visible tools, show a user-friendly indicator (like Claude Code's
+    // "Searching codebase..." / "Reading file..." status messages).
     removeStreamingIndicator();
-    const friendlyNames = {
-      'search_images': 'Searching for images...',
-      'get_section_content': 'Reading course materials...',
-      'get_simulation_details': 'Loading simulation...',
-      'control_simulation': 'Adjusting simulation...',
-    };
-    const label = friendlyNames[toolName] || 'Working...';
+    const label = _toolFriendlyLabel(toolName, state.activeToolCalls[toolId]?.args || '');
     appendBlock('system', `
       <div class="tool-indicator active" id="tool-${toolId}">
         <span class="loading-spinner"></span>
@@ -5989,8 +6036,62 @@ function handleToolCallStart(event) {
 
 function handleToolCallArgs(event) {
   const toolId = event.toolCallId || event.tool_call_id;
-  if (state.activeToolCalls[toolId]) {
-    state.activeToolCalls[toolId].args += event.delta || '';
+  if (!state.activeToolCalls[toolId]) return;
+  state.activeToolCalls[toolId].args += event.delta || '';
+
+  // Live-update the indicator label as we learn more about the args
+  // (e.g., once "query" is visible, show what's being searched).
+  const indicator = $(`#tool-${toolId}`);
+  if (!indicator || !indicator.classList.contains('active')) return;
+  const name = state.activeToolCalls[toolId].name;
+  const args = state.activeToolCalls[toolId].args;
+  const updated = _toolFriendlyLabel(name, args);
+  // Only update if the label changed (avoid layout thrash).
+  const textNode = indicator.lastChild;
+  if (textNode && textNode.nodeType === 3 && textNode.textContent.trim() !== updated) {
+    textNode.textContent = ' ' + updated;
+  }
+}
+
+function _toolFriendlyLabel(name, argsStr) {
+  // Try to extract the query/ref from partial JSON args
+  let q = '';
+  try {
+    const m = argsStr.match(/"query"\s*:\s*"([^"]{3,60})/);
+    if (m) q = m[1];
+    if (!q) {
+      const r = argsStr.match(/"ref"\s*:\s*"([^"]{3,40})/);
+      if (r) q = r[1];
+    }
+  } catch (_) {}
+  const suffix = q ? `: "${q}"` : '';
+
+  switch (name) {
+    case 'search':           return `Searching your materials${suffix}`;
+    case 'fetch':            return `Reading content${suffix}`;
+    case 'peek':             return `Checking${suffix}`;
+    case 'nearby':           return `Looking at adjacent content${suffix}`;
+    case 'list_contents':    return 'Listing your materials';
+    case 'search_images':    return `Finding images${suffix}`;
+    case 'web_search':       return `Searching the web${suffix}`;
+    case 'control_simulation': return 'Adjusting simulation';
+    case 'get_section_content': return 'Reading course materials';
+    case 'get_simulation_details': return 'Loading simulation';
+    case 'complete_triage':  return 'Completing assessment';
+    default:                 return 'Working...';
+  }
+}
+
+function _toolDoneLabel(name) {
+  switch (name) {
+    case 'search':           return 'Searched your materials \u2713';
+    case 'fetch':            return 'Read content \u2713';
+    case 'peek':             return 'Checked \u2713';
+    case 'nearby':           return 'Found nearby content \u2713';
+    case 'list_contents':    return 'Listed materials \u2713';
+    case 'search_images':    return 'Found images \u2713';
+    case 'web_search':       return 'Web search done \u2713';
+    default:                 return null;
   }
 }
 
@@ -6003,10 +6104,15 @@ function handleToolCallEnd(event) {
   if (indicator) {
     indicator.classList.remove('active');
     indicator.querySelector('.loading-spinner')?.remove();
+    // Update the label to show completion (e.g. "Searched your materials ✓")
+    const name = call.name || '';
+    const done = _toolDoneLabel(name);
+    if (done) indicator.textContent = done;
     setTimeout(() => {
       const block = indicator.closest('.canvas-block');
-      if (block) block.remove();
-    }, 2000);
+      if (block) { block.style.transition = 'opacity .3s'; block.style.opacity = '0'; }
+      setTimeout(() => { if (block) block.remove(); }, 400);
+    }, 1800);
   }
 
   // Show a "generating" indicator between tool rounds so the UI isn't blank
@@ -8147,7 +8253,9 @@ function _initHomeTabs() {
       if (target) target.classList.add('active');
       // Load content for the tab if needed
       if (tab.dataset.homeTab === 'home') { _loadHomeSections(); }
-      if (tab.dataset.homeTab === 'stuff') { _loadCollections(); }
+      if (tab.dataset.homeTab === 'stuff') { _loadCollections(); _populateCollectionPicker(); }
+      // If returning to home from detail, refresh collections inline
+      if (tab.dataset.homeTab === 'home') { _loadCollections(); _populateCollectionPicker(); }
       // Legacy compat
       if (tab.dataset.homeTab === 'content') { _loadByoMaterials(); try { _loadLearningAids(); } catch(e) {} }
       if (tab.dataset.homeTab === 'explore') { try { _loadBrowseCourses(); _loadRecentSessions(); _loadMyVideos(); } catch(e) {} }
@@ -8172,6 +8280,9 @@ function _loadHomeSections() {
   _loadHomeSessions();
   _loadHomeVideos();
   _loadHomeCourses();
+  // Collections are now inline on the main dashboard (no tab switch needed)
+  _loadCollections();
+  _populateCollectionPicker();
 }
 
 function _showHomeSkeletons() {
@@ -8832,24 +8943,96 @@ function _wireAttachments(btnId, fileInputId, previewId) {
 const MAX_ATTACHMENTS = 5;
 
 function _handleEulerAttachFiles(files, previewId) {
+  // Split files into two buckets:
+  //   - Images → send inline to LLM (vision, well-supported)
+  //   - Documents (PDF, DOCX, etc.) → auto-upload to BYO collection
+  //     so the tutor can search/cite from them properly
+  const imageTypes = ['image/png', 'image/jpeg', 'image/jpg', 'image/gif', 'image/webp'];
+  const docFiles = [];
+
   for (const file of files) {
     if (_eulerAttachments.length >= MAX_ATTACHMENTS) {
       alert(`Maximum ${MAX_ATTACHMENTS} attachments allowed`); break;
     }
-    if (file.size > 20 * 1024 * 1024) { alert('File too large (max 20MB)'); continue; }
+    if (file.size > 50 * 1024 * 1024) { alert('File too large (max 50MB)'); continue; }
 
-    const reader = new FileReader();
-    reader.onload = () => {
-      const attachment = {
-        name: file.name,
-        type: file.type,
-        dataUrl: reader.result,
-        base64: reader.result.split(',')[1],
+    if (imageTypes.includes(file.type)) {
+      // Images → inline to LLM via base64
+      const reader = new FileReader();
+      reader.onload = () => {
+        _eulerAttachments.push({
+          name: file.name,
+          type: file.type,
+          dataUrl: reader.result,
+          base64: reader.result.split(',')[1],
+        });
+        _renderAttachPreview(previewId);
       };
-      _eulerAttachments.push(attachment);
-      _renderAttachPreview(previewId);
-    };
-    reader.readAsDataURL(file);
+      reader.readAsDataURL(file);
+    } else {
+      // Documents → BYO pipeline
+      docFiles.push(file);
+    }
+  }
+
+  // Auto-upload documents to a BYO collection
+  if (docFiles.length) {
+    _autoUploadToByo(docFiles);
+  }
+}
+
+async function _autoUploadToByo(files) {
+  // Create a collection named after the first file, upload all docs,
+  // and set the collection scope so the tutor searches from them.
+  const title = files.length === 1
+    ? files[0].name.replace(/\.[^.]+$/, '')
+    : `Upload (${files.length} files)`;
+
+  _toast('Uploading to collection...');
+
+  try {
+    // Create collection
+    const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+      body: JSON.stringify({ title }),
+    });
+    if (!createRes.ok) { _toast('Upload failed — could not create collection', 'error'); return; }
+    const col = await createRes.json();
+    const colId = col.collection_id;
+
+    // Upload each file
+    for (const file of files) {
+      const formData = new FormData();
+      formData.append('file', file);
+      await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
+        method: 'POST',
+        headers: AuthManager.authHeaders(),
+        body: formData,
+      });
+    }
+
+    // Auto-scope to this collection
+    state.homeCollectionId = colId;
+    state._collectionsCache = state._collectionsCache || [];
+    state._collectionsCache.push({
+      collection_id: colId,
+      title,
+      status: 'processing',
+      tags: [],
+      stats: { resources: files.length },
+    });
+    _renderScopeChip();
+
+    const names = files.map(f => f.name).join(', ');
+    _toast(`${names} uploaded — Euler will teach from ${files.length === 1 ? 'it' : 'them'} once processing finishes`, 'success');
+
+    // Refresh collections list
+    _loadCollections();
+    _populateCollectionPicker();
+  } catch (err) {
+    console.error('Auto-upload failed:', err);
+    _toast('Upload failed — please try again', 'error');
   }
 }
 
@@ -9329,67 +9512,54 @@ async function _loadCollections() {
     const collections = await res.json();
 
     if (!collections.length) {
+      // Empty state — nudge towards creating the first collection. We render
+      // the CTA inside the list container rather than on the header button
+      // alone because an empty My Stuff panel otherwise feels dead.
       list.innerHTML = `
-        <div style="text-align:center;padding:48px 20px;color:var(--text-dim)">
-          <p style="font-size:13px;margin-bottom:8px">No collections yet</p>
-          <p style="font-size:11px;color:var(--text-dim)">Create a collection and add your study materials.</p>
+        <div style="text-align:center;padding:64px 20px;color:var(--text-dim);border:1px dashed var(--border);border-radius:10px;background:rgba(255,255,255,.02)">
+          <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3" stroke-linecap="round" style="opacity:.5;margin-bottom:10px"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          <p style="font-size:13px;margin:0 0 4px;color:rgba(255,255,255,.7)">No collections yet</p>
+          <p style="font-size:11px;margin:0 0 14px">A collection is a folder for study materials you want Euler to teach from.</p>
+          <button class="sc-btn sc-btn-accent" id="btn-empty-new-collection" style="font-size:12px;padding:8px 14px;border-radius:8px;font-weight:600">Create your first collection</button>
         </div>`;
+      const emptyBtn = document.getElementById('btn-empty-new-collection');
+      if (emptyBtn) emptyBtn.addEventListener('click', () => {
+        const modal = document.getElementById('new-collection-modal');
+        if (modal) { modal.style.display = 'flex'; const inp = document.getElementById('new-col-name'); if (inp) { inp.value = ''; inp.focus(); } }
+      });
       return;
     }
 
     list.innerHTML = '';
     for (const col of collections) {
-      const card = document.createElement('div');
-      card.className = 'col-card';
-      card.style.cssText = 'border-radius:9px;border:1px solid var(--border);background:var(--bg-surface);cursor:pointer;transition:all .2s;overflow:hidden;margin-bottom:6px';
+      const card = document.createElement('button');
+      card.type = 'button';
+      card.className = 'col-folder-card';
+      card.style.cssText = 'display:flex;flex-direction:column;align-items:center;gap:6px;min-width:110px;max-width:130px;padding:14px 10px 10px;border-radius:12px;border:1px solid var(--border);background:var(--bg-surface);cursor:pointer;transition:all .15s;text-align:center;color:inherit;font:inherit;flex-shrink:0;scroll-snap-align:start';
+      card.onmouseenter = () => { card.style.borderColor = 'rgba(52,211,153,.3)'; card.style.background = 'rgba(255,255,255,.03)'; };
+      card.onmouseleave = () => { card.style.borderColor = ''; card.style.background = ''; };
 
-      // Determine icon based on tags/resources
       const isVideo = (col.tags || []).includes('video') || (col.tags || []).includes('youtube');
-      const iconColor = isVideo ? 'color:#f87171;background:rgba(248,113,113,.1)' : 'color:#818cf8;background:rgba(99,102,241,.1)';
-      const iconSvg = isVideo
-        ? '<polygon points="5 3 19 12 5 21 5 3"/>'
-        : '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>';
-
+      const iconColor = isVideo ? 'color:#f87171;background:rgba(248,113,113,.08)' : 'color:#818cf8;background:rgba(99,102,241,.08)';
       const itemCount = col.stats?.resources || 0;
-      const status = col.status === 'ready' ? 'Ready' : col.status === 'processing' ? 'Processing...' : col.status;
-      const action = isVideo ? 'Follow along' : 'Teach me this';
+      const statusColor = col.status === 'ready' ? 'var(--accent)'
+        : col.status === 'error' ? '#f87171'
+        : col.status === 'processing' ? '#fbbf24'
+        : 'rgba(255,255,255,.2)';
 
       card.innerHTML = `
-        <div style="display:flex;align-items:center;gap:9px;padding:10px 12px" class="col-head-row">
-          <div style="width:30px;height:30px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;${iconColor}">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14">${iconSvg}</svg>
-          </div>
-          <div style="flex:1;min-width:0">
-            <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.82);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${col.title || 'Untitled'}</div>
-            <div style="font-size:9px;color:var(--text-dim);margin-top:1px">${itemCount} items &middot; ${status}</div>
-          </div>
-          <button class="sc-btn sc-btn-accent" style="padding:5px 10px;border-radius:5px;font-size:10px;font-weight:600;white-space:nowrap" onclick="event.stopPropagation();_startFromCollection('${col.collection_id}','${isVideo ? 'follow_along' : 'teach'}')">${action}</button>
-          <svg style="color:var(--text-dim);transition:transform .2s;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="14" height="14"><path d="m9 18 6-6-6-6"/></svg>
+        <div style="width:44px;height:36px;position:relative">
+          <div style="position:absolute;bottom:0;left:0;right:0;height:28px;border-radius:4px 4px 6px 6px;background:${iconColor.split(';')[1]?.replace('background:','').trim() || 'rgba(99,102,241,.12)'}"></div>
+          <div style="position:absolute;top:0;left:0;width:20px;height:10px;border-radius:3px 3px 0 0;background:${iconColor.split(';')[1]?.replace('background:','').trim() || 'rgba(99,102,241,.12)'}"></div>
+          <div style="position:absolute;bottom:4px;left:50%;transform:translateX(-50%);font-size:14px;opacity:.6">${isVideo ? '▶' : '📄'}</div>
         </div>
-        <div class="col-body-content" style="display:none;border-top:1px solid var(--border);padding:8px 12px">
-          <div class="col-resources" data-col-id="${col.collection_id}">
-            <div style="color:var(--text-dim);font-size:10px;padding:4px">Loading...</div>
-          </div>
-          <div style="display:flex;align-items:center;gap:6px;padding:6px;margin-top:4px;border-radius:5px;border:1px dashed var(--border);cursor:pointer;color:var(--text-dim);font-size:10px" onclick="event.stopPropagation();_addToCollection('${col.collection_id}')">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-            Add files, videos, or links
-          </div>
+        <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%;line-height:1.3">${_escHtml(col.title || 'Untitled')}</div>
+        <div style="display:flex;align-items:center;gap:4px;font-size:9px;color:var(--text-dim)">
+          <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>
+          ${itemCount} file${itemCount === 1 ? '' : 's'}
         </div>`;
 
-      // Toggle expand/collapse
-      card.addEventListener('click', async () => {
-        const body = card.querySelector('.col-body-content');
-        const arrow = card.querySelector('svg:last-child');
-        const isOpen = body.style.display !== 'none';
-        body.style.display = isOpen ? 'none' : 'block';
-        if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
-        // Load resources on first open
-        if (!isOpen && !card._loaded) {
-          card._loaded = true;
-          await _loadCollectionResources(col.collection_id, card.querySelector('.col-resources'));
-        }
-      });
-
+      card.addEventListener('click', () => _openCollectionDetail(col));
       list.appendChild(card);
     }
   } catch (err) {
@@ -9398,55 +9568,257 @@ async function _loadCollections() {
   }
 }
 
-async function _loadCollectionResources(collectionId, container) {
-  try {
-    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${collectionId}/resources`, {
-      headers: AuthManager.authHeaders(),
-    });
-    if (!res.ok) { container.innerHTML = '<div style="color:var(--text-dim);font-size:10px">Failed to load</div>'; return; }
-    const resources = await res.json();
+// ── Detail view ─────────────────────────────────────────────────────────
 
-    if (!resources.length) {
-      container.innerHTML = '<div style="color:var(--text-dim);font-size:10px;padding:4px">No items yet — add files or links above.</div>';
-      return;
-    }
+async function _openCollectionDetail(col) {
+  const homeTab = document.getElementById('tab-home');
+  const stuffTab = document.getElementById('tab-stuff');
+  const titleEl = document.getElementById('byo-detail-title');
+  const statusEl = document.getElementById('byo-detail-status');
+  const teachBtn = document.getElementById('byo-detail-teach');
+  if (!stuffTab) return;
 
-    container.innerHTML = '';
-    for (const r of resources) {
-      const isVid = (r.mime_type || '').startsWith('video') || (r.source_type === 'url' && /youtube|youtu\.be/i.test(r.source_url || ''));
-      const icon = isVid
-        ? '<polygon points="5 3 19 12 5 21 5 3"/>'
-        : '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>';
-      const statusClass = r.status === 'ready' ? 'background:rgba(52,211,153,.08);color:var(--accent)' : 'background:rgba(251,191,36,.08);color:#fbbf24';
-      const statusText = r.status === 'ready' ? 'Ready' : r.status === 'processing' ? 'Processing' : r.status || 'Queued';
-      const size = r.file_size ? (r.file_size > 1048576 ? Math.round(r.file_size / 1048576) + ' MB' : Math.round(r.file_size / 1024) + ' KB') : '';
+  state.byoDetailCollectionId = col.collection_id;
+  state.byoDetailCollection = col;
 
-      const row = document.createElement('div');
-      row.style.cssText = 'display:flex;align-items:center;gap:7px;padding:5px 6px;border-radius:5px;font-size:11px';
-      row.innerHTML = `
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" width="14" height="14" style="flex-shrink:0;color:var(--text-dim)">${icon}</svg>
-        <span style="flex:1;color:rgba(255,255,255,.65);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${r.original_name || r.source_url || 'Untitled'}</span>
-        <span style="font-size:8px;padding:1px 5px;border-radius:3px;font-weight:500;${statusClass}">${statusText}</span>
-        ${size ? `<span style="font-size:9px;color:var(--text-dim)">${size}</span>` : ''}`;
-      container.appendChild(row);
-    }
-  } catch (err) {
-    container.innerHTML = '<div style="color:var(--text-dim);font-size:10px">Error loading resources</div>';
+  if (titleEl) titleEl.textContent = col.title || 'Untitled collection';
+  if (statusEl) {
+    const s = col.status || 'new';
+    const text = s === 'ready' ? 'Ready' : s === 'processing' ? 'Processing…' : s === 'partial' ? 'Partial' : s;
+    const tone = s === 'ready' ? 'background:rgba(52,211,153,.1);color:var(--accent)'
+      : s === 'error' ? 'background:rgba(248,113,113,.1);color:#f87171'
+      : 'background:rgba(251,191,36,.1);color:#fbbf24';
+    statusEl.style.cssText = `font-size:10px;padding:3px 8px;border-radius:5px;font-weight:500;flex-shrink:0;${tone}`;
+    statusEl.textContent = text;
+  }
+  if (teachBtn) {
+    const isVideo = (col.tags || []).includes('video') || (col.tags || []).includes('youtube');
+    teachBtn.textContent = isVideo ? 'Follow along' : 'Teach me this';
+    teachBtn.dataset.mode = isVideo ? 'follow_along' : 'teach';
+    const canTeach = col.status === 'ready' || col.status === 'partial';
+    teachBtn.disabled = !canTeach;
+    teachBtn.style.opacity = canTeach ? '1' : '0.45';
+    teachBtn.style.cursor = canTeach ? 'pointer' : 'not-allowed';
+    teachBtn.title = canTeach
+      ? ''
+      : (col.status === 'error'
+          ? 'All uploads in this collection failed processing.'
+          : 'Upload something first.');
+  }
+
+  // Show the detail overlay, hide the main dashboard
+  if (homeTab) homeTab.style.display = 'none';
+  stuffTab.style.display = 'block';
+
+  await _loadDetailResources(col.collection_id);
+}
+
+function _backToCollectionsList() {
+  const homeTab = document.getElementById('tab-home');
+  const stuffTab = document.getElementById('tab-stuff');
+  _stopDetailPoll();
+  state.byoDetailCollectionId = null;
+  state.byoDetailCollection = null;
+  const container = document.getElementById('byo-detail-resources');
+  if (container) delete container.dataset.loaded;
+  // Hide detail, show main dashboard
+  if (stuffTab) stuffTab.style.display = 'none';
+  if (homeTab) homeTab.style.display = 'block';
+  // Refresh collections on the main page
+  _loadCollections();
+  _populateCollectionPicker();
+}
+
+function _injectOptimisticResources(files) {
+  const container = document.getElementById('byo-detail-resources');
+  if (!container) return;
+  for (const file of files) {
+    const row = document.createElement('div');
+    row.className = 'byo-optimistic';
+    row.style.cssText = 'display:flex;align-items:center;gap:9px;padding:9px 10px;border-radius:6px;font-size:12px;border:1px solid var(--border);margin-bottom:6px;opacity:.7';
+    row.innerHTML = `
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" width="14" height="14" style="flex-shrink:0;color:var(--text-dim)"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/></svg>
+      <span style="flex:1;color:rgba(255,255,255,.6)">${_escHtml(file.name || 'file')}</span>
+      <span style="font-size:9px;padding:2px 7px;border-radius:4px;font-weight:500;display:inline-flex;align-items:center;background:rgba(251,191,36,.1);color:#fbbf24">
+        <span class="byo-spinner" style="display:inline-block;width:8px;height:8px;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:byo-spin .8s linear infinite;margin-right:5px"></span>
+        Uploading
+      </span>`;
+    container.prepend(row);
   }
 }
 
-function _addToCollection(collectionId) {
-  // Trigger file input scoped to this collection
-  const input = document.getElementById('byo-file-input');
-  if (!input) return;
-  input.dataset.collectionId = collectionId;
-  input.click();
+// Polling timer — set when at least one resource is in-flight; cleared
+// when everything is settled or the user navigates away. Only ever one.
+let _byoDetailPollTimer = null;
+
+function _stopDetailPoll() {
+  if (_byoDetailPollTimer) { clearTimeout(_byoDetailPollTimer); _byoDetailPollTimer = null; }
 }
 
-function _startFromCollection(collectionId, mode) {
-  // Navigate to a session grounded on this collection
-  console.log('[Collections] Start session:', collectionId, mode);
-  // TODO: wire to session creation with collection_id + mode
+async function _loadDetailResources(collectionId) {
+  const container = document.getElementById('byo-detail-resources');
+  if (!container) return;
+  // First call paints the loading state; subsequent polls re-render in place.
+  if (!container.dataset.loaded) {
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:6px">Loading materials…</div>';
+  }
+
+  try {
+    const res = await fetch(
+      `${state.apiUrl || ''}/api/v1/byo/collections/${collectionId}/resources`,
+      { headers: AuthManager.authHeaders() },
+    );
+    if (!res.ok) { container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:6px">Failed to load.</div>'; _stopDetailPoll(); return; }
+    const resources = await res.json();
+
+    if (!resources.length) {
+      container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:10px 2px">Nothing here yet. Drop a file or paste a link above to get started.</div>';
+      container.dataset.loaded = '1';
+      _stopDetailPoll();
+      return;
+    }
+
+    let anyInFlight = false;
+    container.innerHTML = '';
+    for (const r of resources) {
+      const isVid = (r.mime_type || '').startsWith('video')
+        || (r.source_type === 'url' && /youtube|youtu\.be/i.test(r.source_url || ''));
+      const icon = isVid
+        ? '<polygon points="5 3 19 12 5 21 5 3"/>'
+        : '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>';
+
+      const inFlight = r.status === 'processing' || r.status === 'queued' || !r.status;
+      if (inFlight) anyInFlight = true;
+
+      const statusStyle = r.status === 'ready' ? 'background:rgba(52,211,153,.1);color:var(--accent)'
+        : r.status === 'error' ? 'background:rgba(248,113,113,.1);color:#f87171'
+        : 'background:rgba(251,191,36,.1);color:#fbbf24';
+      const statusText = r.status === 'ready' ? 'Ready'
+        : r.status === 'processing' ? 'Processing'
+        : r.status === 'error' ? 'Error'
+        : 'Queued';
+      const spinner = inFlight
+        ? '<span class="byo-spinner" style="display:inline-block;width:8px;height:8px;border:1.5px solid currentColor;border-top-color:transparent;border-radius:50%;animation:byo-spin .8s linear infinite;margin-right:5px;vertical-align:middle"></span>'
+        : '';
+      const errTitle = r.status === 'error' && r.error
+        ? ` title="${_escHtml(String(r.error)).replace(/"/g, '&quot;')}"` : '';
+
+      // Progress bar (0-100% based on r.progress 0-1) — visible only while in flight.
+      const pct = inFlight && typeof r.progress === 'number'
+        ? Math.max(2, Math.min(100, Math.round(r.progress * 100)))
+        : (r.status === 'ready' ? 100 : 0);
+
+      const size = r.file_size
+        ? (r.file_size > 1048576
+            ? Math.round(r.file_size / 1048576) + ' MB'
+            : Math.round(r.file_size / 1024) + ' KB')
+        : '';
+
+      // Action buttons — Retry + Delete for errored resources, Delete for
+      // ready ones (students may want to remove a file from a collection).
+      const isError = r.status === 'error';
+      const actions = isError ? `
+        <button class="byo-res-retry" data-rid="${r.resource_id}" style="font-size:9px;padding:3px 9px;border-radius:5px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08);color:#fbbf24;cursor:pointer;font-weight:600;white-space:nowrap">Retry</button>
+        <button class="byo-res-delete" data-rid="${r.resource_id}" title="Remove this file" style="font-size:11px;width:22px;height:22px;border-radius:50%;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text-dim);cursor:pointer;display:grid;place-items:center">&times;</button>
+      ` : '';
+
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:9px 10px;border-radius:6px;font-size:12px;border:1px solid var(--border);margin-bottom:6px';
+      row.innerHTML = `
+        <div style="display:flex;align-items:center;gap:9px">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" width="14" height="14" style="flex-shrink:0;color:var(--text-dim)">${icon}</svg>
+          <span style="flex:1;color:rgba(255,255,255,.78);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(r.original_name || r.source_url || 'Untitled')}</span>
+          <span${errTitle} style="font-size:9px;padding:2px 7px;border-radius:4px;font-weight:500;display:inline-flex;align-items:center;${statusStyle}">${spinner}${statusText}</span>
+          ${size ? `<span style="font-size:10px;color:var(--text-dim)">${size}</span>` : ''}
+          ${actions}
+        </div>
+        ${inFlight ? `<div style="height:3px;border-radius:2px;background:rgba(255,255,255,.05);overflow:hidden">
+          <div style="height:100%;width:${pct}%;background:#fbbf24;transition:width .4s ease"></div>
+        </div>` : ''}`;
+
+      // Wire retry + delete handlers.
+      row.querySelector('.byo-res-retry')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const rid = e.currentTarget.dataset.rid;
+        const colId = state.byoDetailCollectionId;
+        if (!rid || !colId) return;
+        e.currentTarget.disabled = true;
+        e.currentTarget.textContent = 'Retrying…';
+        try {
+          const resp = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources/${rid}/retry`, {
+            method: 'POST',
+            headers: AuthManager.authHeaders(),
+          });
+          if (!resp.ok) {
+            _toast('Retry failed — see backend logs', 'error');
+          } else {
+            _toast('Re-processing started');
+          }
+        } catch (err) {
+          _toast('Retry request failed', 'error');
+        }
+        await _loadDetailResources(colId);
+      });
+      row.querySelector('.byo-res-delete')?.addEventListener('click', async (e) => {
+        e.stopPropagation();
+        const rid = e.currentTarget.dataset.rid;
+        const colId = state.byoDetailCollectionId;
+        if (!rid || !colId) return;
+        if (!confirm('Remove this file from the collection?')) return;
+        try {
+          await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources/${rid}`, {
+            method: 'DELETE',
+            headers: AuthManager.authHeaders(),
+          });
+          _toast('Removed');
+        } catch (err) {
+          _toast('Delete failed', 'error');
+        }
+        await _loadDetailResources(colId);
+      });
+
+      container.appendChild(row);
+    }
+    container.dataset.loaded = '1';
+
+    // Schedule next poll only if still in flight AND the detail view we're
+    // showing is the same one the data belongs to (user might have navigated away).
+    _stopDetailPoll();
+    if (anyInFlight && state.byoDetailCollectionId === collectionId) {
+      _byoDetailPollTimer = setTimeout(() => {
+        if (state.byoDetailCollectionId === collectionId) {
+          _loadDetailResources(collectionId);
+        }
+      }, 3000);
+    } else if (!anyInFlight) {
+      // Last in-flight item just settled — refresh the list view too so
+      // the collection card shows updated status.
+      _loadCollections();
+      _populateCollectionPicker();
+    }
+  } catch (err) {
+    container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:6px">Error loading materials.</div>';
+    _stopDetailPoll();
+  }
+}
+
+async function _startFromCollection(collectionId, mode) {
+  // Start a session scoped to a specific BYO collection. The tutor
+  // receives the collection_id via sessionContext and uses
+  // search(scope='collection', collection_id=...) to ground answers.
+  if (!collectionId) return;
+  try {
+    state.collectionId = collectionId;
+    state.byoMode = mode || 'teach';
+    const intent = mode === 'follow_along'
+      ? 'Watch along with this video and teach me as we go.'
+      : 'Teach me from my uploaded materials.';
+    state.studentIntent = intent;
+    await _startOnDemandSession(intent);
+  } catch (err) {
+    console.error('_startFromCollection failed:', err);
+    alert('Could not start session from this collection.');
+  }
 }
 
 function _initCollectionsUI() {
@@ -9454,7 +9826,24 @@ function _initCollectionsUI() {
   const btn = document.getElementById('btn-new-collection');
   if (btn) btn.addEventListener('click', () => {
     const modal = document.getElementById('new-collection-modal');
-    if (modal) { modal.style.display = 'flex'; const inp = document.getElementById('new-col-name'); if (inp) { inp.value = ''; inp.focus(); } }
+    if (modal) {
+      modal.style.display = 'flex';
+      const inp = document.getElementById('new-col-name');
+      if (inp) { inp.value = ''; inp.focus(); }
+    }
+  });
+
+  // Cancel button closes the modal
+  const cancelBtn = document.getElementById('btn-cancel-collection');
+  if (cancelBtn) cancelBtn.addEventListener('click', () => {
+    const modal = document.getElementById('new-collection-modal');
+    if (modal) modal.style.display = 'none';
+  });
+
+  // Click outside modal closes it
+  const modalBg = document.getElementById('new-collection-modal');
+  if (modalBg) modalBg.addEventListener('click', (e) => {
+    if (e.target === modalBg) modalBg.style.display = 'none';
   });
 
   // Wire "Create" button in modal
@@ -9462,8 +9851,9 @@ function _initCollectionsUI() {
   if (createBtn) createBtn.addEventListener('click', async () => {
     const nameInput = document.getElementById('new-col-name');
     const title = (nameInput?.value || '').trim();
-    if (!title) return;
-
+    if (!title) { nameInput?.focus(); return; }
+    createBtn.disabled = true;
+    createBtn.textContent = 'Creating…';
     try {
       const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
         method: 'POST',
@@ -9471,13 +9861,407 @@ function _initCollectionsUI() {
         body: JSON.stringify({ title }),
       });
       if (!res.ok) { alert('Failed to create collection'); return; }
+      const body = await res.json().catch(() => ({}));
       document.getElementById('new-collection-modal').style.display = 'none';
-      _loadCollections();
+      _populateCollectionPicker();
+      // Jump the user straight into the new collection's detail view so
+      // their next action (upload / paste link) lands inside it.
+      const newCol = {
+        collection_id: body.collection_id,
+        title,
+        status: 'new',
+        tags: [],
+        stats: { resources: 0 },
+      };
+      await _loadCollections();
+      await _openCollectionDetail(newCol);
     } catch (err) {
       console.error('Create collection failed:', err);
       alert('Failed to create collection');
+    } finally {
+      createBtn.disabled = false;
+      createBtn.textContent = 'Create';
     }
   });
+
+  // Back from detail → list
+  const backBtn = document.getElementById('byo-back-btn');
+  if (backBtn) backBtn.addEventListener('click', _backToCollectionsList);
+
+  // Detail-view Teach / Follow-along action
+  const teachBtn = document.getElementById('byo-detail-teach');
+  if (teachBtn) teachBtn.addEventListener('click', () => {
+    if (!state.byoDetailCollectionId) return;
+    _startFromCollection(state.byoDetailCollectionId, teachBtn.dataset.mode || 'teach');
+  });
+
+  // Enter key submits the modal
+  const nameInput = document.getElementById('new-col-name');
+  if (nameInput) nameInput.addEventListener('keydown', (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); createBtn?.click(); }
+    else if (e.key === 'Escape') {
+      const modal = document.getElementById('new-collection-modal');
+      if (modal) modal.style.display = 'none';
+    }
+  });
+
+  // Pre-load the collections cache + wire the slash command on the home input.
+  _populateCollectionPicker();
+  _initSlashMenu();
+}
+
+// In-memory cache of the user's collections, used by both the chip
+// renderer and the slash menu. Refreshed on tab-open and after uploads.
+state._collectionsCache = state._collectionsCache || [];
+
+async function _populateCollectionPicker() {
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+      headers: AuthManager.authHeaders(),
+    });
+    if (!res.ok) return;
+    const collections = await res.json();
+    state._collectionsCache = collections;
+    // Re-render the active chip in case the title changed or got removed.
+    _renderScopeChip();
+  } catch (err) {
+    console.warn('refresh collections cache failed:', err);
+  }
+}
+
+function _renderScopeChip() {
+  const wrap = document.getElementById('euler-scope-chip-wrap');
+  if (!wrap) return;
+  const cid = state.homeCollectionId;
+  const rids = state.homeResourceIds;
+  if (!cid && !rids) { wrap.style.display = 'none'; wrap.innerHTML = ''; return; }
+
+  // Build label
+  let label;
+  if (rids && rids.length > 0) {
+    // File-level selection
+    const names = rids.map(rid => {
+      const info = _rpSelected.get(rid);
+      return info?.name || rid.slice(0, 8);
+    });
+    label = names.length === 1 ? names[0] : `${names.length} files selected`;
+  } else if (cid) {
+    const col = (state._collectionsCache || []).find(c => c.collection_id === cid);
+    label = col ? col.title : 'Collection';
+  } else {
+    label = 'Selected';
+  }
+
+  wrap.style.display = 'flex';
+  wrap.innerHTML = `
+    <span style="display:inline-flex;align-items:center;gap:8px;padding:5px 5px 5px 12px;border-radius:999px;background:rgba(52,211,153,.1);border:1px solid rgba(52,211,153,.3);color:var(--accent);font-size:11px;font-weight:500">
+      <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+      ${_escHtml(label)}
+      <button id="euler-scope-clear" style="margin-left:2px;width:18px;height:18px;border-radius:50%;display:grid;place-items:center;background:rgba(255,255,255,.1);border:none;color:var(--accent);cursor:pointer;font-size:11px;line-height:1" title="Remove scope">&times;</button>
+    </span>`;
+  document.getElementById('euler-scope-clear')?.addEventListener('click', () => {
+    state.homeCollectionId = null;
+    state.homeResourceIds = null;
+    _rpSelected.clear();
+    _renderScopeChip();
+  });
+}
+
+// ── Slash command (/collection) ─────────────────────────────────────────
+
+function _initSlashMenu() {
+  const inputs = ['euler-input', 'euler-input-active'];
+  for (const id of inputs) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    el.addEventListener('input', _onInputForSlash);
+    el.addEventListener('keydown', _onSlashKeydown);
+    el.addEventListener('blur', () => {
+      setTimeout(_closeSlashMenu, 150);
+    });
+  }
+
+  // 📂 button → opens resource picker modal
+  const colBtn = document.getElementById('euler-collection-btn');
+  if (colBtn) {
+    colBtn.addEventListener('click', _openResourcePicker);
+  }
+
+  // Resource picker modal wiring
+  document.getElementById('rp-close')?.addEventListener('click', _closeResourcePicker);
+  document.getElementById('rp-cancel')?.addEventListener('click', _closeResourcePicker);
+  document.getElementById('rp-confirm')?.addEventListener('click', _confirmResourcePicker);
+  const rpModal = document.getElementById('resource-picker-modal');
+  if (rpModal) rpModal.addEventListener('click', (e) => { if (e.target === rpModal) _closeResourcePicker(); });
+}
+
+let _slashState = { open: false, items: [], activeIdx: 0, inputEl: null };
+
+function _onInputForSlash(e) {
+  const el = e.target;
+  const v = el.value;
+  // Trigger when text starts with `/` (no space yet) — that's a slash command.
+  // Future commands can match other prefixes; for now `/` opens the collection picker.
+  const m = v.match(/^\/(\w*)$/);
+  if (m) {
+    _openSlashMenu(el, m[1]);
+  } else {
+    _closeSlashMenu();
+  }
+}
+
+function _onSlashKeydown(e) {
+  if (!_slashState.open) return;
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    _slashState.activeIdx = (_slashState.activeIdx + 1) % Math.max(_slashState.items.length, 1);
+    _renderSlashMenu();
+  } else if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    _slashState.activeIdx = (_slashState.activeIdx - 1 + _slashState.items.length) % Math.max(_slashState.items.length, 1);
+    _renderSlashMenu();
+  } else if (e.key === 'Enter') {
+    if (_slashState.items.length === 0) return;
+    e.preventDefault();
+    e.stopPropagation();
+    _selectSlashItem(_slashState.items[_slashState.activeIdx]);
+  } else if (e.key === 'Escape') {
+    e.preventDefault();
+    _closeSlashMenu();
+  }
+}
+
+function _openSlashMenu(inputEl, query) {
+  const collections = state._collectionsCache || [];
+  const q = (query || '').toLowerCase();
+  // Filter collections by typed query against title; show all if no query.
+  const items = collections
+    .filter(c => !q || (c.title || '').toLowerCase().includes(q))
+    .slice(0, 8);
+  _slashState = { open: true, items, activeIdx: 0, inputEl };
+  _renderSlashMenu();
+}
+
+function _closeSlashMenu() {
+  const menu = document.getElementById('euler-slash-menu');
+  if (menu) menu.style.display = 'none';
+  _slashState = { open: false, items: [], activeIdx: 0, inputEl: null };
+}
+
+function _renderSlashMenu() {
+  const menu = document.getElementById('euler-slash-menu');
+  if (!menu || !_slashState.inputEl) return;
+
+  // Position the menu just above the input bar.
+  const inputBar = _slashState.inputEl.closest('.euler-input-bar') || _slashState.inputEl;
+  const rect = inputBar.getBoundingClientRect();
+  menu.style.position = 'fixed';
+  menu.style.top = `${Math.max(8, rect.top - 8)}px`;
+  menu.style.left = `${rect.left + rect.width / 2}px`;
+  menu.style.transform = 'translate(-50%, -100%)';
+  menu.style.display = 'block';
+
+  if (_slashState.items.length === 0) {
+    menu.innerHTML = `
+      <div style="padding:14px;font-size:12px;color:var(--text-dim);text-align:center">
+        No collections yet — create one in <strong style="color:rgba(255,255,255,.8)">My Stuff</strong>.
+      </div>`;
+    return;
+  }
+
+  const header = `<div style="padding:8px 12px;font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:.8px;border-bottom:1px solid var(--border)">/collection — scope to a collection</div>`;
+  const rows = _slashState.items.map((c, i) => {
+    const active = i === _slashState.activeIdx;
+    const status = c.status === 'ready' ? 'Ready' : c.status === 'processing' ? 'Processing' : c.status === 'partial' ? 'Partial' : 'New';
+    const isVid = (c.tags || []).includes('video') || (c.tags || []).includes('youtube');
+    const icon = isVid
+      ? '<polygon points="5 3 19 12 5 21 5 3"/>'
+      : '<path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/>';
+    return `
+      <div data-slash-idx="${i}" style="display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;font-size:12px;${active ? 'background:rgba(52,211,153,.08)' : ''}">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" width="13" height="13" style="color:var(--text-dim);flex-shrink:0">${icon}</svg>
+        <span style="flex:1;color:rgba(255,255,255,.85);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(c.title || 'Untitled')}</span>
+        <span style="font-size:9px;color:var(--text-dim)">${status}</span>
+      </div>`;
+  }).join('');
+
+  menu.innerHTML = header + rows;
+  menu.querySelectorAll('[data-slash-idx]').forEach((row) => {
+    row.addEventListener('mousedown', (e) => {
+      // mousedown beats blur — the input loses focus AFTER our click handler
+      // fires, so the selection isn't dropped.
+      e.preventDefault();
+      const idx = parseInt(row.dataset.slashIdx, 10);
+      _selectSlashItem(_slashState.items[idx]);
+    });
+  });
+}
+
+// ── Resource picker modal ────────────────────────────────────────────────
+
+let _rpSelected = new Map(); // resource_id → {name, collection_id, collection_title}
+
+async function _openResourcePicker() {
+  const modal = document.getElementById('resource-picker-modal');
+  const body = document.getElementById('rp-body');
+  if (!modal || !body) return;
+
+  _rpSelected = new Map();
+  // Pre-select currently scoped resources
+  if (state.homeResourceIds) {
+    for (const rid of state.homeResourceIds) {
+      _rpSelected.set(rid, { name: '...', collection_id: '', collection_title: '' });
+    }
+  }
+
+  modal.style.display = 'flex';
+  body.innerHTML = '<div style="padding:20px;text-align:center;color:var(--text-dim);font-size:12px">Loading...</div>';
+
+  try {
+    const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, { headers: AuthManager.authHeaders() });
+    if (!res.ok) { body.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:20px">Failed to load</div>'; return; }
+    const collections = await res.json();
+
+    if (!collections.length) {
+      body.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:20px;text-align:center">No collections yet. Create one first.</div>';
+      return;
+    }
+
+    body.innerHTML = '';
+    for (const col of collections) {
+      const colDiv = document.createElement('div');
+      colDiv.style.cssText = 'margin-bottom:6px';
+
+      const header = document.createElement('div');
+      header.style.cssText = 'display:flex;align-items:center;gap:8px;padding:8px 6px;border-radius:6px;cursor:pointer;font-size:12px;color:rgba(255,255,255,.8);transition:background .1s';
+      header.onmouseenter = () => { header.style.background = 'rgba(255,255,255,.04)'; };
+      header.onmouseleave = () => { header.style.background = ''; };
+      header.innerHTML = `
+        <svg style="color:var(--text-dim);transition:transform .2s;flex-shrink:0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" width="12" height="12"><path d="m9 18 6-6-6-6"/></svg>
+        <svg viewBox="0 0 24 24" fill="none" stroke="#818cf8" stroke-width="1.8" stroke-linecap="round" width="14" height="14"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        <span style="font-weight:600;flex:1">${_escHtml(col.title || 'Untitled')}</span>
+        <span style="font-size:9px;color:var(--text-dim)">${col.stats?.resources || 0} files</span>`;
+
+      const resourcesDiv = document.createElement('div');
+      resourcesDiv.style.cssText = 'display:none;padding-left:28px';
+      let loaded = false;
+
+      header.addEventListener('click', async () => {
+        const arrow = header.querySelector('svg:first-child');
+        const isOpen = resourcesDiv.style.display !== 'none';
+        resourcesDiv.style.display = isOpen ? 'none' : 'block';
+        if (arrow) arrow.style.transform = isOpen ? '' : 'rotate(90deg)';
+
+        if (!isOpen && !loaded) {
+          loaded = true;
+          resourcesDiv.innerHTML = '<div style="font-size:10px;color:var(--text-dim);padding:4px">Loading...</div>';
+          try {
+            const rRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${col.collection_id}/resources`, { headers: AuthManager.authHeaders() });
+            if (!rRes.ok) { resourcesDiv.innerHTML = '<div style="font-size:10px;color:var(--text-dim)">Failed</div>'; return; }
+            const resources = await rRes.json();
+            resourcesDiv.innerHTML = '';
+            if (!resources.length) {
+              resourcesDiv.innerHTML = '<div style="font-size:10px;color:var(--text-dim);padding:4px">Empty collection</div>';
+              return;
+            }
+            for (const r of resources) {
+              const row = document.createElement('label');
+              row.style.cssText = 'display:flex;align-items:center;gap:8px;padding:5px 4px;border-radius:5px;cursor:pointer;font-size:11px;transition:background .1s';
+              row.onmouseenter = () => { row.style.background = 'rgba(255,255,255,.03)'; };
+              row.onmouseleave = () => { row.style.background = ''; };
+              const isChecked = _rpSelected.has(r.resource_id);
+              const statusColor = r.status === 'ready' ? 'var(--accent)' : r.status === 'error' ? '#f87171' : '#fbbf24';
+              row.innerHTML = `
+                <input type="checkbox" data-rid="${r.resource_id}" data-rname="${_escHtml(r.original_name || 'file')}" data-cid="${col.collection_id}" data-ctitle="${_escHtml(col.title || '')}" ${isChecked ? 'checked' : ''} style="accent-color:var(--accent);cursor:pointer">
+                <span style="flex:1;color:rgba(255,255,255,.75);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(r.original_name || r.source_url || 'Untitled')}</span>
+                <span style="width:6px;height:6px;border-radius:50%;background:${statusColor};flex-shrink:0"></span>`;
+              row.querySelector('input').addEventListener('change', (e) => {
+                const rid = e.target.dataset.rid;
+                if (e.target.checked) {
+                  _rpSelected.set(rid, {
+                    name: e.target.dataset.rname,
+                    collection_id: e.target.dataset.cid,
+                    collection_title: e.target.dataset.ctitle,
+                  });
+                } else {
+                  _rpSelected.delete(rid);
+                }
+                _updateRpCount();
+              });
+              resourcesDiv.appendChild(row);
+            }
+          } catch (err) {
+            resourcesDiv.innerHTML = '<div style="font-size:10px;color:var(--text-dim)">Error loading files</div>';
+          }
+        }
+      });
+
+      colDiv.appendChild(header);
+      colDiv.appendChild(resourcesDiv);
+      body.appendChild(colDiv);
+    }
+    _updateRpCount();
+  } catch (err) {
+    body.innerHTML = '<div style="color:var(--text-dim);font-size:12px;padding:20px">Error loading collections</div>';
+  }
+}
+
+function _closeResourcePicker() {
+  const modal = document.getElementById('resource-picker-modal');
+  if (modal) modal.style.display = 'none';
+}
+
+function _updateRpCount() {
+  const el = document.getElementById('rp-count');
+  if (el) el.textContent = `${_rpSelected.size} selected`;
+}
+
+function _confirmResourcePicker() {
+  if (_rpSelected.size === 0) {
+    // Clear scope
+    state.homeCollectionId = null;
+    state.homeResourceIds = null;
+    _renderScopeChip();
+    _closeResourcePicker();
+    return;
+  }
+
+  // Group by collection for display
+  const byCol = new Map();
+  for (const [rid, info] of _rpSelected) {
+    const key = info.collection_id || 'unknown';
+    if (!byCol.has(key)) byCol.set(key, { title: info.collection_title, rids: [], names: [] });
+    byCol.get(key).rids.push(rid);
+    byCol.get(key).names.push(info.name);
+  }
+
+  // Set scope — if all from one collection, use collection_id. Otherwise use resource_ids.
+  if (byCol.size === 1) {
+    const entry = [...byCol.values()][0];
+    state.homeCollectionId = [...byCol.keys()][0];
+    state.homeResourceIds = entry.rids.length < (state._collectionsCache || []).find(c => c.collection_id === state.homeCollectionId)?.stats?.resources
+      ? entry.rids : null; // only filter if subset selected
+  } else {
+    state.homeCollectionId = [...byCol.keys()][0]; // primary collection
+    state.homeResourceIds = [..._rpSelected.keys()];
+  }
+
+  _renderScopeChip();
+  _closeResourcePicker();
+}
+
+function _selectSlashItem(col) {
+  if (!col) return;
+  const inputEl = _slashState.inputEl;
+  state.homeCollectionId = col.collection_id;
+  // Strip the slash command from the input so the user can keep typing
+  // their actual question.
+  if (inputEl) {
+    inputEl.value = inputEl.value.replace(/^\/\w*\s*/, '');
+    inputEl.focus();
+  }
+  _renderScopeChip();
+  _closeSlashMenu();
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -9741,39 +10525,56 @@ async function _handleByoLinkAdd() {
   const url = input.value.trim();
   if (!url) return;
 
-  // Basic URL validation
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     alert('Please enter a valid URL starting with http:// or https://');
     return;
   }
 
   btn.disabled = true;
-  btn.textContent = 'Adding...';
+  btn.textContent = 'Adding…';
   try {
-    // Create collection titled after the URL
-    const title = url.includes('youtube') || url.includes('youtu.be')
-      ? 'YouTube video'
-      : new URL(url).hostname.replace('www.', '');
-    const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ title }),
-    });
-    if (!createRes.ok) { alert('Failed to create collection'); return; }
-    const col = await createRes.json();
+    // Detail view open → add into that collection. Otherwise auto-create
+    // a collection titled after the URL (legacy path for old entrypoints).
+    let colId = state.byoDetailCollectionId;
+    let title;
+    if (!colId) {
+      title = url.includes('youtube') || url.includes('youtu.be')
+        ? 'YouTube video'
+        : new URL(url).hostname.replace('www.', '');
+      const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+        body: JSON.stringify({ title }),
+      });
+      if (!createRes.ok) { alert('Failed to create collection'); return; }
+      const col = await createRes.json();
+      colId = col.collection_id;
+    } else {
+      title = (state.byoDetailCollection?.title) || 'Collection';
+    }
 
-    // Add URL as resource
     const formData = new FormData();
     formData.append('url', url);
     formData.append('title', title);
-    await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${col.collection_id}/resources`, {
+    const r = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
       method: 'POST',
       headers: AuthManager.authHeaders(),
       body: formData,
     });
+    if (r.ok) {
+      const body = await r.json().catch(() => ({}));
+      if (body.status === 'duplicate') {
+        _toast(body.message || 'This link was already added to this collection');
+      }
+    }
 
     input.value = '';
+    if (state.byoDetailCollectionId === colId) {
+      await _loadDetailResources(colId);
+    }
     _loadByoMaterials();
+    _loadCollections();
+    _populateCollectionPicker();
   } catch (err) {
     console.error('Link add failed:', err);
     alert('Failed to add link. Please try again.');
@@ -9787,32 +10588,59 @@ async function _handleByoUpload(e) {
   const files = e.target.files;
   if (!files || !files.length) return;
 
-  // Create a collection first
-  const title = files.length === 1 ? files[0].name : `Upload (${files.length} files)`;
+  // Two modes:
+  //   1. Detail view open → upload into THAT collection (preferred).
+  //   2. Legacy fallback (old grid): create a new collection first.
+  // Clear the input so the same file can be re-selected on error.
+  const clearInput = () => { try { e.target.value = ''; } catch(_) {} };
   try {
-    const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
-      body: JSON.stringify({ title }),
-    });
-    if (!createRes.ok) { alert('Failed to create collection'); return; }
-    const col = await createRes.json();
-    const colId = col.collection_id;
+    let colId = state.byoDetailCollectionId;
+    if (!colId) {
+      const title = files.length === 1 ? files[0].name : `Upload (${files.length} files)`;
+      const createRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
+        body: JSON.stringify({ title }),
+      });
+      if (!createRes.ok) { alert('Failed to create collection'); return; }
+      const col = await createRes.json();
+      colId = col.collection_id;
+    }
 
-    // Upload each file
+    // Optimistic UI: show files immediately as "Uploading..." before the
+    // request completes. Students thought nothing happened during the wait.
+    if (state.byoDetailCollectionId === colId) {
+      _injectOptimisticResources(files);
+    }
+
+    const dupes = [];
     for (const file of files) {
       const formData = new FormData();
       formData.append('file', file);
-      await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
+      const r = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
         method: 'POST',
         headers: AuthManager.authHeaders(),
         body: formData,
       });
+      if (r.ok) {
+        const body = await r.json().catch(() => ({}));
+        if (body.status === 'duplicate') dupes.push(body.message || `${file.name} — already in this collection`);
+      }
     }
+    if (dupes.length) {
+      _toast(dupes.length === 1 ? dupes[0] : `${dupes.length} files were already in this collection`);
+    }
+    clearInput();
 
-    // Refresh the materials grid
+    // Refresh whatever's currently on screen.
+    if (state.byoDetailCollectionId === colId) {
+      await _loadDetailResources(colId);
+    }
     _loadByoMaterials();
+    _loadCollections();
+    _populateCollectionPicker();
   } catch (err) {
+    clearInput();
     console.error('Upload failed:', err);
     alert('Upload failed. Please try again.');
   }
@@ -10313,10 +11141,98 @@ function _renderMarkdown(text) {
     .replace(/\n/g, '<br>');
 }
 
+// ── CTA card actions (home dashboard) ────────────────────────────────────
+// Each card pre-fills the input with a relevant prompt + optionally opens
+// the "new collection" modal so the student's first action is to upload.
+function _ctaAction(type) {
+  const input = document.getElementById('euler-input');
+  const prompts = {
+    exam: 'Solve the hardest questions from my exam paper',
+    notes: 'Explain the key concepts from my lecture notes',
+    homework: 'Help me solve my homework problems step by step',
+    video: '',  // video → open link input instead
+  };
+  if (type === 'video') {
+    // Scroll to the link input (which is inside a collection detail view),
+    // or prompt them to create a collection first.
+    const linkInput = document.getElementById('byo-link-input');
+    if (linkInput && linkInput.offsetParent) {
+      linkInput.focus();
+      linkInput.placeholder = 'Paste your YouTube lecture link here...';
+      linkInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    } else {
+      // No collection open — create one first
+      const modal = document.getElementById('new-collection-modal');
+      if (modal) {
+        modal.style.display = 'flex';
+        const nameInput = document.getElementById('new-col-name');
+        if (nameInput) { nameInput.value = 'YouTube lecture'; nameInput.focus(); }
+      }
+    }
+    return;
+  }
+  if (input && prompts[type]) {
+    input.value = prompts[type];
+    input.style.height = 'auto';
+    input.style.height = Math.min(input.scrollHeight, 120) + 'px';
+    input.focus();
+    // If they don't have a collection yet, nudge them to create one
+    const collections = state._collectionsCache || [];
+    if (collections.length === 0) {
+      _toast('Create a collection first and upload your ' +
+        (type === 'exam' ? 'exam paper' : type === 'notes' ? 'notes' : 'homework'),
+        'info');
+    }
+  }
+}
+
+// Hover effect for CTA cards
+document.addEventListener('DOMContentLoaded', () => {
+  document.querySelectorAll('.euler-cta-card').forEach(card => {
+    card.addEventListener('mouseenter', () => {
+      card.style.borderColor = 'rgba(52,211,153,.3)';
+      card.style.background = 'rgba(255,255,255,.03)';
+    });
+    card.addEventListener('mouseleave', () => {
+      card.style.borderColor = '';
+      card.style.background = '';
+    });
+  });
+});
+
 function _escHtml(s) {
   const d = document.createElement('div');
   d.textContent = s || '';
   return d.innerHTML;
+}
+
+// ── Lightweight toast ────────────────────────────────────────────────────
+// Short-lived, top-centered banner. No framework dep; one stack so multiple
+// toasts queue rather than overlap. Used for soft signals like "that file
+// was already in this collection" where we don't want a blocking alert().
+function _toast(msg, kind) {
+  if (!msg) return;
+  let host = document.getElementById('toast-host');
+  if (!host) {
+    host = document.createElement('div');
+    host.id = 'toast-host';
+    host.style.cssText = 'position:fixed;top:24px;left:50%;transform:translateX(-50%);z-index:9999;display:flex;flex-direction:column;gap:6px;pointer-events:none;max-width:90vw';
+    document.body.appendChild(host);
+  }
+  const el = document.createElement('div');
+  const tone = kind === 'error'
+    ? 'background:rgba(248,113,113,.12);color:#fca5a5;border-color:rgba(248,113,113,.3)'
+    : kind === 'success'
+    ? 'background:rgba(52,211,153,.12);color:var(--accent);border-color:rgba(52,211,153,.3)'
+    : 'background:rgba(30,34,42,.96);color:rgba(255,255,255,.9);border-color:var(--border)';
+  el.style.cssText = `pointer-events:auto;padding:9px 14px;border-radius:9px;border:1px solid;font-size:12px;font-weight:500;box-shadow:0 8px 28px rgba(0,0,0,.35);animation:up .22s ease-out;${tone}`;
+  el.textContent = msg;
+  host.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .25s';
+    el.style.opacity = '0';
+    setTimeout(() => el.remove(), 300);
+  }, 3400);
 }
 
 // ═══════════════════════════════════════════════════════════════
@@ -15742,24 +16658,8 @@ function openBoardDrawSpotlight(title, rawContent, options = {}) {
 
   content.innerHTML = `
     <div class="bd-container" id="bd-container">
-      <div class="bd-toolbar" id="bd-toolbar">
-        <button class="bd-tool-btn" data-color="#22ee66" title="Green pen">
-          <span style="color:#22ee66;">&#9679;</span>
-        </button>
-        <button class="bd-tool-btn" data-color="#ff6666" title="Red pen">
-          <span style="color:#ff6666;">&#9679;</span>
-        </button>
-        <button class="bd-tool-btn" data-color="#ffffff" title="White pen">
-          <span style="color:#ffffff;">&#9679;</span>
-        </button>
-        <button class="bd-tool-btn bd-eraser-btn" data-color="eraser" title="Eraser">&#9003;</button>
-        <span class="bd-toolbar-divider"></span>
-        <button class="bd-tool-btn bd-clear-btn" onclick="bdClearStudentDrawing()" title="Clear my drawing">Clear</button>
-        <span class="bd-toolbar-divider"></span>
-        <button class="bd-tool-btn" onclick="bdZoomOut()" title="Zoom out (Ctrl+-)">&#8722;</button>
-        <button class="bd-tool-btn" onclick="bdZoomReset()" title="Reset zoom (Ctrl+0)" id="bd-zoom-level" style="min-width:36px;font-size:10px;text-align:center">100%</button>
-        <button class="bd-tool-btn" onclick="bdZoomIn()" title="Zoom in (Ctrl++)">&#43;</button>
-      </div>
+      <!-- Drawing toolbar removed — student feedback: cluttered, unused, confusing -->
+      <div class="bd-toolbar" id="bd-toolbar" style="display:none"></div>
       <div class="bd-canvas-wrap" id="bd-canvas-wrap">
         <div id="bd-board-content">
           <div id="bd-scenes-stack"></div>

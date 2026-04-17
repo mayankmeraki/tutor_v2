@@ -227,8 +227,8 @@ async def main():
     except Exception as e:
         log(f"  IMPORT ERROR: {e}")
 
-    # ── 10. BYO tools ─────────────────────────────────────────
-    section("10. BYO TOOLS (student uploaded content)")
+    # ── 10. BYO tools (unified retrieval surface) ────────────
+    section("10. BYO TOOLS (student uploaded content — unified search/fetch/list_contents)")
 
     try:
         from app.core.mongodb import get_mongo_db
@@ -237,16 +237,30 @@ async def main():
         col = await db.collections.find_one({"status": "complete"})
         if col:
             cid = str(col.get("collection_id", col.get("_id", "")))
-            log(f"  Found BYO collection: {cid} — {col.get('title', '?')}")
+            uid = col.get("user_id", "")
+            log(f"  Found BYO collection: {cid} — {col.get('title', '?')} (user={uid})")
 
-            r, ms = await timed_call(execute_tutor_tool, "byo_list", {"collection_id": cid})
-            result("byo_list", f"collection={cid}", r, ms)
+            # Every BYO tool call carries studentProfile (for user_id) + optional sessionContext.
+            ctx = {
+                "studentProfile": json.dumps({"userEmail": uid}),
+                "sessionContext": json.dumps({"collection_id": cid}),
+            }
 
-            r, ms = await timed_call(execute_tutor_tool, "byo_read", {"collection_id": cid, "query": "quantum"})
-            result("byo_read", f"collection={cid}, query=quantum", r, ms)
+            # list_contents replaces byo_list
+            r, ms = await timed_call(
+                execute_tutor_tool, "list_contents",
+                {"scope": "collection", "collection_id": cid},
+                context_data=ctx,
+            )
+            result("list_contents", f"collection={cid}", r, ms)
 
-            r, ms = await timed_call(execute_tutor_tool, "byo_read", {"collection_id": cid, "chunk_index": 0})
-            result("byo_read", f"collection={cid}, chunk_index=0", r, ms)
+            # search(scope='collection') replaces byo_read with a query
+            r, ms = await timed_call(
+                execute_tutor_tool, "search",
+                {"query": "quantum", "scope": "collection", "collection_id": cid, "k": 3},
+                context_data=ctx,
+            )
+            result("search(collection)", f"collection={cid}, query=quantum", r, ms)
         else:
             log("  (no BYO collections in DB)")
     except Exception as e:

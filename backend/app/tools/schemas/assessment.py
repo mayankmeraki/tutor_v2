@@ -110,10 +110,10 @@ HANDBACK_TO_TUTOR_TOOL = {
 ASSESSMENT_TOOLS = [
     t for t in TUTOR_TOOLS
     if t["name"] in (
-        "search_images", "web_search", "get_section_content",
+        "search_images", "web_search",
         "query_knowledge", "update_student_model",
-        "content_read", "content_peek",
-        "byo_read", "byo_list",
+        # Unified retrieval — replaces content_read/content_peek/byo_read/byo_list/get_section_content
+        "search", "fetch", "peek",
     )
 ] + [COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL]
 

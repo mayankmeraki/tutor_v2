@@ -1,6 +1,173 @@
-"""Tutor tool schemas — search, content, BYO, board capture, etc."""
+"""Tutor tool schemas — unified retrieval + external content + sim control.
+
+Retrieval surface is consolidated (task #11):
+  - search / fetch / peek / nearby / list_contents
+    These work across BOTH course content and BYO (student-uploaded) content.
+    Scope routing is explicit — tutor picks `scope` per call.
+  - web_search / search_images — external, non-course content.
+  - control_simulation — UI control, not retrieval.
+
+Removed (do NOT re-add without coordination):
+  byo_read, byo_list, byo_transcript_context  → fold into search/fetch/nearby
+  content_read, content_peek, content_search  → replaced by fetch/peek/search
+  get_section_content, get_simulation_details → replaced by fetch
+
+The student-model + triage tools (query_knowledge, update_student_model,
+complete_triage) are kept untouched — they are not part of retrieval.
+"""
 
 TUTOR_TOOLS = [
+    # ─────────────────────── UNIFIED RETRIEVAL ───────────────────────
+    {
+        "name": "search",
+        "description": (
+            "Semantic search across course + student-uploaded (BYO) content. "
+            "USE THIS FIRST before asking the student to clarify — grounding beats "
+            "interrogation. Cheapest way to find the right material for what the "
+            "student is asking. Returns a list of refs you can pass to fetch/peek/nearby.\n"
+            "Scope routing:\n"
+            "  'course'      — Capacity course (requires a course in context)\n"
+            "  'collection'  — one BYO collection (pass collection_id)\n"
+            "  'resource'    — a single BYO resource (pass resource_id)\n"
+            "  'user_corpus' — all of this student's BYO materials\n"
+            "  'both'        — course + student's collection, merged by score\n"
+            "Note: search is MORE EXPENSIVE than fetch (runs dense + sparse + rerank). "
+            "Use fetch when you already know the ref."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Search query — concept, question, or topic.",
+                },
+                "scope": {
+                    "type": "string",
+                    "enum": ["collection", "resource", "user_corpus", "course", "both"],
+                    "description": "Where to search. Default 'both' if BYO collection is in session context, else 'course'.",
+                },
+                "collection_id": {
+                    "type": "string",
+                    "description": "BYO collection id (from session context). Required for scope='collection' or 'both'.",
+                },
+                "resource_id": {
+                    "type": "string",
+                    "description": "BYO resource id. Required for scope='resource'.",
+                },
+                "modality_filter": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Optional list of modalities to keep (e.g. ['pdf_digital','video']).",
+                },
+                "k": {
+                    "type": "number",
+                    "description": "Max results (default 5).",
+                },
+            },
+            "required": ["query"],
+        },
+    },
+    {
+        "name": "fetch",
+        "description": (
+            "Resolve a ref to its full content with citation. CHEAP — one lookup, "
+            "no ranking. Use when you already have a ref from search/peek/plan.\n"
+            "Ref formats:\n"
+            "  lesson:ID:section:IDX  — a course section (transcript + key points)\n"
+            "  lesson:ID              — a whole course lesson (overview + first section)\n"
+            "  sim:ID                 — a simulation (controls + AI context + entry URL)\n"
+            "  chunk:ID               — a BYO parent chunk (~800 tokens of content)\n"
+            "  segment:ID             — a BYO child segment (resolves to its parent)\n"
+            "  resource:ID            — a BYO resource (its first chunk as entry point)"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": 'Content ref — e.g. "lesson:3:section:2", "chunk:abc123", "sim:dbl-slit".',
+                },
+            },
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "peek",
+        "description": (
+            "Cheap summary of a ref (~100 tokens). Title + key points + anchor. "
+            "Use for planning, or to pick the right section/chunk before calling fetch. "
+            "Accepts the same ref formats as fetch."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": 'Content ref — e.g. "lesson:3", "lesson:3:section:2", "chunk:abc123", "resource:xyz".',
+                },
+            },
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "nearby",
+        "description": (
+            "Deterministic anchor walk around a ref. NOT semantic — returns neighbours "
+            "in the source order. Use for 'what came just before/after this' questions.\n"
+            "  Course sections → ±window sections in the same lesson.\n"
+            "  BYO video/audio → ±window minutes around the chunk's timestamp.\n"
+            "  BYO PDF/slides  → ±window pages around the chunk's page.\n"
+            "  BYO text/code   → ±window adjacent chunks by index.\n"
+            "Tip: to get transcript around a video timestamp, first search or peek to find "
+            "the matching chunk ref, then nearby(ref=chunk:..., window=1)."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "ref": {
+                    "type": "string",
+                    "description": "Ref to walk from — lesson:ID:section:IDX, chunk:ID, segment:ID, resource:ID.",
+                },
+                "window": {
+                    "type": "number",
+                    "description": "Neighbour radius. Default 1. Units depend on modality (sections / pages / minutes / chunks).",
+                },
+            },
+            "required": ["ref"],
+        },
+    },
+    {
+        "name": "list_contents",
+        "description": (
+            "Inventory of what's available in a scope WITHOUT a query. Returns refs "
+            "you can fetch/peek. Use when the student says 'what do I have?' or you "
+            "want to pick a starting point without guessing.\n"
+            "  scope='course'      → lessons/sections tree\n"
+            "  scope='collection'  → resources in a BYO collection (pass collection_id)\n"
+            "  scope='user_corpus' → resources across all of student's BYO collections"
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "scope": {
+                    "type": "string",
+                    "enum": ["collection", "user_corpus", "course"],
+                    "description": "Which inventory to list.",
+                },
+                "collection_id": {
+                    "type": "string",
+                    "description": "Required for scope='collection'.",
+                },
+                "group_by": {
+                    "type": "string",
+                    "enum": ["resource", "modality", "topic", "none"],
+                    "description": "How to group results (BYO only). Default 'resource'.",
+                },
+            },
+            "required": ["scope"],
+        },
+    },
+    # ─────────────────────── EXTERNAL CONTENT ───────────────────────
     {
         "name": "search_images",
         "description": (
@@ -47,174 +214,7 @@ TUTOR_TOOLS = [
             "required": ["query"],
         },
     },
-    {
-        "name": "get_simulation_details",
-        "description": (
-            "Get full details for a specific simulation by ID, including ai_context, "
-            "controls, guided exercises, and content URLs. Use when you want to guide "
-            "the student through a specific simulation."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "simulation_id": {
-                    "type": "string",
-                    "description": "The simulation ID from the Available Simulations context",
-                },
-            },
-            "required": ["simulation_id"],
-        },
-    },
-    {
-        "name": "get_section_content",
-        "description": (
-            "Fetch detailed content for a specific course section — transcript segments, "
-            "key points, formulas, and concepts covered. Use when you need the professor's "
-            "actual words to ground your teaching. Don't call for every step — only when "
-            "you need specific lecture content."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "lesson_id": {
-                    "type": "number",
-                    "description": "The lesson ID from the Course Map",
-                },
-                "section_index": {
-                    "type": "number",
-                    "description": "The section index within the lesson",
-                },
-            },
-            "required": ["lesson_id", "section_index"],
-        },
-    },
-    {
-        "name": "content_read",
-        "description": (
-            "Get full teaching content for a ref — transcript, key points, formulas. "
-            "Use when grounding your teaching in actual lecture content. "
-            "Refs: lesson:ID:section:IDX for a specific section, lesson:ID for a lesson overview, "
-            "sim:ID for simulation details."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "ref": {
-                    "type": "string",
-                    "description": 'Content ref, e.g. "lesson:3:section:2" or "lesson:5"',
-                },
-            },
-            "required": ["ref"],
-        },
-    },
-    {
-        "name": "content_peek",
-        "description": (
-            "Quick look at a ref — title, concepts, key points (~100 tokens). "
-            "Use for planning or finding the right section before reading full content. "
-            "For lesson refs: returns section listing with refs. "
-            "For section refs: returns compact teaching brief."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "ref": {
-                    "type": "string",
-                    "description": 'Content ref, e.g. "lesson:3" or "lesson:3:section:2"',
-                },
-            },
-            "required": ["ref"],
-        },
-    },
-    {
-        "name": "content_search",
-        "description": (
-            "Search across all course content for a topic or concept. "
-            "Returns matching items with refs you can pass to content_read or content_peek. "
-            "Use when the student asks about something not in the current plan."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "query": {
-                    "type": "string",
-                    "description": "Search query — concept name, topic, or question",
-                },
-                "limit": {
-                    "type": "number",
-                    "description": "Max results (default 5)",
-                },
-            },
-            "required": ["query"],
-        },
-    },
-    {
-        "name": "byo_read",
-        "description": (
-            "Read content from the student's uploaded materials (BYO). "
-            "Use when teaching from student's own PDFs, notes, or documents. "
-            "Provide the collection_id (from session context) and optionally a chunk index or search query. "
-            "Returns the actual text content from their uploaded material."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "collection_id": {
-                    "type": "string",
-                    "description": "BYO collection ID (from session context or enriched_intent)",
-                },
-                "query": {
-                    "type": "string",
-                    "description": "Search within the collection — topic, question text, or keyword",
-                },
-                "chunk_index": {
-                    "type": "number",
-                    "description": "Specific chunk index to read (0-based). Use when you know the exact chunk.",
-                },
-            },
-            "required": ["collection_id"],
-        },
-    },
-    {
-        "name": "byo_list",
-        "description": (
-            "List all chunks/sections in a BYO collection with their topics and labels. "
-            "Use to understand what content is available in the student's uploaded material "
-            "before deciding what to teach."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "collection_id": {
-                    "type": "string",
-                    "description": "BYO collection ID",
-                },
-            },
-            "required": ["collection_id"],
-        },
-    },
-    {
-        "name": "byo_transcript_context",
-        "description": (
-            "Get the transcript around a specific timestamp in a BYO video. "
-            "Use during video watch-along sessions to understand what the student just heard. "
-            "Returns ~60s of transcript centered on the timestamp."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "resource_id": {
-                    "type": "string",
-                    "description": "BYO resource ID of the video being watched",
-                },
-                "timestamp": {
-                    "type": "number",
-                    "description": "Current video position in seconds",
-                },
-            },
-            "required": ["resource_id", "timestamp"],
-        },
-    },
+    # ─────────────────────── SIMULATION CONTROL ───────────────────────
     {
         "name": "control_simulation",
         "description": (
@@ -320,6 +320,28 @@ TUTOR_TOOLS = [
                                     "on this concept."
                                 ),
                             },
+                            "blooms": {
+                                "type": "string",
+                                "enum": ["remember", "understand", "apply", "analyze", "evaluate", "create"],
+                                "description": (
+                                    "Bloom's taxonomy level observed for this concept. "
+                                    "Drives next-session calibration: teach ONE level above."
+                                ),
+                            },
+                            "approach_tried": {
+                                "type": "string",
+                                "description": (
+                                    "What teaching approach was used: worked_example, socratic, "
+                                    "visual, algebraic, simulation, analogy, etc."
+                                ),
+                            },
+                            "approach_worked": {
+                                "type": "boolean",
+                                "description": (
+                                    "Did the approach land? true = student got the verify question right. "
+                                    "false = student still struggled. Drives approach selection next time."
+                                ),
+                            },
                         },
                         "required": ["concepts", "note"],
                     },
@@ -359,7 +381,7 @@ TUTOR_TOOLS = [
                 "content_refs": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific lesson/section refs to use (from content_search)",
+                    "description": "Specific lesson/section refs to use (from search results)",
                 },
             },
             "required": ["diagnosed_gaps", "student_level", "recommended_start"],

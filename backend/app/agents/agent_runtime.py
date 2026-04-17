@@ -360,16 +360,16 @@ class AgentRuntime:
         planning_prompt = build_planning_prompt(context)
         has_course = "courseMap" in context and context.get("courseMap")
 
-        # Build tool list — planner can use content + search tools
+        # Build tool list — planner uses the unified retrieval surface.
         from app.tools import TUTOR_TOOLS
-        planner_tool_names = {"content_read", "content_peek", "web_search",
-                              "query_knowledge", "get_section_content"}
+        planner_tool_names = {
+            "search", "fetch", "peek", "list_contents",
+            "web_search", "query_knowledge",
+        }
         if not has_course:
-            planner_tool_names -= {"content_read", "content_peek", "get_section_content"}
-        # Add BYO tools if BYO context present
-        session_ctx = context.get("sessionContext", "")
-        if session_ctx and "collection_id" in str(session_ctx):
-            planner_tool_names |= {"byo_read", "byo_list"}
+            # Course-specific refs won't resolve; we still leave search/list
+            # available (they route to BYO/user_corpus by scope).
+            pass
         planner_tools = [t for t in TUTOR_TOOLS if t["name"] in planner_tool_names]
 
         messages: list[dict] = [{"role": "user", "content": f"<task>\n{task.instructions}\n</task>"}]
@@ -450,32 +450,14 @@ class AgentRuntime:
     async def _execute_planning_tool(self, tool_name: str, tool_input: dict, context: dict) -> str:
         """Execute a tool call from the planning agent.
 
-        Uses execute_tutor_tool for most tools. For content adapter tools
-        that need course context, falls back to get_section_content which
-        works standalone.
+        Routes through the unified tool dispatcher, threading the session
+        context so retrieval tools can resolve user_id / course_id.
         """
         try:
             from app.tools import execute_tutor_tool
-            result = await execute_tutor_tool(tool_name, tool_input)
-            if result and "must be routed through the adapter" not in result:
-                return result
-            # Content adapter tools that failed — try via get_section_content
-            # which works without the adapter
-            if tool_name in ("content_read", "content_peek", "get_section_content"):
-                from app.tools.handlers import get_section_content
-                lesson_id = tool_input.get("lesson_id")
-                section_index = tool_input.get("section_index", 0)
-                ref = tool_input.get("ref", "")
-                # Parse ref format "lesson:X:section:Y" if provided
-                if ref and not lesson_id:
-                    import re
-                    m = re.match(r'lesson:(\d+)(?::section:(\d+))?', ref)
-                    if m:
-                        lesson_id = int(m.group(1))
-                        section_index = int(m.group(2) or 0)
-                if lesson_id is not None:
-                    return await get_section_content(int(lesson_id), int(section_index))
-                return f"Cannot resolve content ref: {ref or tool_input}"
+            result = await execute_tutor_tool(
+                tool_name, tool_input, context_data=context,
+            )
             return result or f"No result from {tool_name}"
         except Exception as e:
             return f"Tool error ({tool_name}): {e}"
@@ -552,7 +534,7 @@ class AgentRuntime:
     async def _run_enrichment_agent(self, task: AgentTask, context: dict) -> str:
         """Background enrichment agent — runs every ~5 turns to pre-fetch resources.
 
-        Uses Haiku with tools (web_search, content_search, get_section_content,
+        Uses Haiku with tools (web_search, search, fetch,
         query_knowledge). Encourages parallel tool calls for speed.
         Output is injected into tutor's context as [ENRICHMENT CONTEXT].
         """
@@ -566,7 +548,7 @@ class AgentRuntime:
             "4. Compile a concise enrichment pack\n\n"
             "OUTPUT FORMAT:\n"
             "[Web References]\n- URL: description (if web_search found useful results)\n\n"
-            "[Course Content]\n- Section: key points (if content_search/get_section_content found relevant material)\n\n"
+            "[Course Content]\n- Section: key points (if search/fetch found relevant material)\n\n"
             "[Student Knowledge Gaps]\n- Concept: gap description (if query_knowledge revealed gaps)\n\n"
             "BE FAST. Call multiple tools at once. Keep output under 500 words.\n"
             "If no enrichment is needed, output: (no enrichment needed)"
@@ -582,7 +564,7 @@ class AgentRuntime:
         enrichment_tools = []
         from app.tools import TUTOR_TOOLS
         for t in TUTOR_TOOLS:
-            if t["name"] in ("web_search", "content_search", "get_section_content", "query_knowledge"):
+            if t["name"] in ("web_search", "search", "fetch", "query_knowledge"):
                 enrichment_tools.append(t)
 
         # Build the enrichment request from task instructions (contains recent conversation + topic)
@@ -630,7 +612,9 @@ class AgentRuntime:
 
             async def _exec_tool(block):
                 try:
-                    return block.id, await execute_tutor_tool(block.name, block.input)
+                    return block.id, await execute_tutor_tool(
+                        block.name, block.input, context_data=context,
+                    )
                 except Exception as e:
                     log.warning("Enrichment tool %s failed: %s", block.name, e)
                     return block.id, f"Error: {e}"
@@ -711,7 +695,7 @@ class AgentRuntime:
             "completely different but whose underlying skeleton is the same "
             "concept. The student should NOT see the connection at first.\n\n"
             "USE TOOLS to find non-obvious applications. Don't invent from "
-            "your weights alone — use web_search and content_search to find "
+            "your weights alone — use web_search and search (scope='course' or 'both') to find "
             "real, vivid, surprising uses of the concept.\n\n"
             "OUTPUT: Reply with ONE valid JSON object matching the schema "
             "below. No prose before or after. No markdown code fences.\n\n"
@@ -747,7 +731,7 @@ class AgentRuntime:
         research_tools = []
         from app.tools import TUTOR_TOOLS
         for t in TUTOR_TOOLS:
-            if t["name"] in ("web_search", "content_search", "get_section_content"):
+            if t["name"] in ("web_search", "search", "fetch"):
                 research_tools.append(t)
 
         # Build the request from task instructions (which should contain the
@@ -790,7 +774,9 @@ class AgentRuntime:
 
             async def _exec_tool(block):
                 try:
-                    return block.id, await execute_tutor_tool(block.name, block.input)
+                    return block.id, await execute_tutor_tool(
+                        block.name, block.input, context_data=context,
+                    )
                 except Exception as e:
                     log.warning("ConceptResearch tool %s failed: %s", block.name, e)
                     return block.id, f"Error: {e}"
