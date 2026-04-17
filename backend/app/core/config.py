@@ -15,6 +15,8 @@ class Settings(BaseSettings):
     LLM_PROVIDER: str = Field(default="openrouter")  # "anthropic" or "openrouter"
     ANTHROPIC_API_KEY: str = Field(default="")
     OPENROUTER_API_KEY: str = Field(default="")
+    # Cohere rerank — optional; retrieval gracefully skips rerank if unset
+    COHERE_API_KEY: str = Field(default="")
 
     # ── Model tiers (all OpenRouter IDs by default) ──
     # Heavy: best quality, used for teaching (Tutor)

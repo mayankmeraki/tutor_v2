@@ -122,8 +122,9 @@ DESIGN RULES (regardless of format):
 
 1. GROUND IN THIS COURSE'S CONTENT
    Use the professor's specific examples, notation, terminology.
-   Pull from get_section_content() / content_read() if you need exact
-   phrasing. Never ask generic textbook questions.
+   Pull from fetch(ref) (or search(scope='course') first if you don't
+   have a ref) if you need exact phrasing. Never ask generic textbook
+   questions.
 
 2. DISTRACTORS ARE WEAPONS (for MCQs)
    Each wrong option should target a SPECIFIC misconception from the

@@ -41,3 +41,38 @@ class ContentProvider(Protocol):
     async def content_search(self, query: str, limit: int = 5) -> str:
         """Search across all content. Returns matches with refs for follow-up."""
         ...
+
+
+@runtime_checkable
+class SupportsContentNearby(Protocol):
+    """OPTIONAL capability — deterministic anchor walking around a ref.
+
+    Kept as a separate Protocol so adapters that don't (yet) support
+    anchor-walking still satisfy ``ContentProvider``. Callers should
+    feature-detect with::
+
+        if isinstance(provider, SupportsContentNearby):
+            text = await provider.content_nearby(ref, window=1)
+
+    or simply ``hasattr(provider, "content_nearby")``.
+
+    NOTE: ``content_nearby`` is retrieval by ORDERED POSITION, not by
+    semantic similarity — do not confuse it with ``content_search``.
+    """
+
+    async def content_nearby(self, ref: str, window: int = 1) -> str:
+        """Deterministic anchor walk around a ref (NOT semantic search).
+
+        Behavior (per adapter convention):
+          - ``lesson:X:section:Y``: returns section Y together with the
+            ``window`` sections on either side of it within the same lesson.
+          - ``lesson:X``: returns the lesson overview + first section
+            (``window`` is ignored — lesson refs don't have a linear
+            neighbour axis beyond "first section").
+          - ``sim:X`` / ``simulation:X``: returns the simulation details
+            (same output as ``content_peek``; sims have no neighbours).
+
+        Returns a formatted string in the same citation style as
+        ``content_read`` / ``content_peek``.
+        """
+        ...

@@ -1,0 +1,48 @@
+{
+  "byo_segments_vector": {
+    "database": "capacity",
+    "collectionName": "byo_segments",
+    "name": "byo_segments_vector",
+    "type": "vectorSearch",
+    "definition": {
+      "fields": [
+        {
+          "type": "vector",
+          "path": "embedding",
+          "numDimensions": 1536,
+          "similarity": "cosine"
+        },
+        { "type": "filter", "path": "user_id" },
+        { "type": "filter", "path": "collection_id" },
+        { "type": "filter", "path": "resource_id" },
+        { "type": "filter", "path": "modality" },
+        { "type": "filter", "path": "retrieval_mode" },
+        { "type": "filter", "path": "topics" }
+      ]
+    }
+  },
+  "byo_segments_text": {
+    "database": "capacity",
+    "collectionName": "byo_segments",
+    "name": "byo_segments_text",
+    "type": "search",
+    "definition": {
+      "mappings": {
+        "dynamic": false,
+        "fields": {
+          "content": {
+            "type": "string",
+            "analyzer": "lucene.standard"
+          },
+          "topics": {
+            "type": "string",
+            "analyzer": "lucene.keyword"
+          },
+          "user_id": { "type": "token" },
+          "collection_id": { "type": "token" },
+          "resource_id": { "type": "token" }
+        }
+      }
+    }
+  }
+}

@@ -27,9 +27,7 @@ async def web_search(query: str, limit: int = 5) -> str:
     results: list[str] = []
 
     try:
-        # Short timeout — if DuckDuckGo is unreachable, fail fast and let
-        # the agent continue without web results instead of blocking 12s+.
-        async with httpx.AsyncClient(timeout=4, follow_redirects=True) as client:
+        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
             # ── Phase 1: DuckDuckGo Instant Answer API ──
             resp = await client.get(
                 "https://api.duckduckgo.com/",
@@ -54,16 +52,13 @@ async def web_search(query: str, limit: int = 5) -> str:
                 if text and len(results) < limit:
                     results.append(f"- {text[:250]}" + (f"\n  URL: {url}" if url else ""))
 
-            # If instant answer gave enough, return early
-            if len(results) >= 2:
-                logger.info("web_search query=%r fulfilled by instant answer (%d results)", query, len(results))
-                return f"Web search results for \"{query}\":\n\n" + "\n\n".join(results)
-
-            # ── Phase 2: DuckDuckGo HTML search fallback ──
+            # Always try HTML search too — instant answer only covers
+            # Wikipedia-style topics, not educational/technical queries.
+            # ── Phase 2: DuckDuckGo HTML search ──
             resp = await client.get(
                 "https://html.duckduckgo.com/html/",
                 params={"q": query},
-                headers={"User-Agent": "Mozilla/5.0 (compatible; EducationalBot/1.0)"},
+                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"},
             )
             html = resp.text
 

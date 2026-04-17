@@ -121,6 +121,15 @@ class CapacityCourseAdapter:
         return f"Unknown ref format: {ref}. Use lesson:ID:section:IDX or lesson:ID."
 
     async def content_search(self, query: str, limit: int = 5) -> str:
+        # ``search_content`` already performs a real semantic search:
+        #   1. Embed the query via OpenRouter (text-embedding-3-small).
+        #   2. $vectorSearch against the ``content_search_vector`` Atlas index
+        #      on the ``search_index`` collection.
+        #   3. Haiku re-rank for relevance filtering.
+        #   4. Falls back to $regex word-match if vector search fails or
+        #      returns nothing.
+        # No further upgrade needed here — the adapter's job is just to
+        # format the results using the lesson-ref citation shape.
         from app.services.content.content_service import search_content
 
         results = await search_content(query, limit=limit)
@@ -135,6 +144,37 @@ class CapacityCourseAdapter:
             if desc:
                 lines.append(f"         {desc}")
         return f'Search results for "{query}":\n' + "\n".join(lines)
+
+    async def content_nearby(self, ref: str, window: int = 1) -> str:
+        """Deterministic anchor walk — ref ± window sections.
+
+        This is NOT a semantic search. It returns section Y together with the
+        ``window`` sections on either side of it, in order, for the same
+        lesson. For lesson refs it degrades to "overview + first section";
+        for simulation refs there are no neighbours, so it behaves like
+        ``content_peek``.
+        """
+        kind, ids = self._parse_ref(ref)
+
+        if kind == "section":
+            return await self._nearby_section(
+                ids["lesson_id"], ids["section_index"], window
+            )
+
+        if kind == "lesson":
+            # No linear neighbour axis for a lesson ref — return overview +
+            # first section (matches _read_lesson's behaviour, minus the
+            # extra verbosity of the full read).
+            return await self._peek_lesson(ids["lesson_id"])
+
+        if kind == "simulation":
+            # Sims have no neighbours; fall back to peek.
+            return await self.content_peek(ref)
+
+        return (
+            f"Unknown ref format: {ref}. "
+            "Use lesson:ID:section:IDX, lesson:ID, or sim:ID."
+        )
 
     # ── Ref parsing ───────────────────────────────────────────────────
 
@@ -186,6 +226,66 @@ class CapacityCourseAdapter:
             ts = f" ({_fmt_time(start)}-{_fmt_time(end)})" if start is not None else ""
             lines.append(f"  lesson:{lesson_id}:section:{idx}  {title}{ts}")
         return "\n".join(lines)
+
+    async def _nearby_section(
+        self, lesson_id: int, section_index: int, window: int
+    ) -> str:
+        """Return section ``section_index`` with ``window`` neighbours on each side.
+
+        Deterministic — walks the section list by ``index`` order. No embeddings.
+        """
+        from app.services.content.content_service import (
+            get_lesson_sections_lightweight,
+        )
+        from app.tools.handlers import get_section_content
+
+        sections = await get_lesson_sections_lightweight(lesson_id)
+        if not sections:
+            return f"No sections found for lesson {lesson_id}."
+
+        # Sort by index (lightweight query already sorts, but be defensive)
+        sections = sorted(sections, key=lambda s: s.get("index", 0))
+
+        # Locate the target section's position in the ordered list
+        target_pos = None
+        for i, s in enumerate(sections):
+            if s.get("index") == section_index:
+                target_pos = i
+                break
+
+        if target_pos is None:
+            return (
+                f"Section lesson:{lesson_id}:section:{section_index} not found."
+            )
+
+        w = max(0, int(window))
+        lo = max(0, target_pos - w)
+        hi = min(len(sections), target_pos + w + 1)
+        neighbourhood = sections[lo:hi]
+
+        lines = [
+            f"Lesson {lesson_id} — sections {neighbourhood[0].get('index', 0)}..{neighbourhood[-1].get('index', 0)} (centred on section {section_index}):",
+            "",
+        ]
+        for s in neighbourhood:
+            idx = s.get("index", 0)
+            title = s.get("title", f"Section {idx}")
+            start = s.get("start_seconds")
+            end = s.get("end_seconds")
+            ts = (
+                f" ({_fmt_time(start)}-{_fmt_time(end)})"
+                if start is not None and end is not None
+                else ""
+            )
+            marker = " ← target" if idx == section_index else ""
+            lines.append(
+                f"── lesson:{lesson_id}:section:{idx}  {title}{ts}{marker} ──"
+            )
+            body = await get_section_content(lesson_id, idx)
+            lines.append(body)
+            lines.append("")
+
+        return "\n".join(lines).rstrip()
 
     async def _read_lesson(self, lesson_id: int) -> str:
         """Return lesson overview + first section content."""

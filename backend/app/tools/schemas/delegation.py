@@ -40,10 +40,11 @@ RETURN_TO_TUTOR_TOOL = {
 DELEGATION_TOOLS = [
     t for t in TUTOR_TOOLS
     if t["name"] in (
-        "search_images", "web_search", "get_simulation_details",
-        "get_section_content", "control_simulation",
-        "content_read", "content_peek", "content_search",
-        "byo_read", "byo_list", "byo_transcript_context",
+        # Unified retrieval
+        "search", "fetch", "peek", "nearby", "list_contents",
+        # External
+        "search_images", "web_search",
+        # Sim control
+        "control_simulation",
     )
 ]
-

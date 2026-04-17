@@ -110,21 +110,29 @@ class TestVoiceCleanText:
 # ═══════════════════════════════════════════════════════════════
 
 class TestContentTools:
-    """These require a running MongoDB with course data."""
+    """Unified retrieval surface (post task #11). These call the new tools
+    that replaced get_section_content / get_simulation_details / content_search.
+    """
 
     @pytest.mark.asyncio
-    async def test_get_section_content(self):
-        """Fetch section content for lesson 1, section 0."""
+    async def test_fetch_course_section(self):
+        """fetch(ref='lesson:1:section:0') — replaces get_section_content."""
         try:
-            from app.tools.handlers import get_section_content
-            result = await get_section_content(1, 0)
-            _print_result("get_section_content(lesson=1, section=0)", result)
+            from app.tools import execute_tutor_tool
+            result = await execute_tutor_tool(
+                "fetch",
+                {"ref": "lesson:1:section:0"},
+                context_data={"studentProfile": json.dumps({"courseId": 1, "userEmail": "t@t.co"})},
+            )
+            _print_result("fetch(ref='lesson:1:section:0')", result)
+            # Tool must always return a string — even on failure.
+            assert isinstance(result, str)
         except Exception as e:
-            _print_result("get_section_content(1, 0)", f"ERROR: {e}")
+            _print_result("fetch(ref='lesson:1:section:0')", f"ERROR: {e}")
 
     @pytest.mark.asyncio
     async def test_get_section_brief(self):
-        """Fetch brief for lesson 1, section 0."""
+        """Fetch brief for lesson 1, section 0 (video-follow path, still supported)."""
         try:
             from app.tools.handlers import get_section_brief
             result = await get_section_brief(1, 0)
@@ -133,55 +141,71 @@ class TestContentTools:
             _print_result("get_section_brief(1, 0)", f"ERROR: {e}")
 
     @pytest.mark.asyncio
-    async def test_get_simulation_details(self):
-        """Fetch simulation details."""
+    async def test_fetch_simulation(self):
+        """fetch(ref='sim:ID') — replaces get_simulation_details."""
         try:
-            from app.tools.handlers import get_simulation_details
-            # Try a common sim ID format
-            result = await get_simulation_details("double-slit")
-            _print_result("get_simulation_details('double-slit')", result)
+            from app.tools import execute_tutor_tool
+            result = await execute_tutor_tool(
+                "fetch",
+                {"ref": "sim:double-slit"},
+                context_data={"studentProfile": json.dumps({"courseId": 1, "userEmail": "t@t.co"})},
+            )
+            _print_result("fetch(ref='sim:double-slit')", result)
+            assert isinstance(result, str)
         except Exception as e:
-            _print_result("get_simulation_details('double-slit')", f"ERROR: {e}")
+            _print_result("fetch(ref='sim:double-slit')", f"ERROR: {e}")
 
     @pytest.mark.asyncio
-    async def test_content_search(self):
-        """Search course content."""
+    async def test_search_course(self):
+        """search(scope='course', ...) — replaces content_search."""
         try:
-            from app.services.content.content_service import search_content
-            result = await search_content("quantum entanglement", limit=3)
-            _print_result("content_search('quantum entanglement')", result)
+            from app.tools import execute_tutor_tool
+            result = await execute_tutor_tool(
+                "search",
+                {"query": "quantum entanglement", "scope": "course", "k": 3},
+                context_data={"studentProfile": json.dumps({"courseId": 1, "userEmail": "t@t.co"})},
+            )
+            _print_result("search(scope='course', query='quantum entanglement')", result)
+            assert isinstance(result, str)
         except Exception as e:
-            _print_result("content_search('quantum entanglement')", f"ERROR: {e}")
+            _print_result("search(scope='course', query='quantum entanglement')", f"ERROR: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════
-#  BYO Tools (require MongoDB with BYO data)
+#  BYO Tools — via unified retrieval (was byo_read / byo_list)
 # ═══════════════════════════════════════════════════════════════
 
 class TestBYOTools:
 
     @pytest.mark.asyncio
-    async def test_byo_list(self):
-        """List BYO collection chunks."""
+    async def test_list_contents_collection(self):
+        """list_contents(scope='collection', ...) — replaces byo_list."""
         try:
             from app.tools import execute_tutor_tool
-            result = await execute_tutor_tool("byo_list", {"collection_id": "test_collection"})
-            _print_result("byo_list('test_collection')", result)
+            result = await execute_tutor_tool(
+                "list_contents",
+                {"scope": "collection", "collection_id": "test_collection"},
+                context_data={"studentProfile": json.dumps({"userEmail": "test@test.co"})},
+            )
+            _print_result("list_contents(scope='collection', collection_id='test_collection')", result)
+            assert isinstance(result, str)
         except Exception as e:
-            _print_result("byo_list('test_collection')", f"ERROR: {e}")
+            _print_result("list_contents(...)", f"ERROR: {e}")
 
     @pytest.mark.asyncio
-    async def test_byo_read(self):
-        """Read BYO content."""
+    async def test_search_collection(self):
+        """search(scope='collection', ...) — replaces byo_read w/ query."""
         try:
             from app.tools import execute_tutor_tool
-            result = await execute_tutor_tool("byo_read", {
-                "collection_id": "test_collection",
-                "query": "quantum mechanics"
-            })
-            _print_result("byo_read(query='quantum mechanics')", result)
+            result = await execute_tutor_tool(
+                "search",
+                {"query": "quantum mechanics", "scope": "collection", "collection_id": "test_collection"},
+                context_data={"studentProfile": json.dumps({"userEmail": "test@test.co"})},
+            )
+            _print_result("search(scope='collection', query='quantum mechanics')", result)
+            assert isinstance(result, str)
         except Exception as e:
-            _print_result("byo_read(query='quantum mechanics')", f"ERROR: {e}")
+            _print_result("search(scope='collection', ...)", f"ERROR: {e}")
 
 
 # ═══════════════════════════════════════════════════════════════

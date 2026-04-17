@@ -7447,6 +7447,7 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 /* ── Shared keyframes & animations ── */
 @keyframes fi{from{opacity:0}to{opacity:1}}
 @keyframes up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes byo-spin{to{transform:rotate(360deg)}}
 .section{animation:up .4s ease-out both}
 
 @media(max-width:600px){

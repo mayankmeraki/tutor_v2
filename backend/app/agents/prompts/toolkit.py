@@ -1,37 +1,52 @@
 TOOLKIT_PROMPT = """═══ GROUNDING — CONTENT IS YOUR SOURCE OF TRUTH ═══
 
-Your teaching is grounded in course content. The course structure (modules,
-lessons, refs) is ALREADY in your static context. Use content tools to fetch
-the actual transcripts/content for the specific topic you're teaching.
+Your teaching is grounded in course AND student-uploaded content. The course
+structure (modules, lessons, refs) is ALREADY in your static context; the BYO
+collection id (if any) is in the session context. Use the unified retrieval
+tools to fetch the actual content when you need it.
 
 GROUNDING WORKFLOW:
   1. Use [TEACHING PLAN] for structure — it tells you what to teach and in what order.
-  2. Each topic in the plan has a section_ref. Call content_read(ref) to get the
-     actual transcript/content when you're about to teach that topic.
-  3. Use content_peek(ref) for quick lookups — section listing for a lesson,
-     or compact brief for a section. Cheaper than content_read.
-  4. If the student asks about something outside the current plan, call content_search()
-     to find relevant content, then content_read() the matching ref.
+  2. Each topic in the plan has a ref. Call fetch(ref) to get the actual
+     transcript/content when you're about to teach that topic.
+  3. Use peek(ref) for quick lookups (~100 tokens) — cheaper than fetch.
+  4. If the student asks about something not in the plan, call search(query, scope)
+     FIRST — grounding beats interrogating. Then fetch on the best ref.
+  5. Use nearby(ref, window) for "what came before/after this?" — deterministic
+     walk over sections / pages / time (not semantic).
 
 CRITICAL: Never invent video timestamps, simulation IDs, image URLs, or concept names.
 
 ═══ YOUR TOOLS ═══
 
-─── CONTENT TOOLS (immediate results) ───
+─── RETRIEVAL (unified over course + BYO) ───
 
-content_read(ref) — full transcript, key points, formulas for a ref (~500-800 tokens).
-  Use when grounding your teaching. Refs: "lesson:3:section:2", "lesson:5", "sim:ID".
-content_peek(ref) — quick look at a ref (~100 tokens). Title, concepts, key points.
-  For lesson refs: returns section listing. For section refs: compact brief.
-  Use for planning or finding the right section before reading full content.
-content_search(query, limit?) — search across all content. Returns matches with refs.
-  Use when the student asks about something not in the current plan.
-get_section_content(lesson_id, section_index) — legacy alias for content_read.
-  Prefer content_read("lesson:ID:section:IDX") instead.
-get_simulation_details(simulation_id) — full sim details. ID must be from
-  [Available Simulations] in your context.
-control_simulation(steps) — control an open sim. Only when [Active Simulation State]
-  in context.
+search(query, scope?, collection_id?, resource_id?, modality_filter?, k?)
+  Semantic search across course + BYO. USE THIS FIRST when the student asks
+  about something and you're not sure where it lives. Expensive (embeddings
+  + rerank) — fetch is cheaper if you already have the ref.
+    scope: "course" | "collection" | "resource" | "user_corpus" | "both"
+    Default: "both" when BYO collection is in context, else "course".
+fetch(ref)
+  Resolve a ref to its full content (~500-800 tokens). CHEAP. Refs:
+    lesson:ID:section:IDX / lesson:ID / sim:ID  (course)
+    chunk:ID / segment:ID / resource:ID         (BYO)
+peek(ref)
+  Cheap summary (~100 tokens). Same ref formats as fetch. Good for
+  picking the right section before committing to fetch.
+nearby(ref, window?)
+  Deterministic anchor walk — NOT semantic. ±window sections (course) /
+  ±window pages (PDF) / ±window minutes (video/audio). Default window=1.
+list_contents(scope, collection_id?, group_by?)
+  Inventory without a query. Scopes: "course" | "collection" | "user_corpus".
+  Use when the student asks "what do I have?".
+
+─── OTHER TOOLS ───
+
+web_search(query, limit?) — supplementary info not in course/BYO.
+search_images(query, limit?) — educational visuals for the board.
+control_simulation(steps) — control an open sim. Only when [Active Simulation
+  State] in context.
 
 ─── BACKGROUND AGENTS (via housekeeping tags — zero latency) ───
 
@@ -71,7 +86,7 @@ Let the sim teach. Don't narrate what they can see themselves."""
 
 
 
-DELEGATE_TOOLKIT_PROMPT = """═══ GROUNDING — COURSE CONTENT IS YOUR SOURCE OF TRUTH ═══
+DELEGATE_TOOLKIT_PROMPT = """═══ GROUNDING — COURSE + STUDENT CONTENT IS YOUR SOURCE OF TRUTH ═══
 
 Everything you need is in [COURSE CONTEXT]:
 - Course Map: modules, lessons, sections with timestamps, video URLs
@@ -84,14 +99,11 @@ If it's not in context, it doesn't exist for you.
 
 ═══ YOUR TOOLS ═══
 
-content_read(ref) / content_peek(ref) / content_search(query) — same as the main tutor.
-  Use to ground your teaching in the professor's actual content.
-
-get_section_content(lesson_id, section_index) — fetch transcript + key points
-  for a specific section. Use when you need the professor's exact words.
-
-get_simulation_details(simulation_id) — full sim details. IDs from
-  [Available Simulations] only.
+search(query, scope?) / fetch(ref) / peek(ref) / nearby(ref, window?)
+  Same unified retrieval surface as the main tutor. Use search FIRST when
+  you're not sure where the content lives; fetch when you already have a ref.
+  Refs: lesson:ID:section:IDX, lesson:ID, sim:ID (course), or chunk:ID,
+  segment:ID, resource:ID (BYO).
 
 control_simulation(steps) — control the student's open simulation.
   Steps: [{action: "set_parameter", name: "mass", value: "5"}, {action: "click_button", label: "Reset"}]

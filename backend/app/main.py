@@ -51,6 +51,13 @@ async def lifespan(app: FastAPI):
         await db.byo_resources.create_index([("file_hash", 1), ("collection_id", 1)])
         await db.byo_chunks.create_index([("collection_id", 1), ("index", 1)])
         await db.byo_chunks.create_index([("resource_id", 1)])
+        await db.byo_chunks.create_index([("chunk_id", 1)], unique=True)
+        await db.byo_chunks.create_index([("user_id", 1), ("collection_id", 1)])
+        # byo_segments: child segments, embedded, used by retrieval.
+        await db.byo_segments.create_index([("segment_id", 1)], unique=True)
+        await db.byo_segments.create_index([("parent_chunk_id", 1)])
+        await db.byo_segments.create_index([("resource_id", 1)])
+        await db.byo_segments.create_index([("user_id", 1), ("collection_id", 1)])
         await db.byo_jobs.create_index([("state", 1), ("created_at", 1)])
         await db.byo_jobs.create_index([("job_id", 1)], unique=True)
         await db.collections.create_index([("user_id", 1), ("created_at", -1)])
@@ -90,7 +97,7 @@ async def lifespan(app: FastAPI):
     try:
         import sys
         sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        from byo.pipeline.orchestrator import run_worker
+        from byo.processing.orchestrator import run_worker
         _byo_worker_task = asyncio.create_task(run_worker())
         log.info("BYO pipeline worker started")
     except Exception as e:

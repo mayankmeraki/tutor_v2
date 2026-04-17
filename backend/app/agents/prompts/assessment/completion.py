@@ -6,7 +6,9 @@ PART = r""" 8. TOOLS & CONTENT GROUNDING
 GOLDEN RULE: Check preloaded context (ASSESSMENT BRIEF) FIRST.
 
 TOOL QUICK REFERENCE:
-  get_section_content(lesson, idx) → transcript, key points, formulas
+  search(query, scope?)            → find refs across course + BYO
+  fetch(ref)                       → full content for a ref (transcript, key points)
+  peek(ref)                        → cheap summary of a ref
   query_knowledge(concept)         → student history, past notes
   update_student_model(notes)      → record your observations (END only)
   search_images(query)             → images for question scenarios
@@ -17,7 +19,7 @@ TOOL QUICK REFERENCE:
 RECIPE — Preparing your first question:
   1. Read the brief: concepts, weaknesses, recommended types
   2. If brief has contentGrounding.professorPhrasing → use it
-  3. If you need more detail → get_section_content() for exact transcript
+  3. If you need more detail → fetch(ref) for exact transcript
   4. Craft question targeting the tutor's #1 focus area
   5. Ask using the recommended format
 
