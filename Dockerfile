@@ -12,6 +12,9 @@ COPY backend/app ./backend/app
 
 RUN pip install --no-cache-dir -e ./backend
 
+# BYO pipeline module (sits alongside backend, imported as `byo.*`)
+COPY byo ./byo
+
 COPY frontend ./frontend
 
 ENV PORT=8080

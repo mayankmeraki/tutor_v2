@@ -24,6 +24,7 @@ dependencies = [
     "elevenlabs>=1.0",
     "google-cloud-storage>=2.18",
     "Pillow>=10.0",
+    "qdrant-client>=1.12",
 ]
 
 [project.optional-dependencies]

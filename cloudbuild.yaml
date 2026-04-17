@@ -44,7 +44,7 @@ steps:
       - '--subnet=default'
       - '--vpc-egress=private-ranges-only'
       - '--set-env-vars=LLM_PROVIDER=openrouter,TUTOR_MODEL=anthropic/claude-opus-4-6,DB_HOST=10.5.32.3,DB_PORT=5432,DB_NAME=capacity,DB_USER=capacity_service_user,CORS_ORIGINS=https://stage.tutor.seekcapacity.ai,MATERIALS_BUCKET=capacity-materials,GOOGLE_CLIENT_ID_MYPROFESSOR=932228979922-61q7fmgjot8a9lrqjtehhk9onackionn.apps.googleusercontent.com'
-      - '--set-secrets=ANTHROPIC_API_KEY=tutor_anthropic_api_key:latest,OPENROUTER_API_KEY=openrouter_api_key:latest,DB_PASSWORD=STAGE_DB_PASSWORD:latest,MONGODB_URI=tutor_mongodb_uri:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest,ELEVENLABS_API_KEY=tutor_elevenlabs_api_key:latest,GOOGLE_CLIENT_SECRET_MYPROFESSOR=google_client_secret_myprofessor:latest'
+      - '--set-secrets=ANTHROPIC_API_KEY=tutor_anthropic_api_key:latest,OPENROUTER_API_KEY=openrouter_api_key:latest,DB_PASSWORD=STAGE_DB_PASSWORD:latest,MONGODB_URI=tutor_mongodb_uri:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest,ELEVENLABS_API_KEY=tutor_elevenlabs_api_key:latest,GOOGLE_CLIENT_SECRET_MYPROFESSOR=google_client_secret_myprofessor:latest,QDRANT_URL=qdrant_url_myprofessor:latest,QDRANT_API_KEY=qdrant_api_key_myprofessor:latest'
 
 images:
   - '${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}'
