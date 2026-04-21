@@ -12,6 +12,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;500;600&family=Lexend:wght@300;400;500;600;700&family=Caveat:wght@400;500;600;700&family=Pangolin&display=swap" rel="stylesheet">
   <!-- Google Identity Services — used for signup-only via OAuth -->
   <script src="https://accounts.google.com/gsi/client" async defer></script>
+  <!-- Ace Editor — code editing for DSA prep -->
+  <script src="https://cdn.jsdelivr.net/npm/ace-builds@1.32.6/src-min-noconflict/ace.js" defer></script>
+  <!-- Fabric.js — canvas drawing for System Design -->
+  <script src="https://cdn.jsdelivr.net/npm/fabric@5.3.0/dist/fabric.min.js" defer></script>
+  <script src="/sd-canvas.js" defer></script>
 </head>
 <body>
   <div id="app">
@@ -363,6 +368,7 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
+          <a href="#" onclick="event.preventDefault();Router.navigate('/dsa')" style="font-size:11px;color:rgba(255,255,255,.35);text-decoration:none;padding:5px 10px;border-radius:6px;transition:all .12s;font-weight:500" onmouseenter="this.style.color='#34d399';this.style.background='rgba(52,211,153,.05)'" onmouseleave="this.style.color='rgba(255,255,255,.35)';this.style.background=''">DSA & Design</a>
           <button class="fb-bug-btn" onclick="openFeedbackModal('bug')" title="Report a bug">
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 2l1.88 1.88"/><path d="M14.12 3.88 16 2"/><path d="M9 7.13v-1a3.003 3.003 0 1 1 6 0v1"/><path d="M12 20c-3.3 0-6-2.7-6-6v-3a4 4 0 0 1 4-4h4a4 4 0 0 1 4 4v3c0 3.3-2.7 6-6 6"/><path d="M12 20v-9"/><path d="M6.53 9C4.6 8.8 3 7.1 3 5"/><path d="M6 13H2"/><path d="M3 21c0-2.1 1.7-3.9 3.8-4"/><path d="M20.97 5c0 2.1-1.6 3.8-3.5 4"/><path d="M22 13h-4"/><path d="M17.2 17c2.1.1 3.8 1.9 3.8 4"/></svg>
           </button>
@@ -427,6 +433,81 @@
             <div id="home-videos-section" class="section" style="display:none;margin-bottom:40px">
               <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Follow along with a video</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">Upload new</span></div>
               <div class="session-row hscroll" id="home-videos-row"></div>
+            </div>
+          </div>
+
+          <!-- ═══ Study Tracks ═══ -->
+          <div id="home-study-modes" style="margin-bottom:32px">
+            <div class="sec-head" style="margin-bottom:12px">
+              <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8);margin:0">Study Tracks</h2>
+            </div>
+            <div style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch">
+
+              <!-- DSA & System Design — active -->
+              <div class="study-track-card study-track-active" onclick="Router.navigate('/dsa')">
+                <div class="study-track-glow"></div>
+                <div style="position:relative;z-index:1">
+                  <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+                    <div style="width:40px;height:40px;border-radius:10px;background:linear-gradient(135deg,rgba(52,211,153,.15),rgba(96,165,250,.1));display:grid;place-items:center;font-size:18px;flex-shrink:0">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round"><rect x="3" y="12" width="4" height="9" rx="1"/><rect x="10" y="7" width="4" height="14" rx="1"/><rect x="17" y="2" width="4" height="19" rx="1"/></svg>
+                    </div>
+                    <div style="flex:1;min-width:0">
+                      <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,.9);letter-spacing:-.2px">DSA & System Design</div>
+                      <div style="font-size:9px;color:rgba(52,211,153,.5);margin-top:1px">150 problems · 15 designs · Mock interviews</div>
+                    </div>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(52,211,153,.4)" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" style="flex-shrink:0"><path d="M9 18l6-6-6-6"/></svg>
+                  </div>
+                  <div style="display:flex;gap:5px;flex-wrap:wrap;margin-bottom:10px">
+                    <span class="study-track-tag" style="--tag-c:52,211,153">Algorithms</span>
+                    <span class="study-track-tag" style="--tag-c:96,165,250">System Design</span>
+                    <span class="study-track-tag" style="--tag-c:251,191,36">Mock Interviews</span>
+                  </div>
+                  <div style="font-size:9px;color:rgba(255,255,255,.25);line-height:1.5">Visual walkthroughs on the board. Code editor with test runner. FAANG-style mocks with scoring and debrief.</div>
+                </div>
+              </div>
+
+              <!-- Competitive Programming — coming soon -->
+              <div class="study-track-card study-track-soon">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                  <div style="width:40px;height:40px;border-radius:10px;background:rgba(251,191,36,.06);display:grid;place-items:center;flex-shrink:0">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(251,191,36,.6)" stroke-width="1.8" stroke-linecap="round"><path d="M6 9H4.5a2.5 2.5 0 0 1 0-5C7 4 7 7 7 7"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5C17 4 17 7 17 7"/><path d="M4 22h16"/><path d="M10 22V8a3 3 0 0 0-3-3H5"/><path d="M14 22V8a3 3 0 0 1 3-3h2"/></svg>
+                  </div>
+                  <div>
+                    <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.4)">Competitive Programming</div>
+                    <div style="font-size:8px;color:rgba(251,191,36,.3);margin-top:2px">Coming soon</div>
+                  </div>
+                </div>
+                <div style="font-size:9px;color:rgba(255,255,255,.1);line-height:1.5">Segment trees, Fenwick trees, advanced graphs, number theory, combinatorics.</div>
+              </div>
+
+              <!-- ML/AI Interviews — coming soon -->
+              <div class="study-track-card study-track-soon">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                  <div style="width:40px;height:40px;border-radius:10px;background:rgba(167,139,250,.06);display:grid;place-items:center;flex-shrink:0">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,.6)" stroke-width="1.8" stroke-linecap="round"><path d="M12 2a4 4 0 0 1 4 4c0 2-2 3-2 5h-4c0-2-2-3-2-5a4 4 0 0 1 4-4Z"/><path d="M10 17h4"/><path d="M10 21h4"/><path d="M10 11h4"/></svg>
+                  </div>
+                  <div>
+                    <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.4)">ML & AI Interviews</div>
+                    <div style="font-size:8px;color:rgba(167,139,250,.3);margin-top:2px">Coming soon</div>
+                  </div>
+                </div>
+                <div style="font-size:9px;color:rgba(255,255,255,.1);line-height:1.5">ML system design, statistics, probability, model evaluation, case studies.</div>
+              </div>
+
+              <!-- Behavioral — coming soon -->
+              <div class="study-track-card study-track-soon">
+                <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+                  <div style="width:40px;height:40px;border-radius:10px;background:rgba(248,113,113,.06);display:grid;place-items:center;flex-shrink:0">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(248,113,113,.6)" stroke-width="1.8" stroke-linecap="round"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+                  </div>
+                  <div>
+                    <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.4)">Behavioral & Leadership</div>
+                    <div style="font-size:8px;color:rgba(248,113,113,.3);margin-top:2px">Coming soon</div>
+                  </div>
+                </div>
+                <div style="font-size:9px;color:rgba(255,255,255,.1);line-height:1.5">Amazon LP prep, STAR method, mock behavioral rounds with scoring rubrics.</div>
+              </div>
+
             </div>
           </div>
 
@@ -651,6 +732,107 @@
       </div>
     </div>
 
+    <!-- ═══ DSA & SYSTEM DESIGN — STUDY MODES ═══ -->
+    <div id="dsa-screen" class="app-screen" style="display:none;flex-direction:column">
+      <nav class="sc-nav">
+        <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
+        <div class="sc-nav-r">
+          <a href="#" class="sc-nav-link" onclick="event.preventDefault();Router.navigate('/home')" style="font-size:11px;color:rgba(255,255,255,.35);text-decoration:none;padding:5px 10px">← Home</a>
+          <div class="sc-pill" id="dsa-logout">
+            <div class="sc-pill-avatar" id="dsa-avatar">?</div>
+            <span id="dsa-user-name">User</span>
+          </div>
+        </div>
+      </nav>
+
+      <!-- Tab bar -->
+      <div style="display:flex;gap:2px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(12,16,22,1)">
+        <button class="dsa-tab active" data-dsa-tab="dsa" onclick="_switchDSATab('dsa')" style="padding:8px 16px;font-size:11px;font-weight:500;border:none;cursor:pointer;background:none;color:#34d399;border-bottom:2px solid #34d399;transition:all .12s">DSA</button>
+        <button class="dsa-tab" data-dsa-tab="sd" onclick="_switchDSATab('sd')" style="padding:8px 16px;font-size:11px;font-weight:500;border:none;cursor:pointer;background:none;color:rgba(255,255,255,.3);border-bottom:2px solid transparent;transition:all .12s">System Design</button>
+        <button class="dsa-tab" data-dsa-tab="mock" onclick="_switchDSATab('mock')" style="padding:8px 16px;font-size:11px;font-weight:500;border:none;cursor:pointer;background:none;color:rgba(255,255,255,.3);border-bottom:2px solid transparent;transition:all .12s">Mock Interview</button>
+      </div>
+
+      <!-- ── DSA Tab Content ── -->
+      <div class="dsa-tab-content active" id="dsa-tab-dsa" style="overflow-y:auto;flex:1">
+        <div style="max-width:1100px;margin:0 auto;padding:20px 28px 80px">
+          <!-- Search -->
+          <div style="max-width:620px;margin:0 auto 24px;text-align:center">
+            <input type="text" id="dsa-search-input" placeholder='Paste any question, or type: "teach me DP", "solve Two Sum", "help with this LeetCode problem"'
+                   style="width:100%;padding:13px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(11,16,24,1);color:#fff;font-size:12px;outline:none" autocomplete="off">
+            <div style="font-size:8px;color:rgba(255,255,255,0.15);margin-top:5px">Paste a LeetCode problem, ask about a concept, or pick from the list below</div>
+          </div>
+          <!-- Stats -->
+          <div id="dsa-stats" style="display:flex;gap:10px;margin-bottom:20px"></div>
+          <!-- Topics accordion list -->
+          <div id="dsa-topics-list"></div>
+        </div>
+      </div>
+
+      <!-- ── System Design Tab Content ── -->
+      <div class="dsa-tab-content" id="dsa-tab-sd" style="overflow-y:auto;flex:1;display:none">
+        <div style="max-width:1100px;margin:0 auto;padding:20px 28px 80px">
+          <div style="max-width:620px;margin:0 auto 24px;text-align:center">
+            <input type="text" id="sd-search-input" placeholder='"explain caching", "design Uber", "teach me how sharding works"'
+                   style="width:100%;padding:12px 14px;border-radius:9px;border:1px solid rgba(255,255,255,0.05);background:rgba(11,16,24,1);color:#fff;font-size:12px;outline:none" autocomplete="off">
+            <div style="font-size:8px;color:rgba(255,255,255,0.15);margin-top:5px">Learn concepts or design systems on the canvas with Euler</div>
+          </div>
+          <!-- ═══ HLD Section ═══ -->
+          <div style="margin-bottom:28px">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+              <div style="width:32px;height:32px;border-radius:8px;background:rgba(96,165,250,.08);display:grid;place-items:center;flex-shrink:0">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,.7)" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
+              </div>
+              <div>
+                <div style="font-size:15px;font-weight:700;color:rgba(255,255,255,.85)">High-Level Design</div>
+                <div style="font-size:9px;color:rgba(96,165,250,.4)">Distributed Systems · Architecture · Scalability · Design on Canvas</div>
+              </div>
+            </div>
+            <div id="sd-concepts" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px;scroll-snap-type:x mandatory"></div>
+            <div id="sd-problems"></div>
+          </div>
+
+          <!-- ═══ LLD Section ═══ -->
+          <div style="padding-top:20px;border-top:1px solid rgba(255,255,255,.04)">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
+              <div style="width:32px;height:32px;border-radius:8px;background:rgba(167,139,250,.08);display:grid;place-items:center;flex-shrink:0">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,.7)" stroke-width="2" stroke-linecap="round"><path d="M16 18l2-2-2-2"/><path d="M8 6L6 8l2 2"/><path d="M14.5 4l-5 16"/></svg>
+              </div>
+              <div>
+                <div style="font-size:15px;font-weight:700;color:rgba(255,255,255,.85)">Low-Level Design</div>
+                <div style="font-size:9px;color:rgba(167,139,250,.4)">OOP · SOLID · Design Patterns · Class Design</div>
+              </div>
+            </div>
+            <div id="lld-concepts" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px;scroll-snap-type:x mandatory"></div>
+            <div id="lld-problems"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Mock Interview Tab Content ── -->
+      <div class="dsa-tab-content" id="dsa-tab-mock" style="overflow-y:auto;flex:1;display:none">
+        <div style="max-width:520px;margin:0 auto;padding:36px 20px;text-align:center">
+          <h2 style="font-size:20px;font-weight:700;color:rgba(255,255,255,0.75);margin-bottom:4px">Mock Interview</h2>
+          <p style="font-size:11px;color:rgba(255,255,255,0.2);max-width:440px;margin:0 auto 28px">Timed FAANG-style interview — DSA coding or system design. Tutor acts as your interviewer with full debrief at the end.</p>
+          <div id="mock-setup-form"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ DSA PROBLEM DETAIL ═══ -->
+    <div id="dsa-problem-screen" class="app-screen" style="display:none">
+      <nav class="sc-nav">
+        <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
+        <div class="sc-nav-r">
+          <a href="#" class="sc-nav-link" onclick="event.preventDefault();Router.navigate('/dsa')">← Back</a>
+        </div>
+      </nav>
+      <div class="body" style="overflow-y:auto;flex:1">
+        <div id="dsa-problem-detail" style="max-width:700px;margin:0 auto;padding:28px 20px"></div>
+      </div>
+    </div>
+
+    <!-- Mock interview setup is now a tab inside dsa-screen -->
+
     <!-- Hidden compat elements that app.js references -->
     <div style="display:none">
       <select id="course-id"><option value="2" selected>MIT 8.04</option></select>
@@ -685,7 +867,7 @@
       <!-- Top Bar -->
       <header id="top-bar">
         <div class="top-left">
-          <button id="btn-back" class="icon-btn" onclick="handleBackButton()">&larr; Home</button>
+          <button id="btn-back" class="icon-btn">&larr; Back</button>
           <span class="course-title" id="course-title">Teaching Session</span>
         </div>
         <div class="top-right">
@@ -702,6 +884,7 @@
               <button onclick="pickSpeed(3)">3x</button>
             </div>
           </div>
+          <span id="mock-countdown" style="display:none;font-family:'JetBrains Mono',monospace;font-size:14px;font-weight:700;color:rgba(255,255,255,.7);padding:2px 8px;border-radius:4px;background:rgba(255,255,255,.03)">45:00</span>
           <span id="session-timer">0:00</span>
           <span id="session-cost" class="session-cost" title="Estimated session cost (LLM + TTS)">$0.00</span>
         </div>
@@ -774,6 +957,130 @@
             </div>
             <div class="board-empty-text">Euler is preparing the board...</div>
             <div class="board-empty-hint">Teaching content will appear here momentarily</div>
+          </div>
+        </div>
+
+        <!-- ═══ DSA/SD Workspace Panel (code editor or canvas) ═══ -->
+        <div id="ws-resize-handle" class="ws-resize-handle hidden"></div>
+        <div id="workspace-panel" class="ws-panel hidden">
+          <!-- DSA: Code Editor -->
+          <div id="ws-code-pane" style="display:none;flex:1;flex-direction:column;min-height:0">
+            <!-- Header: filename + language + Run/Submit -->
+            <div class="ws-pane-head">
+              <span class="ws-pane-fname" id="ws-code-fname">solution.py</span>
+              <select id="ws-code-lang" style="padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.55);font-size:9px;outline:none;cursor:pointer">
+                <option value="python">Python 3</option>
+                <option value="javascript">JavaScript</option>
+                <option value="java">Java</option>
+                <option value="cpp">C++</option>
+                <option value="go">Go</option>
+              </select>
+              <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+                <button class="ws-btn ws-btn-run" onclick="_wsRunCode()">▶ Run</button>
+                <button class="ws-btn ws-btn-submit" onclick="_wsSubmitCode()">✓ Submit</button>
+                <div class="ws-pane-sync">synced</div>
+              </div>
+            </div>
+            <!-- Code editor -->
+            <div id="ws-code-editor" style="flex:1;min-height:0"></div>
+            <!-- Test cases panel (LeetCode-style) -->
+            <div id="ws-code-testcases" style="border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;max-height:220px;overflow:hidden;display:flex;flex-direction:column;padding-bottom:60px">
+              <!-- Tab bar: Testcase | Test Result -->
+              <div style="display:flex;align-items:center;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.04);flex-shrink:0">
+                <button class="ws-tc-tab active" data-tc-tab="cases" onclick="_switchTestTab('cases')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:rgba(255,255,255,.5);cursor:pointer;border-bottom:2px solid transparent">
+                  <span style="color:rgba(52,211,153,.5);margin-right:3px">☑</span> Testcase
+                </button>
+                <span style="color:rgba(255,255,255,.08);margin:0 2px">|</span>
+                <button class="ws-tc-tab" data-tc-tab="results" onclick="_switchTestTab('results')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:rgba(255,255,255,.25);cursor:pointer;border-bottom:2px solid transparent">
+                  <span style="margin-right:3px">❯_</span> Test Result
+                </button>
+                <span id="ws-test-summary" style="margin-left:auto;font-size:9px;color:rgba(255,255,255,.15)"></span>
+              </div>
+              <!-- Testcase content -->
+              <div id="ws-tc-cases" style="flex:1;overflow-y:auto;padding:8px 12px">
+                <!-- Case tabs -->
+                <div id="ws-case-tabs" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap"></div>
+                <!-- Active case detail -->
+                <div id="ws-case-detail" style="font-family:'JetBrains Mono',monospace;font-size:11px"></div>
+              </div>
+              <!-- Test Result content (hidden by default) -->
+              <div id="ws-tc-results" style="display:none;flex:1;overflow-y:auto;padding:8px 12px">
+                <div id="ws-code-tests"></div>
+              </div>
+            </div>
+          </div>
+          <!-- SD: Drawing Canvas -->
+          <div id="ws-canvas-pane" style="display:none;flex:1;flex-direction:column">
+            <div class="ws-canvas-toolbar" id="ws-canvas-toolbar">
+              <button class="ws-tool sel" data-tool="select" title="Select (V)">⊡</button>
+              <button class="ws-tool" data-tool="pan" title="Pan / Hand (H)">✋</button>
+              <span class="ws-tool-sep"></span>
+              <button class="ws-tool" data-tool="rect" title="Rectangle (R)">▢</button>
+              <button class="ws-tool" data-tool="diamond" title="Diamond (D)">◇</button>
+              <button class="ws-tool" data-tool="ellipse" title="Ellipse (E)">○</button>
+              <span class="ws-tool-sep"></span>
+              <button class="ws-tool" data-tool="arrow" title="Arrow (A)">→</button>
+              <button class="ws-tool" data-tool="line" title="Line (L)">—</button>
+              <span class="ws-tool-sep"></span>
+              <button class="ws-tool" data-tool="text" title="Text (T)">A</button>
+              <button class="ws-tool" data-tool="freehand" title="Freehand (F)">✎</button>
+              <span class="ws-tool-sep"></span>
+              <button class="ws-tool" data-tool="delete" title="Delete (Del)" style="color:rgba(248,113,113,.4)">✕</button>
+              <div style="margin-left:auto;font-size:8px;color:rgba(255,255,255,.12)">Draw here · Euler can read this</div>
+            </div>
+            <div id="ws-canvas-area" style="flex:1;position:relative;overflow:hidden;background:#0a0e14;background-image:radial-gradient(rgba(148,163,184,.03) 1px,transparent 1px);background-size:20px 20px">
+              <canvas id="ws-fabric-canvas"></canvas>
+              <div id="ws-canvas-empty" style="position:absolute;inset:0;pointer-events:none;z-index:0;transition:opacity .5s;padding:24px 20px;overflow:hidden">
+                <!-- Ghost template — system design interview whiteboard layout -->
+                <div style="max-width:500px;margin:0 auto">
+                  <!-- Functional Requirements box -->
+                  <div style="border:1.5px solid rgba(255,255,255,.06);border-radius:10px;padding:16px 20px;margin-bottom:16px">
+                    <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.08);margin-bottom:8px">Functional Requirements</div>
+                    <div style="font-size:10px;color:rgba(255,255,255,.04);line-height:1.8">
+                      1. ...<br>2. ...<br>3. ...
+                    </div>
+                    <div style="display:flex;gap:24px;margin-top:10px">
+                      <div style="font-size:9px;color:rgba(255,255,255,.04)"><b style="color:rgba(255,255,255,.06)">Scale</b><br>— ... DAU</div>
+                      <div style="font-size:9px;color:rgba(255,255,255,.04)"><b style="color:rgba(255,255,255,.06)">Constraints</b><br>— ...</div>
+                    </div>
+                  </div>
+                  <!-- Non-Functional Requirements box -->
+                  <div style="border:1.5px solid rgba(255,255,255,.06);border-radius:10px;padding:16px 20px;margin-bottom:20px">
+                    <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.08);margin-bottom:8px">Non-Functional Requirements</div>
+                    <div style="display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 0">
+                      <div style="width:70px;height:35px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:8px;color:rgba(255,255,255,.04)">availability</div>
+                      <div style="color:rgba(255,255,255,.04);font-size:12px">→</div>
+                      <div style="width:70px;height:35px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:8px;color:rgba(255,255,255,.04)">consistency</div>
+                    </div>
+                  </div>
+                  <!-- Architecture hint -->
+                  <div style="display:flex;gap:12px;justify-content:center;align-items:center">
+                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">Client</div>
+                    <div style="color:rgba(255,255,255,.03);font-size:14px">→</div>
+                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">LB</div>
+                    <div style="color:rgba(255,255,255,.03);font-size:14px">→</div>
+                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">API</div>
+                    <div style="color:rgba(255,255,255,.03);font-size:14px">→</div>
+                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:20px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">DB</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+          <!-- Mock Interview: Timer + Hint -->
+          <div id="ws-mock-pane" style="display:none;flex:1;flex-direction:column">
+            <div class="ws-pane-head">
+              <span class="ws-pane-fname" id="ws-mock-company">Google</span>
+              <span id="ws-mock-phase" style="font-size:7px;padding:1px 5px;border-radius:3px;background:rgba(245,216,154,.06);color:#f5d89a;font-weight:600;text-transform:uppercase">CODING</span>
+              <div style="margin-left:auto;font-family:monospace;font-size:16px;font-weight:700;color:rgba(255,255,255,.7)" id="ws-mock-timer">45:00</div>
+            </div>
+            <div id="ws-mock-code-editor" style="flex:1;min-height:0"></div>
+            <div id="ws-mock-tests" class="ws-pane-tests"></div>
+            <div class="ws-pane-acts">
+              <button class="ws-btn ws-btn-run" onclick="_wsRunCode()">▶ Run</button>
+              <button class="ws-btn ws-btn-submit" onclick="_wsSubmitCode()">✓ Submit</button>
+              <button class="ws-btn" id="ws-mock-hint-btn" onclick="_wsMockHint()" style="margin-left:auto;background:rgba(245,216,154,.04);color:#f5d89a;border-color:rgba(245,216,154,.12)">💡 Hint <span id="ws-mock-hint-count">0</span>/3</button>
+            </div>
           </div>
         </div>
 
@@ -957,29 +1264,40 @@
     </form>
   </div>
 </div>
-<!-- Session Feedback Modal (beta) -->
-<div id="session-feedback-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.6);backdrop-filter:blur(4px);display:none;align-items:center;justify-content:center">
-  <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:28px 32px;max-width:420px;width:90%;color:#e0e0e0;font-family:'Inter',system-ui,sans-serif;position:relative">
-    <button onclick="closeFeedbackForm()" style="position:absolute;top:12px;right:14px;background:none;border:none;color:rgba(255,255,255,0.3);font-size:20px;cursor:pointer;padding:4px">&times;</button>
-    <div style="font-size:15px;font-weight:600;margin-bottom:4px">How was this session?</div>
-    <div style="font-size:12px;color:rgba(255,255,255,0.35);margin-bottom:18px">We're in beta — your feedback shapes the product</div>
+<!-- Session Feedback Modal -->
+<div id="session-feedback-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.55);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+  <div style="background:#0d1117;border:1px solid rgba(255,255,255,0.08);border-radius:16px;padding:28px 32px;max-width:400px;width:90%;color:#e0e0e0;font-family:'Inter',system-ui,sans-serif;position:relative">
+    <!-- Skip button -->
+    <button onclick="closeFeedbackForm()" style="position:absolute;top:14px;right:14px;background:none;border:none;color:rgba(255,255,255,0.25);font-size:11px;cursor:pointer;padding:4px 8px;font-family:inherit">Skip for now</button>
 
-    <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:8px">How likely are you to use Euler for studying?</div>
-    <div id="fb-nps-row" style="display:flex;gap:6px;margin-bottom:16px">
+    <!-- Header -->
+    <div style="font-size:16px;font-weight:700;color:rgba(255,255,255,.9);margin-bottom:2px">Help us improve your experience</div>
+    <div style="font-size:10px;color:rgba(255,255,255,0.2);margin-bottom:20px">Takes 5 seconds</div>
+
+    <!-- Step 1: Experience rating -->
+    <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:10px">How was your experience?</div>
+    <div id="fb-nps-row" style="display:flex;gap:4px;margin-bottom:0"></div>
+    <div style="display:flex;justify-content:space-between;margin-top:4px;margin-bottom:16px">
+      <span style="font-size:8px;color:rgba(255,255,255,.12)">Terrible</span>
+      <span style="font-size:8px;color:rgba(255,255,255,.12)">Amazing</span>
     </div>
 
-    <div id="fb-reason-wrap" style="display:none;margin-bottom:14px">
-      <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:6px">What held you back?</div>
-      <textarea id="fb-reason" rows="2" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:#e0e0e0;padding:8px 10px;font-size:13px;font-family:inherit;resize:none" placeholder="e.g. animation didn't load, voice was unclear..."></textarea>
+    <!-- Step 2: Follow-up (hidden until rating selected) -->
+    <div id="fb-followup" style="display:none">
+      <div id="fb-followup-label" style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:8px">What could be better?</div>
+
+      <!-- Quick-select chips -->
+      <div id="fb-chips" style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px"></div>
+
+      <!-- Optional text -->
+      <textarea id="fb-reason" rows="2" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;color:#e0e0e0;padding:8px 10px;font-size:12px;font-family:inherit;resize:none" placeholder="Anything else? (optional)"></textarea>
     </div>
 
-    <div id="fb-highlight-wrap" style="display:none;margin-bottom:14px">
-      <div style="font-size:12px;color:rgba(255,255,255,0.5);margin-bottom:6px">What went well?</div>
-      <textarea id="fb-highlight" rows="2" style="width:100%;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:8px;color:#e0e0e0;padding:8px 10px;font-size:13px;font-family:inherit;resize:none" placeholder="e.g. the 3D animation was amazing..."></textarea>
-    </div>
+    <!-- Submit -->
+    <button id="fb-submit-btn" onclick="submitSessionFeedback()" style="display:none;width:100%;padding:10px;margin-top:12px;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.15);border-radius:8px;color:#34d399;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .12s">Submit</button>
 
-    <button id="fb-submit-btn" onclick="submitSessionFeedback()" style="width:100%;padding:10px;background:linear-gradient(135deg,rgba(52,211,153,0.15),rgba(91,168,255,0.1));border:1px solid rgba(52,211,153,0.2);border-radius:8px;color:#34d399;font-size:13px;font-weight:500;cursor:pointer;font-family:inherit">Submit feedback</button>
-    <div id="fb-thanks" style="display:none;text-align:center;padding:16px;color:rgba(52,211,153,0.8);font-size:14px">Thank you! Your feedback helps us improve.</div>
+    <!-- Thanks -->
+    <div id="fb-thanks" style="display:none;text-align:center;padding:20px 0;color:rgba(52,211,153,0.8);font-size:13px">Thanks! Your feedback shapes Euler.</div>
   </div>
 </div>
 <script>
@@ -987,67 +1305,117 @@
 var _fbScore = null;
 var _fbSessionId = '';  // captured at form-open so submit can use it even if state resets
 
+var _fbSelectedChips = [];
+
+var _fbChipSets = {
+  low:  ['Too slow', 'Confusing', 'Voice issues', 'Board didn\'t load', 'Got stuck', 'Not helpful'],
+  mid:  ['Pacing could improve', 'More examples', 'Better explanations', 'Voice quality', 'UI polish'],
+  high: ['Loved the teaching', 'Great visuals', 'Voice was clear', 'Learned a lot', 'Fun to use', 'Loved the UI'],
+};
+
 function showFeedbackForm() {
-  // Wrapped in try/catch — if anything fails, skip the form and let any pending
-  // navigation (_fbOnClose) proceed so the user is never trapped.
   try {
     var overlay = document.getElementById('session-feedback-overlay');
     if (!overlay) {
-      // No form in DOM — proceed with whatever navigation was queued
       if (window._fbOnClose) { try { window._fbOnClose(); } catch (e) {} window._fbOnClose = null; }
       return;
     }
 
-    // Don't double-show — sessionStorage may throw in private mode, fall through if so
     var sid = '';
     try { sid = (window._appState && window._appState.sessionId) || ''; } catch (e) {}
-    // Capture now — survives later state resets (e.g. cleanupActiveSession on navigation)
     _fbSessionId = sid;
-    console.log('[Feedback] showFeedbackForm — captured sessionId:', sid || '(empty)');
     var key = 'fb_shown_' + sid;
-    try {
-      if (sessionStorage.getItem(key)) return;
-      sessionStorage.setItem(key, '1');
-    } catch (e) { /* storage disabled — keep going, may show again */ }
+    try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (e) {}
 
-    // Build NPS buttons
+    // Reset state
+    _fbScore = null;
+    _fbSelectedChips = [];
+    _fbSetDisplay('fb-followup', 'none');
+    _fbSetDisplay('fb-submit-btn', 'none');
+    _fbSetDisplay('fb-thanks', 'none');
+    var reason = document.getElementById('fb-reason');
+    if (reason) reason.value = '';
+
+    // Build rating buttons (1-5 emoji scale)
     var row = document.getElementById('fb-nps-row');
     if (!row) {
-      // Form is broken — don't try to render, just close and continue
       if (window._fbOnClose) { try { window._fbOnClose(); } catch (e) {} window._fbOnClose = null; }
       return;
     }
     row.innerHTML = '';
-    for (var i = 1; i <= 10; i++) {
+    var faces = [
+      {score:1, emoji:'😫', label:'Terrible'},
+      {score:2, emoji:'😕', label:'Bad'},
+      {score:3, emoji:'😐', label:'OK'},
+      {score:4, emoji:'🙂', label:'Good'},
+      {score:5, emoji:'🤩', label:'Amazing'},
+    ];
+    faces.forEach(function(f) {
       var btn = document.createElement('button');
-      btn.textContent = i;
-      btn.dataset.score = i;
-      btn.style.cssText = 'flex:1;padding:8px 0;border-radius:6px;border:1px solid rgba(255,255,255,0.08);background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.5);font-size:13px;cursor:pointer;font-family:inherit;transition:all 0.15s';
+      btn.type = 'button';
+      btn.dataset.score = f.score;
+      btn.style.cssText = 'flex:1;padding:10px 0 6px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);cursor:pointer;transition:all .12s;text-align:center';
+      btn.innerHTML = '<div style="font-size:22px;line-height:1">' + f.emoji + '</div><div style="font-size:8px;color:rgba(255,255,255,.2);margin-top:3px">' + f.label + '</div>';
       btn.addEventListener('click', function() {
-        try {
-          _fbScore = parseInt(this.dataset.score);
-          row.querySelectorAll('button').forEach(function(b) {
-            b.style.background = 'rgba(255,255,255,0.03)';
-            b.style.borderColor = 'rgba(255,255,255,0.08)';
-            b.style.color = 'rgba(255,255,255,0.5)';
-          });
-          this.style.background = _fbScore >= 7 ? 'rgba(52,211,153,0.15)' : 'rgba(255,107,107,0.15)';
-          this.style.borderColor = _fbScore >= 7 ? 'rgba(52,211,153,0.3)' : 'rgba(255,107,107,0.3)';
-          this.style.color = _fbScore >= 7 ? '#34d399' : '#ff6b6b';
-          // Show reason if low, highlight if high
-          _fbSetDisplay('fb-reason-wrap', _fbScore < 7 ? 'block' : 'none');
-          _fbSetDisplay('fb-highlight-wrap', _fbScore >= 7 ? 'block' : 'none');
-        } catch (e) { console.warn('[Feedback] NPS click handler error:', e); }
+        _fbScore = f.score;
+        row.querySelectorAll('button').forEach(function(b) {
+          b.style.background = 'rgba(255,255,255,0.02)';
+          b.style.borderColor = 'rgba(255,255,255,0.06)';
+          b.style.transform = '';
+        });
+        btn.style.background = f.score >= 4 ? 'rgba(52,211,153,0.1)' : f.score >= 3 ? 'rgba(251,191,36,0.08)' : 'rgba(248,113,113,0.08)';
+        btn.style.borderColor = f.score >= 4 ? 'rgba(52,211,153,0.25)' : f.score >= 3 ? 'rgba(251,191,36,0.2)' : 'rgba(248,113,113,0.2)';
+        btn.style.transform = 'scale(1.08)';
+        _fbShowFollowUp(f.score);
       });
       row.appendChild(btn);
-    }
+    });
 
     overlay.style.display = 'flex';
   } catch (e) {
-    console.warn('[Feedback] showFeedbackForm crashed — skipping:', e);
-    // Failsafe: run pending navigation so the user is never stuck
+    console.warn('[Feedback] showFeedbackForm crashed:', e);
     if (window._fbOnClose) { try { window._fbOnClose(); } catch (_) {} window._fbOnClose = null; }
   }
+}
+
+function _fbShowFollowUp(score) {
+  var label = document.getElementById('fb-followup-label');
+  var chips = document.getElementById('fb-chips');
+  if (!label || !chips) return;
+
+  // Set contextual question
+  if (score <= 2) label.textContent = 'What went wrong?';
+  else if (score <= 3) label.textContent = 'What could be better?';
+  else label.textContent = 'What did you love?';
+
+  // Render chips
+  var chipSet = score <= 2 ? _fbChipSets.low : score <= 3 ? _fbChipSets.mid : _fbChipSets.high;
+  chips.innerHTML = '';
+  _fbSelectedChips = [];
+  chipSet.forEach(function(text) {
+    var chip = document.createElement('button');
+    chip.type = 'button';
+    chip.textContent = text;
+    chip.style.cssText = 'padding:6px 12px;border-radius:16px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.03);color:rgba(255,255,255,0.45);font-size:11px;cursor:pointer;font-family:inherit;transition:all .1s';
+    chip.addEventListener('click', function() {
+      var idx = _fbSelectedChips.indexOf(text);
+      if (idx >= 0) {
+        _fbSelectedChips.splice(idx, 1);
+        chip.style.background = 'rgba(255,255,255,0.03)';
+        chip.style.borderColor = 'rgba(255,255,255,0.06)';
+        chip.style.color = 'rgba(255,255,255,0.45)';
+      } else {
+        _fbSelectedChips.push(text);
+        chip.style.background = 'rgba(52,211,153,0.1)';
+        chip.style.borderColor = 'rgba(52,211,153,0.2)';
+        chip.style.color = '#34d399';
+      }
+    });
+    chips.appendChild(chip);
+  });
+
+  _fbSetDisplay('fb-followup', 'block');
+  _fbSetDisplay('fb-submit-btn', 'block');
 }
 
 function closeFeedbackForm() {
@@ -1075,8 +1443,8 @@ function _fbSetDisplay(id, val) {
 function _fbShowThanksAndClose(delayMs) {
   _fbSetDisplay('fb-submit-btn', 'none');
   _fbSetDisplay('fb-nps-row', 'none');
-  _fbSetDisplay('fb-reason-wrap', 'none');
-  _fbSetDisplay('fb-highlight-wrap', 'none');
+  _fbSetDisplay('fb-followup', 'none');
+  _fbSetDisplay('fb-submit-btn', 'none');
   _fbSetDisplay('fb-thanks', 'block');
   setTimeout(closeFeedbackForm, delayMs || 2000);
 }
@@ -1107,8 +1475,8 @@ function submitSessionFeedback() {
     var body = {
       sessionId: sid,
       score: _fbScore,
-      reason: (document.getElementById('fb-reason')?.value || '').trim(),
-      highlight: (document.getElementById('fb-highlight')?.value || '').trim(),
+      chips: _fbSelectedChips || [],
+      comment: (document.getElementById('fb-reason')?.value || '').trim(),
     };
 
     // Attach JWT so backend records the real userEmail (else falls back to dev@local in dev)
@@ -1149,32 +1517,26 @@ function submitSessionFeedback() {
 // Track turns for feedback trigger
 window._fbTurnCount = 0;
 
-// Back button handler — ALWAYS navigates home, optionally shows feedback first.
-// Wrapped to guarantee navigation even if anything below throws.
+// handleBackButton — now handled by #btn-back addEventListener in app.js
 function handleBackButton() {
-  function goHome() {
-    try {
-      if (typeof Router !== 'undefined') Router.navigate('/home');
-      else window.location.href = '/home';
-    } catch (e) { window.location.href = '/home'; }
-  }
-  try {
-    var sid = '';
-    try { sid = (window._appState && window._appState.sessionId) || ''; } catch (e) {}
-    var hasSession = sid && sid.length > 5;
-    var alreadyShown = false;
-    try { alreadyShown = !!sessionStorage.getItem('fb_shown_' + sid); } catch (e) {}
-
-    if (hasSession && !alreadyShown && typeof showFeedbackForm === 'function') {
-      window._fbOnClose = goHome;
-      showFeedbackForm();
-      // Safety: navigate after 30s even if user doesn't interact with form
-      setTimeout(goHome, 30000);
-      return;
-    }
-  } catch (e) { console.warn('[Feedback] handleBackButton crashed:', e); }
-  goHome();
+  var btn = document.getElementById('btn-back');
+  if (btn) btn.click();
 }
 </script>
+
+<!-- Study/Practice picker popover (body-level so it's visible above all screens) -->
+<div id="dsa-mode-picker" style="display:none;position:fixed;z-index:9999">
+  <div style="background:#0c1016;border:1px solid rgba(255,255,255,.1);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,.6);padding:6px;display:flex;gap:4px;min-width:240px">
+    <button class="dsa-pick-btn" data-pick="study" style="flex:1;padding:10px 14px;border-radius:7px;border:none;background:rgba(52,211,153,.04);cursor:pointer;text-align:left;transition:all .1s">
+      <div style="font-size:11px;font-weight:600;color:#34d399;margin-bottom:3px">Study</div>
+      <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.3" id="dsa-pick-study-desc">Euler teaches step by step</div>
+    </button>
+    <button class="dsa-pick-btn" data-pick="practice" style="flex:1;padding:10px 14px;border-radius:7px;border:none;background:rgba(96,165,250,.03);cursor:pointer;text-align:left;transition:all .1s">
+      <div style="font-size:11px;font-weight:600;color:#60a5fa;margin-bottom:3px">Practice</div>
+      <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.3" id="dsa-pick-practice-desc">Solve independently</div>
+    </button>
+  </div>
+</div>
+
 </body>
 </html>

@@ -1346,10 +1346,7 @@ function _showBoardStreaming() {
   if (el) return; // already showing
   el = document.createElement('div');
   el.id = 'bd-streaming-indicator';
-  el.innerHTML = `
-    <div class="bd-stream-pulse"></div>
-    <div class="bd-stream-text">Euler is generating — this may take a few moments</div>
-  `;
+  el.innerHTML = `<div class="bd-stream-pulse"></div>`;
   wrap.appendChild(el);
   // Show immediately (no delayed fade — thinking phase can be <1 second)
   el.classList.add('bd-stream-visible');
@@ -1357,9 +1354,7 @@ function _showBoardStreaming() {
 
 function _hideBoardStreaming() {
   const el = document.getElementById('bd-streaming-indicator');
-  if (!el) return;
-  el.classList.remove('bd-stream-visible');
-  setTimeout(() => { if (el.parentNode) el.parentNode.removeChild(el); }, 300);
+  if (el && el.parentNode) el.parentNode.removeChild(el);
 }
 
 function _showBoardDrawingSkeleton() {
@@ -1492,15 +1487,14 @@ function wsConnect() {
       // Stale connection closed — ignore
       if (sock._connId !== _ws.connId) return;
       if (_ws.pingInterval) { clearInterval(_ws.pingInterval); _ws.pingInterval = null; }
-      _wsKillTurn('disconnect');
-      state.isStreaming = false;
-      _ws.state = 'closed';
-      _ws.conn = null;
 
       // Auth failure — only redirect if explicitly flagged (not on every disconnect)
       if (evt.code === 4001 || _ws._authFailed) {
         _ws._authFailed = false;
-        // Verify the token is actually invalid before nuking the session
+        _wsKillTurn('auth_disconnect');
+        state.isStreaming = false;
+        _ws.state = 'closed';
+        _ws.conn = null;
         const token = AuthManager?.getToken?.();
         if (!token) {
           console.warn('[WS] No token — redirecting to login');
@@ -1508,7 +1502,6 @@ function wsConnect() {
           Router.navigate('/login', { replace: true });
           return;
         }
-        // Token exists — try reconnecting first (backend might have restarted)
         console.warn('[WS] Auth error but token exists — retrying reconnect');
         const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 15000);
         _ws.retryCount++;
@@ -1516,8 +1509,10 @@ function wsConnect() {
         return;
       }
 
-      // Normal disconnect — reconnect with backoff
-      console.log('[WS] Disconnected — will reconnect...');
+      // Normal disconnect — preserve turn and reconnect (don't kill mid-session)
+      console.log('[WS] Disconnected — preserving turn, will reconnect...');
+      _ws.state = 'closed';
+      _ws.conn = null;
       setVoiceBarState('idle');
       const delay = Math.min(2000 * Math.pow(2, _ws.retryCount), 30000);
       _ws.retryCount++;
@@ -1553,6 +1548,14 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
   _ws.generation++;
   _ws.accumulatedText = '';
   _hideBoardDrawingSkeleton();
+
+  // Track student activity for silence detection
+  if (state.dsaMode === 'mock_interview' && typeof MockEngine !== 'undefined') {
+    MockEngine.studentSpoke();
+  }
+  if ((state.dsaMode === 'dsa' || state.dsaMode === 'sd') && typeof _resetPracticeSilenceDetector === 'function') {
+    _resetPracticeSilenceDetector();
+  }
   _wsTurn = _wsNewTurn();
 
   _eagerReset();
@@ -1615,6 +1618,14 @@ function wsCancel() {
 // ── Message handler ─────────────────────────────────────────
 
 function _wsOnMessage(msg) {
+  // Reset streaming safety timeout on every WS message (proves session is alive)
+  if (state._streamingTimeout) {
+    clearTimeout(state._streamingTimeout);
+    state._streamingTimeout = setTimeout(() => {
+      if (state.isStreaming) { console.warn('[WS] Streaming safety timeout'); stopGeneration(); }
+    }, 300000);
+  }
+
   const turn = _wsTurn;
 
   if (msg.data instanceof ArrayBuffer) {
@@ -1633,7 +1644,8 @@ function _wsOnMessage(msg) {
   let evt;
   try { evt = JSON.parse(msg.data); } catch { return; }
 
-  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE') {
+  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE'
+      && evt.type !== 'CODE_PUSH' && evt.type !== 'TEST_RESULT' && evt.type !== 'CANVAS_DRAW') {
     if (!turn) {
       console.warn(`[WS] Event ${evt.type} dropped — no active turn (gen=${evt.gen} wsGen=${_ws.generation})`);
       return;
@@ -1721,6 +1733,98 @@ function _wsOnMessage(msg) {
       updateCostDisplay(evt);
       break;
 
+    // ── DSA / System Design / Mock Interview events ──
+    case 'CODE_PUSH': {
+      const d = evt.data || {};
+      const action = d.action || 'replace';
+      console.log('[DSA] CODE_PUSH', action, d.code?.length, 'chars');
+      if (window._dsaCodeEditor) {
+        const ed = window._dsaCodeEditor;
+        if (action === 'replace') {
+          ed.setValue(d.code || '');
+        } else if (action === 'append') {
+          const cur = ed.getValue();
+          ed.setValue(cur + (cur.endsWith('\n') ? '' : '\n') + (d.code || ''));
+        } else if (action === 'insert' && d.at_line) {
+          const lines = ed.getValue().split('\n');
+          const idx = Math.max(0, Math.min(d.at_line - 1, lines.length));
+          lines.splice(idx, 0, ...(d.code || '').split('\n'));
+          ed.setValue(lines.join('\n'));
+        } else if (action === 'delete_lines' && d.lines) {
+          const lines = ed.getValue().split('\n');
+          const toDelete = new Set(d.lines.map(l => l - 1));
+          ed.setValue(lines.filter((_, i) => !toDelete.has(i)).join('\n'));
+        } else if (action === 'replace_lines' && d.from_line && d.to_line) {
+          const lines = ed.getValue().split('\n');
+          const from = Math.max(0, d.from_line - 1);
+          const to = Math.min(lines.length, d.to_line);
+          lines.splice(from, to - from, ...(d.code || '').split('\n'));
+          ed.setValue(lines.join('\n'));
+        }
+      }
+      const langSel = document.getElementById('ws-code-lang');
+      if (langSel && d.language) langSel.value = d.language;
+      break;
+    }
+    case 'TEST_RESULT': {
+      const d = evt.data || {};
+      console.log(`[DSA] TEST_RESULT: ${d.passed}/${d.total} passed`);
+      // Store for context injection next turn
+      window._lastTestResults = d;
+      // Update summary badge
+      var summaryEl = document.getElementById('ws-test-summary');
+      if (summaryEl) {
+        summaryEl.textContent = d.passed + '/' + d.total + ' passed';
+        summaryEl.style.color = d.passed === d.total ? '#34d399' : '#f87171';
+      }
+      // Render results in Test Result tab
+      var resultsPanel = document.getElementById('ws-code-tests');
+      if (resultsPanel) {
+        var html = '';
+        // Status header
+        var allPassed = d.passed === d.total;
+        if (allPassed) {
+          html += '<div style="font-size:14px;font-weight:700;color:#34d399;margin-bottom:10px">Accepted</div>';
+        } else if (d.results && d.results.some(function(r) { return r.error; })) {
+          html += '<div style="font-size:14px;font-weight:700;color:#f87171;margin-bottom:6px">Runtime Error</div>';
+          var errResult = d.results.find(function(r) { return r.error; });
+          if (errResult) {
+            html += '<div style="padding:8px 12px;border-radius:8px;background:rgba(248,113,113,.06);border:1px solid rgba(248,113,113,.1);margin-bottom:10px;font-family:monospace;font-size:10px;color:#f87171;white-space:pre-wrap;word-break:break-all">' + (errResult.error || '') + '</div>';
+          }
+        } else {
+          html += '<div style="font-size:14px;font-weight:700;color:#f87171;margin-bottom:10px">Wrong Answer (' + d.passed + '/' + d.total + ')</div>';
+        }
+        // Per-case results
+        (d.results || []).forEach(function(r, i) {
+          var statusColor = r.passed ? '#34d399' : '#f87171';
+          var statusIcon = r.passed ? '✓' : '✗';
+          html += '<div style="padding:8px 0;border-bottom:1px solid rgba(255,255,255,.03)">';
+          html += '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px"><span style="color:' + statusColor + ';font-weight:600;font-size:11px">' + statusIcon + ' Case ' + (i+1) + '</span>';
+          if (r.time_ms) html += '<span style="color:rgba(255,255,255,.1);font-size:9px;margin-left:auto">' + r.time_ms + 'ms</span>';
+          html += '</div>';
+          var inputStr = typeof r.input === 'string' ? r.input : JSON.stringify(r.input || '');
+          if (inputStr) html += '<div style="margin-bottom:4px"><div style="font-size:8px;color:rgba(255,255,255,.2);margin-bottom:2px">Input</div><div style="padding:4px 8px;border-radius:4px;background:rgba(255,255,255,.03);font-family:monospace;font-size:10px;color:rgba(255,255,255,.45);word-break:break-all">' + inputStr.slice(0,120) + '</div></div>';
+          if (!r.passed) {
+            var expStr = typeof r.expected === 'string' ? r.expected : JSON.stringify(r.expected || '');
+            var actStr = typeof (r.actual || r.error) === 'string' ? (r.actual || r.error) : JSON.stringify(r.actual || r.error || '');
+            html += '<div style="margin-bottom:4px"><div style="font-size:8px;color:rgba(255,255,255,.2);margin-bottom:2px">Expected</div><div style="padding:4px 8px;border-radius:4px;background:rgba(52,211,153,.03);font-family:monospace;font-size:10px;color:#34d399;word-break:break-all">' + expStr.slice(0,100) + '</div></div>';
+            html += '<div><div style="font-size:8px;color:rgba(255,255,255,.2);margin-bottom:2px">Output</div><div style="padding:4px 8px;border-radius:4px;background:rgba(248,113,113,.03);font-family:monospace;font-size:10px;color:#f87171;word-break:break-all">' + actStr.slice(0,100) + '</div></div>';
+          }
+          html += '</div>';
+        });
+        resultsPanel.innerHTML = html;
+      }
+      // Auto-switch to Test Result tab
+      _switchTestTab('results');
+      break;
+    }
+    case 'CANVAS_DRAW': {
+      const d = evt.data || {};
+      console.log('[SD] CANVAS_DRAW received:', JSON.stringify(d).slice(0, 300));
+      try { SDCanvas.handleTutorDraw(d); } catch(e) { console.warn('[SD] Canvas draw failed (excalidraw.com mode):', e.message); }
+      break;
+    }
+
     case 'DONE':
       // Validate generation — stale DONE from old turn must not kill current turn
       if (evt.gen !== undefined && turn && evt.gen !== turn.gen) {
@@ -1729,7 +1833,10 @@ function _wsOnMessage(msg) {
       }
       console.log(`[WS] DONE gen=${evt.gen} executorRunning=${turn?.executorRunning}`);
       state.isStreaming = false;
+      window._fbTurnCount = (window._fbTurnCount || 0) + 1;
       _hideBoardDrawingSkeleton();
+      _hideBoardStreaming();
+      removeStreamingIndicator();
       _ws.accumulatedText = evt.fullText || _ws.accumulatedText;
       if (_ws.accumulatedText) {
         state.messages.push({ id: state.currentMessageId || generateId(), role: 'assistant', content: _ws.accumulatedText, timestamp: Date.now() });
@@ -1817,7 +1924,7 @@ function _wsEnsureExecutor(turn) {
 }
 
 async function _wsRunExecutor(turn) {
-  const TIMEOUT = 120000;
+  const TIMEOUT = 300000;
   const t0 = Date.now();
   console.log(`[WS Exec] Start gen=${turn.gen} q=${_eager.queue.length} streaming=${state.isStreaming}`);
 
@@ -1837,13 +1944,11 @@ async function _wsRunExecutor(turn) {
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
         if (_vbState === 'thinking') setVoiceBarState('speaking');
-        // Hide streaming indicator on first beat execution — content is now on the board
         _hideBoardStreaming();
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
         if (beat.question) break;
       } else if (state.isStreaming || _eager.queue.length > 0) {
-        // Queue empty but still streaming — animation code might be generating.
-        // Show indicator so student knows something is coming.
+        // Queue empty but still streaming — show indicator while waiting for more beats
         _showBoardStreaming();
         await new Promise(r => setTimeout(r, 80));
       } else {
@@ -1855,16 +1960,17 @@ async function _wsRunExecutor(turn) {
     console.log(`[WS Exec] Exit gen=${turn.gen} q=${_eager.queue.length} doneReceived=${!!turn._doneReceived}`);
     turn.executorRunning = false;
     turn.executorExited = true;
+    // Always clear streaming indicators when executor exits
+    _hideBoardStreaming();
+    removeStreamingIndicator();
     if (_wsTurn === turn || _wsTurn === null) {
       _eager.running = false;
-      // If DONE was received while executor was running, go idle now
-      if (turn._doneReceived) {
+      if (turn._doneReceived || !state.isStreaming) {
         setVoiceBarState('idle');
       } else {
         setTimeout(() => {
           if (!_eager.running && !(_wsTurn?.audioEl)) {
-            if (typeof safeTransitionToIdle === 'function') safeTransitionToIdle();
-            else setVoiceBarState('idle');
+            setVoiceBarState('idle');
           }
         }, 300);
       }
@@ -2033,14 +2139,14 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   // Disable quick actions during streaming
   document.querySelectorAll('.quick-action-btn').forEach(b => b.disabled = true);
 
-  // Safety timeout: force-reset after 120s of total streaming
+  // Safety timeout: force-reset after 5min of total streaming (generous for long teaching turns)
   if (state._streamingTimeout) clearTimeout(state._streamingTimeout);
   state._streamingTimeout = setTimeout(() => {
     if (state.isStreaming) {
       console.warn('[streamADK] Safety timeout — force-resetting streaming state');
       stopGeneration();
     }
-  }, 120000);
+  }, 300000);
 
   const userMsg = {
     id: generateId(),
@@ -2466,20 +2572,56 @@ function buildContext() {
   // maps description 'session context' → context_data['sessionContext'],
   // which pipeline.py:1177 reads to surface search(scope='collection', ...).
   const collectionId = state.collectionId || state.homeCollectionId;
+  const _scObj = {};
+
   if (collectionId || (state.homeResourceIds && state.homeResourceIds.length)) {
-    const ctx = {
-      collection_id: collectionId || '',
-      mode: state.byoMode || 'teach',
-      enriched_intent: state.studentIntent || '',
-    };
-    // File-level selection — pass specific resource_ids so the agent
-    // searches only within those files, not the whole collection.
+    _scObj.collection_id = collectionId || '';
+    _scObj.mode = state.byoMode || 'teach';
+    _scObj.enriched_intent = state.studentIntent || '';
     if (state.homeResourceIds && state.homeResourceIds.length) {
-      ctx.resource_ids = state.homeResourceIds;
+      _scObj.resource_ids = state.homeResourceIds;
     }
+  }
+
+  // DSA / SD / Mock Interview mode context
+  if (state.dsaMode) {
+    _scObj.mode = state.dsaMode; // 'dsa' | 'sd' | 'mock_interview'
+    if (state.dsaProblemSlug) _scObj.problem_slug = state.dsaProblemSlug;
+    _scObj.interaction = (state.studentIntent && state.studentIntent.startsWith('teach')) ? 'study' : 'practice';
+    if (state.dsaMode === 'mock_interview') {
+      _scObj.company = state.mockCompany || 'generic';
+      _scObj.timer_minutes = 45;
+      _scObj.level = state.mockLevel || 'L5';
+      _scObj.mockType = state.mockType || 'dsa';
+      if (typeof MockEngine !== 'undefined' && MockEngine.getState) {
+        _scObj.interviewState = MockEngine.getState();
+      }
+    }
+    if (window._dsaCodeEditor) {
+      _scObj.codeState = {
+        lang: state.dsaLanguage || 'python',
+        code: window._dsaCodeEditor.state.doc.toString(),
+      };
+    }
+    // Include last test results so tutor knows what passed/failed
+    if (window._lastTestResults) {
+      _scObj.testResults = window._lastTestResults;
+      window._lastTestResults = null; // clear after sending
+    }
+    if (window._sdCanvasState) {
+      _scObj.canvasState = window._sdCanvasState;
+    }
+    // Canvas snapshot — send as image for visual understanding
+    if (typeof SDCanvas !== 'undefined' && SDCanvas.getSnapshot) {
+      const snap = SDCanvas.getSnapshot();
+      if (snap) _scObj.canvasSnapshot = snap;
+    }
+  }
+
+  if (Object.keys(_scObj).length) {
     items.push({
       description: 'Session context',
-      value: JSON.stringify(ctx),
+      value: JSON.stringify(_scObj),
     });
   }
 
@@ -3234,7 +3376,31 @@ function cleanupActiveSession() {
   state.voiceHandVisible = false;
 
   // ── 15. Session flags ──
-  state._startingSession = false; state._resumingSession = false;
+  state._startingSession = false;
+  state._resumingSession = false;
+  // Clear DSA mode so non-DSA sessions don't inherit back-target
+  state.dsaMode = null;
+  state.dsaProblemSlug = null;
+  state.dsaProblemData = null;
+  state.studentIntent = null;
+  if (typeof _clearPracticeSilenceDetector === 'function') _clearPracticeSilenceDetector();
+  // Reset Ace editor so next session can re-initialize with new problem
+  ['ws-code-editor', 'ws-mock-code-editor'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el && el._aceReady) {
+      el._aceReady = false;
+      el.innerHTML = '';
+    }
+  });
+  window._dsaCodeEditor = null;
+  window._dsaTestPanel = null;
+  // Hide workspace panel + reset layout
+  var _wsPanel = document.getElementById('workspace-panel');
+  if (_wsPanel) _wsPanel.classList.add('hidden');
+  var _wsResize = document.getElementById('ws-resize-handle');
+  if (_wsResize) _wsResize.classList.add('hidden');
+  var _mainLayout = document.getElementById('main-layout');
+  if (_mainLayout) _mainLayout.classList.remove('dsa-mode');
 
   // ── 15b. Reset Euler input state (may have been disabled by _eulerSend) ──
   _eulerBusy = false;
@@ -7954,7 +8120,7 @@ function deriveCheckpointFromSession(session) {
 
 // ─── Init & Screen Management ─────────────────────────────
 
-const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen', 'business-screen'];
+const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen', 'business-screen', 'dsa-screen', 'dsa-problem-screen'];
 
 function _hideAllScreens() {
   ALL_SCREENS.forEach(id => {
@@ -7974,7 +8140,7 @@ function _updateUserPills() {
   const initial = user.name.charAt(0).toUpperCase();
   const firstName = user.name.split(' ')[0];
   // Update all avatar/name elements across screens
-  ['dash-avatar', 'course-avatar', 'od-avatar'].forEach(id => {
+  ['dash-avatar', 'course-avatar', 'od-avatar', 'dsa-avatar'].forEach(id => {
     const el = document.getElementById(id);
     if (el) el.textContent = initial;
   });
@@ -8075,6 +8241,34 @@ function showScreen(screenName, param) {
       document.getElementById('ondemand-screen').style.display = 'block';
       document.body.style.overflow = 'auto';
       document.body.style.height = 'auto';
+      break;
+
+    case 'dsa':
+      document.getElementById('dsa-screen').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100vh';
+      _loadDSAScreen();
+      // Restore tab from query param (e.g. /dsa?tab=sd)
+      try {
+        var dsaTabParam = new URLSearchParams(window.location.search).get('tab');
+        if (dsaTabParam && typeof _switchDSATab === 'function') setTimeout(function() { _switchDSATab(dsaTabParam); }, 50);
+      } catch(e) {}
+      break;
+
+    case 'dsa-problem':
+      document.getElementById('dsa-problem-screen').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100vh';
+      if (param) _loadDSAProblemDetail(param);
+      break;
+
+    case 'mock':
+      // Mock is now a tab inside the DSA screen
+      document.getElementById('dsa-screen').style.display = 'flex';
+      document.body.style.overflow = 'hidden';
+      document.body.style.height = '100vh';
+      _loadDSAScreen();
+      setTimeout(() => _switchDSATab('mock'), 50);
       break;
   }
 
@@ -11759,11 +11953,31 @@ async function _startOnDemandSession(intentText) {
   if (!user) return Router.navigate('/login');
   if (!intentText.trim()) return;
 
-  // ── Unlock audio on user gesture (browsers block autoplay until first interaction) ──
   _unlockAudio();
 
-  // Backend resolves the best matching course for this intent
-  let courseId = 2; // fallback
+  // Classify intent — determines if this needs DSA/SD mode with code editor/canvas
+  try {
+    const classifyRes = await fetch(`${state.apiUrl || ''}/api/v1/classify`, {
+      method: 'POST',
+      headers: { ...AuthManager.authHeaders(), 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text: intentText }),
+    });
+    if (classifyRes.ok) {
+      const bp = await classifyRes.json();
+      console.log('[Classify] Intent:', intentText.slice(0, 50), '→', bp.mode, bp.ui_layout);
+      if (bp.mode === 'dsa' || bp.mode === 'sd' || bp.mode === 'mock_interview') {
+        state.studentIntent = intentText;
+        state.dsaMode = bp.mode;
+        _startDSASession(bp.problem_slug || null, bp.mode);
+        return;
+      }
+    }
+  } catch (e) {
+    console.warn('[Classify] Failed, proceeding as general:', e);
+  }
+
+  // General session — no code editor or canvas needed
+  let courseId = 2;
   try {
     const res = await fetch(
       `${state.apiUrl || ''}/api/v1/content/resolve-course?q=${encodeURIComponent(intentText)}`,
@@ -12272,16 +12486,25 @@ async function initSetup() {
     });
   });
 
+  function _getSessionBackTarget() {
+    if (state.dsaMode === 'mock_interview') return '/dsa?tab=mock';
+    if (state.dsaMode === 'sd') return '/dsa?tab=sd';
+    if (state.dsaMode === 'dsa') return '/dsa?tab=dsa';
+    return '/home';
+  }
+
   $('#btn-back')?.addEventListener('click', () => {
-    // Show feedback form before navigating — only if a real session exists with turns
-    const sid = window._appState?.sessionId || '';
+    const backTarget = _getSessionBackTarget();
+    const sid = state.sessionId || '';
     const hasSession = sid && sid.length > 5;
-    if (hasSession && window._fbTurnCount >= 2 && typeof showFeedbackForm === 'function') {
-      window._fbOnClose = () => Router.navigate('/home');
+    const turnCount = window._fbTurnCount || 0;
+    console.log('[Back] sid=' + sid.slice(0,8) + ' turns=' + turnCount + ' target=' + backTarget);
+    if (hasSession && turnCount >= 1 && typeof showFeedbackForm === 'function') {
+      window._fbOnClose = () => Router.navigate(backTarget);
       showFeedbackForm();
       return;
     }
-    Router.navigate('/home');
+    Router.navigate(backTarget);
   });
 
   // Plan heading bar toggle
@@ -17477,17 +17700,10 @@ function voiceHideSubtitle() {
 // ── Voice indicator ─────────────────────────────────────────
 
 function voiceShowIndicator(mode) {
+  // Top-of-board indicator is redundant — voice bar at the bottom already shows status
   const el = $('#voice-indicator');
-  const label = $('#voice-indicator-label');
+  if (el) el.classList.add('hidden');
   const bar = $('#voice-bar-main');
-  if (!el) return;
-  el.classList.remove('hidden', 'speaking', 'listening', 'drawing');
-  el.classList.add(mode);
-  if (label) {
-    if (mode === 'speaking') label.textContent = 'Euler is speaking';
-    else if (mode === 'drawing') label.textContent = 'Drawing on board...';
-    else if (mode === 'listening') label.textContent = 'Listening...';
-  }
   if (bar) {
     bar.classList.remove('speaking', 'recording', 'drawing');
     if (mode === 'speaking') bar.classList.add('speaking');
@@ -18937,7 +19153,13 @@ function setVoiceBarState(newState) {
   }
   // Only apply to teaching session voice bar — not Euler chat
   const field = document.getElementById('voice-bar-input');
-  if (!field) return; // voice bar doesn't exist in this context
+  if (!field) {
+    // Voice bar not found — still clear indicators
+    _hideBoardStreaming();
+    _hideBoardDrawingSkeleton();
+    removeStreamingIndicator();
+    return;
+  }
   const sendBtn = document.getElementById('voice-bar-send');
   const micBtn = document.getElementById('voice-mic-btn');
   const stopBtn = document.getElementById('voice-bar-stop');
@@ -18973,12 +19195,12 @@ function setVoiceBarState(newState) {
       break;
 
     case 'thinking':
-      if (field) field.placeholder = 'Euler is generating...';
+      if (field) field.placeholder = 'Generating...';
       if (sendBtn) sendBtn.classList.add('hidden');
       if (micBtn) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (progress) { progress.className = 'vb-progress active thinking'; }
-      if (status) { status.className = 'vb-status active thinking'; status.textContent = 'Euler is generating...'; }
+      if (status) { status.className = 'vb-status active thinking'; status.textContent = ''; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
       voiceHideSubtitle();
@@ -18991,7 +19213,7 @@ function setVoiceBarState(newState) {
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (pauseBtn) pauseBtn.classList.remove('hidden');
       if (progress) { progress.className = 'vb-progress active speaking'; }
-      if (status) { status.className = 'vb-status active speaking'; status.textContent = 'Euler is speaking'; }
+      if (status) { status.className = 'vb-status active speaking'; status.textContent = ''; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
       // Don't hide streaming indicator here — it stays until the animation
@@ -20347,3 +20569,2989 @@ async function _submitBizDemo() {
   }
 }
 window._submitBizDemo = _submitBizDemo;
+
+// ═══════════════════════════════════════════════════════════
+// DSA Tab Switching
+// ═══════════════════════════════════════════════════════════
+
+function _switchDSATab(tab) {
+  // Update tab buttons
+  document.querySelectorAll('.dsa-tab').forEach(btn => {
+    const isActive = btn.dataset.dsaTab === tab;
+    btn.style.color = isActive ? '#34d399' : 'rgba(255,255,255,.3)';
+    btn.style.borderBottomColor = isActive ? '#34d399' : 'transparent';
+    if (isActive) btn.classList.add('active');
+    else btn.classList.remove('active');
+  });
+  // Update tab content
+  document.querySelectorAll('.dsa-tab-content').forEach(el => {
+    el.style.display = 'none';
+    el.classList.remove('active');
+  });
+  const target = document.getElementById('dsa-tab-' + tab);
+  if (target) {
+    target.style.display = '';
+    target.classList.add('active');
+  }
+  // Load mock setup when switching to mock tab
+  if (tab === 'mock') _loadMockSetup();
+}
+window._switchDSATab = _switchDSATab;
+
+// ── Study/Practice picker popover ──
+var _pickerState = { slug: null, mode: null, name: null, el: null };
+
+function _showModePicker(slug, mode, name, anchorEl) {
+  var picker = document.getElementById('dsa-mode-picker');
+  if (!picker) return;
+  // Toggle off if clicking the same row
+  if (picker.style.display !== 'none' && _pickerState.slug === slug) {
+    _hideModePicker();
+    return;
+  }
+  _pickerState = { slug: slug, mode: mode, name: name };
+
+  // Update descriptions based on DSA vs SD
+  var studyDesc = document.getElementById('dsa-pick-study-desc');
+  var practiceDesc = document.getElementById('dsa-pick-practice-desc');
+  if (mode === 'sd') {
+    if (studyDesc) studyDesc.textContent = 'Euler teaches with diagrams';
+    if (practiceDesc) practiceDesc.textContent = 'Design on canvas yourself';
+  } else {
+    if (studyDesc) studyDesc.textContent = 'Euler teaches step by step';
+    if (practiceDesc) practiceDesc.textContent = 'Solve with code editor';
+  }
+
+  // Show and position near the clicked element
+  picker.style.display = 'block';
+  var rect = anchorEl.getBoundingClientRect();
+  var pickerH = picker.offsetHeight || 60;
+  var spaceBelow = window.innerHeight - rect.bottom;
+  // Place below if room, otherwise above
+  if (spaceBelow > pickerH + 8) {
+    picker.style.top = (rect.bottom + 4) + 'px';
+  } else {
+    picker.style.top = (rect.top - pickerH - 4) + 'px';
+  }
+  picker.style.left = Math.min(rect.left, window.innerWidth - 260) + 'px';
+}
+
+function _hideModePicker() {
+  var picker = document.getElementById('dsa-mode-picker');
+  if (picker) picker.style.display = 'none';
+}
+
+// Wire up picker buttons
+document.addEventListener('click', function(e) {
+  var btn = e.target.closest('.dsa-pick-btn');
+  if (btn && _pickerState.slug !== undefined) {
+    var pick = btn.dataset.pick;
+    _hideModePicker();
+    if (pick === 'study') {
+      state.studentIntent = 'teach me ' + (_pickerState.name || _pickerState.slug);
+    }
+    _startDSASession(_pickerState.slug, _pickerState.mode);
+    _pickerState = {};
+    return;
+  }
+  // Click outside picker dismisses it
+  var picker = document.getElementById('dsa-mode-picker');
+  if (picker && picker.style.display !== 'none' && !picker.contains(e.target)) {
+    _hideModePicker();
+  }
+});
+
+// ═══════════════════════════════════════════════════════════
+// DSA & System Design Tab
+// ═══════════════════════════════════════════════════════════
+
+// Hardcoded fallback data when API is unavailable (seed not run yet)
+const _DSA_FALLBACK_TOPICS = [
+  {topic:'arrays',count:9},{topic:'two_pointers',count:5},{topic:'sliding_window',count:6},
+  {topic:'stack',count:7},{topic:'binary_search',count:7},{topic:'linked_list',count:11},
+  {topic:'trees',count:15},{topic:'graphs',count:13},{topic:'dynamic_programming',count:23},
+  {topic:'heap',count:7},{topic:'backtracking',count:9},{topic:'greedy',count:8},
+];
+const _DSA_FALLBACK_PROBLEMS = [
+  {num:1,name:'Two Sum',slug:'two-sum',difficulty:'easy',topics:['arrays','hash_map'],companies:['google','amazon','meta'],acceptance:52,
+    description:'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.',
+    examples:[{input:'nums = [2,7,11,15], target = 9',output:'[0,1]',explanation:'Because nums[0] + nums[1] == 9, we return [0, 1].'},{input:'nums = [3,2,4], target = 6',output:'[1,2]'}],
+    constraints:['2 <= nums.length <= 10^4','-10^9 <= nums[i] <= 10^9','Only one valid answer exists.'],
+    starter_code:{
+      python:"class Solution:\n    def twoSum(self, nums: list[int], target: int) -> list[int]:\n        # Write your solution here\n        pass",
+      javascript:"var twoSum = function(nums, target) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        // Write your solution here\n        return new int[]{};\n    }\n}",
+      cpp:"class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        // Write your solution here\n        return {};\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [2,7,11,15], target = 9",expected:"[0,1]"},
+      {input:"nums = [3,2,4], target = 6",expected:"[1,2]"},
+      {input:"nums = [3,3], target = 6",expected:"[0,1]"}
+    ]},
+  {num:2,name:'Valid Anagram',slug:'valid-anagram',difficulty:'easy',topics:['arrays','sorting'],companies:['amazon'],acceptance:63,
+    description:'Given two strings s and t, return true if t is an anagram of s, and false otherwise.',
+    examples:[{input:'s = "anagram", t = "nagaram"',output:'true'},{input:'s = "rat", t = "car"',output:'false'}],
+    constraints:['1 <= s.length, t.length <= 5 * 10^4','s and t consist of lowercase English letters.'],
+    starter_code:{
+      python:"class Solution:\n    def isAnagram(self, s: str, t: str) -> bool:\n        # Write your solution here\n        pass",
+      javascript:"var isAnagram = function(s, t) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public boolean isAnagram(String s, String t) {\n        // Write your solution here\n        return false;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    bool isAnagram(string s, string t) {\n        // Write your solution here\n        return false;\n    }\n};"
+    },
+    test_cases:[
+      {input:'s = "anagram", t = "nagaram"',expected:"true"},
+      {input:'s = "rat", t = "car"',expected:"false"},
+      {input:'s = "a", t = "a"',expected:"true"}
+    ]},
+  {num:3,name:'Contains Duplicate',slug:'contains-duplicate',difficulty:'easy',topics:['arrays','hash_set'],companies:['apple','amazon'],acceptance:61,
+    description:'Given an integer array nums, return true if any value appears at least twice in the array, and return false if every element is distinct.',
+    examples:[{input:'nums = [1,2,3,1]',output:'true'},{input:'nums = [1,2,3,4]',output:'false'}],
+    constraints:['1 <= nums.length <= 10^5','-10^9 <= nums[i] <= 10^9'],
+    starter_code:{
+      python:"class Solution:\n    def containsDuplicate(self, nums: list[int]) -> bool:\n        # Write your solution here\n        pass",
+      javascript:"var containsDuplicate = function(nums) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public boolean containsDuplicate(int[] nums) {\n        // Write your solution here\n        return false;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    bool containsDuplicate(vector<int>& nums) {\n        // Write your solution here\n        return false;\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [1,2,3,1]",expected:"true"},
+      {input:"nums = [1,2,3,4]",expected:"false"},
+      {input:"nums = [1,1,1,3,3,4,3,2,4,2]",expected:"true"}
+    ]},
+  {num:4,name:'Group Anagrams',slug:'group-anagrams',difficulty:'medium',topics:['arrays','hash_map'],companies:['amazon','meta'],acceptance:67,
+    starter_code:{
+      python:"class Solution:\n    def groupAnagrams(self, strs: list[str]) -> list[list[str]]:\n        # Write your solution here\n        pass",
+      javascript:"var groupAnagrams = function(strs) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public List<List<String>> groupAnagrams(String[] strs) {\n        // Write your solution here\n        return new ArrayList<>();\n    }\n}",
+      cpp:"class Solution {\npublic:\n    vector<vector<string>> groupAnagrams(vector<string>& strs) {\n        // Write your solution here\n        return {};\n    }\n};"
+    },
+    test_cases:[
+      {input:'strs = ["eat","tea","tan","ate","nat","bat"]',expected:'[["bat"],["nat","tan"],["ate","eat","tea"]]'},
+      {input:'strs = [""]',expected:'[[""]]'},
+      {input:'strs = ["a"]',expected:'[["a"]]'}
+    ]},
+  {num:5,name:'Top K Frequent Elements',slug:'top-k-frequent-elements',difficulty:'medium',topics:['heap','hash_map'],companies:['amazon','google'],acceptance:64,
+    starter_code:{
+      python:"class Solution:\n    def topKFrequent(self, nums: list[int], k: int) -> list[int]:\n        # Write your solution here\n        pass",
+      javascript:"var topKFrequent = function(nums, k) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int[] topKFrequent(int[] nums, int k) {\n        // Write your solution here\n        return new int[]{};\n    }\n}",
+      cpp:"class Solution {\npublic:\n    vector<int> topKFrequent(vector<int>& nums, int k) {\n        // Write your solution here\n        return {};\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [1,1,1,2,2,3], k = 2",expected:"[1,2]"},
+      {input:"nums = [1], k = 1",expected:"[1]"},
+      {input:"nums = [4,4,4,2,2,3,3,3], k = 2",expected:"[3,4]"}
+    ]},
+  {num:6,name:'Product of Array Except Self',slug:'product-of-array-except-self',difficulty:'medium',topics:['arrays','prefix'],companies:['meta','microsoft'],acceptance:65,
+    starter_code:{
+      python:"class Solution:\n    def productExceptSelf(self, nums: list[int]) -> list[int]:\n        # Write your solution here\n        pass",
+      javascript:"var productExceptSelf = function(nums) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int[] productExceptSelf(int[] nums) {\n        // Write your solution here\n        return new int[]{};\n    }\n}",
+      cpp:"class Solution {\npublic:\n    vector<int> productExceptSelf(vector<int>& nums) {\n        // Write your solution here\n        return {};\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [1,2,3,4]",expected:"[24,12,8,6]"},
+      {input:"nums = [-1,1,0,-3,3]",expected:"[0,0,9,0,0]"}
+    ]},
+  {num:7,name:'Longest Consecutive Sequence',slug:'longest-consecutive-sequence',difficulty:'medium',topics:['arrays','hash_set'],companies:['google','amazon'],acceptance:33,
+    starter_code:{
+      python:"class Solution:\n    def longestConsecutive(self, nums: list[int]) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var longestConsecutive = function(nums) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int longestConsecutive(int[] nums) {\n        // Write your solution here\n        return 0;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int longestConsecutive(vector<int>& nums) {\n        // Write your solution here\n        return 0;\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [100,4,200,1,3,2]",expected:"4"},
+      {input:"nums = [0,3,7,2,5,8,4,6,0,1]",expected:"9"},
+      {input:"nums = []",expected:"0"}
+    ]},
+  {num:8,name:'Valid Palindrome',slug:'valid-palindrome',difficulty:'easy',topics:['two_pointers','string'],companies:['meta','microsoft'],acceptance:44,
+    starter_code:{
+      python:"class Solution:\n    def isPalindrome(self, s: str) -> bool:\n        # Write your solution here\n        pass",
+      javascript:"var isPalindrome = function(s) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public boolean isPalindrome(String s) {\n        // Write your solution here\n        return false;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    bool isPalindrome(string s) {\n        // Write your solution here\n        return false;\n    }\n};"
+    },
+    test_cases:[
+      {input:'s = "A man, a plan, a canal: Panama"',expected:"true"},
+      {input:'s = "race a car"',expected:"false"},
+      {input:'s = " "',expected:"true"}
+    ]},
+  {num:9,name:'3Sum',slug:'3sum',difficulty:'medium',topics:['two_pointers','sorting'],companies:['amazon','meta','google'],acceptance:32,
+    starter_code:{
+      python:"class Solution:\n    def threeSum(self, nums: list[int]) -> list[list[int]]:\n        # Write your solution here\n        pass",
+      javascript:"var threeSum = function(nums) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public List<List<Integer>> threeSum(int[] nums) {\n        // Write your solution here\n        return new ArrayList<>();\n    }\n}",
+      cpp:"class Solution {\npublic:\n    vector<vector<int>> threeSum(vector<int>& nums) {\n        // Write your solution here\n        return {};\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [-1,0,1,2,-1,-4]",expected:"[[-1,-1,2],[-1,0,1]]"},
+      {input:"nums = [0,1,1]",expected:"[]"},
+      {input:"nums = [0,0,0]",expected:"[[0,0,0]]"}
+    ]},
+  {num:10,name:'Container With Most Water',slug:'container-with-most-water',difficulty:'medium',topics:['two_pointers','greedy'],companies:['amazon','google'],acceptance:54,
+    starter_code:{
+      python:"class Solution:\n    def maxArea(self, height: list[int]) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var maxArea = function(height) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int maxArea(int[] height) {\n        // Write your solution here\n        return 0;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int maxArea(vector<int>& height) {\n        // Write your solution here\n        return 0;\n    }\n};"
+    },
+    test_cases:[
+      {input:"height = [1,8,6,2,5,4,8,3,7]",expected:"49"},
+      {input:"height = [1,1]",expected:"1"},
+      {input:"height = [4,3,2,1,4]",expected:"16"}
+    ]},
+  {num:11,name:'Best Time to Buy and Sell Stock',slug:'best-time-to-buy-sell-stock',difficulty:'easy',topics:['sliding_window','arrays'],companies:['amazon','meta'],acceptance:54,
+    starter_code:{
+      python:"class Solution:\n    def maxProfit(self, prices: list[int]) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var maxProfit = function(prices) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int maxProfit(int[] prices) {\n        // Write your solution here\n        return 0;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int maxProfit(vector<int>& prices) {\n        // Write your solution here\n        return 0;\n    }\n};"
+    },
+    test_cases:[
+      {input:"prices = [7,1,5,3,6,4]",expected:"5"},
+      {input:"prices = [7,6,4,3,1]",expected:"0"},
+      {input:"prices = [2,4,1]",expected:"2"}
+    ]},
+  {num:12,name:'Longest Substring Without Repeating',slug:'longest-substring-without-repeating',difficulty:'medium',topics:['sliding_window','hash_map'],companies:['amazon','google','meta'],acceptance:34,
+    starter_code:{
+      python:"class Solution:\n    def lengthOfLongestSubstring(self, s: str) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var lengthOfLongestSubstring = function(s) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int lengthOfLongestSubstring(String s) {\n        // Write your solution here\n        return 0;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int lengthOfLongestSubstring(string s) {\n        // Write your solution here\n        return 0;\n    }\n};"
+    },
+    test_cases:[
+      {input:'s = "abcabcbb"',expected:"3"},
+      {input:'s = "bbbbb"',expected:"1"},
+      {input:'s = "pwwkew"',expected:"3"}
+    ]},
+  {num:13,name:'Valid Parentheses',slug:'valid-parentheses',difficulty:'easy',topics:['stack'],companies:['amazon','meta'],acceptance:40,
+    starter_code:{
+      python:"class Solution:\n    def isValid(self, s: str) -> bool:\n        # Write your solution here\n        pass",
+      javascript:"var isValid = function(s) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public boolean isValid(String s) {\n        // Write your solution here\n        return false;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    bool isValid(string s) {\n        // Write your solution here\n        return false;\n    }\n};"
+    },
+    test_cases:[
+      {input:'s = "()"',expected:"true"},
+      {input:'s = "()[]{}"',expected:"true"},
+      {input:'s = "(]"',expected:"false"}
+    ]},
+  {num:14,name:'Binary Search',slug:'binary-search',difficulty:'easy',topics:['binary_search'],companies:['google'],acceptance:55,
+    starter_code:{
+      python:"class Solution:\n    def search(self, nums: list[int], target: int) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var search = function(nums, target) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int search(int[] nums, int target) {\n        // Write your solution here\n        return -1;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int search(vector<int>& nums, int target) {\n        // Write your solution here\n        return -1;\n    }\n};"
+    },
+    test_cases:[
+      {input:"nums = [-1,0,3,5,9,12], target = 9",expected:"4"},
+      {input:"nums = [-1,0,3,5,9,12], target = 2",expected:"-1"},
+      {input:"nums = [5], target = 5",expected:"0"}
+    ]},
+  {num:15,name:'Reverse Linked List',slug:'reverse-linked-list',difficulty:'easy',topics:['linked_list'],companies:['amazon','microsoft'],acceptance:73,
+    starter_code:{
+      python:"# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def reverseList(self, head: Optional[ListNode]) -> Optional[ListNode]:\n        # Write your solution here\n        pass",
+      javascript:"/**\n * Definition for singly-linked list.\n * function ListNode(val, next) {\n *     this.val = (val===undefined ? 0 : val)\n *     this.next = (next===undefined ? null : next)\n * }\n */\nvar reverseList = function(head) {\n    // Write your solution here\n};",
+      java:"/**\n * Definition for singly-linked list.\n * public class ListNode {\n *     int val;\n *     ListNode next;\n *     ListNode() {}\n *     ListNode(int val) { this.val = val; }\n *     ListNode(int val, ListNode next) { this.val = val; this.next = next; }\n * }\n */\nclass Solution {\n    public ListNode reverseList(ListNode head) {\n        // Write your solution here\n        return null;\n    }\n}",
+      cpp:"/**\n * Definition for singly-linked list.\n * struct ListNode {\n *     int val;\n *     ListNode *next;\n *     ListNode() : val(0), next(nullptr) {}\n *     ListNode(int x) : val(x), next(nullptr) {}\n *     ListNode(int x, ListNode *next) : val(x), next(next) {}\n * };\n */\nclass Solution {\npublic:\n    ListNode* reverseList(ListNode* head) {\n        // Write your solution here\n        return nullptr;\n    }\n};"
+    },
+    test_cases:[
+      {input:"head = [1,2,3,4,5]",expected:"[5,4,3,2,1]"},
+      {input:"head = [1,2]",expected:"[2,1]"},
+      {input:"head = []",expected:"[]"}
+    ]},
+  {num:16,name:'Invert Binary Tree',slug:'invert-binary-tree',difficulty:'easy',topics:['trees','recursion'],companies:['google'],acceptance:73,
+    starter_code:{
+      python:"# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def invertTree(self, root: Optional[TreeNode]) -> Optional[TreeNode]:\n        # Write your solution here\n        pass",
+      javascript:"/**\n * Definition for a binary tree node.\n * function TreeNode(val, left, right) {\n *     this.val = (val===undefined ? 0 : val)\n *     this.left = (left===undefined ? null : left)\n *     this.right = (right===undefined ? null : right)\n * }\n */\nvar invertTree = function(root) {\n    // Write your solution here\n};",
+      java:"/**\n * Definition for a binary tree node.\n * public class TreeNode {\n *     int val;\n *     TreeNode left;\n *     TreeNode right;\n *     TreeNode() {}\n *     TreeNode(int val) { this.val = val; }\n *     TreeNode(int val, TreeNode left, TreeNode right) {\n *         this.val = val;\n *         this.left = left;\n *         this.right = right;\n *     }\n * }\n */\nclass Solution {\n    public TreeNode invertTree(TreeNode root) {\n        // Write your solution here\n        return null;\n    }\n}",
+      cpp:"/**\n * Definition for a binary tree node.\n * struct TreeNode {\n *     int val;\n *     TreeNode *left;\n *     TreeNode *right;\n *     TreeNode() : val(0), left(nullptr), right(nullptr) {}\n *     TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}\n *     TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}\n * };\n */\nclass Solution {\npublic:\n    TreeNode* invertTree(TreeNode* root) {\n        // Write your solution here\n        return nullptr;\n    }\n};"
+    },
+    test_cases:[
+      {input:"root = [4,2,7,1,3,6,9]",expected:"[4,7,2,9,6,3,1]"},
+      {input:"root = [2,1,3]",expected:"[2,3,1]"},
+      {input:"root = []",expected:"[]"}
+    ]},
+  {num:17,name:'Number of Islands',slug:'number-of-islands',difficulty:'medium',topics:['graphs','bfs_dfs'],companies:['amazon','google','meta'],acceptance:56,
+    starter_code:{
+      python:'class Solution:\n    def numIslands(self, grid: list[list[str]]) -> int:\n        # Write your solution here\n        pass',
+      javascript:"var numIslands = function(grid) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int numIslands(char[][] grid) {\n        // Write your solution here\n        return 0;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int numIslands(vector<vector<char>>& grid) {\n        // Write your solution here\n        return 0;\n    }\n};"
+    },
+    test_cases:[
+      {input:'grid = [["1","1","1","1","0"],["1","1","0","1","0"],["1","1","0","0","0"],["0","0","0","0","0"]]',expected:"1"},
+      {input:'grid = [["1","1","0","0","0"],["1","1","0","0","0"],["0","0","1","0","0"],["0","0","0","1","1"]]',expected:"3"}
+    ]},
+  {num:18,name:'Climbing Stairs',slug:'climbing-stairs',difficulty:'easy',topics:['dynamic_programming'],companies:['amazon','apple'],acceptance:51,
+    starter_code:{
+      python:"class Solution:\n    def climbStairs(self, n: int) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var climbStairs = function(n) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int climbStairs(int n) {\n        // Write your solution here\n        return 0;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int climbStairs(int n) {\n        // Write your solution here\n        return 0;\n    }\n};"
+    },
+    test_cases:[
+      {input:"n = 2",expected:"2"},
+      {input:"n = 3",expected:"3"},
+      {input:"n = 5",expected:"8"}
+    ]},
+  {num:19,name:'Coin Change',slug:'coin-change',difficulty:'medium',topics:['dynamic_programming'],companies:['amazon','google'],acceptance:42,
+    starter_code:{
+      python:"class Solution:\n    def coinChange(self, coins: list[int], amount: int) -> int:\n        # Write your solution here\n        pass",
+      javascript:"var coinChange = function(coins, amount) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int coinChange(int[] coins, int amount) {\n        // Write your solution here\n        return -1;\n    }\n}",
+      cpp:"class Solution {\npublic:\n    int coinChange(vector<int>& coins, int amount) {\n        // Write your solution here\n        return -1;\n    }\n};"
+    },
+    test_cases:[
+      {input:"coins = [1,5,10,25], amount = 30",expected:"2"},
+      {input:"coins = [2], amount = 3",expected:"-1"},
+      {input:"coins = [1], amount = 0",expected:"0"}
+    ]},
+  {num:20,name:'Merge Intervals',slug:'merge-intervals',difficulty:'medium',topics:['intervals','sorting'],companies:['google','meta','amazon'],acceptance:46,
+    starter_code:{
+      python:"class Solution:\n    def merge(self, intervals: list[list[int]]) -> list[list[int]]:\n        # Write your solution here\n        pass",
+      javascript:"var merge = function(intervals) {\n    // Write your solution here\n};",
+      java:"class Solution {\n    public int[][] merge(int[][] intervals) {\n        // Write your solution here\n        return new int[][]{};\n    }\n}",
+      cpp:"class Solution {\npublic:\n    vector<vector<int>> merge(vector<vector<int>>& intervals) {\n        // Write your solution here\n        return {};\n    }\n};"
+    },
+    test_cases:[
+      {input:"intervals = [[1,3],[2,6],[8,10],[15,18]]",expected:"[[1,6],[8,10],[15,18]]"},
+      {input:"intervals = [[1,4],[4,5]]",expected:"[[1,5]]"},
+      {input:"intervals = [[1,4],[0,4]]",expected:"[[0,4]]"}
+    ]},
+];
+const _SD_FALLBACK = [
+  {name:'URL Shortener (Bit.ly)',slug:'url-shortener',difficulty:'medium',description:'Hash generation, read-heavy caching, database scaling.',
+   plan:{requirements:['Shorten long URL → short code','Redirect short code → original URL','Custom alias + TTL optional'],nfr:['100:1 read-heavy','< 50ms redirect latency','1B total URLs'],entities:['URL','User'],api:['POST /shorten {url, alias?, ttl?}','GET /:code → 301 redirect'],deep_dives:['Hash generation: MD5 truncation vs Base62 counter vs Snowflake','Caching: Redis for hot short codes, TTL-based eviction','Database: sharding by short_code prefix']}},
+  {name:'Dropbox',slug:'dropbox',difficulty:'hard',description:'File sync, chunked uploads, conflict resolution, CDN.',
+   plan:{requirements:['Upload/download files','Sync across devices','Share files with permissions'],nfr:['Strong consistency for file state','Handle files up to 50GB','Low latency sync notifications'],entities:['File','FileVersion','User','SharedLink'],api:['POST /files/upload (chunked)','GET /files/{id}/download','POST /files/{id}/share'],deep_dives:['Chunked upload: resumable uploads, dedup via content hashing','Sync: notification service (long polling/WebSocket), conflict resolution','Storage: blob store (S3) + metadata DB, CDN for downloads']}},
+  {name:'Local Delivery Service',slug:'local-delivery',difficulty:'medium',description:'Geospatial indexing, order matching, real-time tracking.'},
+  {name:'News Aggregator',slug:'news-aggregator',difficulty:'medium',description:'RSS feeds, ranking, personalization, fanout.'},
+  {name:'Ticketmaster',slug:'ticketmaster',difficulty:'hard',description:'Seat reservation, high contention, distributed locking.',
+   plan:{requirements:['Browse events and available seats','Reserve and purchase seats','Handle concurrent bookings for same seat'],nfr:['No double-booking (strong consistency for seats)','Handle 10K+ concurrent users for popular events','< 2s booking confirmation'],entities:['Event','Venue','Seat','Booking','User'],api:['GET /events/{id}/seats → available seats','POST /bookings {event_id, seat_ids}','POST /payments {booking_id}'],deep_dives:['Seat locking: pessimistic lock with TTL vs optimistic with version','Flash sale pattern: queue + worker pool, not direct DB writes','Payment: two-phase with hold → confirm, saga for rollback']}},
+  {name:'FB News Feed',slug:'news-feed',difficulty:'hard',description:'Fan-out on write vs read, ranking, caching layers.',
+   plan:{requirements:['Post content (text, images)','See personalized feed of friends\' posts','Like and comment on posts'],nfr:['Feed renders < 200ms','Scale to 1B+ users','Eventually consistent is OK for feed'],entities:['User','Post','Follow','Feed'],api:['POST /posts {content}','GET /feed?cursor=X → Post[]','POST /posts/{id}/like'],deep_dives:['Fan-out: write (push to follower feeds) vs read (pull at request time) vs hybrid','Celebrity problem: fan-out on read for users with >10K followers','Feed ranking: chronological vs ML-ranked, pre-computed vs on-the-fly','Caching: per-user feed cache in Redis, invalidation on new post']}},
+  {name:'Tinder',slug:'tinder',difficulty:'medium',description:'Geospatial matching, swipe queue, recommendation.'},
+  {name:'WhatsApp',slug:'chat-system',difficulty:'medium',description:'WebSockets, message queues, E2E encryption, delivery receipts.',
+   plan:{requirements:['Send messages 1:1 and in groups','Real-time delivery','Message delivery receipts (sent, delivered, read)'],nfr:['< 100ms message delivery','E2E encryption','Handle 100M concurrent connections'],entities:['User','Message','Conversation','Group'],api:['POST /messages {conversation_id, text}','GET /conversations/{id}/messages','WS /ws/chat (real-time)'],deep_dives:['Connection management: WebSocket gateway, sticky sessions','Message delivery: write-ahead to queue, push to recipient, store','Offline delivery: store in inbox, push on reconnect','Group messages: fan-out to all members, read receipts aggregation']}},
+  {name:'Rate Limiter',slug:'rate-limiter',difficulty:'easy',description:'Token bucket, sliding window, Redis-based counters.'},
+  {name:'Online Auction',slug:'online-auction',difficulty:'hard',description:'Real-time bidding, consistency, fraud detection.'},
+  {name:'Instagram',slug:'instagram',difficulty:'hard',description:'Photo uploads, CDN, news feed, story expiry.'},
+  {name:'YouTube Top K',slug:'youtube-topk',difficulty:'medium',description:'Streaming top-K, count-min sketch, heavy hitters.'},
+  {name:'Uber',slug:'uber',difficulty:'hard',description:'Geohash, matching, surge pricing, ETA estimation.',
+   plan:{requirements:['Rider requests ride','Match rider to nearby driver','Real-time location tracking'],nfr:['< 10s to find a driver','Handle 1M concurrent rides','Location updates every 4s'],entities:['Rider','Driver','Ride','Location'],api:['POST /rides/request {pickup, destination}','POST /rides/{id}/accept','PUT /drivers/{id}/location'],deep_dives:['Geospatial matching: geohash/S2 cells for nearby driver lookup','Matching algorithm: nearest available vs ETA-optimized','Surge pricing: demand/supply ratio per geohash cell','Real-time tracking: WebSocket for rider, batch location updates from driver']}},
+  {name:'Google Docs',slug:'google-docs',difficulty:'hard',description:'Real-time collaboration, OT/CRDT, conflict resolution.'},
+  {name:'LeetCode',slug:'leetcode',difficulty:'medium',description:'Code execution sandbox, queue, result storage.'},
+];
+
+const _SD_CONCEPTS = [
+  {section:'Core Concepts', items:[
+    {name:'Networking Essentials',slug:'networking',icon:'🌐',desc:'TCP/UDP, DNS, HTTP, load balancing fundamentals'},
+    {name:'API Design',slug:'api-design',icon:'🔌',desc:'REST vs gRPC, pagination, rate limiting, versioning'},
+    {name:'Data Modeling',slug:'data-modeling',icon:'📐',desc:'Schema design, normalization, denormalization trade-offs'},
+    {name:'Database Indexing',slug:'db-indexing',icon:'📇',desc:'B-trees, hash indexes, composite indexes, query planning'},
+    {name:'Caching',slug:'caching',icon:'⚡',desc:'Cache-aside, write-through, TTL, eviction policies'},
+    {name:'Sharding',slug:'sharding',icon:'🔀',desc:'Range vs hash sharding, rebalancing, hot spots'},
+    {name:'Consistent Hashing',slug:'consistent-hashing',icon:'🎯',desc:'Virtual nodes, ring topology, minimal redistribution'},
+    {name:'CAP Theorem',slug:'cap-theorem',icon:'⚖️',desc:'Consistency vs availability, partition tolerance trade-offs'},
+    {name:'Numbers to Know',slug:'numbers-to-know',icon:'🔢',desc:'Latency, throughput, storage estimates for back-of-envelope'},
+  ]},
+  {section:'Patterns', items:[
+    {name:'Real-time Updates',slug:'realtime-updates',icon:'📡',desc:'WebSockets, SSE, long polling, pub/sub'},
+    {name:'Dealing with Contention',slug:'contention',icon:'🔒',desc:'Optimistic/pessimistic locking, CAS, queuing'},
+    {name:'Multi-step Processes',slug:'sagas',icon:'🔗',desc:'Sagas, compensating transactions, idempotency'},
+    {name:'Scaling Reads',slug:'scaling-reads',icon:'📖',desc:'Read replicas, caching layers, CDN, denormalization'},
+    {name:'Scaling Writes',slug:'scaling-writes',icon:'✍️',desc:'Sharding, write-ahead log, batching, async writes'},
+    {name:'Handling Large Blobs',slug:'large-blobs',icon:'📦',desc:'Chunked upload, S3, CDN, resumable transfers'},
+    {name:'Long Running Tasks',slug:'long-tasks',icon:'⏳',desc:'Job queues, workers, progress tracking, retries'},
+  ]},
+  {section:'Key Technologies', items:[
+    {name:'Redis',slug:'redis',icon:'🔴',desc:'In-memory cache, pub/sub, sorted sets, rate limiting'},
+    {name:'Elasticsearch',slug:'elasticsearch',icon:'🔍',desc:'Full-text search, inverted index, aggregations'},
+    {name:'Kafka',slug:'kafka',icon:'📨',desc:'Event streaming, partitions, consumer groups, exactly-once'},
+    {name:'API Gateway',slug:'api-gateway',icon:'🚪',desc:'Routing, auth, rate limiting, request transformation'},
+    {name:'Cassandra',slug:'cassandra',icon:'💎',desc:'Wide-column, eventual consistency, high write throughput'},
+    {name:'DynamoDB',slug:'dynamodb',icon:'⚡',desc:'Serverless, single-digit ms latency, partition key design'},
+    {name:'PostgreSQL',slug:'postgresql',icon:'🐘',desc:'ACID, JSONB, extensions, read replicas'},
+    {name:'ZooKeeper',slug:'zookeeper',icon:'🦁',desc:'Distributed coordination, leader election, config mgmt'},
+  ]},
+];
+
+const _LLD_CONCEPTS = [
+  {section:'Core Principles', items:[
+    {name:'OOP Principles',slug:'oop-principles',icon:'🧱',desc:'Encapsulation, inheritance, polymorphism, abstraction'},
+    {name:'SOLID Principles',slug:'solid-principles',icon:'🏗️',desc:'Single Responsibility, Open/Closed, Liskov, ISP, DIP'},
+    {name:'UML Class Diagrams',slug:'uml-class-diagrams',icon:'📊',desc:'Classes, relationships, associations, composition'},
+    {name:'LLD Framework',slug:'lld-framework',icon:'🗺️',desc:'Requirements → Entities → Relationships → Patterns → Code'},
+  ]},
+  {section:'Design Patterns', items:[
+    {name:'Creational Patterns',slug:'design-patterns-creational',icon:'🏭',desc:'Factory, Abstract Factory, Builder, Singleton, Prototype'},
+    {name:'Structural Patterns',slug:'design-patterns-structural',icon:'🔌',desc:'Adapter, Bridge, Composite, Decorator, Facade, Proxy'},
+    {name:'Behavioral Patterns',slug:'design-patterns-behavioral',icon:'🎭',desc:'Observer, Strategy, Command, State, Template Method'},
+  ]},
+];
+
+const _LLD_FALLBACK = [
+  {name:'Parking Lot System',slug:'parking-lot-system',difficulty:'medium',type:'lld',description:'Design a parking lot with multiple floors, vehicle types, and pricing strategies.'},
+  {name:'Library Management',slug:'library-management-system',difficulty:'easy',type:'lld',description:'Design a library system with books, members, borrowing, and fines.'},
+  {name:'Elevator System',slug:'elevator-system',difficulty:'hard',type:'lld',description:'Design multiple elevators with scheduling algorithms and state management.'},
+  {name:'Vending Machine',slug:'vending-machine',difficulty:'easy',type:'lld',description:'Design a vending machine with states, inventory, and payment.'},
+  {name:'Chess Game',slug:'chess-game',difficulty:'hard',type:'lld',description:'Design a chess game with pieces, board, rules, and move validation.'},
+  {name:'Movie Ticket Booking',slug:'movie-ticket-booking-system',difficulty:'hard',type:'lld',description:'Design BookMyShow — shows, seats, concurrency, payments.'},
+  {name:'Splitwise',slug:'splitwise-expense-sharing',difficulty:'medium',type:'lld',description:'Design expense sharing — users, groups, balances, settlements.'},
+  {name:'Online Shopping Cart',slug:'online-shopping-cart',difficulty:'medium',type:'lld',description:'Design an e-commerce cart — products, inventory, checkout.'},
+  {name:'Stack Overflow',slug:'stack-overflow-qa-platform',difficulty:'hard',type:'lld',description:'Design Q&A — questions, answers, votes, reputation system.'},
+  {name:'Rate Limiter',slug:'rate-limiter-lld',difficulty:'medium',type:'lld',description:'Design token bucket and sliding window rate limiters.'},
+];
+
+async function _loadDSAScreen() {
+  const apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
+  let problems = _DSA_FALLBACK_PROBLEMS;
+  let topics = _DSA_FALLBACK_TOPICS;
+  let sdProblems = _SD_FALLBACK;
+
+  try {
+    const hdrs = typeof AuthManager !== 'undefined' && AuthManager.authHeaders ? AuthManager.authHeaders() : {};
+    const [probRes, topicRes, sdRes] = await Promise.all([
+      fetch(`${apiUrl}/api/v1/dsa/problems?limit=150`, { headers: hdrs }).catch(() => null),
+      fetch(`${apiUrl}/api/v1/dsa/topics`, { headers: hdrs }).catch(() => null),
+      fetch(`${apiUrl}/api/v1/sd/problems`, { headers: hdrs }).catch(() => null),
+    ]);
+    if (probRes && probRes.ok) { try { const d = await probRes.json(); if (d.problems && d.problems.length) problems = d.problems; } catch(e){} }
+    if (topicRes && topicRes.ok) { try { const d = await topicRes.json(); if (Array.isArray(d) && d.length) topics = d; } catch(e){} }
+    if (sdRes && sdRes.ok) { try { const d = await sdRes.json(); if (d.problems && d.problems.length) sdProblems = d.problems; } catch(e){} }
+  } catch (e) { console.warn('[DSA] API failed, using fallback data'); }
+
+  // Wire up search input
+  const searchInput = document.getElementById('dsa-search-input');
+  if (searchInput && !searchInput._wired) {
+    searchInput._wired = true;
+    searchInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && searchInput.value.trim()) {
+        const query = searchInput.value.trim();
+        searchInput.value = '';
+        // Launch a DSA session with freeform intent — tutor handles it
+        state.dsaMode = 'dsa';
+        state.dsaProblemSlug = null;
+        state.dsaProblemData = null;
+        state.studentIntent = query;
+        _startDSASession(null, 'dsa');
+      }
+    });
+  }
+
+  // Split SD problems into HLD and LLD
+  var hldProblems = sdProblems.filter(function(p) { return p.type !== 'lld'; });
+  var lldProblems = sdProblems.filter(function(p) { return p.type === 'lld'; });
+  if (!lldProblems.length) lldProblems = _LLD_FALLBACK;
+
+  console.log('[DSA] Rendering', problems.length, 'DSA,', hldProblems.length, 'HLD,', lldProblems.length, 'LLD,', topics.length, 'topics');
+  // Store problems for topic drill-down
+  window._dsaAllProblems = problems;
+
+  _renderDSATopicAccordions(topics, problems);
+  _renderSDPage(hldProblems);
+  _renderLLDPage(lldProblems);
+
+  // SD search input
+  const sdInput = document.getElementById('sd-search-input');
+  if (sdInput && !sdInput._wired) {
+    sdInput._wired = true;
+    sdInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && sdInput.value.trim()) {
+        const q = sdInput.value.trim();
+        sdInput.value = '';
+        state.dsaMode = 'sd'; state.dsaProblemSlug = null; state.studentIntent = q;
+        _startDSASession(null, 'sd');
+      }
+    });
+  }
+
+  // Load mock setup
+  _loadMockSetup();
+}
+
+function _renderDSATopicAccordions(topics, problems) {
+  var el = document.getElementById('dsa-topics-list');
+  if (!el) return;
+  el.innerHTML = '';
+
+  var topicLabels = {
+    arrays:'Arrays & Hashing', hash_map:'Hash Map', two_pointers:'Two Pointers',
+    sliding_window:'Sliding Window', stack:'Stack', binary_search:'Binary Search',
+    linked_list:'Linked List', trees:'Trees', graphs:'Graphs',
+    dynamic_programming:'Dynamic Programming', backtracking:'Backtracking',
+    heap:'Heap / Priority Queue', greedy:'Greedy', intervals:'Intervals',
+    sorting:'Sorting', recursion:'Recursion', bfs:'BFS', dfs:'DFS',
+    string:'Strings', prefix:'Prefix Sum', matrix:'Matrix', math:'Math',
+    bit_manipulation:'Bit Manipulation', trie:'Trie',
+  };
+
+  var topicColors = {
+    arrays:'52,211,153', hash_map:'96,165,250', two_pointers:'167,139,250',
+    sliding_window:'251,191,36', stack:'248,113,113', binary_search:'52,211,153',
+    linked_list:'96,165,250', trees:'167,139,250', graphs:'251,191,36',
+    dynamic_programming:'248,113,113', backtracking:'52,211,153',
+    heap:'96,165,250', greedy:'167,139,250', intervals:'251,191,36',
+    sorting:'248,113,113', string:'52,211,153', matrix:'96,165,250',
+    math:'167,139,250', bfs:'251,191,36', dfs:'248,113,113',
+  };
+
+  var topicProblems = {};
+  (problems || []).forEach(function(p) {
+    (p.topics || []).forEach(function(t) {
+      if (!topicProblems[t]) topicProblems[t] = [];
+      topicProblems[t].push(p);
+    });
+  });
+
+  var diffColors = {easy:'#34d399',medium:'#fbbf24',hard:'#f87171'};
+  var diffBg = {easy:'rgba(52,211,153,.06)',medium:'rgba(251,191,36,.06)',hard:'rgba(248,113,113,.06)'};
+
+  (topics || []).forEach(function(t, idx) {
+    var rawName = t.topic;
+    var name = topicLabels[rawName] || rawName.replace(/_/g, ' ');
+    var tProbs = topicProblems[rawName] || [];
+    var count = t.count || tProbs.length;
+    var rgb = topicColors[rawName] || '255,255,255';
+    var solved = 0;
+
+    // Count difficulty distribution
+    var easy = 0, med = 0, hard = 0;
+    tProbs.forEach(function(p) { if (p.difficulty === 'easy') easy++; else if (p.difficulty === 'medium') med++; else hard++; });
+    var total = easy + med + hard || 1;
+    var easyPct = Math.round(easy / total * 100);
+    var medPct = Math.round(med / total * 100);
+
+    var accordion = document.createElement('div');
+    accordion.className = 'dsa-topic-accordion';
+    accordion.style.cssText = 'border:1px solid rgba(255,255,255,.04);border-radius:10px;margin-bottom:5px;overflow:hidden;transition:all .15s';
+
+    var head = document.createElement('div');
+    head.style.cssText = 'display:flex;align-items:center;gap:14px;padding:14px 20px;cursor:pointer;transition:background .1s';
+    head.onmouseenter = function() { head.style.background = 'rgba(255,255,255,.01)'; };
+    head.onmouseleave = function() { head.style.background = ''; };
+
+    head.innerHTML =
+      '<div style="width:34px;height:34px;border-radius:8px;background:rgba(' + rgb + ',.06);display:grid;place-items:center;flex-shrink:0">' +
+        '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(' + rgb + ',.6)" stroke-width="2" stroke-linecap="round">' +
+        (idx % 5 === 0 ? '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/>' :
+         idx % 5 === 1 ? '<circle cx="12" cy="12" r="10"/><path d="M12 16v-4M12 8h.01"/>' :
+         idx % 5 === 2 ? '<path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>' :
+         idx % 5 === 3 ? '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>' :
+         '<path d="M18 20V10M12 20V4M6 20v-6"/>') +
+        '</svg>' +
+      '</div>' +
+      '<div style="flex:1;min-width:0">' +
+        '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.85);letter-spacing:-.2px">' + name + '</div>' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-top:3px">' +
+          '<span style="font-size:9px;color:rgba(255,255,255,.2)">' + count + ' problems</span>' +
+          '<div style="display:flex;gap:3px">' +
+            (easy ? '<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(52,211,153,.06);color:rgba(52,211,153,.5)">' + easy + ' easy</span>' : '') +
+            (med ? '<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(251,191,36,.06);color:rgba(251,191,36,.5)">' + med + ' med</span>' : '') +
+            (hard ? '<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(248,113,113,.06);color:rgba(248,113,113,.5)">' + hard + ' hard</span>' : '') +
+          '</div>' +
+        '</div>' +
+      '</div>' +
+      '<div style="display:flex;align-items:center;gap:6px;flex-shrink:0">' +
+        '<div style="width:60px;height:4px;border-radius:2px;background:rgba(255,255,255,.03);overflow:hidden;display:flex">' +
+          '<div style="height:100%;width:' + easyPct + '%;background:#34d399"></div>' +
+          '<div style="height:100%;width:' + medPct + '%;background:#fbbf24"></div>' +
+          '<div style="height:100%;flex:1;background:rgba(248,113,113,' + (hard ? '.6' : '0') + ')"></div>' +
+        '</div>' +
+        '<span style="font-size:9px;font-weight:600;color:rgba(255,255,255,.15);min-width:28px;text-align:right">' + solved + '/' + count + '</span>' +
+      '</div>' +
+      '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.12)" stroke-width="2.5" stroke-linecap="round" style="flex-shrink:0;transition:transform .2s" data-arrow><path d="M6 9l6 6 6-6"/></svg>';
+
+    var body = document.createElement('div');
+    body.style.cssText = 'display:none;padding:4px 20px 14px;border-top:1px solid rgba(255,255,255,.03)';
+
+    // "Learn with Euler" button
+    var learnBtn = document.createElement('div');
+    learnBtn.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 14px;margin-bottom:8px;border-radius:8px;background:rgba(52,211,153,.02);border:1px solid rgba(52,211,153,.06);cursor:pointer;transition:all .12s';
+    learnBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="2" stroke-linecap="round"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>' +
+      '<div><div style="font-size:11px;color:#34d399;font-weight:600">Study ' + name + ' with Euler</div>' +
+      '<div style="font-size:8px;color:rgba(52,211,153,.3);margin-top:1px">Concept breakdown → visual examples → guided practice</div></div>';
+    learnBtn.onmouseenter = function() { learnBtn.style.background = 'rgba(52,211,153,.05)'; learnBtn.style.borderColor = 'rgba(52,211,153,.12)'; };
+    learnBtn.onmouseleave = function() { learnBtn.style.background = 'rgba(52,211,153,.02)'; learnBtn.style.borderColor = 'rgba(52,211,153,.06)'; };
+    learnBtn.onclick = function(e) { e.stopPropagation(); state.studentIntent = 'teach me ' + name; _startDSASession(null, 'dsa'); };
+    body.appendChild(learnBtn);
+
+    // Problem rows
+    tProbs.forEach(function(p) {
+      var row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:8px 14px;border-radius:6px;cursor:pointer;transition:background .08s';
+      row.onmouseenter = function() { row.style.background = 'rgba(255,255,255,.02)'; };
+      row.onmouseleave = function() { row.style.background = ''; };
+      var diffDot = '<div style="width:6px;height:6px;border-radius:50%;background:' + (diffColors[p.difficulty]||'rgba(255,255,255,.1)') + ';flex-shrink:0"></div>';
+      row.innerHTML = diffDot +
+        '<span style="flex:1;font-size:11px;color:rgba(255,255,255,.65);font-weight:500">' + (p.num ? p.num + '. ' : '') + p.name + '</span>' +
+        '<span style="font-size:8px;font-weight:600;padding:2px 6px;border-radius:3px;background:' + (diffBg[p.difficulty]||'') + ';color:' + (diffColors[p.difficulty]||'') + '">' + (p.difficulty||'') + '</span>' +
+        (p.companies && p.companies.length ? '<div style="display:flex;gap:2px">' + (p.companies).slice(0,3).map(function(c){return '<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(131,216,251,.04);color:rgba(131,216,251,.3)">'+c+'</span>';}).join('') + '</div>' : '');
+      row.onclick = function(e) {
+        e.stopPropagation();
+        _showModePicker(p.slug, 'dsa', p.name, row);
+      };
+      body.appendChild(row);
+    });
+
+    head.onclick = function() {
+      var open = body.style.display !== 'none';
+      body.style.display = open ? 'none' : 'block';
+      accordion.style.borderColor = open ? 'rgba(255,255,255,.04)' : 'rgba(255,255,255,.08)';
+      accordion.style.background = open ? '' : 'rgba(255,255,255,.005)';
+      var arrow = head.querySelector('[data-arrow]');
+      if (arrow) arrow.style.transform = open ? '' : 'rotate(180deg)';
+    };
+
+    accordion.appendChild(head);
+    accordion.appendChild(body);
+    el.appendChild(accordion);
+  });
+}
+
+function _openDSATopicProblems(topic, displayName) {
+  const container = document.getElementById('dsa-topic-problems');
+  const topicsGrid = document.getElementById('dsa-topics');
+  const titleEl = document.getElementById('dsa-topic-title');
+  const countEl = document.getElementById('dsa-topic-count');
+  const listEl = document.getElementById('dsa-topic-problem-list');
+  if (!container || !listEl) return;
+
+  // Filter problems for this topic
+  const problems = (window._dsaAllProblems || _DSA_FALLBACK_PROBLEMS).filter(p =>
+    (p.topics || []).includes(topic)
+  );
+
+  topicsGrid.style.display = 'none';
+  container.style.display = 'block';
+  titleEl.textContent = displayName || topic.replace(/_/g, ' ');
+  countEl.textContent = problems.length;
+
+  listEl.innerHTML = '';
+  const diffColors = { easy: '#34d399', medium: '#fbbf24', hard: '#f87171' };
+  const diffBg = { easy: 'rgba(52,211,153,0.05)', medium: 'rgba(251,191,36,0.05)', hard: 'rgba(248,113,113,0.05)' };
+
+  problems.forEach(p => {
+    const row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:6px;background:rgba(11,16,24,1);border:1px solid rgba(255,255,255,.04);cursor:pointer;margin-bottom:4px;transition:all .1s';
+    row.onmouseenter = () => { row.style.borderColor = 'rgba(52,211,153,.1)'; };
+    row.onmouseleave = () => { row.style.borderColor = 'rgba(255,255,255,.04)'; };
+
+    row.innerHTML = `<span style="font-size:9px;color:rgba(255,255,255,.15);width:20px">${p.num || ''}</span>
+      <span style="font-size:11px;color:rgba(255,255,255,.75);font-weight:500;flex:1">${p.name}</span>
+      <span style="font-size:8px;font-weight:600;padding:1px 6px;border-radius:3px;background:${diffBg[p.difficulty] || ''};color:${diffColors[p.difficulty] || ''}">${p.difficulty}</span>
+      <div style="display:flex;gap:2px">${(p.companies || []).slice(0, 3).map(c => `<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(131,216,251,.03);color:rgba(131,216,251,.4)">${c}</span>`).join('')}</div>`;
+
+    // Clicking a problem starts a session directly with problem context
+    row.onclick = () => _startDSASession(p.slug, 'dsa');
+    listEl.appendChild(row);
+  });
+}
+
+function _closeDSATopicProblems() {
+  const container = document.getElementById('dsa-topic-problems');
+  const topicsGrid = document.getElementById('dsa-topics');
+  if (container) container.style.display = 'none';
+  if (topicsGrid) topicsGrid.style.display = 'grid';
+}
+window._closeDSATopicProblems = _closeDSATopicProblems;
+
+// _renderDSAProblems removed — problems now shown per-topic via _openDSATopicProblems
+
+function _renderSDPage(problems) {
+  // Render concept cards (horizontal scroll)
+  var conceptsEl = document.getElementById('sd-concepts');
+  if (conceptsEl) {
+    conceptsEl.innerHTML = '';
+    _SD_CONCEPTS.forEach(function(section) {
+      section.items.forEach(function(item) {
+        var card = document.createElement('div');
+        card.style.cssText = 'min-width:150px;max-width:180px;padding:10px 12px;border-radius:9px;background:rgba(96,165,250,.02);border:1px solid rgba(96,165,250,.05);cursor:pointer;flex-shrink:0;scroll-snap-align:start;transition:all .12s';
+        card.onmouseenter = function() { card.style.borderColor = 'rgba(96,165,250,.15)'; card.style.transform = 'translateY(-1px)'; };
+        card.onmouseleave = function() { card.style.borderColor = 'rgba(96,165,250,.05)'; card.style.transform = ''; };
+        card.innerHTML = '<div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + item.icon + ' ' + item.name + '</div>' +
+          '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:3px;line-height:1.35">' + item.desc + '</div>';
+        card.onclick = function() { state.studentIntent = 'teach me ' + item.name; _startDSASession(item.slug, 'sd'); };
+        conceptsEl.appendChild(card);
+      });
+    });
+  }
+
+  // Render practice problems as list
+  var probEl = document.getElementById('sd-problems');
+  if (!probEl) return;
+  probEl.innerHTML = '';
+  var diffColors = {easy:'#34d399',medium:'#fbbf24',hard:'#f87171'};
+  var diffBg = {easy:'rgba(52,211,153,.05)',medium:'rgba(251,191,36,.05)',hard:'rgba(248,113,113,.05)'};
+  var sdIcons = {'url-shortener':'🔗','dropbox':'📦','chat-system':'💬','news-feed':'📰','tinder':'💕','rate-limiter':'⏱️','uber':'🚗','instagram':'📷','google-docs':'📄','leetcode':'💻'};
+
+  problems.forEach(function(p) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border:1px solid rgba(255,255,255,.04);border-radius:8px;margin-bottom:4px;cursor:pointer;transition:all .1s';
+    row.onmouseenter = function() { row.style.borderColor = 'rgba(255,255,255,.08)'; };
+    row.onmouseleave = function() { row.style.borderColor = 'rgba(255,255,255,.04)'; };
+    row.innerHTML = '<span style="font-size:14px">' + (sdIcons[p.slug]||'🏗️') + '</span>' +
+      '<div style="flex:1"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + p.name + '</div>' +
+      '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:1px">' + (p.description||'') + '</div></div>' +
+      '<span style="font-size:7px;font-weight:600;padding:1px 5px;border-radius:2px;background:' + (diffBg[p.difficulty]||'') + ';color:' + (diffColors[p.difficulty]||'') + '">' + (p.difficulty||'') + '</span>';
+    row.onclick = function(e) { e.stopPropagation(); _showModePicker(p.slug, 'sd', p.name, row); };
+    probEl.appendChild(row);
+  });
+}
+
+
+function _renderLLDPage(problems) {
+  // Render LLD concept cards
+  var conceptsEl = document.getElementById('lld-concepts');
+  if (conceptsEl) {
+    conceptsEl.innerHTML = '';
+    _LLD_CONCEPTS.forEach(function(section) {
+      section.items.forEach(function(item) {
+        var card = document.createElement('div');
+        card.style.cssText = 'min-width:150px;max-width:180px;padding:10px 12px;border-radius:9px;background:rgba(167,139,250,.02);border:1px solid rgba(167,139,250,.05);cursor:pointer;flex-shrink:0;scroll-snap-align:start;transition:all .12s';
+        card.onmouseenter = function() { card.style.borderColor = 'rgba(167,139,250,.15)'; card.style.transform = 'translateY(-1px)'; };
+        card.onmouseleave = function() { card.style.borderColor = 'rgba(167,139,250,.05)'; card.style.transform = ''; };
+        card.innerHTML = '<div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + item.icon + ' ' + item.name + '</div>' +
+          '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:3px;line-height:1.35">' + item.desc + '</div>';
+        card.onclick = function() { state.studentIntent = 'teach me ' + item.name; _startDSASession(item.slug, 'sd'); };
+        conceptsEl.appendChild(card);
+      });
+    });
+  }
+
+  // Render LLD problem rows
+  var probEl = document.getElementById('lld-problems');
+  if (!probEl) return;
+  probEl.innerHTML = '';
+  var diffColors = {easy:'#34d399',medium:'#fbbf24',hard:'#f87171'};
+  var diffBg = {easy:'rgba(52,211,153,.06)',medium:'rgba(251,191,36,.06)',hard:'rgba(248,113,113,.06)'};
+  var lldIcons = {'parking-lot-system':'🅿️','library-management-system':'📚','elevator-system':'🛗','vending-machine':'🥤','atm-system':'🏧','hotel-booking-system':'🏨','movie-ticket-booking-system':'🎬','chess-game':'♟️','snake-and-ladder-game':'🎲','tic-tac-toe':'⭕','in-memory-file-system':'📁','splitwise-expense-sharing':'💰','online-shopping-cart':'🛒','stack-overflow-qa-platform':'💬','rate-limiter-lld':'⏱️'};
+
+  problems.forEach(function(p) {
+    var row = document.createElement('div');
+    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border:1px solid rgba(167,139,250,.04);border-radius:8px;margin-bottom:4px;cursor:pointer;transition:all .1s';
+    row.onmouseenter = function() { row.style.borderColor = 'rgba(167,139,250,.1)'; };
+    row.onmouseleave = function() { row.style.borderColor = 'rgba(167,139,250,.04)'; };
+    var patterns = (p.design_patterns || []).slice(0, 3).map(function(dp) {
+      return '<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(167,139,250,.05);color:rgba(167,139,250,.4)">' + dp + '</span>';
+    }).join('');
+    row.innerHTML = '<span style="font-size:14px">' + (lldIcons[p.slug] || '🏗️') + '</span>' +
+      '<div style="flex:1"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + p.name + '</div>' +
+      '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:1px">' + (p.description || '') + '</div></div>' +
+      '<div style="display:flex;gap:2px">' + patterns + '</div>' +
+      '<span style="font-size:7px;font-weight:600;padding:1px 5px;border-radius:2px;background:' + (diffBg[p.difficulty] || '') + ';color:' + (diffColors[p.difficulty] || '') + '">' + (p.difficulty || '') + '</span>';
+    row.onclick = function(e) { e.stopPropagation(); _showModePicker(p.slug, 'sd', p.name, row); };
+    probEl.appendChild(row);
+  });
+}
+
+async function _loadDSAProblemDetail(slug) {
+  const apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
+  const container = document.getElementById('dsa-problem-detail');
+  if (!container) return;
+  container.innerHTML = '<div style="color:rgba(255,255,255,0.2);font-size:11px;padding:40px 0;text-align:center">Loading...</div>';
+
+  try {
+    let p = null;
+    try {
+      const res = await fetch(`${apiUrl}/api/v1/dsa/problems/${slug}`, { headers: AuthManager.authHeaders() });
+      if (res.ok) p = await res.json();
+    } catch(e) {}
+
+    // Fallback to hardcoded data
+    if (!p) p = _DSA_FALLBACK_PROBLEMS.find(x => x.slug === slug);
+    if (!p) throw new Error('Not found');
+    const diffColors = { easy: '#34d399', medium: '#fbbf24', hard: '#f87171' };
+
+    container.innerHTML = `
+      <div style="font-size:10px;color:rgba(255,255,255,0.2);cursor:pointer;margin-bottom:16px" onclick="Router.navigate('/dsa')">← Back to problems</div>
+      <h1 style="font-size:22px;font-weight:700;color:rgba(255,255,255,0.75);margin-bottom:4px">${p.name}</h1>
+      <div style="display:flex;gap:6px;align-items:center;margin-bottom:16px;font-size:10px">
+        <span style="font-size:8px;font-weight:600;padding:1px 5px;border-radius:2px;background:rgba(52,211,153,0.05);color:${diffColors[p.difficulty]}">${p.difficulty}</span>
+        <span style="color:rgba(255,255,255,0.2)">${(p.topics || []).join(' · ')}</span>
+        <span style="color:rgba(255,255,255,0.2);margin-left:auto">${(p.companies || []).join(', ')}</span>
+      </div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.5);line-height:1.7;margin-bottom:16px">${p.description || ''}</div>
+      ${(p.examples || []).map((ex, i) => `<div style="background:#0b1018;border:1px solid rgba(255,255,255,0.05);border-radius:6px;padding:10px 14px;margin-bottom:10px">
+        <div style="font-size:9px;font-weight:600;color:rgba(255,255,255,0.2);margin-bottom:4px">Example ${i + 1}</div>
+        <pre style="font-family:monospace;font-size:10px;color:#34d399;white-space:pre;line-height:1.5">Input:  ${ex.input}\nOutput: ${ex.output}${ex.explanation ? '\nExplain: ' + ex.explanation : ''}</pre>
+      </div>`).join('')}
+      <ul style="margin-bottom:16px;list-style:none;padding:0">${(p.constraints || []).map(c => `<li style="font-size:10px;color:rgba(255,255,255,0.2);margin-bottom:2px">· ${c}</li>`).join('')}</ul>
+      <div style="display:flex;gap:8px;align-items:center;margin-top:20px;flex-wrap:wrap">
+        <button onclick="_startDSASession('${p.slug}', 'dsa')" style="padding:10px 28px;border-radius:8px;border:none;background:rgba(96,165,250,.15);color:#60a5fa;font-size:12px;font-weight:600;cursor:pointer">Practice →</button>
+        <button onclick="state.studentIntent='teach me ${p.slug.replace(/-/g,' ')}';_startDSASession('${p.slug}','dsa')" style="padding:10px 20px;border-radius:8px;border:none;background:rgba(52,211,153,.1);color:#34d399;font-size:11px;font-weight:600;cursor:pointer">Study with Euler</button>
+        <span style="font-size:9px;color:rgba(255,255,255,0.12)">Practice solo or learn the approach step by step</span>
+      </div>
+      ${p.hints && p.hints.length ? `<div style="margin-top:20px"><div style="font-size:9px;color:rgba(255,255,255,0.2);cursor:pointer" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display==='none'?'block':'none'">Show hints ▾</div><div style="display:none;margin-top:6px;font-size:10px;color:rgba(255,255,255,0.3);line-height:1.6">${p.hints.map((h, i) => `<div>${i + 1}. ${h}</div>`).join('')}</div></div>` : ''}
+    `;
+  } catch (e) {
+    container.innerHTML = '<div style="color:#f87171;font-size:11px;padding:40px 0;text-align:center">Problem not found</div>';
+  }
+}
+
+function _startDSASession(slug, mode) {
+  state.dsaMode = mode; // 'dsa' | 'sd' | 'mock_interview'
+  state.dsaProblemSlug = slug;
+  state.dsaLanguage = 'python';
+
+  const intent = mode === 'sd' ? `System design: ${slug.replace(/-/g, ' ')}` : `DSA problem: ${slug.replace(/-/g, ' ')}`;
+  _startOnDemandSession(intent);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Mock Interview Setup
+// ═══════════════════════════════════════════════════════════
+
+function _loadMockSetup() {
+  const form = document.getElementById('mock-setup-form');
+  if (!form) return;
+
+  state.mockCompany = state.mockCompany || 'google';
+  state.mockTimerMinutes = 45; // always 45 min (last 5 for feedback)
+  state.mockLevel = state.mockLevel || 'L5';
+
+  // Level bands per company
+  var levels = {
+    google: [{id:'L3',label:'L3 (SWE II)',desc:'Entry · No system design'},{id:'L4',label:'L4 (SWE III)',desc:'Mid · Basic SD optional'},{id:'L5',label:'L5 (Senior)',desc:'Senior · SD mandatory'},{id:'L6',label:'L6 (Staff)',desc:'Staff · SD is defining round'}],
+    meta: [{id:'E3',label:'E3',desc:'Entry · No system design'},{id:'E4',label:'E4',desc:'Mid · SD starts here'},{id:'E5',label:'E5 (Senior)',desc:'Senior · SD goes deep'},{id:'E6',label:'E6 (Staff)',desc:'Staff · Low-level design'}],
+    amazon: [{id:'L4',label:'L4 (SDE I)',desc:'Entry · LP + coding'},{id:'L5',label:'L5 (SDE II)',desc:'Mid · LP + coding + basic SD'},{id:'L6',label:'L6 (Senior)',desc:'Senior · LP + coding + deep SD'},{id:'L7',label:'L7 (Principal)',desc:'Principal · Org-level impact'}],
+    microsoft: [{id:'59',label:'59-60',desc:'Entry · Growth mindset'},{id:'61',label:'61-62',desc:'Mid · Independent'},{id:'63',label:'63-64',desc:'Senior · Team influence'},{id:'65',label:'65+',desc:'Principal · Org scope'}],
+    generic: [{id:'junior',label:'Junior',desc:'0-2 YOE'},{id:'mid',label:'Mid',desc:'2-5 YOE'},{id:'senior',label:'Senior',desc:'5-8 YOE'},{id:'staff',label:'Staff+',desc:'8+ YOE'}],
+  };
+  var companyLevels = levels[state.mockCompany] || levels.generic;
+
+  form.innerHTML = `
+    <div style="text-align:left;margin-bottom:18px">
+      <div style="font-size:9px;font-weight:600;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Company</div>
+      <div style="display:grid;grid-template-columns:repeat(5,1fr);gap:4px">
+        ${[
+          {id:'google',name:'Google'},{id:'meta',name:'Meta'},{id:'amazon',name:'Amazon'},{id:'microsoft',name:'Microsoft'},{id:'generic',name:'Generic'},
+        ].map(c => `<div style="padding:8px 4px;border-radius:6px;background:#0b1018;border:1px solid ${c.id===state.mockCompany?'rgba(52,211,153,0.2)':'rgba(255,255,255,0.04)'};cursor:pointer;text-align:center;transition:all .1s"
+          onclick="_selectMockCompany('${c.id}')">
+          <div style="font-size:10px;font-weight:600;color:${c.id===state.mockCompany?'#34d399':'rgba(255,255,255,0.5)'}">${c.name}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div style="text-align:left;margin-bottom:18px">
+      <div style="font-size:9px;font-weight:600;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Target Level</div>
+      <div style="display:grid;grid-template-columns:repeat(${companyLevels.length},1fr);gap:4px">
+        ${companyLevels.map(l => `<div style="padding:8px 4px;border-radius:6px;background:#0b1018;border:1px solid ${l.id===state.mockLevel?'rgba(52,211,153,0.2)':'rgba(255,255,255,0.04)'};cursor:pointer;text-align:center;transition:all .1s"
+          onclick="state.mockLevel='${l.id}';_loadMockSetup()">
+          <div style="font-size:10px;font-weight:600;color:${l.id===state.mockLevel?'#34d399':'rgba(255,255,255,0.5)'}">${l.label}</div>
+          <div style="font-size:7px;color:rgba(255,255,255,0.15);margin-top:2px">${l.desc}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div style="text-align:left;margin-bottom:18px">
+      <div style="font-size:9px;font-weight:600;color:rgba(255,255,255,0.2);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px">Interview Type</div>
+      <div style="display:flex;gap:6px">
+        ${['dsa', 'sd'].map(t => `<div style="flex:1;padding:8px;border-radius:6px;background:#0b1018;border:1px solid ${(state.mockType||'dsa')===t?'rgba(52,211,153,0.2)':'rgba(255,255,255,0.04)'};cursor:pointer;text-align:center;transition:all .1s"
+          onclick="state.mockType='${t}';_loadMockSetup()">
+          <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,0.65)">${t==='dsa'?'DSA Coding':'System Design'}</div>
+          <div style="font-size:7px;color:rgba(255,255,255,0.15)">${t==='dsa'?'Algorithm + code editor':'Architecture + canvas'}</div>
+        </div>`).join('')}
+      </div>
+    </div>
+    <div style="font-size:8px;color:rgba(255,255,255,0.12);text-align:center;margin-bottom:12px">45 minutes · Last 5 minutes reserved for feedback</div>
+    <button onclick="_startMockInterview()" style="display:block;width:100%;padding:12px;border-radius:8px;border:none;background:#34d399;color:#000;font-size:13px;font-weight:600;cursor:pointer">Start Mock Interview →</button>
+    <div style="text-align:center;margin-top:8px;font-size:8px;color:rgba(255,255,255,0.2)">Timer starts immediately. Problem picked based on difficulty. Treat this like a real interview.</div>
+  `;
+}
+
+function _selectMockCompany(co) { state.mockCompany = co; _loadMockSetup(); }
+function _selectMockDiff(d) { state.mockDifficulty = d; _loadMockSetup(); }
+function _selectMockTime(t) { state.mockTimerMinutes = t; _loadMockSetup(); }
+
+function _startMockInterview() {
+  state.dsaMode = 'mock_interview';
+  state.dsaProblemSlug = null; // random
+  state.mockCompany = state.mockCompany || 'generic';
+  state.mockTimerMinutes = state.mockTimerMinutes || 45;
+
+  const intent = `Mock interview: ${state.mockCompany} style, ${state.mockDifficulty} difficulty, ${state.mockTimerMinutes} min`;
+  _startOnDemandSession(intent);
+}
+
+// ═══════════════════════════════════════════════════════════
+// Workspace Panel — Code Editor / Canvas / Mock Timer
+// ═══════════════════════════════════════════════════════════
+
+function _initWorkspaceForMode() {
+  const panel = document.getElementById('workspace-panel');
+  const mainLayout = document.getElementById('main-layout');
+  const resizeHandle = document.getElementById('ws-resize-handle');
+  if (!panel || !mainLayout) return;
+
+  const mode = state.dsaMode;
+  if (!mode || mode === 'general') {
+    panel.classList.add('hidden');
+    if (resizeHandle) resizeHandle.classList.add('hidden');
+    mainLayout.classList.remove('dsa-mode');
+    return;
+  }
+
+  panel.classList.remove('hidden');
+  if (resizeHandle) resizeHandle.classList.remove('hidden');
+  mainLayout.classList.add('dsa-mode');
+
+  // Draggable resize between board and workspace
+  if (resizeHandle && !resizeHandle._wired) {
+    resizeHandle._wired = true;
+    let startX = 0, startW = 0;
+    resizeHandle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      startX = e.clientX;
+      startW = panel.offsetWidth;
+      const onMove = (e2) => {
+        const delta = startX - e2.clientX;
+        const newW = Math.max(200, Math.min(startW + delta, window.innerWidth * 0.7));
+        panel.style.width = newW + 'px';
+        panel.style.flex = 'none';
+      };
+      const onUp = () => {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Hide all panes first
+  document.getElementById('ws-code-pane').style.display = 'none';
+  document.getElementById('ws-canvas-pane').style.display = 'none';
+  document.getElementById('ws-mock-pane').style.display = 'none';
+
+  if (mode === 'dsa') {
+    document.getElementById('ws-code-pane').style.display = 'flex';
+    _initAceEditor('ws-code-editor');
+    _startPracticeSilenceDetector();
+  } else if (mode === 'sd') {
+    document.getElementById('ws-canvas-pane').style.display = 'flex';
+    window._sdCanvasState = { elements: [] };
+    _startPracticeSilenceDetector();
+    // Load SD problem requirements onto the board for practice mode
+    _loadSDProblemOnBoard();
+    // SDCanvas.init() called from the wrapper below after a delay
+  } else if (mode === 'mock_interview') {
+    var mockType = state.mockType || 'dsa';
+    if (mockType === 'sd') {
+      // System Design mock → show canvas
+      document.getElementById('ws-canvas-pane').style.display = 'flex';
+      window._sdCanvasState = { elements: [] };
+    } else {
+      // DSA mock → use the SAME code editor pane as regular DSA
+      document.getElementById('ws-code-pane').style.display = 'flex';
+      _initAceEditor('ws-code-editor');
+    }
+    _startMockTimer();
+  }
+}
+
+var _practiceSilenceTimer = null;
+var _practiceSilenceSent = false;
+
+function _isPracticeSession() {
+  return (state.dsaMode === 'dsa' || state.dsaMode === 'sd') && state.dsaProblemSlug && !(state.studentIntent && state.studentIntent.startsWith('teach'));
+}
+
+function _loadSDProblemOnBoard() {
+  var _tryLoad = function() {
+    var p = state.dsaProblemData;
+    if (!p) return false;
+
+    // 1. Write problem on the board (left side)
+    var stream = document.getElementById('canvas-stream');
+    if (stream) {
+      var html = '<div class="canvas-block board-text-block fade-in" data-type="ai">';
+      html += '<h1 class="board-heading" style="color:#fbbf24">' + (p.name || p.slug || 'System Design') + '</h1>';
+      if (p.description) html += '<p class="board-text">' + p.description + '</p>';
+      // Show requirements on board too
+      var boardFR = (p.requirements && p.requirements.functional) || (p.plan && p.plan.requirements) || (Array.isArray(p.requirements) ? p.requirements : null);
+      if (boardFR && boardFR.length) {
+        html += '<div class="board-callout" style="margin-top:8px"><strong>Functional Requirements</strong><ul style="margin:4px 0 0;padding-left:16px">';
+        boardFR.forEach(function(r) { html += '<li>' + r + '</li>'; });
+        html += '</ul></div>';
+      }
+      var boardNFR = (p.requirements && p.requirements.non_functional) || (p.plan && p.plan.nfr);
+      if (boardNFR && boardNFR.length) {
+        html += '<div class="board-callout" style="margin-top:8px"><strong>Non-Functional</strong><ul style="margin:4px 0 0;padding-left:16px">';
+        boardNFR.forEach(function(r) { html += '<li>' + r + '</li>'; });
+        html += '</ul></div>';
+      }
+      html += '</div>';
+      stream.innerHTML = html;
+      if (typeof updateBoardEmptyState === 'function') updateBoardEmptyState();
+    }
+
+    // 2. Draw problem template on the canvas (right side) — like a real whiteboard
+    setTimeout(function() {
+      if (typeof SDCanvas === 'undefined' || !SDCanvas.handleTutorDraw) return;
+      var nodes = [];
+      var y = 40;
+
+      // Title
+      nodes.push({id: 'p-title', type: 'text', x: 40, y: y, content: 'Design: ' + (p.name || ''), label: p.name || ''});
+      y += 60;
+
+      // Description
+      if (p.description) {
+        nodes.push({id: 'p-desc', type: 'text', x: 40, y: y, content: (p.description || '').slice(0, 120), label: 'Description'});
+        y += 50;
+      }
+
+      // Functional Requirements box — check multiple data shapes
+      var frText = 'Functional Requirements\n';
+      var frList = (p.requirements && p.requirements.functional) ? p.requirements.functional
+        : (p.plan && p.plan.requirements) ? p.plan.requirements
+        : Array.isArray(p.requirements) ? p.requirements : null;
+      if (frList && frList.length) {
+        frList.forEach(function(r, i) { frText += (i+1) + '. ' + r + '\n'; });
+      } else {
+        frText += '1. \n2. \n3. ';
+      }
+      nodes.push({id: 'p-fr', type: 'rect', x: 40, y: y, width: 350, height: 160, label: 'FR', content: frText});
+      y += 190;
+
+      // Non-Functional Requirements box
+      var nfrText = 'Non-Functional Requirements\n';
+      var nfrList = (p.requirements && p.requirements.non_functional) ? p.requirements.non_functional
+        : (p.plan && p.plan.nfr) ? p.plan.nfr : null;
+      if (nfrList && nfrList.length) {
+        nfrList.forEach(function(r, i) { nfrText += '- ' + r + '\n'; });
+      } else {
+        nfrText += '- \n- \n- ';
+      }
+      nodes.push({id: 'p-nfr', type: 'rect', x: 40, y: y, width: 350, height: 140, label: 'NFR', content: nfrText});
+
+      try {
+        SDCanvas.handleTutorDraw({shapes: nodes, connections: [], clear: false});
+      } catch(e) { console.warn('[SD] Canvas preload failed:', e); }
+    }, 500);
+
+    return true;
+  };
+
+  if (!_tryLoad()) {
+    var _ct = 0;
+    var _poll = setInterval(function() {
+      if (_tryLoad() || ++_ct > 30) clearInterval(_poll);
+    }, 200);
+  }
+}
+
+function _startPracticeSilenceDetector() {
+  _clearPracticeSilenceDetector();
+  if (!_isPracticeSession()) return;
+  _practiceSilenceSent = false;
+  _practiceSilenceTimer = setTimeout(function() {
+    if (_isPracticeSession() && !_practiceSilenceSent && !state.isStreaming) {
+      _practiceSilenceSent = true;
+      console.log('[Practice] Silence detected — sending nudge');
+      streamADK('[SYSTEM SILENCE] Student has been idle for 90 seconds. They may be stuck. Send ONE short encouraging nudge. Do NOT explain the solution.', true);
+    }
+  }, 90000);
+}
+
+function _clearPracticeSilenceDetector() {
+  if (_practiceSilenceTimer) { clearTimeout(_practiceSilenceTimer); _practiceSilenceTimer = null; }
+}
+
+function _resetPracticeSilenceDetector() {
+  if (!_isPracticeSession()) return;
+  _practiceSilenceSent = false;
+  _clearPracticeSilenceDetector();
+  _practiceSilenceTimer = setTimeout(function() {
+    if (_isPracticeSession() && !_practiceSilenceSent && !state.isStreaming) {
+      _practiceSilenceSent = true;
+      console.log('[Practice] Silence detected — sending nudge');
+      streamADK('[SYSTEM SILENCE] Student has been idle for 90 seconds. They may be stuck. Send ONE short encouraging nudge. Do NOT explain the solution.', true);
+    }
+  }, 90000);
+}
+
+function _formatProblemForEditor(problem, lang) {
+  if (!problem) return '';
+  var cmt = (lang === 'python') ? '# ' : '// ';
+  var lines = [];
+  lines.push(cmt + (problem.name || ''));
+  lines.push(cmt);
+  if (problem.description) {
+    problem.description.split('\n').forEach(function(l) { lines.push(cmt + l); });
+    lines.push(cmt);
+  }
+  if (problem.examples && problem.examples.length) {
+    problem.examples.forEach(function(ex, i) {
+      lines.push(cmt + 'Example ' + (i + 1) + ':');
+      if (ex.input) lines.push(cmt + '  Input: ' + ex.input);
+      if (ex.output) lines.push(cmt + '  Output: ' + ex.output);
+      if (ex.explanation) lines.push(cmt + '  Explanation: ' + ex.explanation);
+    });
+    lines.push(cmt);
+  }
+  if (problem.constraints && problem.constraints.length) {
+    lines.push(cmt + 'Constraints:');
+    problem.constraints.forEach(function(c) { lines.push(cmt + '  ' + c); });
+    lines.push(cmt);
+  }
+  lines.push('');
+  // Append starter code — use language-specific if available, else generate skeleton
+  var starter = '';
+  if (problem.starter_code) {
+    starter = problem.starter_code[lang] || '';
+  }
+  if (!starter) {
+    // Generate a basic skeleton for the language
+    var name = (problem.slug || 'solution').replace(/-/g, '_');
+    var templates = {
+      python: 'class Solution:\n    def ' + name + '(self):\n        pass',
+      javascript: 'var ' + name + ' = function() {\n    \n};',
+      java: 'class Solution {\n    public void ' + name + '() {\n        \n    }\n}',
+      cpp: 'class Solution {\npublic:\n    void ' + name + '() {\n        \n    }\n};',
+      go: 'func ' + name + '() {\n    \n}',
+      typescript: 'function ' + name + '(): void {\n    \n}',
+    };
+    starter = templates[lang] || templates.python;
+  }
+  lines.push(starter);
+  return lines.join('\n');
+}
+
+var _currentTestCases = [];
+var _activeTestCase = 0;
+
+function _switchTestTab(tab) {
+  document.querySelectorAll('.ws-tc-tab').forEach(function(b) {
+    var isActive = b.dataset.tcTab === tab;
+    b.style.color = isActive ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.25)';
+    b.style.borderBottomColor = isActive ? '#34d399' : 'transparent';
+  });
+  var cases = document.getElementById('ws-tc-cases');
+  var results = document.getElementById('ws-tc-results');
+  if (cases) cases.style.display = tab === 'cases' ? 'block' : 'none';
+  if (results) {
+    results.style.display = tab === 'results' ? 'block' : 'none';
+    // Show empty state if no results yet
+    var inner = document.getElementById('ws-code-tests');
+    if (tab === 'results' && inner && !inner.innerHTML.trim()) {
+      inner.innerHTML = '<div style="color:rgba(255,255,255,.15);font-size:11px;padding:20px;text-align:center">Click Run or Submit to see results</div>';
+    }
+  }
+}
+window._switchTestTab = _switchTestTab;
+
+function _showTestCaseDetail(idx) {
+  _activeTestCase = idx;
+  var tc = _currentTestCases[idx];
+  if (!tc) return;
+  // Highlight active tab
+  document.querySelectorAll('.ws-case-pill').forEach(function(p, i) {
+    p.style.background = i === idx ? 'rgba(255,255,255,.06)' : 'rgba(255,255,255,.02)';
+    p.style.color = i === idx ? 'rgba(255,255,255,.6)' : 'rgba(255,255,255,.2)';
+  });
+  var detail = document.getElementById('ws-case-detail');
+  if (!detail) return;
+  // Parse input into key-value pairs
+  var html = '';
+  if (typeof tc.input === 'object' && tc.input !== null) {
+    Object.keys(tc.input).forEach(function(key) {
+      var val = typeof tc.input[key] === 'string' ? tc.input[key] : JSON.stringify(tc.input[key]);
+      html += '<div style="margin-bottom:8px"><div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:3px">' + key + ' =</div>' +
+        '<div style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.55);font-size:11px;word-break:break-all">' + val + '</div></div>';
+    });
+  } else {
+    var inputStr = typeof tc.input === 'string' ? tc.input : JSON.stringify(tc.input || '');
+    html += '<div style="margin-bottom:8px"><div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:3px">input =</div>' +
+      '<div style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.55);font-size:11px;word-break:break-all">' + inputStr + '</div></div>';
+  }
+  var expectedStr = typeof tc.expected === 'string' ? tc.expected : JSON.stringify(tc.expected);
+  html += '<div><div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:3px">expected =</div>' +
+    '<div style="padding:6px 10px;border-radius:6px;background:rgba(255,255,255,.03);color:rgba(255,255,255,.55);font-size:11px;word-break:break-all">' + expectedStr + '</div></div>';
+  detail.innerHTML = html;
+}
+
+function _showProblemTestCases(problem) {
+  var container = document.getElementById('ws-code-testcases');
+  if (!problem || !problem.test_cases || !problem.test_cases.length) {
+    if (container) container.style.display = 'none';
+    return;
+  }
+  if (container) container.style.display = 'flex';
+  _currentTestCases = problem.test_cases;
+  _activeTestCase = 0;
+  var summary = document.getElementById('ws-test-summary');
+  if (summary) { summary.textContent = problem.test_cases.length + ' cases'; summary.style.color = 'rgba(255,255,255,.15)'; }
+  // Build case tabs
+  var tabs = document.getElementById('ws-case-tabs');
+  if (tabs) {
+    tabs.innerHTML = '';
+    problem.test_cases.forEach(function(tc, i) {
+      var pill = document.createElement('button');
+      pill.className = 'ws-case-pill';
+      pill.type = 'button';
+      pill.textContent = 'Case ' + (i + 1);
+      pill.style.cssText = 'padding:4px 10px;border-radius:5px;border:none;background:rgba(255,255,255,.02);color:rgba(255,255,255,.2);font-size:10px;cursor:pointer;font-family:inherit;transition:all .1s';
+      pill.onclick = function() { _showTestCaseDetail(i); };
+      tabs.appendChild(pill);
+    });
+  }
+  _showTestCaseDetail(0);
+  _switchTestTab('cases');
+}
+
+function _initAceEditor(containerId) {
+  if (typeof ace === 'undefined') {
+    console.warn('[DSA] Ace Editor not loaded');
+    return;
+  }
+  const container = document.getElementById(containerId);
+  if (!container || container._aceReady) return;
+
+  const editor = ace.edit(containerId, {
+    mode: 'ace/mode/python',
+    theme: 'ace/theme/tomorrow_night',
+    fontSize: 12,
+    fontFamily: "'JetBrains Mono', monospace",
+    showGutter: true,
+    showPrintMargin: false,
+    highlightActiveLine: true,
+    tabSize: 4,
+    useSoftTabs: true,
+    wrap: false,
+    maxLines: Infinity,
+    minLines: 10,
+  });
+  try { editor.setOption('enableBasicAutocompletion', false); } catch(e) {}
+  editor.renderer.setScrollMargin(8, 8);
+
+  // Set initial language mode
+  var langMap = { python: 'ace/mode/python', javascript: 'ace/mode/javascript', java: 'ace/mode/java', cpp: 'ace/mode/c_cpp', go: 'ace/mode/golang', typescript: 'ace/mode/typescript' };
+  var initLang = state.dsaLanguage || 'python';
+  editor.session.setMode(langMap[initLang] || 'ace/mode/python');
+
+  // Load problem description + starter code into editor
+  if (state.dsaProblemData) {
+    var fullText = _formatProblemForEditor(state.dsaProblemData, initLang);
+    if (fullText) editor.setValue(fullText, -1);
+  } else if (state.dsaProblemSlug) {
+    // Data not loaded yet (API fetch in background) — poll briefly
+    var _pollCount = 0;
+    var _pollEditor = setInterval(function() {
+      if (state.dsaProblemData && window._dsaCodeEditor) {
+        clearInterval(_pollEditor);
+        var txt = _formatProblemForEditor(state.dsaProblemData, state.dsaLanguage || 'python');
+        if (txt && !window._dsaCodeEditor.getValue().trim()) {
+          window._dsaCodeEditor.setValue(txt);
+        }
+        _showProblemTestCases(state.dsaProblemData);
+      } else if (++_pollCount > 30) {
+        clearInterval(_pollEditor);
+      }
+    }, 200);
+  }
+
+  // Expose as global for WS handlers
+  window._dsaCodeEditor = {
+    state: { doc: { toString: () => editor.getValue(), length: editor.getValue().length } },
+    dispatch: (changes) => {
+      if (changes && changes.changes && changes.changes.insert !== undefined) {
+        editor.setValue(changes.changes.insert, -1);
+      }
+    },
+    getValue: () => editor.getValue(),
+    setValue: (v) => editor.setValue(v, -1),
+    setLanguage: (lang) => {
+      editor.session.setMode(langMap[lang] || 'ace/mode/python');
+      state.dsaLanguage = lang;
+    },
+    _ace: editor,
+  };
+  window._dsaTestPanel = document.getElementById(containerId === 'ws-mock-code-editor' ? 'ws-mock-tests' : 'ws-code-tests');
+
+  // Show test cases from problem data
+  if (state.dsaProblemData) _showProblemTestCases(state.dsaProblemData);
+
+  container._aceReady = true;
+}
+
+// Language selector change handler
+document.addEventListener('change', function(e) {
+  if (e.target.id === 'ws-code-lang' && window._dsaCodeEditor) {
+    var lang = e.target.value;
+    var prevLang = state.dsaLanguage || 'python';
+    window._dsaCodeEditor.setLanguage(lang);
+    // Update filename to match language
+    var fnameMap = { python: 'solution.py', javascript: 'solution.js', java: 'Solution.java', cpp: 'solution.cpp', go: 'solution.go', typescript: 'solution.ts' };
+    var fnameEl = document.getElementById('ws-code-fname');
+    if (fnameEl) fnameEl.textContent = fnameMap[lang] || 'solution.' + lang;
+    // Always swap to new language's problem text + starter code
+    if (state.dsaProblemData) {
+      var newFull = _formatProblemForEditor(state.dsaProblemData, lang);
+      if (newFull) { window._dsaCodeEditor.setValue(newFull);
+      }
+    }
+  }
+});
+
+function _wsRunCode() {
+  if (!window._dsaCodeEditor) return;
+  if (state.isStreaming) return; // don't interrupt — wait for tutor to finish
+  const code = window._dsaCodeEditor.getValue();
+  if (!code.trim()) return;
+  const lang = state.dsaLanguage || 'python';
+  const tests = state.dsaProblemData && state.dsaProblemData.test_cases ? JSON.stringify(state.dsaProblemData.test_cases.slice(0, 3)) : '[]';
+  streamADK(`[Student clicked RUN]\nUse run_code tool to execute my code. Language: ${lang}\nTest cases: ${tests}\n\nMy code:\n\`\`\`${lang}\n${code}\n\`\`\``);
+}
+
+function _wsSubmitCode() {
+  if (!window._dsaCodeEditor) return;
+  if (state.isStreaming) return; // don't interrupt
+  const code = window._dsaCodeEditor.getValue();
+  if (!code.trim()) return;
+  const lang = state.dsaLanguage || 'python';
+  const tests = state.dsaProblemData && state.dsaProblemData.test_cases ? JSON.stringify(state.dsaProblemData.test_cases) : '[]';
+  streamADK(`[Student clicked SUBMIT]\nUse run_code tool to execute against ALL test cases, then give brief feedback. Language: ${lang}\nTest cases: ${tests}\n\nMy code:\n\`\`\`${lang}\n${code}\n\`\`\``);
+}
+
+function _wsMockHint() {
+  if (typeof MockEngine !== 'undefined') {
+    MockEngine.useHint();
+  } else {
+    streamADK('Can I get a hint?', false, true);
+    var ct = document.getElementById('ws-mock-hint-count');
+    if (ct) ct.textContent = String(parseInt(ct.textContent || '0') + 1);
+  }
+}
+
+// Mock interview countdown timer
+let _mockTimerInterval = null;
+// ═══════════════════════════════════════════════════════════
+// Mock Interview Engine — client-side triggers
+// ═══════════════════════════════════════════════════════════
+
+const MockEngine = (() => {
+  let _interval = null;
+  let _startTime = 0;
+  let _totalSec = 0;
+  let _lastStudentMsgTime = 0;
+  let _hintsUsed = 0;
+  let _phase = 'intro';
+  let _firedTriggers = new Set();
+  let _debriefStarted = false;
+
+  function start(timerMinutes) {
+    stop();
+    _totalSec = (timerMinutes || 45) * 60;
+    _startTime = Date.now();
+    _lastStudentMsgTime = Date.now();
+    _hintsUsed = 0;
+    _phase = 'intro';
+    _firedTriggers = new Set();
+    _debriefStarted = false;
+
+    // Show top bar timer
+    var topTimer = document.getElementById('mock-countdown');
+    if (topTimer) topTimer.style.display = '';
+
+    _interval = setInterval(_tick, 1000);
+    console.log('[Mock] Engine started, timer=' + timerMinutes + 'min');
+  }
+
+  function stop() {
+    if (_interval) { clearInterval(_interval); _interval = null; }
+    var topTimer = document.getElementById('mock-countdown');
+    if (topTimer) topTimer.style.display = 'none';
+  }
+
+  function _tick() {
+    var elapsed = Math.floor((Date.now() - _startTime) / 1000);
+    var remaining = Math.max(0, _totalSec - elapsed);
+    var silenceSec = Math.floor((Date.now() - _lastStudentMsgTime) / 1000);
+    var pctRemaining = remaining / _totalSec;
+
+    // Update timer display
+    var min = Math.floor(remaining / 60);
+    var sec = remaining % 60;
+    var timeStr = min + ':' + String(sec).padStart(2, '0');
+    var color = pctRemaining <= 0.2 ? '#f87171' : pctRemaining <= 0.5 ? '#f5d89a' : 'rgba(255,255,255,.7)';
+
+    var el = document.getElementById('ws-mock-timer');
+    if (el) { el.textContent = timeStr; el.style.color = color; }
+    var topTimer = document.getElementById('mock-countdown');
+    if (topTimer) { topTimer.textContent = timeStr; topTimer.style.color = color; }
+
+    // ── CONTEXT TRIGGERS — just facts, tutor decides how to respond ──
+
+    // Halfway mark
+    if (elapsed >= _totalSec * 0.5 && !_firedTriggers.has('half')) {
+      _firedTriggers.add('half');
+      _sendTrigger('[MOCK TIMER] ' + min + ' minutes remaining. Elapsed: ' + Math.floor(elapsed/60) + ' min. Silence: ' + silenceSec + 's. Hints: ' + _hintsUsed + '/3. Level: ' + (state.mockLevel||'L5') + '.');
+    }
+
+    // 5 minutes left — start wrapping up
+    if (remaining <= 300 && !_firedTriggers.has('wrapup')) {
+      _firedTriggers.add('wrapup');
+      _sendTrigger('[MOCK TIMER] 5 minutes remaining. Begin wrapping up the interview. Transition to feedback phase.');
+    }
+
+    // Silence triggers
+    if (silenceSec >= 90 && !_firedTriggers.has('silence90')) {
+      _firedTriggers.add('silence90');
+      _sendTrigger('[MOCK STATUS] Student silent for ' + silenceSec + 's. Timer: ' + timeStr + '. Hints: ' + _hintsUsed + '/3.');
+    }
+
+    if (silenceSec >= 180 && !_firedTriggers.has('silence180')) {
+      _firedTriggers.add('silence180');
+      _sendTrigger('[MOCK STATUS] Student silent for ' + silenceSec + 's. Timer: ' + timeStr + '. Hints: ' + _hintsUsed + '/3.');
+    }
+
+    // Time's up — stop interview, deliver feedback
+    if (remaining <= 0 && !_debriefStarted) {
+      _debriefStarted = true;
+      clearInterval(_interval);
+      _sendTrigger('[MOCK TIMER] Time is up. Interview duration: ' + Math.floor(_totalSec / 60) + ' minutes. Hints used: ' + _hintsUsed + '/3.');
+    }
+  }
+
+  // Called whenever the student sends a message
+  function studentSpoke() {
+    _lastStudentMsgTime = Date.now();
+    // Reset silence triggers so they can fire again after new silence
+    _firedTriggers.delete('silence90');
+    _firedTriggers.delete('silence180');
+  }
+
+  function useHint() {
+    _hintsUsed++;
+    var countEl = document.getElementById('ws-mock-hint-count');
+    if (countEl) countEl.textContent = String(_hintsUsed);
+    var elapsed = Math.floor((Date.now() - _startTime) / 1000);
+    var timeStr = Math.floor(elapsed/60) + ':' + String(elapsed%60).padStart(2,'0');
+    _sendTrigger('[MOCK STATUS] Student requested hint #' + _hintsUsed + '. Time elapsed: ' + timeStr + '. Hints used: ' + _hintsUsed + '/3.');
+  }
+
+  function getState() {
+    var elapsed = Math.floor((Date.now() - _startTime) / 1000);
+    var silence = Math.floor((Date.now() - _lastStudentMsgTime) / 1000);
+    return {
+      phase: _phase,
+      elapsed: Math.floor(elapsed / 60) + ':' + String(elapsed % 60).padStart(2, '0'),
+      hints_used: _hintsUsed,
+      silence: silence + 's',
+      timer_minutes: 45,
+      company: state.mockCompany || 'generic',
+      level: state.mockLevel || 'L5',
+      type: state.mockType || 'dsa',
+    };
+  }
+
+  var _pendingTrigger = null;
+  var _triggerPollId = null;
+
+  function _sendTrigger(msg) {
+    if (typeof streamADK !== 'function') return;
+    if (!state.isStreaming) {
+      console.log('[Mock] Trigger:', msg.slice(0, 80));
+      streamADK(msg, true);
+      return;
+    }
+    // Queue it — poll until streaming ends, then send
+    console.log('[Mock] Trigger queued (streaming):', msg.slice(0, 60));
+    _pendingTrigger = msg;
+    if (!_triggerPollId) {
+      _triggerPollId = setInterval(function() {
+        if (!state.isStreaming && _pendingTrigger) {
+          var m = _pendingTrigger;
+          _pendingTrigger = null;
+          clearInterval(_triggerPollId);
+          _triggerPollId = null;
+          console.log('[Mock] Sending queued trigger:', m.slice(0, 60));
+          streamADK(m, true);
+        }
+      }, 500);
+    }
+  }
+
+  return { start, stop, studentSpoke, useHint, getState };
+})();
+
+function _startMockTimer() {
+  MockEngine.start(state.mockTimerMinutes);
+}
+
+// Hook into session start to init workspace
+const _origStartOnDemand = typeof _startOnDemandSession === 'function' ? _startOnDemandSession : null;
+
+// (language selector handler moved into _initAceEditor)
+
+// DSA/SD session start — bypasses course loading flow
+const _origStartDSA = _startDSASession;
+_startDSASession = async function(slug, mode) {
+  const user = AuthManager.getUser();
+  if (!user) return Router.navigate('/login');
+
+  if (state._startingSession) return;
+  state._startingSession = true;
+  var _t0 = Date.now();
+
+  // Save intent before cleanup clears it
+  var savedIntent = state.studentIntent;
+
+  // Clean previous session IMMEDIATELY (don't wait for fetches)
+  if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
+  state._startingSession = true;
+  _unlockAudio();
+  wsReconnect();
+
+  // Set DSA state AFTER cleanup (use fallback data while API fetches in background)
+  var fallbackProblem = slug ? (_DSA_FALLBACK_PROBLEMS.find(function(p) { return p.slug === slug; }) || _SD_FALLBACK.find(function(p) { return p.slug === slug; }) || null) : null;
+  state.dsaMode = mode;
+  state.dsaProblemSlug = slug;
+  state.dsaProblemData = fallbackProblem;
+  state.dsaLanguage = 'python';
+  state.studentName = user.name;
+  state.userEmail = user.email;
+  state.studentIntent = savedIntent || (slug ? slug.replace(/-/g, ' ') : (mode === 'sd' ? 'System design practice' : 'DSA practice'));
+
+  // Fetch problem data from API in background (updates state when ready)
+  if (slug) {
+    var _apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
+    var _endpoint = mode === 'sd' ? 'sd' : 'dsa';
+    var _hdrs = AuthManager.authHeaders ? AuthManager.authHeaders() : {};
+    fetch(`${_apiUrl}/api/v1/${_endpoint}/problems/${slug}`, { headers: _hdrs })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) {
+        if (data) {
+          state.dsaProblemData = data;
+          // Update editor if already initialized but was empty (fallback data was null)
+          if (window._dsaCodeEditor) {
+            var current = window._dsaCodeEditor.getValue().trim();
+            if (!current) {
+              var fullText = _formatProblemForEditor(data, state.dsaLanguage || 'python');
+              if (fullText) window._dsaCodeEditor.setValue(fullText);
+            }
+          }
+          // Update test cases panel
+          _showProblemTestCases(data);
+        }
+      })
+      .catch(function() {});
+  }
+
+  // Show teaching layout with empty course map (no course for DSA)
+  const emptyCourseMap = { title: mode === 'sd' ? 'System Design' : 'DSA Prep', modules: [], lessons: [] };
+  state.courseId = null;
+  state.courseMap = emptyCourseMap;
+  state.plan = state.plan || [];
+  state.checkpoint = { currentLessonId: null, currentSectionIndex: 0, completedSections: [], sessionCount: 1, lastPlanJSON: null };
+
+  try {
+    showTeachingLayout(emptyCourseMap);
+  } catch(e) {
+    console.error('[DSA] showTeachingLayout failed:', e);
+  }
+  state.currentPlan = {};
+  try { updateHeadingBar(); } catch(e) {}
+  try { updateBoardEmptyState(); } catch(e) {}
+
+  state.sessionId = generateId();
+  Router.navigate('/session/' + state.sessionId, { skipHandler: true });
+
+  // Create session in MongoDB (non-blocking)
+  SessionManager.createSession(null, state.studentName, state.studentIntent, {}, 1, mode).catch(() => {});
+
+  // Init workspace pane immediately (no delay)
+  setTimeout(_initWorkspaceForMode, 50);
+
+  // Set course title
+  const titleEl = document.getElementById('course-title');
+  if (titleEl) titleEl.textContent = mode === 'sd' ? `System Design: ${state.studentIntent}` : `DSA: ${state.studentIntent}`;
+
+  // Teaching plan context — include inline if fallback data has it, skip blocking fetch
+  let teachingPlanCtx = '';
+
+  // Build trigger message — practice vs learn mode
+  const problemCtx = state.dsaProblemData ? `\nProblem: ${JSON.stringify(state.dsaProblemData)}` : '';
+  const now = new Date();
+  const timeCtx = `Current time: ${now.toLocaleDateString('en-US',{weekday:'long'})} ${now.getHours()<12?'morning':now.getHours()<17?'afternoon':'evening'}.`;
+
+  const hasSpecificProblem = !!state.dsaProblemSlug;
+  const isPracticeMode = hasSpecificProblem && !(savedIntent && savedIntent.startsWith('teach'));
+
+  var uiLayoutBlock = mode === 'sd'
+    ? `UI LAYOUT: Board (left) + Drawing Canvas (right)
+- Board: your teaching surface — write text, headings, callouts, steps, ds visualizations, mermaid diagrams
+- Canvas: shared whiteboard — student draws architecture components, you can draw too via draw_on_canvas tool
+- Canvas shows: rectangles (services), arrows (data flow), text labels. Student can see your drawings and vice versa.
+- You receive a canvas snapshot each turn as an image — use it to understand what the student has drawn.`
+    : `UI LAYOUT: Board (left) + Code Editor (right)
+- Board: your teaching surface — write text, headings, callouts, steps, ds visualizations, mermaid diagrams
+- Code Editor: student writes code here. You control it via push_code tool.
+- Editor shows: problem description as comments + function signature + starter code
+- Test Cases: visible below the editor. Student can click Run/Submit to test their code.
+- You receive <code-state> each turn showing what the student has written.`;
+
+  const toolsBlock = `${uiLayoutBlock}
+
+AVAILABLE TOOLS:
+${mode === 'dsa' ? `- push_code(code, language, action, at_line, lines, from_line, to_line, highlight_lines) — Modify the student's code editor. Actions: replace, insert, append, delete_lines, replace_lines.
+- run_code(code, language, test_cases) — execute code against test cases. Returns pass/fail.` : ''}${mode === 'sd' ? `- draw_on_canvas(shapes, connections, clear) — draw architecture components on the shared canvas.` : ''}
+- ds command on board — visualize data structures: {"cmd":"ds","type":"array|hash-map|linked-list|tree|stack|grid","data":...,"pointers":{},"highlight":{}}
+  For grid (DP tables, BFS grids): {"cmd":"ds","type":"grid","data":[[row0],[row1]],"highlight":{"0,0":"active"},"col_headers":[...],"row_headers":[...]}
+- All standard board commands (h1, text, callout, step, etc.)`;
+
+  var trigger;
+
+  if (isPracticeMode) {
+    // ── PRACTICE MODE: student solves independently, tutor helps on request ──
+    var practiceWorkspace = mode === 'sd'
+      ? 'The student has a shared drawing canvas on the right. They will draw their architecture. You can see a snapshot of the canvas each turn. Do NOT draw on the canvas unprompted — only draw when the student asks for help or when reviewing their design.'
+      : 'The code editor already has the problem description and starter code loaded. Test cases are visible. Do NOT call push_code — the student\'s editor is already set up.';
+    var practiceActivity = mode === 'sd' ? 'designing on the canvas' : 'coding';
+    var practiceRunRule = mode === 'sd'
+      ? `b. Student asks you to review their design — look at the canvas snapshot, give focused feedback on ONE specific issue (e.g. "your write path doesn't handle replication"). Don't redesign the whole system.`
+      : `b. Student clicks Run or Submit — execute their code via run_code and return results. After results, give brief feedback ONLY if they failed (one sentence pointing to the issue, no full solution). If they passed, congratulate briefly.`;
+
+    trigger = `[SYSTEM] ${timeCtx} Student "${state.studentName}" is PRACTICING a ${mode === 'sd' ? 'system design' : 'DSA'} problem independently.
+
+PRACTICE MODE — minimal talking. Do NOT teach, explain, or ${mode === 'sd' ? 'draw' : 'push code'} unprompted.
+Problem slug: ${state.dsaProblemSlug}
+${problemCtx}
+
+SESSION MODE: ${mode === 'sd' ? 'SYSTEM_DESIGN' : 'DSA'}
+
+${toolsBlock}
+
+WORKSPACE: ${practiceWorkspace}
+
+PRACTICE MODE RULES:
+1. On session start: write the problem title on the board (h1) and say ONE short sentence: "Problem loaded — take your time, I'm here if you need me." Then go silent.
+2. Only respond when:
+   a. Student sends a message asking for help ("I'm stuck", "hint", "explain", etc.)
+   ${practiceRunRule}
+   c. [SYSTEM SILENCE] trigger — student has been idle 90+ seconds. Send ONE short, encouraging nudge ("How's it going? ${mode === 'sd' ? 'Want to talk through your design?' : 'Need a hint on the approach?'}"). Do NOT explain the solution.
+3. When student asks for help:
+   - Give a HINT, not the answer. Start with the smallest useful hint.
+   - Use the board to visualize the concept if helpful (${mode === 'sd' ? 'mermaid diagrams, component breakdowns' : 'ds command, step-by-step'}).
+   - If they ask again, give a slightly bigger hint. Scaffold progressively.
+   - Never dump the full solution unless they explicitly say "show me the answer" or "I give up".
+4. ${mode === 'sd' ? 'When reviewing the canvas: reference specific components the student drew. Point out ONE issue at a time.' : 'When student clicks Run/Submit: execute their code. Show results. Brief feedback on failures only.'}
+5. Keep board minimal — only write on it when actively helping.
+
+CRITICAL — WHENEVER YOU RESPOND (help, hint, nudge, run results, review):
+- ALWAYS use <teaching-voice-scene> with <vb say="..." draw='...' /> beats.
+- ALWAYS write something on the board — even a short hint gets a callout or step.
+- say attribute is MANDATORY on every beat — it is what the student HEARS.
+- If asking a question, write it on the board AND speak it.
+- Build content beat by beat — one idea per beat, not everything at once.
+- Board is the primary teaching surface. Never speak without showing something on the board.`;
+  } else {
+    // ── LEARN/TEACH MODE: tutor-led walkthrough ──
+    const inputType = hasSpecificProblem ? 'SPECIFIC PROBLEM' : 'FREEFORM INPUT';
+    trigger = `[SYSTEM] ${timeCtx} Student "${state.studentName}" wants to LEARN ${mode === 'sd' ? 'system design' : 'DSA'}.
+
+INPUT TYPE: ${inputType}
+${hasSpecificProblem ? `Problem slug: ${state.dsaProblemSlug}` : `Student's request: "${state.studentIntent}"`}
+${problemCtx}${teachingPlanCtx}
+
+SESSION MODE: ${mode === 'sd' ? 'SYSTEM_DESIGN' : 'DSA'} — follow SECTION_${mode === 'sd' ? 'SYSTEM_DESIGN' : 'DSA'}_MODE.
+
+${toolsBlock}
+
+WORKSPACE: Student has a ${mode === 'sd' ? 'drawing canvas' : 'code editor'} on the right pane. If <code-state> says "empty", call push_code immediately.
+
+CRITICAL — FIRST ACTIONS (do ALL of these):
+1. Write the problem clearly on the board (h1 title, text description, code example, ds visualization).
+${hasSpecificProblem ? '' : '   If student typed a question/topic: pick a canonical problem and present it.\n   If student pasted multiple questions: say "Let\'s tackle these one at a time" and start with the first.'}
+2. Call push_code(action="replace") with the function signature + skeleton code.
+   Even for freeform questions — always set up the editor with at minimum the function signature.
+3. Start the teaching cycle: PRESENT → PRETEST → PATTERN → OPTIMIZE → IMPLEMENT → TEST → ANALYZE.
+4. Board is for teaching (visualizations, explanations). Code goes in the editor via push_code. Do NOT write code on the board.`;
+  }
+
+  console.log('[DSA] Session setup took', Date.now() - _t0, 'ms — waiting for WS');
+
+  // Wait for WS to be ready, then send trigger ONCE (max 10s)
+  let _dsaTriggerSent = false;
+  let _dsaWaitAttempts = 0;
+  const _waitAndSend = () => {
+    if (_dsaTriggerSent) return;
+    if (_ws.conn && _ws.conn.readyState === WebSocket.OPEN) {
+      _dsaTriggerSent = true;
+      state._startingSession = false;
+      console.log('[DSA] WS ready — sending trigger after', Date.now() - _t0, 'ms');
+      streamADK(trigger, true, true);
+    } else if (++_dsaWaitAttempts > 100) {
+      console.error('[DSA] WS failed to connect after 10s — giving up');
+      state._startingSession = false;
+    } else {
+      setTimeout(_waitAndSend, 100);
+    }
+  };
+  setTimeout(_waitAndSend, 50);
+};
+
+// Mock interview start — also bypasses course flow
+const _origStartMock = _startMockInterview;
+_startMockInterview = async function() {
+  const user = AuthManager.getUser();
+  if (!user) return Router.navigate('/login');
+
+  if (state._startingSession) return;
+  state._startingSession = true;
+
+  var mockCompany = state.mockCompany || 'generic';
+  var mockTimerMinutes = state.mockTimerMinutes || 45;
+  var mockDifficulty = state.mockDifficulty || 'medium';
+  var mockType = state.mockType || 'dsa';
+  var mockLevel = state.mockLevel || 'L5';
+
+  // Clean previous session IMMEDIATELY
+  if (typeof cleanupActiveSession === 'function') cleanupActiveSession();
+  state._startingSession = true;
+  _unlockAudio();
+  wsReconnect();
+
+  // Pick fallback problem immediately (API fetch in background)
+  var candidates = _DSA_FALLBACK_PROBLEMS.filter(function(p) { return p.difficulty === mockDifficulty; });
+  var fallbackPick = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
+
+  // Set mock state AFTER cleanup
+  state.dsaMode = 'mock_interview';
+  state.mockCompany = mockCompany;
+  state.mockTimerMinutes = mockTimerMinutes;
+  state.mockDifficulty = mockDifficulty;
+  state.mockType = mockType;
+  state.mockLevel = mockLevel;
+  state.dsaProblemData = fallbackPick;
+  state.dsaProblemSlug = fallbackPick ? fallbackPick.slug : null;
+  state.studentName = user.name;
+  state.userEmail = user.email;
+
+  // Fetch from API in background (updates state when ready, before trigger is sent)
+  var _apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
+  var _mockParams = new URLSearchParams({ company: mockCompany, difficulty: mockDifficulty, type: mockType, timer_minutes: String(mockTimerMinutes) });
+  var _mockHdrs = AuthManager.authHeaders ? AuthManager.authHeaders() : {};
+  fetch(`${_apiUrl}/api/v1/mock/start?${_mockParams}`, { method: 'POST', headers: _mockHdrs })
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(data) {
+      if (data && data.problem) {
+        state.dsaProblemData = data.problem;
+        state.dsaProblemSlug = data.problem.slug;
+        // Update editor with problem description if already initialized
+        if (window._dsaCodeEditor) {
+          var current = window._dsaCodeEditor.getValue().trim();
+          if (!current || current.split('\n').length < 5) {
+            var fullText = _formatProblemForEditor(data.problem, state.dsaLanguage || 'python');
+            if (fullText) window._dsaCodeEditor.setValue(fullText);
+          }
+        }
+        _showProblemTestCases(data.problem);
+      }
+    }).catch(function() {});
+
+  const emptyCourseMap = { title: 'Mock Interview', modules: [], lessons: [] };
+  state.courseId = null;
+  state.courseMap = emptyCourseMap;
+  state.plan = state.plan || [];
+  state.checkpoint = { currentLessonId: null, currentSectionIndex: 0, completedSections: [], sessionCount: 1, lastPlanJSON: null };
+  state.studentIntent = `Mock: ${state.dsaProblemSlug || 'random'} (${mockCompany})`;
+
+  try { showTeachingLayout(emptyCourseMap); } catch(e) { console.error('[Mock] showTeachingLayout failed:', e); }
+  state.currentPlan = {};
+  try { updateHeadingBar(); } catch(e) {}
+  try { updateBoardEmptyState(); } catch(e) {}
+
+  state.sessionId = generateId();
+  Router.navigate('/session/' + state.sessionId, { skipHandler: true });
+
+  try {
+    await SessionManager.createSession(null, state.studentName, state.studentIntent, {}, 1, 'mock');
+  } catch(e) {}
+
+  setTimeout(_initWorkspaceForMode, 300);
+
+  const titleEl = document.getElementById('course-title');
+  if (titleEl) titleEl.textContent = `Mock Interview (${state.mockCompany})`;
+
+  const problemCtx = state.dsaProblemData ? `\nProblem: ${JSON.stringify(state.dsaProblemData)}` : '';
+  const now = new Date();
+  const timeCtx = `Current time: ${now.toLocaleDateString('en-US',{weekday:'long'})} ${now.getHours()<12?'morning':now.getHours()<17?'afternoon':'evening'}.`;
+
+  const trigger = `[SYSTEM] ${timeCtx} Student "${state.studentName}" has started a MOCK INTERVIEW.
+
+Company: ${state.mockCompany}
+Target level: ${state.mockLevel || 'L5'}
+Type: ${state.mockType || 'dsa'}
+Duration: 45 minutes (40 min interview + 5 min feedback)
+${problemCtx}
+
+INSTRUCTIONS:
+- Follow SECTION_MOCK_INTERVIEW_MODE + the ${state.mockCompany.toUpperCase()} company section.
+- Calibrate depth for ${state.mockLevel || 'L5'} level. Adjust follow-up intensity, system design expectations, and evaluation bar accordingly.
+- You are the INTERVIEWER. Present the problem. WAIT for clarifying questions. Evaluate, don't teach.
+- At the 40-minute mark, stop the interview and deliver structured feedback on the board.
+- Feedback must reference specific moments from the interview with signal tags (Strong/OK/Weak).`;
+
+  // Wait for WS to be ready, then send trigger ONCE (max 10s)
+  let _mockTriggerSent = false;
+  let _mockWaitAttempts = 0;
+  const _waitAndSendMock = () => {
+    if (_mockTriggerSent) return;
+    if (_ws.conn && _ws.conn.readyState === WebSocket.OPEN) {
+      _mockTriggerSent = true;
+      state._startingSession = false;
+      streamADK(trigger, true, true);
+    } else if (++_mockWaitAttempts > 100) {
+      console.error('[Mock] WS failed to connect after 10s — giving up');
+      state._startingSession = false;
+    } else {
+      setTimeout(_waitAndSendMock, 100);
+    }
+  };
+  setTimeout(_waitAndSendMock, 50);
+};
+
+// Expose to onclick handlers
+window._startDSASession = _startDSASession;
+window._selectMockCompany = _selectMockCompany;
+window._selectMockDiff = _selectMockDiff;
+window._selectMockTime = _selectMockTime;
+window._startMockInterview = _startMockInterview;
+window._wsRunCode = _wsRunCode;
+window._wsSubmitCode = _wsSubmitCode;
+window._wsMockHint = _wsMockHint;
+
+// ═══════════════════════════════════════════════════════════
+// System Design Canvas — loaded from /sd-canvas.js
+// ═══════════════════════════════════════════════════════════
+
+const _SDCanvas_OLD_UNUSED = (() => {
+  let isDrawing = false;
+  let drawOrigin = null;
+  let tempShape = null;
+  let lineStart = null;
+
+  const COLORS = {
+    student: { stroke: '#34d399', fill: 'rgba(52,211,153,0.04)', text: '#34d399' },
+    tutor: { stroke: 'rgba(255,255,255,0.15)', fill: 'rgba(255,255,255,0.02)', text: 'rgba(255,255,255,0.4)' },
+  };
+
+  function init() {
+    if (canvas) { canvas.dispose(); canvas = null; }
+    if (typeof fabric === 'undefined') { console.warn('[SD] Fabric.js not loaded'); return; }
+
+    const area = document.getElementById('ws-canvas-area');
+    const canvasEl = document.getElementById('ws-fabric-canvas');
+    if (!area || !canvasEl) return;
+
+    // Size canvas to fill container
+    canvasEl.width = area.offsetWidth;
+    canvasEl.height = area.offsetHeight;
+
+    canvas = new fabric.Canvas('ws-fabric-canvas', {
+      backgroundColor: '#060e11',
+      selection: true,
+      selectionColor: 'rgba(52,211,153,0.06)',
+      selectionBorderColor: 'rgba(52,211,153,0.25)',
+      selectionLineWidth: 1,
+    });
+
+    // Grid is CSS-based (on the canvas container), not drawn on Fabric canvas
+
+    // Resize handler
+    const ro = new ResizeObserver(() => {
+      if (!canvas) return;
+      canvas.setWidth(area.offsetWidth);
+      canvas.setHeight(area.offsetHeight);
+      canvas.renderAll();
+    });
+    ro.observe(area);
+
+    // Toolbar wiring
+    const toolbar = document.getElementById('ws-canvas-toolbar');
+    if (toolbar) {
+      toolbar.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-tool]');
+        if (!btn) return;
+        const t = btn.dataset.tool;
+        if (t === 'delete') { _deleteSelected(); return; }
+        _setTool(t);
+        toolbar.querySelectorAll('.ws-tool').forEach(b => b.classList.remove('sel'));
+        btn.classList.add('sel');
+      });
+    }
+
+    // Keyboard shortcuts
+    document.addEventListener('keydown', _onKey);
+
+    // Mouse events for drawing shapes
+    canvas.on('mouse:down', _onMouseDown);
+    canvas.on('mouse:move', _onMouseMove);
+    canvas.on('mouse:up', _onMouseUp);
+
+    // Double-click to edit text
+    canvas.on('mouse:dblclick', _onDblClick);
+
+    // Sync state on modification (debounced to avoid infinite loops from badge updates)
+    var _syncTimer = null;
+    function _debouncedSync() {
+      if (_syncing) return;
+      if (_syncTimer) clearTimeout(_syncTimer);
+      _syncTimer = setTimeout(() => { syncState(); }, 200);
+    }
+    canvas.on('object:modified', _debouncedSync);
+    canvas.on('object:removed', _debouncedSync);
+
+    // Pan with middle mouse / alt+drag
+    canvas.on('mouse:down', function(opt) {
+      if (opt.e.altKey || opt.e.button === 1) {
+        canvas.isDragging = true;
+        canvas.lastPosX = opt.e.clientX;
+        canvas.lastPosY = opt.e.clientY;
+        canvas.selection = false;
+      }
+    });
+    canvas.on('mouse:move', function(opt) {
+      if (canvas.isDragging) {
+        var vpt = canvas.viewportTransform;
+        vpt[4] += opt.e.clientX - canvas.lastPosX;
+        vpt[5] += opt.e.clientY - canvas.lastPosY;
+        canvas.lastPosX = opt.e.clientX;
+        canvas.lastPosY = opt.e.clientY;
+        canvas.requestRenderAll();
+      }
+    });
+    canvas.on('mouse:up', function() {
+      canvas.isDragging = false;
+      canvas.selection = currentTool === 'select';
+    });
+
+    // Zoom with scroll
+    // Scroll wheel zoom
+    canvas.on('mouse:wheel', function(opt) {
+      var delta = opt.e.deltaY;
+      var zoom = canvas.getZoom();
+      zoom *= 0.999 ** delta;
+      zoom = Math.min(Math.max(0.2, zoom), 5);
+      canvas.zoomToPoint({ x: opt.e.offsetX, y: opt.e.offsetY }, zoom);
+      opt.e.preventDefault();
+      opt.e.stopPropagation();
+    });
+
+    // Touch: pinch to zoom + two-finger pan
+    var lastTouchDist = 0;
+    var lastTouchCenter = null;
+    area.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        lastTouchDist = Math.sqrt(dx*dx + dy*dy);
+        lastTouchCenter = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 };
+      }
+    }, { passive: false });
+    area.addEventListener('touchmove', function(e) {
+      if (e.touches.length === 2 && lastTouchDist > 0) {
+        e.preventDefault();
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        var center = { x: (e.touches[0].clientX + e.touches[1].clientX)/2, y: (e.touches[0].clientY + e.touches[1].clientY)/2 };
+        // Pinch zoom
+        var scale = dist / lastTouchDist;
+        var zoom = Math.min(Math.max(0.2, canvas.getZoom() * scale), 5);
+        var rect = area.getBoundingClientRect();
+        canvas.zoomToPoint({ x: center.x - rect.left, y: center.y - rect.top }, zoom);
+        // Two-finger pan
+        if (lastTouchCenter) {
+          var vpt = canvas.viewportTransform;
+          vpt[4] += center.x - lastTouchCenter.x;
+          vpt[5] += center.y - lastTouchCenter.y;
+        }
+        lastTouchDist = dist;
+        lastTouchCenter = center;
+        canvas.requestRenderAll();
+      }
+    }, { passive: false });
+    area.addEventListener('touchend', function() { lastTouchDist = 0; lastTouchCenter = null; });
+
+    console.log('[SD] Fabric.js canvas initialized');
+  }
+
+  // Grid is rendered via CSS on the canvas container — no Fabric objects needed
+
+  function _setTool(t) {
+    currentTool = t;
+    if (!canvas) return;
+    isDrawing = false;
+    tempShape = null;
+    drawOrigin = null;
+    lineStart = null;
+    canvas.isDrawingMode = (t === 'freehand');
+    if (t === 'freehand') {
+      canvas.freeDrawingBrush.color = '#34d399';
+      canvas.freeDrawingBrush.width = 2;
+    }
+    canvas.selection = (t === 'select');
+    canvas.defaultCursor = t === 'select' ? 'default' : 'crosshair';
+    canvas.forEachObject(function(o) {
+      if (!o.excludeFromExport && !o._sdBadgeFor) {
+        o.selectable = (t === 'select');
+        o.evented = (t === 'select');
+      }
+    });
+    if (t === 'select') canvas.renderAll();
+  }
+
+  function _onKey(e) {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+    const pane = document.getElementById('ws-canvas-pane');
+    if (!pane || pane.style.display === 'none') return;
+    const map = { r: 'rect', d: 'diamond', e: 'ellipse', a: 'arrow', l: 'line', t: 'text', v: 'select', f: 'freehand' };
+    if (map[e.key]) {
+      const btn = document.querySelector(`#ws-canvas-toolbar [data-tool="${map[e.key]}"]`);
+      if (btn) btn.click();
+    }
+    if ((e.key === 'Delete' || e.key === 'Backspace') && canvas) { e.preventDefault(); _deleteSelected(); }
+  }
+
+  function _switchToSelect() {
+    currentTool = 'select';
+    canvas.isDrawingMode = false;
+    canvas.selection = true;
+    canvas.defaultCursor = 'default';
+    canvas.forEachObject(function(o) { if (!o.excludeFromExport) o.selectable = true; });
+    var toolbar = document.getElementById('ws-canvas-toolbar');
+    if (toolbar) {
+      toolbar.querySelectorAll('.ws-tool').forEach(function(b) { b.classList.remove('sel'); });
+      var selBtn = toolbar.querySelector('[data-tool="select"]');
+      if (selBtn) selBtn.classList.add('sel');
+    }
+  }
+
+  function _onMouseDown(opt) {
+    if (canvas.isDragging) return;
+    if (currentTool === 'select' || currentTool === 'freehand') return;
+    // Don't start drawing if clicking on an existing object
+    if (opt.target && !opt.target.excludeFromExport) return;
+    var pointer = canvas.getPointer(opt.e);
+    isDrawing = true;
+    drawOrigin = { x: pointer.x, y: pointer.y };
+
+    if (currentTool === 'text') {
+      var text = new fabric.IText('Label', {
+        left: pointer.x, top: pointer.y,
+        fontSize: 14, fill: COLORS.student.text,
+        fontFamily: 'Inter, sans-serif',
+        _sdSource: 'student',
+      });
+      canvas.add(text);
+      canvas.setActiveObject(text);
+      text.enterEditing();
+      isDrawing = false;
+      return;
+    }
+
+    if (currentTool === 'arrow' || currentTool === 'line') {
+      lineStart = pointer;
+      tempShape = new fabric.Line([pointer.x, pointer.y, pointer.x, pointer.y], {
+        stroke: COLORS.student.stroke, strokeWidth: 1.5,
+        selectable: false, evented: false,
+      });
+      canvas.add(tempShape);
+      return;
+    }
+
+    // Shape tools — create temp shape
+    if (currentTool === 'rect') {
+      tempShape = new fabric.Rect({
+        left: pointer.x, top: pointer.y, width: 0, height: 0,
+        fill: COLORS.student.fill, stroke: COLORS.student.stroke,
+        strokeWidth: 1.5, rx: 5, ry: 5,
+        _sdSource: 'student',
+      });
+    } else if (currentTool === 'ellipse') {
+      tempShape = new fabric.Ellipse({
+        left: pointer.x, top: pointer.y, rx: 0, ry: 0,
+        fill: COLORS.student.fill, stroke: COLORS.student.stroke,
+        strokeWidth: 1.5,
+        _sdSource: 'student',
+      });
+    } else if (currentTool === 'diamond') {
+      tempShape = new fabric.Rect({
+        left: pointer.x, top: pointer.y, width: 0, height: 0,
+        fill: COLORS.student.fill, stroke: COLORS.student.stroke,
+        strokeWidth: 1.5, angle: 45,
+        _sdSource: 'student', _sdType: 'diamond',
+      });
+    }
+    if (tempShape) canvas.add(tempShape);
+  }
+
+  function _onMouseMove(opt) {
+    if (!isDrawing || !tempShape || currentTool === 'select') return;
+    var pointer = canvas.getPointer(opt.e);
+
+    if (currentTool === 'arrow' || currentTool === 'line') {
+      tempShape.set({ x2: pointer.x, y2: pointer.y });
+      canvas.renderAll();
+      return;
+    }
+
+    var left = Math.min(drawOrigin.x, pointer.x);
+    var top = Math.min(drawOrigin.y, pointer.y);
+    var w = Math.abs(pointer.x - drawOrigin.x);
+    var h = Math.abs(pointer.y - drawOrigin.y);
+
+    if (currentTool === 'ellipse') {
+      tempShape.set({ left: left, top: top, rx: w / 2, ry: h / 2 });
+    } else {
+      tempShape.set({ left: left, top: top, width: w, height: h });
+    }
+    canvas.renderAll();
+  }
+
+  function _onMouseUp(opt) {
+    if (!isDrawing) return;
+    isDrawing = false;
+
+    if ((currentTool === 'arrow' || currentTool === 'line') && tempShape && lineStart) {
+      var pointer = canvas.getPointer(opt.e);
+      var dx = pointer.x - lineStart.x, dy = pointer.y - lineStart.y;
+      canvas.remove(tempShape);
+      if (Math.sqrt(dx*dx + dy*dy) > 10) {
+        var points = [lineStart.x, lineStart.y, pointer.x, pointer.y];
+        var line = new fabric.Line(points, {
+          stroke: COLORS.student.stroke, strokeWidth: 1.5,
+          _sdSource: 'student', _sdType: currentTool,
+        });
+        canvas.add(line);
+        if (currentTool === 'arrow') {
+          var angle = Math.atan2(dy, dx);
+          var head = new fabric.Triangle({
+            left: pointer.x, top: pointer.y,
+            width: 10, height: 10,
+            fill: COLORS.student.stroke,
+            angle: (angle * 180 / Math.PI) + 90,
+            originX: 'center', originY: 'center',
+            _sdSource: 'student',
+          });
+          canvas.add(head);
+        }
+      }
+      tempShape = null;
+      lineStart = null;
+      drawOrigin = null;
+      _switchToSelect();
+      return;
+    }
+
+    if (tempShape) {
+      // If too small (just a click), set default size
+      var w = tempShape.width || 0, h = tempShape.height || 0;
+      if (currentTool === 'ellipse') { w = (tempShape.rx || 0) * 2; h = (tempShape.ry || 0) * 2; }
+      if (w < 15 && h < 15) {
+        if (currentTool === 'ellipse') {
+          tempShape.set({ rx: 50, ry: 25 });
+        } else {
+          tempShape.set({ width: 120, height: 50 });
+        }
+      }
+      tempShape.setCoords();
+      canvas.setActiveObject(tempShape);
+      canvas.renderAll();
+    }
+    tempShape = null;
+    drawOrigin = null;
+    _switchToSelect();
+  }
+
+  function _onDblClick(opt) {
+    var target = opt.target;
+    if (!target) return;
+    // Add editable text label to shape
+    if (target.type !== 'i-text' && target.type !== 'textbox') {
+      var center = target.getCenterPoint();
+      var text = new fabric.IText(target._sdLabel || 'Label', {
+        left: center.x, top: center.y,
+        fontSize: 11, fill: COLORS.student.text,
+        fontFamily: 'Inter, sans-serif',
+        originX: 'center', originY: 'center',
+        _sdSource: 'student',
+      });
+      canvas.add(text);
+      canvas.setActiveObject(text);
+      text.enterEditing();
+    }
+  }
+
+  function _deleteSelected() {
+    if (!canvas) return;
+    var active = canvas.getActiveObjects();
+    active.forEach(o => { if (!o.excludeFromExport) canvas.remove(o); });
+    canvas.discardActiveObject();
+    canvas.renderAll();
+  }
+
+  // Tutor adds shapes via CANVAS_DRAW events
+  var _nextTutorX = 40;
+  var _nextTutorY = 40;
+  var _tutorRowHeight = 0;
+
+  function addTutorShape(s) {
+    if (!canvas) { console.warn('[SD] addTutorShape: no canvas'); return; }
+    var cw = canvas.getWidth() || 600;
+
+    // Auto-layout: place in a flow — left to right, wrap to next row
+    var w = s.w || 120, h = s.h || 50;
+    var x, y;
+    if (s.x !== undefined && s.x > 0) {
+      // Explicit position provided
+      x = s.x <= 100 ? (s.x / 100) * cw : s.x;
+      y = s.y <= 100 ? (s.y / 100) * (canvas.getHeight() || 400) : s.y;
+    } else {
+      // Auto-position: flow layout
+      if (_nextTutorX + w + 20 > cw) {
+        _nextTutorX = 40;
+        _nextTutorY += _tutorRowHeight + 30;
+        _tutorRowHeight = 0;
+      }
+      x = _nextTutorX;
+      y = _nextTutorY;
+      _nextTutorX += w + 40;
+      _tutorRowHeight = Math.max(_tutorRowHeight, h);
+    }
+
+    // Build all parts, then group them so they move together
+    var hasContent = s.content && s.content.trim();
+    var parts = [];
+
+    // Calculate height based on content
+    var actualH = h;
+    if (hasContent) {
+      var contentLines = s.content.split('\n');
+      actualH = Math.max(h, 36 + contentLines.length * 13);
+    }
+    _tutorRowHeight = Math.max(_tutorRowHeight, actualH);
+
+    // Shape background
+    var shape;
+    if (s.type === 'ellipse' || s.type === 'circle') {
+      shape = new fabric.Ellipse({ left: 0, top: 0, rx: w / 2, ry: actualH / 2, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5 });
+    } else if (s.type === 'diamond') {
+      shape = new fabric.Rect({ left: 0, top: 0, width: w * 0.7, height: actualH * 0.7, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5, angle: 45 });
+    } else {
+      shape = new fabric.Rect({ left: 0, top: 0, width: w, height: actualH, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5, rx: 4, ry: 4 });
+    }
+    parts.push(shape);
+
+    // Label (title)
+    if (s.label) {
+      var labelTop = hasContent ? -actualH / 2 + 12 : (s.sublabel ? -6 : 0);
+      parts.push(new fabric.Text(s.label, {
+        left: 0, top: labelTop,
+        fontSize: hasContent ? 11 : 10, fill: COLORS.tutor.text,
+        fontFamily: 'Inter, sans-serif', fontWeight: hasContent ? '600' : '500',
+        originX: 'center', originY: hasContent ? 'top' : 'center',
+      }));
+    }
+
+    // Content body
+    if (hasContent) {
+      parts.push(new fabric.Text(s.content, {
+        left: -w / 2 + 10, top: -actualH / 2 + 28,
+        fontSize: 9, fill: 'rgba(255,255,255,0.3)',
+        fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.4,
+        originX: 'left', originY: 'top',
+      }));
+    }
+
+    // Sublabel
+    if (s.sublabel && !hasContent) {
+      parts.push(new fabric.Text(s.sublabel, {
+        left: 0, top: 10,
+        fontSize: 7, fill: 'rgba(255,255,255,0.15)',
+        fontFamily: 'Inter, sans-serif',
+        originX: 'center', originY: 'center',
+      }));
+    }
+
+    // Group everything so it moves together
+    var group = new fabric.Group(parts, {
+      left: x, top: y,
+      _sdSource: 'tutor', _sdId: s.id, _sdLabel: s.label || '',
+    });
+    canvas.add(group);
+    canvas.renderAll();
+  }
+
+  function addTutorConnection(c) {
+    if (!canvas) return;
+    // Find tutor shapes by _sdId
+    var fromObj = null, toObj = null;
+    canvas.forEachObject(o => {
+      if (o._sdId === c.from) fromObj = o;
+      if (o._sdId === c.to) toObj = o;
+    });
+    if (fromObj && toObj) {
+      var fc = fromObj.getCenterPoint();
+      var tc = toObj.getCenterPoint();
+      var line = new fabric.Line([fc.x, fc.y, tc.x, tc.y], {
+        stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1.2,
+        selectable: false, evented: false, _sdSource: 'tutor',
+      });
+      canvas.add(line);
+      // Arrowhead
+      var angle = Math.atan2(tc.y - fc.y, tc.x - fc.x);
+      var head = new fabric.Triangle({
+        left: tc.x, top: tc.y, width: 8, height: 8,
+        fill: 'rgba(255,255,255,0.12)',
+        angle: (angle * 180 / Math.PI) + 90,
+        originX: 'center', originY: 'center',
+        selectable: false, evented: false, _sdSource: 'tutor',
+      });
+      canvas.add(head);
+      canvas.renderAll();
+    }
+  }
+
+  function clear() {
+    if (!canvas) return;
+    var toRemove = [];
+    canvas.forEachObject(o => { if (!o.excludeFromExport) toRemove.push(o); });
+    toRemove.forEach(o => canvas.remove(o));
+    canvas.renderAll();
+  }
+
+  function _assignId(obj) {
+    if (obj._sdId) return obj._sdId;
+    let prefix = 'b';
+    if (obj.type === 'line' || obj._sdType === 'arrow' || obj._sdType === 'line') prefix = 'a';
+    else if (obj.type === 'i-text' || obj.type === 'text' || obj.type === 'textbox') prefix = 't';
+    else if (obj.type === 'ellipse') prefix = 'e';
+    else if (obj._sdType === 'diamond') prefix = 'd';
+    idCounter[prefix] = (idCounter[prefix] || 0) + 1;
+    obj._sdId = prefix + idCounter[prefix];
+    return obj._sdId;
+  }
+
+  function _addIdBadge(obj) {
+    if (!canvas || obj.excludeFromExport || obj._sdBadge) return;
+    var id = _assignId(obj);
+    var badge = new fabric.Text(id, {
+      fontSize: 7, fill: 'rgba(255,255,255,0.2)',
+      fontFamily: 'JetBrains Mono, monospace',
+      left: (obj.left || 0) - 2,
+      top: (obj.top || 0) - 10,
+      selectable: false, evented: false,
+      excludeFromExport: true,
+      _sdBadgeFor: id,
+    });
+    canvas.add(badge);
+    obj._sdBadge = badge;
+  }
+
+  function _updateBadges() {
+    if (!canvas || _syncing) return;
+    _syncing = true;
+    try {
+      // Remove old badges
+      var toRemove = [];
+      canvas.forEachObject(o => { if (o._sdBadgeFor) toRemove.push(o); });
+      toRemove.forEach(o => canvas.remove(o));
+      // Re-add for all non-grid objects
+      canvas.forEachObject(o => {
+        if (o.excludeFromExport || o._sdBadgeFor) return;
+        o._sdBadge = null;
+        _addIdBadge(o);
+      });
+      canvas.renderAll();
+    } finally {
+      _syncing = false;
+    }
+  }
+
+  function syncState() {
+    if (!canvas) return;
+    _updateBadges();
+
+    // Build element index for tutor context
+    var elements = [];
+    canvas.forEachObject(o => {
+      if (o.excludeFromExport || o._sdBadgeFor) return;
+      var id = o._sdId || _assignId(o);
+      var entry = { id: id, source: o._sdSource || 'student' };
+
+      if (o.type === 'rect') {
+        entry.type = o._sdType === 'diamond' ? 'diamond' : 'box';
+        entry.label = o._sdLabel || '';
+      } else if (o.type === 'ellipse') {
+        entry.type = 'ellipse';
+        entry.label = o._sdLabel || '';
+      } else if (o.type === 'i-text' || o.type === 'text' || o.type === 'textbox') {
+        entry.type = 'text';
+        entry.label = o.text || '';
+      } else if (o.type === 'line') {
+        entry.type = o._sdType === 'arrow' ? 'arrow' : 'line';
+      } else if (o.type === 'triangle' && o._sdSource) {
+        return; // arrowhead — skip
+      } else if (o.type === 'path') {
+        entry.type = 'freehand';
+      } else {
+        entry.type = o.type;
+      }
+      elements.push(entry);
+    });
+
+    window._sdCanvasState = { elements: elements };
+  }
+
+  function getSnapshot() {
+    if (!canvas) return null;
+    // Hide badges temporarily for clean snapshot
+    canvas.forEachObject(o => { if (o._sdBadgeFor) o.visible = false; });
+    canvas.renderAll();
+    var dataUrl = canvas.toDataURL({ format: 'png', quality: 0.7, multiplier: 0.5 });
+    canvas.forEachObject(o => { if (o._sdBadgeFor) o.visible = true; });
+    canvas.renderAll();
+    return dataUrl;
+  }
+
+  // Handle CANVAS_DRAW events from tutor (graph operations)
+  function handleTutorDraw(data) {
+    if (!canvas) return;
+    if (data.clear) clear();
+
+    // Add nodes
+    (data.add_nodes || []).forEach(n => {
+      addTutorShape({
+        id: n.id, type: n.type || 'rect',
+        label: n.label, sublabel: n.sublabel,
+      });
+    });
+
+    // Add edges
+    (data.add_edges || []).forEach(e => {
+      addTutorConnection({ from: e.from, to: e.to, label: e.label });
+    });
+
+    // Remove
+    (data.remove || []).forEach(id => {
+      var toRemove = [];
+      canvas.forEachObject(o => { if (o._sdId === id) toRemove.push(o); });
+      toRemove.forEach(o => canvas.remove(o));
+    });
+
+    // Update labels
+    (data.update || []).forEach(u => {
+      canvas.forEachObject(o => {
+        if (o._sdId === u.id) { o._sdLabel = u.label || o._sdLabel; }
+        if (o._sdBadgeFor && o.text === u.id) { /* badge stays */ }
+      });
+      // Also update associated text objects
+      canvas.forEachObject(o => {
+        if (o.type === 'text' && o._sdSource === 'tutor' && o._sdForNode === u.id) {
+          o.set('text', u.label || '');
+        }
+      });
+    });
+
+    // Annotate
+    (data.annotate || []).forEach(a => {
+      var target = null;
+      canvas.forEachObject(o => { if (o._sdId === a.near) target = o; });
+      if (target) {
+        var cp = target.getCenterPoint();
+        var note = new fabric.Text(a.text, {
+          left: cp.x + (target.width || 60) / 2 + 15,
+          top: cp.y,
+          fontSize: 9, fill: 'rgba(52,211,153,0.5)',
+          fontFamily: 'Inter, sans-serif',
+          originY: 'center',
+          _sdSource: 'tutor', _sdId: 't' + (++idCounter.t),
+        });
+        canvas.add(note);
+      }
+    });
+
+    // Highlight
+    if (data.highlight && data.highlight.length) {
+      canvas.forEachObject(o => {
+        if (data.highlight.includes(o._sdId)) {
+          var origStroke = o.stroke;
+          o.set('stroke', '#f5d89a');
+          canvas.renderAll();
+          setTimeout(() => { o.set('stroke', origStroke); canvas.renderAll(); }, 2000);
+        }
+      });
+    }
+
+    canvas.renderAll();
+    syncState();
+  }
+
+  // ── Replace everything above with Excalidraw bridge ──
+
+  function _getIframe() {
+    return document.getElementById('ws-excalidraw');
+  }
+
+  function _post(msg) {
+    var iframe = _getIframe();
+    if (iframe && iframe.contentWindow) {
+      iframe.contentWindow.postMessage(msg, '*');
+    }
+  }
+
+  // Listen for messages from Excalidraw iframe
+  window.addEventListener('message', function(evt) {
+    if (!evt.data || !evt.data.type) return;
+    switch (evt.data.type) {
+      case 'EXCALIDRAW_READY':
+        _ready = true;
+        console.log('[SD] Excalidraw ready');
+        break;
+      case 'EXCALIDRAW_STATE':
+        window._sdCanvasState = { elements: evt.data.elements || [] };
+        if (_stateCallback) { _stateCallback(evt.data.elements); _stateCallback = null; }
+        break;
+      case 'EXCALIDRAW_SNAPSHOT':
+        _lastSnapshot = evt.data.dataUrl;
+        if (_snapshotCallback) { _snapshotCallback(evt.data.dataUrl); _snapshotCallback = null; }
+        break;
+      case 'EXCALIDRAW_CHANGE':
+        // Canvas changed — request state update
+        _post({ type: 'GET_STATE' });
+        break;
+    }
+  });
+
+  function init() {
+    _ready = false;
+    console.log('[SD] Excalidraw init (iframe will signal ready)');
+  }
+
+  function syncState() {
+    _post({ type: 'GET_STATE' });
+  }
+
+  function getSnapshot() {
+    _post({ type: 'GET_SNAPSHOT' });
+    return _lastSnapshot; // returns last cached snapshot (async update comes later)
+  }
+
+  function clear() { _post({ type: 'CLEAR' }); }
+
+  function handleTutorDraw(data) {
+    if (data.clear) clear();
+
+    // Add nodes as Excalidraw elements
+    var elements = [];
+    var nextX = 60, nextY = 60, rowH = 0;
+    var cw = _getIframe()?.offsetWidth || 600;
+
+    (data.add_nodes || []).forEach(function(n) {
+      var w = 140, h = 55;
+      // Auto-layout flow
+      if (nextX + w + 40 > cw) { nextX = 60; nextY += rowH + 40; rowH = 0; }
+
+      // Add the shape
+      elements.push({
+        id: n.id, type: n.type === 'ellipse' ? 'ellipse' : n.type === 'diamond' ? 'diamond' : 'rectangle',
+        x: nextX, y: nextY, w: w, h: h, source: 'tutor',
+      });
+      // Add label as text
+      if (n.label) {
+        elements.push({
+          id: n.id + '_label', type: 'text', label: n.label,
+          x: nextX + 10, y: nextY + (n.content ? 8 : h/2 - 8),
+          w: w - 20, h: 20, source: 'tutor', fontSize: 12,
+        });
+      }
+      // Add content as text
+      if (n.content) {
+        var lines = n.content.split('\n');
+        var contentH = lines.length * 16;
+        h = Math.max(h, 30 + contentH);
+        elements[elements.length - 2].h = h; // resize shape
+        elements.push({
+          id: n.id + '_content', type: 'text', label: n.content,
+          x: nextX + 10, y: nextY + 28,
+          w: w - 20, h: contentH, source: 'tutor', fontSize: 10,
+        });
+      }
+      // Add sublabel
+      if (n.sublabel) {
+        elements.push({
+          id: n.id + '_sub', type: 'text', label: n.sublabel,
+          x: nextX + 10, y: nextY + h - 18,
+          w: w - 20, h: 14, source: 'tutor', fontSize: 9,
+        });
+      }
+
+      nextX += w + 40;
+      rowH = Math.max(rowH, h);
+    });
+
+    // Add edges as arrows
+    (data.add_edges || []).forEach(function(e) {
+      elements.push({
+        id: (e.from || '') + '_to_' + (e.to || ''),
+        type: 'arrow', x: 0, y: 0, w: 100, h: 0, source: 'tutor',
+      });
+    });
+
+    if (elements.length) _post({ type: 'ADD_ELEMENTS', elements: elements });
+
+    // Remove
+    if (data.remove && data.remove.length) _post({ type: 'REMOVE_ELEMENTS', ids: data.remove });
+
+    // Highlight
+    if (data.highlight && data.highlight.length) _post({ type: 'HIGHLIGHT', ids: data.highlight });
+
+    syncState();
+  }
+
+  // Keep old names for compatibility
+  function addTutorShape(s) { handleTutorDraw({ add_nodes: [s] }); }
+  function addTutorConnection(c) { handleTutorDraw({ add_edges: [c] }); }
+
+  // ═══ CLEAN FABRIC.JS CANVAS ═══
+  let canvas = null;
+  let _currentTool = 'select';
+  let _drawing = false;
+  let _drawStart = null;
+  let _tempShape = null;
+  let _syncing = false;
+  let _tutorNextX = 40, _tutorNextY = 40, _tutorRowH = 0;
+
+  const C = {
+    student: { stroke: '#34d399', fill: 'rgba(52,211,153,0.04)' },
+    tutor: { stroke: 'rgba(255,255,255,0.18)', fill: 'rgba(255,255,255,0.02)', text: 'rgba(255,255,255,0.35)' },
+  };
+
+  function init() {
+    if (canvas) { try { canvas.dispose(); } catch(e) {} canvas = null; }
+    if (typeof fabric === 'undefined') { console.warn('[SD] Fabric.js not loaded'); return; }
+    var area = document.getElementById('ws-canvas-area');
+    var el = document.getElementById('ws-fabric-canvas');
+    if (!area || !el) return;
+    el.width = area.offsetWidth;
+    el.height = area.offsetHeight;
+
+    canvas = new fabric.Canvas('ws-fabric-canvas', {
+      backgroundColor: 'transparent',
+      selection: true,
+      selectionColor: 'rgba(52,211,153,0.05)',
+      selectionBorderColor: 'rgba(52,211,153,0.2)',
+    });
+
+    // Resize
+    new ResizeObserver(function() {
+      if (!canvas) return;
+      canvas.setWidth(area.offsetWidth);
+      canvas.setHeight(area.offsetHeight);
+      canvas.renderAll();
+    }).observe(area);
+
+    // Toolbar
+    var toolbar = document.getElementById('ws-canvas-toolbar');
+    if (toolbar) toolbar.addEventListener('click', function(e) {
+      var btn = e.target.closest('[data-tool]');
+      if (!btn) return;
+      var t = btn.dataset.tool;
+      if (t === 'delete') { _deleteSelected(); return; }
+      _setTool(t);
+      toolbar.querySelectorAll('.ws-tool').forEach(function(b) { b.classList.remove('sel'); });
+      btn.classList.add('sel');
+    });
+
+    // Keyboard
+    document.addEventListener('keydown', function(e) {
+      if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.isContentEditable) return;
+      var pane = document.getElementById('ws-canvas-pane');
+      if (!pane || pane.style.display === 'none') return;
+      var m = {r:'rect',d:'diamond',e:'ellipse',a:'arrow',l:'line',t:'text',v:'select',f:'freehand'};
+      if (m[e.key]) { var b = document.querySelector('#ws-canvas-toolbar [data-tool="'+m[e.key]+'"]'); if(b) b.click(); }
+      if ((e.key==='Delete'||e.key==='Backspace')) { _deleteSelected(); e.preventDefault(); }
+    });
+
+    canvas.on('mouse:down', _onDown);
+    canvas.on('mouse:move', _onMove);
+    canvas.on('mouse:up', _onUp);
+    canvas.on('mouse:dblclick', _onDbl);
+    canvas.on('object:modified', _debouncedSync);
+    canvas.on('object:removed', _debouncedSync);
+
+    // Pan: alt+drag, middle-click drag, or space+drag
+    var _spaceDown = false;
+    document.addEventListener('keydown', function(e) { if (e.code === 'Space' && !e.target.matches('input,textarea,[contenteditable]')) { _spaceDown = true; if (canvas) canvas.defaultCursor = 'grab'; } });
+    document.addEventListener('keyup', function(e) { if (e.code === 'Space') { _spaceDown = false; if (canvas) canvas.defaultCursor = _currentTool === 'select' ? 'default' : 'crosshair'; } });
+
+    canvas.on('mouse:down', function(o) {
+      if (o.e.altKey || o.e.button === 1 || _spaceDown) {
+        canvas._panning = true; canvas._panX = o.e.clientX; canvas._panY = o.e.clientY;
+        canvas.selection = false; canvas.defaultCursor = 'grabbing';
+      }
+    });
+    canvas.on('mouse:move', function(o) {
+      if (canvas._panning) {
+        var vpt = canvas.viewportTransform;
+        vpt[4] += o.e.clientX - canvas._panX;
+        vpt[5] += o.e.clientY - canvas._panY;
+        canvas._panX = o.e.clientX; canvas._panY = o.e.clientY;
+        canvas.requestRenderAll();
+      }
+    });
+    canvas.on('mouse:up', function() {
+      canvas._panning = false;
+      canvas.selection = (_currentTool === 'select');
+      canvas.defaultCursor = _spaceDown ? 'grab' : (_currentTool === 'select' ? 'default' : 'crosshair');
+    });
+
+    // Zoom: scroll wheel / pinch
+    canvas.on('mouse:wheel', function(o) {
+      var z = canvas.getZoom() * (0.999 ** o.e.deltaY);
+      z = Math.min(Math.max(0.2, z), 5);
+      canvas.zoomToPoint({x: o.e.offsetX, y: o.e.offsetY}, z);
+      o.e.preventDefault(); o.e.stopPropagation();
+    });
+
+    // Trackpad two-finger scroll → pan (native Mac gesture)
+    area.addEventListener('wheel', function(e) {
+      if (!canvas || e.ctrlKey) return; // ctrl+wheel = zoom (handled above)
+      // Two-finger swipe on trackpad fires wheel with deltaX/deltaY without ctrlKey
+      if (Math.abs(e.deltaX) > 0 || Math.abs(e.deltaY) > 0) {
+        var vpt = canvas.viewportTransform;
+        vpt[4] -= e.deltaX;
+        vpt[5] -= e.deltaY;
+        canvas.requestRenderAll();
+        e.preventDefault();
+      }
+    }, { passive: false });
+
+    // Touch: pinch to zoom + two-finger pan
+    var _lastDist = 0, _lastCenter = null;
+    area.addEventListener('touchstart', function(e) {
+      if (e.touches.length === 2) {
+        e.preventDefault();
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        _lastDist = Math.sqrt(dx*dx + dy*dy);
+        _lastCenter = { x: (e.touches[0].clientX+e.touches[1].clientX)/2, y: (e.touches[0].clientY+e.touches[1].clientY)/2 };
+      }
+    }, { passive: false });
+    area.addEventListener('touchmove', function(e) {
+      if (e.touches.length === 2 && _lastDist > 0) {
+        e.preventDefault();
+        var dx = e.touches[0].clientX - e.touches[1].clientX;
+        var dy = e.touches[0].clientY - e.touches[1].clientY;
+        var dist = Math.sqrt(dx*dx + dy*dy);
+        var center = { x: (e.touches[0].clientX+e.touches[1].clientX)/2, y: (e.touches[0].clientY+e.touches[1].clientY)/2 };
+        // Pinch zoom
+        var z = Math.min(Math.max(0.2, canvas.getZoom() * (dist/_lastDist)), 5);
+        var rect = area.getBoundingClientRect();
+        canvas.zoomToPoint({x: center.x-rect.left, y: center.y-rect.top}, z);
+        // Two-finger pan
+        if (_lastCenter) {
+          var vpt = canvas.viewportTransform;
+          vpt[4] += center.x - _lastCenter.x;
+          vpt[5] += center.y - _lastCenter.y;
+        }
+        _lastDist = dist; _lastCenter = center;
+        canvas.requestRenderAll();
+      }
+    }, { passive: false });
+    area.addEventListener('touchend', function() { _lastDist = 0; _lastCenter = null; });
+
+    console.log('[SD] Fabric canvas initialized');
+  }
+
+  function _setTool(t) {
+    _currentTool = t;
+    if (!canvas) return;
+    _drawing = false; _tempShape = null; _drawStart = null;
+    canvas.isDrawingMode = (t === 'freehand');
+    if (t === 'freehand' && canvas.freeDrawingBrush) { canvas.freeDrawingBrush.color = '#34d399'; canvas.freeDrawingBrush.width = 2; }
+    canvas.selection = (t === 'select');
+    canvas.defaultCursor = t === 'select' ? 'default' : 'crosshair';
+    canvas.forEachObject(function(o) { o.selectable = (t === 'select'); o.evented = (t === 'select'); });
+    if (t === 'select') canvas.renderAll();
+  }
+
+  function _toSelect() {
+    _currentTool = 'select'; _drawing = false; _tempShape = null; _drawStart = null;
+    if (canvas) { canvas.isDrawingMode = false; canvas.selection = true; canvas.defaultCursor = 'default'; canvas.forEachObject(function(o){ o.selectable=true; o.evented=true; }); }
+    var tb = document.getElementById('ws-canvas-toolbar');
+    if (tb) { tb.querySelectorAll('.ws-tool').forEach(function(b){b.classList.remove('sel');}); var s=tb.querySelector('[data-tool="select"]'); if(s) s.classList.add('sel'); }
+  }
+
+  function _deleteSelected() {
+    if (!canvas) return;
+    canvas.getActiveObjects().forEach(function(o) { canvas.remove(o); });
+    canvas.discardActiveObject(); canvas.renderAll();
+  }
+
+  function _onDown(opt) {
+    if (canvas._panning || _currentTool === 'select' || _currentTool === 'freehand') return;
+    if (opt.target) return; // clicking existing object
+    var p = canvas.getPointer(opt.e);
+    _drawing = true; _drawStart = {x:p.x, y:p.y};
+
+    if (_currentTool === 'text') {
+      var t = new fabric.IText('Label', { left:p.x, top:p.y, fontSize:14, fill:'#34d399', fontFamily:'Inter,sans-serif', _src:'student' });
+      canvas.add(t); canvas.setActiveObject(t); t.enterEditing();
+      _drawing = false; _toSelect(); return;
+    }
+    if (_currentTool === 'arrow' || _currentTool === 'line') {
+      _tempShape = new fabric.Line([p.x,p.y,p.x,p.y], { stroke:C.student.stroke, strokeWidth:1.5, selectable:false, evented:false });
+      canvas.add(_tempShape); return;
+    }
+    if (_currentTool === 'rect') _tempShape = new fabric.Rect({ left:p.x,top:p.y,width:0,height:0, fill:C.student.fill,stroke:C.student.stroke,strokeWidth:1.5,rx:5,ry:5,_src:'student' });
+    else if (_currentTool === 'ellipse') _tempShape = new fabric.Ellipse({ left:p.x,top:p.y,rx:0,ry:0, fill:C.student.fill,stroke:C.student.stroke,strokeWidth:1.5,_src:'student' });
+    else if (_currentTool === 'diamond') _tempShape = new fabric.Rect({ left:p.x,top:p.y,width:0,height:0, fill:C.student.fill,stroke:C.student.stroke,strokeWidth:1.5,angle:45,_src:'student' });
+    if (_tempShape) canvas.add(_tempShape);
+  }
+
+  function _onMove(opt) {
+    if (!_drawing || !_tempShape || _currentTool === 'select') return;
+    var p = canvas.getPointer(opt.e);
+    if (_currentTool === 'arrow' || _currentTool === 'line') { _tempShape.set({x2:p.x,y2:p.y}); canvas.renderAll(); return; }
+    var l=Math.min(_drawStart.x,p.x), t=Math.min(_drawStart.y,p.y), w=Math.abs(p.x-_drawStart.x), h=Math.abs(p.y-_drawStart.y);
+    if (_currentTool==='ellipse') _tempShape.set({left:l,top:t,rx:w/2,ry:h/2});
+    else _tempShape.set({left:l,top:t,width:w,height:h});
+    canvas.renderAll();
+  }
+
+  function _onUp(opt) {
+    if (!_drawing) return;
+    _drawing = false;
+    var p = canvas.getPointer(opt.e);
+
+    if ((_currentTool==='arrow'||_currentTool==='line') && _tempShape && _drawStart) {
+      canvas.remove(_tempShape);
+      var dx=p.x-_drawStart.x, dy=p.y-_drawStart.y;
+      if (Math.sqrt(dx*dx+dy*dy) > 10) {
+        var line = new fabric.Line([_drawStart.x,_drawStart.y,p.x,p.y], { stroke:C.student.stroke,strokeWidth:1.5,_src:'student',_t:_currentTool });
+        canvas.add(line);
+        if (_currentTool === 'arrow') {
+          var a = Math.atan2(dy,dx);
+          canvas.add(new fabric.Triangle({ left:p.x,top:p.y,width:10,height:10, fill:C.student.stroke, angle:(a*180/Math.PI)+90, originX:'center',originY:'center',_src:'student' }));
+        }
+      }
+      _tempShape=null; _drawStart=null; _toSelect(); return;
+    }
+    if (_tempShape) {
+      var w=_tempShape.width||0, h=_tempShape.height||0;
+      if (_currentTool==='ellipse'){w=(_tempShape.rx||0)*2;h=(_tempShape.ry||0)*2;}
+      if (w<15&&h<15) { if(_currentTool==='ellipse')_tempShape.set({rx:50,ry:25}); else _tempShape.set({width:120,height:50}); }
+      _tempShape.setCoords(); canvas.setActiveObject(_tempShape); canvas.renderAll();
+    }
+    _tempShape=null; _drawStart=null; _toSelect();
+  }
+
+  function _onDbl(opt) {
+    if (!opt.target || opt.target.type==='i-text') return;
+    var c = opt.target.getCenterPoint();
+    var t = new fabric.IText(opt.target._label||'Label', { left:c.x,top:c.y, fontSize:11,fill:'#34d399',fontFamily:'Inter,sans-serif', originX:'center',originY:'center',_src:'student' });
+    canvas.add(t); canvas.setActiveObject(t); t.enterEditing();
+  }
+
+  // Debounced sync
+  var _syncTimer = null;
+  function _debouncedSync() { if(_syncing) return; if(_syncTimer) clearTimeout(_syncTimer); _syncTimer=setTimeout(syncState,300); }
+
+  function syncState() {
+    if (!canvas || _syncing) return;
+    _syncing = true;
+    try {
+      var els = [];
+      canvas.forEachObject(function(o) {
+        if (o.type==='line'&&o.stroke==='rgba(255,255,255,0.015)') return; // skip grid
+        els.push({ id:o._sdId||'', type:o.type, label:o.text||o._label||'', source:o._src||'student' });
+      });
+      window._sdCanvasState = { elements: els };
+    } finally { _syncing = false; }
+  }
+
+  function getSnapshot() {
+    if (!canvas) return null;
+    try { return canvas.toDataURL({format:'png',quality:0.6,multiplier:0.5}); } catch(e) { return null; }
+  }
+
+  function clear() { if(!canvas) return; canvas.clear(); canvas.backgroundColor='transparent'; canvas.renderAll(); _tutorNextX=40;_tutorNextY=40;_tutorRowH=0; }
+
+  // Tutor draws — grouped shapes (shape + label move together)
+  function addTutorShape(s) {
+    if (!canvas) return;
+    var w=s.w||130, h=s.h||50;
+    var hasContent = s.content && s.content.trim();
+    if (hasContent) { var lines=s.content.split('\n'); h=Math.max(h, 32+lines.length*13); }
+
+    // Auto-position
+    var cw = canvas.getWidth()||600;
+    if (_tutorNextX+w+30>cw) { _tutorNextX=40; _tutorNextY+=_tutorRowH+35; _tutorRowH=0; }
+    var x=_tutorNextX, y=_tutorNextY;
+    _tutorNextX+=w+35; _tutorRowH=Math.max(_tutorRowH,h);
+
+    var parts = [];
+    // Background shape
+    if (s.type==='ellipse'||s.type==='circle') parts.push(new fabric.Ellipse({left:0,top:0,rx:w/2,ry:h/2,fill:C.tutor.fill,stroke:C.tutor.stroke,strokeWidth:1.5}));
+    else if (s.type==='diamond') parts.push(new fabric.Rect({left:0,top:0,width:w*.7,height:h*.7,fill:C.tutor.fill,stroke:C.tutor.stroke,strokeWidth:1.5,angle:45}));
+    else parts.push(new fabric.Rect({left:0,top:0,width:w,height:h,fill:C.tutor.fill,stroke:C.tutor.stroke,strokeWidth:1.5,rx:4,ry:4}));
+
+    // Label
+    if (s.label) parts.push(new fabric.Text(s.label, { left:0,top:hasContent?(-h/2+12):0, fontSize:hasContent?11:10, fill:C.tutor.text, fontFamily:'Inter,sans-serif', fontWeight:hasContent?'600':'500', originX:'center',originY:hasContent?'top':'center' }));
+    // Content
+    if (hasContent) parts.push(new fabric.Text(s.content, { left:-w/2+8,top:-h/2+26, fontSize:9, fill:'rgba(255,255,255,0.25)', fontFamily:'monospace', lineHeight:1.3, originX:'left',originY:'top' }));
+    // Sublabel
+    if (s.sublabel&&!hasContent) parts.push(new fabric.Text(s.sublabel, { left:0,top:10, fontSize:8, fill:'rgba(255,255,255,0.15)', fontFamily:'Inter,sans-serif', originX:'center',originY:'center' }));
+
+    var group = new fabric.Group(parts, { left:x, top:y, _src:'tutor', _sdId:s.id, _label:s.label||'' });
+    canvas.add(group); canvas.renderAll();
+  }
+
+  function addTutorConnection(c) {
+    if (!canvas) return;
+    var from=null, to=null;
+    canvas.forEachObject(function(o){ if(o._sdId===c.from) from=o; if(o._sdId===c.to) to=o; });
+    if (!from||!to) return;
+    var fc=from.getCenterPoint(), tc=to.getCenterPoint();
+    canvas.add(new fabric.Line([fc.x,fc.y,tc.x,tc.y], { stroke:'rgba(255,255,255,0.1)',strokeWidth:1.2,selectable:false,evented:false,_src:'tutor' }));
+    var a=Math.atan2(tc.y-fc.y,tc.x-fc.x);
+    canvas.add(new fabric.Triangle({ left:tc.x,top:tc.y,width:8,height:8, fill:'rgba(255,255,255,0.12)', angle:(a*180/Math.PI)+90, originX:'center',originY:'center',selectable:false,evented:false,_src:'tutor' }));
+    canvas.renderAll();
+  }
+
+  function handleTutorDraw(data) {
+    if (!canvas) return;
+    if (data.clear) clear();
+    (data.add_nodes||[]).forEach(function(n) { addTutorShape({id:n.id,type:n.type||'rect',label:n.label,sublabel:n.sublabel,content:n.content}); });
+    (data.add_edges||[]).forEach(function(e) { addTutorConnection({from:e.from,to:e.to}); });
+    (data.remove||[]).forEach(function(id) { canvas.forEachObject(function(o){if(o._sdId===id)canvas.remove(o);}); });
+    if (data.highlight&&data.highlight.length) {
+      var ids=new Set(data.highlight);
+      canvas.forEachObject(function(o){ if(ids.has(o._sdId)){var os=o.stroke;o.set('stroke','#f5d89a');canvas.renderAll();setTimeout(function(){o.set('stroke',os);canvas.renderAll();},2000);} });
+    }
+    (data.annotate||[]).forEach(function(a) {
+      var target=null; canvas.forEachObject(function(o){if(o._sdId===a.near)target=o;});
+      if(target){var cp=target.getCenterPoint();canvas.add(new fabric.Text(a.text,{left:cp.x+(target.width||60)/2+15,top:cp.y,fontSize:9,fill:'rgba(52,211,153,0.5)',fontFamily:'Inter,sans-serif',originY:'center',_src:'tutor'}));canvas.renderAll();}
+    });
+    syncState();
+  }
+
+  return { init, syncState, getSnapshot, clear, handleTutorDraw, addTutorShape, addTutorConnection };
+})();
+
+// Initialize canvas when SD mode workspace loads
+const _origInitWorkspace = _initWorkspaceForMode;
+_initWorkspaceForMode = function() {
+  _origInitWorkspace();
+  // Init Fabric canvas for SD mode OR SD-type mock interview
+  if (state.dsaMode === 'sd' || (state.dsaMode === 'mock_interview' && (state.mockType || 'dsa') === 'sd')) {
+    setTimeout(function() { if (typeof SDCanvas !== 'undefined') SDCanvas.init(); }, 150);
+  }
+};

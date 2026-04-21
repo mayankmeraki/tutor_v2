@@ -343,17 +343,23 @@ async def _process_job(job: dict):
                 }},
             )
         elif not chunks:
-            # No chunks produced but no explicit error — mark ready with warning
-            log.warning("Job %s completed with 0 chunks (empty content)", job_id[:8])
+            # No chunks produced — this is an ERROR, not ready
+            log.warning("Job %s completed with 0 chunks — marking as error", job_id[:8])
             await _update_job(db, job_id, {
-                "state": JobState.COMPLETE,
+                "state": JobState.FAILED,
                 "progress": 1.0,
                 "completed_at": datetime.utcnow(),
                 "locked_by": None,
+                "error": "No extractable content. The document may be scanned images, encrypted, or empty.",
             })
             await db.byo_resources.update_one(
                 {"resource_id": job["resource_id"]},
-                {"$set": {"status": ResourceStatus.READY, "progress": 1.0, "chunk_count": 0}},
+                {"$set": {
+                    "status": ResourceStatus.ERROR,
+                    "progress": 1.0,
+                    "chunk_count": 0,
+                    "error": "No extractable content found. Try re-uploading or use a different file format.",
+                }},
             )
         else:
             # Normal completion with chunks
@@ -365,7 +371,12 @@ async def _process_job(job: dict):
             })
             await db.byo_resources.update_one(
                 {"resource_id": job["resource_id"]},
-                {"$set": {"status": ResourceStatus.READY, "progress": 1.0}},
+                {"$set": {
+                    "status": ResourceStatus.READY,
+                    "progress": 1.0,
+                    "chunk_count": len(chunks),
+                    "segment_count": len(result.get("segments", [])),
+                }},
             )
 
         # Update collection stats
@@ -591,7 +602,11 @@ async def _step_extract(job: dict) -> dict:
     if storage_path and storage_path.startswith("gs://"):
         from byo.shared.storage import default_storage
         log.info("Downloading from GCS for extraction: %s", storage_path[:60])
-        data = await default_storage.read(storage_path)
+        try:
+            data = await default_storage.read(storage_path)
+        except Exception as gcs_err:
+            log.error("GCS download failed for %s: %s", storage_path[:60], gcs_err)
+            raise RuntimeError(f"Failed to download file from GCS: {gcs_err}") from gcs_err
         # Preserve file extension for processor detection
         ext = os.path.splitext(storage_path)[1] or ".bin"
         fd, temp_path = tempfile.mkstemp(suffix=ext)
@@ -704,17 +719,18 @@ async def _step_store(job: dict, result: dict):
 
 
 async def _update_collection_stats(db, collection_id: str):
-    """Recalculate collection stats from resources and chunks."""
+    """Recalculate collection stats from resources (Qdrant is content store, not MongoDB)."""
     resource_count = await db.byo_resources.count_documents({"collection_id": collection_id})
-    chunk_count = await db.byo_chunks.count_documents({"collection_id": collection_id})
 
-    # Aggregate unique topics
+    # Sum chunk_count from resource metadata (the counts come from Qdrant upsert results)
     pipeline = [
-        {"$match": {"collection_id": collection_id}},
-        {"$unwind": "$topics"},
-        {"$group": {"_id": "$topics"}},
+        {"$match": {"collection_id": collection_id, "status": "ready"}},
+        {"$group": {"_id": None, "total_chunks": {"$sum": "$chunk_count"}}},
     ]
-    topics = [doc["_id"] async for doc in db.byo_chunks.aggregate(pipeline)]
+    agg = await db.byo_resources.aggregate(pipeline).to_list(1)
+    chunk_count = agg[0]["total_chunks"] if agg else 0
+
+    topics = []  # topics derived from Qdrant, not MongoDB
 
     # Determine collection status with ALL five states in play:
     # ready      — every resource ready
@@ -764,6 +780,7 @@ async def run_worker(max_iterations: int | None = None):
     db = _get_db()
     active_tasks: set[asyncio.Task] = set()
     iterations = 0
+    consecutive_errors = 0
 
     while max_iterations is None or iterations < max_iterations:
         iterations += 1
@@ -772,18 +789,36 @@ async def run_worker(max_iterations: int | None = None):
         done = {t for t in active_tasks if t.done()}
         for t in done:
             try:
-                t.result()  # raise any exceptions
+                t.result()
             except Exception as e:
                 log.error("Worker task failed: %s", e)
         active_tasks -= done
 
         # Claim new jobs if under capacity
         if len(active_tasks) < MAX_CONCURRENT_JOBS:
-            job = await _claim_job(db)
-            if job:
-                task = asyncio.create_task(_process_job(job))
-                active_tasks.add(task)
-                continue  # try to claim more immediately
+            try:
+                job = await _claim_job(db)
+                consecutive_errors = 0
+                if job:
+                    task = asyncio.create_task(_process_job(job))
+                    active_tasks.add(task)
+                    continue
+            except Exception as e:
+                consecutive_errors += 1
+                backoff = min(30, 2 ** consecutive_errors)
+                log.warning(
+                    "Worker claim failed (attempt %d, backoff %ds): %s",
+                    consecutive_errors, backoff, e,
+                )
+                if consecutive_errors >= 10:
+                    log.error("Worker: 10 consecutive claim failures — reconnecting DB")
+                    try:
+                        db = _get_db()
+                    except Exception:
+                        pass
+                    consecutive_errors = 0
+                await asyncio.sleep(backoff)
+                continue
 
         # No jobs available or at capacity — poll
         await asyncio.sleep(POLL_INTERVAL_SECONDS)

@@ -1094,6 +1094,15 @@ DASHBOARD_HTML = """\
   .b-ended { background: rgba(248,113,113,.12); color: var(--red); }
   .b-voice { background: rgba(167,139,250,.15); color: var(--accent2); }
   .b-text { background: rgba(96,165,250,.12); color: var(--blue); }
+  tr.user-group-header { background: var(--surface2); cursor: pointer; }
+  tr.user-group-header:hover { background: var(--border); }
+  tr.user-group-header td { padding: 8px 10px; font-weight: 700; font-size: 13px;
+    border-bottom: 2px solid var(--border); }
+  tr.user-group-header .grp-toggle { display: inline-block; width: 16px; font-size: 11px;
+    transition: transform .15s; color: var(--text2); }
+  tr.user-group-header .grp-toggle.collapsed { transform: rotate(-90deg); }
+  tr.user-group-header .grp-stats { font-weight: 400; font-size: 11px; color: var(--text2); margin-left: 10px; }
+  tr.grp-session.grp-hidden { display: none; }
   .mono { font-family: 'SF Mono', Monaco, 'Cascadia Code', monospace; font-size: 11px; }
   .muted { color: var(--text2); }
   .sm { font-size: 12px; }
@@ -1279,6 +1288,12 @@ DASHBOARD_HTML = """\
   </div>
 
   <div id="tab-sessions" class="tab-panel">
+    <div style="display:flex;align-items:center;gap:12px;margin-bottom:10px">
+      <label style="font-size:12px;color:var(--text2);display:flex;align-items:center;gap:6px;cursor:pointer">
+        <input type="checkbox" id="groupByUser" checked onchange="renderSessions()" style="accent-color:var(--accent)">
+        Group by user
+      </label>
+    </div>
     <div class="table-wrap"><table id="sessionsTable">
       <thead><tr>
         <th>#</th>
@@ -1407,30 +1422,74 @@ function renderUsers() {
   </tr>`;}).join('');
 }
 
-function renderSessions() {
-  // No client-side filtering — search is server-side via /api/sessions?q=
-  let data = sortData(sessionsData, sortState.sessions.col, sortState.sessions.dir);
-  document.querySelector('#sessionsTable tbody').innerHTML = data.map((s, i) => {
-    const activeStr = fmtDur(s.activeSec);
-    const spanStr = s.spanSec > 0 && s.spanSec !== s.activeSec ? ' <span class="dur-raw">(' + fmtDur(s.spanSec) + ' span)</span>' : '';
-    const costLabel = (s.costCents && s.costCents > 0)
-      ? '<span class="cost">' + fmtCost(s.costCents) + '</span>' +
-        '<br><span class="cost-sm">' + fmtCost(s.llmCents) + '/' + fmtCost(s.ttsCents) + '</span>'
-      : '<span class="zero">$0</span>';
-    return `<tr>
-    <td class="muted">${i + 1}</td>
-    <td><span class="bold">${esc(s.user)}</span><br><span class="mono muted">${esc(s.email)}</span></td>
-    <td><span class="link" onclick="viewTranscript('${s._idx}')" title="View transcript + cost breakdown">${esc(s.title)}</span>
-        <br><a class="mono muted" href="/replay/${s._id}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none" title="Open replay">&#9654; replay</a></td>
-    <td class="sm">${fmtDate(s.createdAt)}<br><span class="muted">${ago(s.createdAt)}</span></td>
-    <td><span class="dur">${activeStr}</span>${spanStr}</td>
-    <td>${zeroWrap(s.turns)}</td>
-    <td>${costLabel}</td>
-    <td>${s.mode ? `<span class="badge ${s.mode==='voice'?'b-voice':'b-text'}">${s.mode}</span>` : '\\u2014'}</td>
-    <td><span class="badge ${s.status==='active'?'b-active':'b-ended'}">${s.status}</span></td>
-  </tr>`;}).join('');
+let _collapsedGroups = {};
 
-  // Render "Load more" footer for pagination
+function _sessionRow(s, idx) {
+  const activeStr = fmtDur(s.activeSec);
+  const spanStr = s.spanSec > 0 && s.spanSec !== s.activeSec ? ' <span class="dur-raw">(' + fmtDur(s.spanSec) + ' span)</span>' : '';
+  const costLabel = (s.costCents && s.costCents > 0)
+    ? '<span class="cost">' + fmtCost(s.costCents) + '</span>' +
+      '<br><span class="cost-sm">' + fmtCost(s.llmCents) + '/' + fmtCost(s.ttsCents) + '</span>'
+    : '<span class="zero">$0</span>';
+  return `<tr>
+  <td class="muted">${idx}</td>
+  <td><span class="bold">${esc(s.user)}</span><br><span class="mono muted">${esc(s.email)}</span></td>
+  <td><span class="link" onclick="viewTranscript('${s._idx}')" title="View transcript + cost breakdown">${esc(s.title)}</span>
+      <br><a class="mono muted" href="/replay/${s._id}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none" title="Open replay">&#9654; replay</a></td>
+  <td class="sm">${fmtDate(s.createdAt)}<br><span class="muted">${ago(s.createdAt)}</span></td>
+  <td><span class="dur">${activeStr}</span>${spanStr}</td>
+  <td>${zeroWrap(s.turns)}</td>
+  <td>${costLabel}</td>
+  <td>${s.mode ? `<span class="badge ${s.mode==='voice'?'b-voice':'b-text'}">${s.mode}</span>` : '\\u2014'}</td>
+  <td><span class="badge ${s.status==='active'?'b-active':'b-ended'}">${s.status}</span></td>
+</tr>`;
+}
+
+function renderSessions() {
+  const grouped = document.getElementById('groupByUser') && document.getElementById('groupByUser').checked;
+  let data = sortData(sessionsData, sortState.sessions.col, sortState.sessions.dir);
+  const tbody = document.querySelector('#sessionsTable tbody');
+
+  if (!grouped) {
+    tbody.innerHTML = data.map((s, i) => _sessionRow(s, i + 1)).join('');
+  } else {
+    // Group by email, preserving sort order (first appearance = group order)
+    const groups = [];
+    const seen = {};
+    for (const s of data) {
+      const key = s.email || s.user;
+      if (!seen[key]) {
+        seen[key] = { email: s.email, user: s.user, items: [] };
+        groups.push(seen[key]);
+      }
+      seen[key].items.push(s);
+    }
+
+    let html = '';
+    let idx = 0;
+    for (const g of groups) {
+      const gid = g.email.replace(/[^a-zA-Z0-9]/g, '_');
+      const collapsed = !!_collapsedGroups[gid];
+      const totalTurns = g.items.reduce((a, s) => a + (s.turns || 0), 0);
+      const totalCost = g.items.reduce((a, s) => a + (s.costCents || 0), 0);
+      const totalActive = g.items.reduce((a, s) => a + (s.activeSec || 0), 0);
+      html += `<tr class="user-group-header" onclick="toggleGroup('${gid}')">
+        <td colspan="9">
+          <span class="grp-toggle ${collapsed ? 'collapsed' : ''}">&#9660;</span>
+          ${esc(g.user)} <span class="mono" style="color:var(--text2)">${esc(g.email)}</span>
+          <span class="grp-stats">${g.items.length} session${g.items.length > 1 ? 's' : ''}
+            &middot; ${totalTurns} turns &middot; ${fmtDur(totalActive)}
+            &middot; ${fmtCost(totalCost)}</span>
+        </td></tr>`;
+      for (const s of g.items) {
+        idx++;
+        const row = _sessionRow(s, idx);
+        html += row.replace('<tr>', `<tr class="grp-session ${collapsed ? 'grp-hidden' : ''}" data-grp="${gid}">`);
+      }
+    }
+    tbody.innerHTML = html;
+  }
+
   const footer = document.getElementById('sessions-footer');
   if (footer) {
     if (_sessionsPagination.hasMore) {
@@ -1439,6 +1498,14 @@ function renderSessions() {
       footer.innerHTML = '<span class="muted sm">' + sessionsData.length + ' of ' + _sessionsPagination.total + ' sessions</span>';
     }
   }
+}
+
+function toggleGroup(gid) {
+  _collapsedGroups[gid] = !_collapsedGroups[gid];
+  const rows = document.querySelectorAll('tr[data-grp="' + gid + '"]');
+  const header = document.querySelector('tr.user-group-header[onclick*="' + gid + '"] .grp-toggle');
+  rows.forEach(r => r.classList.toggle('grp-hidden'));
+  if (header) header.classList.toggle('collapsed');
 }
 
 // Debounced server-side search (sessions tab only)

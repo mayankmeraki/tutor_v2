@@ -1,0 +1,44 @@
+# Judge0 CE v1.13.1 — Code Execution Engine
+# Usage: docker compose -f docker-compose.judge0.yml up -d
+
+services:
+  judge0-server:
+    image: judge0/judge0:1.13.1
+    platform: linux/amd64
+    ports:
+      - "2358:2358"
+    env_file: judge0.conf
+    depends_on:
+      - judge0-db
+      - judge0-redis
+    restart: unless-stopped
+    privileged: true
+
+  judge0-worker:
+    image: judge0/judge0:1.13.1
+    platform: linux/amd64
+    command: ["./scripts/workers"]
+    env_file: judge0.conf
+    depends_on:
+      - judge0-db
+      - judge0-redis
+    restart: unless-stopped
+    privileged: true
+
+  judge0-db:
+    image: postgres:13
+    environment:
+      POSTGRES_DB: judge0
+      POSTGRES_USER: judge0
+      POSTGRES_PASSWORD: "${JUDGE0_POSTGRES_PASSWORD:-change_me_judge0_pg}"
+    volumes:
+      - judge0-pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+
+  judge0-redis:
+    image: redis:7
+    command: ["redis-server", "--requirepass", "${JUDGE0_REDIS_PASSWORD:-change_me_judge0_redis}"]
+    restart: unless-stopped
+
+volumes:
+  judge0-pgdata:

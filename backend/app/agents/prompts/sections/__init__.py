@@ -7,6 +7,9 @@ from .learning_model import SECTION_LEARNING_MODEL
 from .student_adaptation import SECTION_STUDENT_ADAPTATION
 from .concept_teaching import SECTION_CONCEPT_TEACHING
 from .execution import SECTION_EXECUTION
+from .dsa_mode import SECTION_DSA_MODE
+from .system_design_mode import SECTION_SYSTEM_DESIGN_MODE
+from .mock_interview_mode import SECTION_MOCK_INTERVIEW_MODE
 
 __all__ = [
     "SECTION_IDENTITY",
@@ -16,4 +19,7 @@ __all__ = [
     "SECTION_STUDENT_ADAPTATION",
     "SECTION_CONCEPT_TEACHING",
     "SECTION_EXECUTION",
+    "SECTION_DSA_MODE",
+    "SECTION_SYSTEM_DESIGN_MODE",
+    "SECTION_MOCK_INTERVIEW_MODE",
 ]

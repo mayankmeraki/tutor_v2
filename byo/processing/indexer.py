@@ -133,19 +133,6 @@ async def index_chunks_and_segments(
                "parents": len(parents), "segments": len(segments)},
     )
 
-    # Idempotency: nuke existing records for this resource.
-    t_del = _time.time()
-    del_chunks = await db.byo_chunks.delete_many({"resource_id": resource_id})
-    del_segments = await db.byo_segments.delete_many({"resource_id": resource_id})
-    log.info(
-        "[INDEXER] cleared resource=%s parents_deleted=%d segments_deleted=%d ms=%d",
-        resource_id[:8], del_chunks.deleted_count, del_segments.deleted_count,
-        int((_time.time() - t_del) * 1000),
-        extra={"event": "IDX_CLEARED",
-               "parents_deleted": del_chunks.deleted_count,
-               "segments_deleted": del_segments.deleted_count},
-    )
-
     if not parents:
         await db.byo_resources.update_one(
             {"resource_id": resource_id},
@@ -155,7 +142,6 @@ async def index_chunks_and_segments(
         return 0, 0
 
     # Propagate classification labels/topics from parent → its segments.
-    # Build parent_id → (topics, labels) lookup.
     topic_map: dict[str, list[str]] = {}
     for p in parents:
         topic_map[p["chunk_id"]] = list(p.get("topics") or [])
@@ -164,119 +150,34 @@ async def index_chunks_and_segments(
         pid = s.get("parent_chunk_id")
         if pid and pid in topic_map and not s.get("topics"):
             s["topics"] = list(topic_map[pid])
-        # Propagate resource_name to segments so Qdrant payload has it
         if resource_name and not s.get("resource_name"):
             s["resource_name"] = resource_name
 
-    # Parent docs for byo_chunks.
-    parent_docs = []
-    now = datetime.utcnow()
-    for p in parents:
-        parent_docs.append({
-            "chunk_id": p.get("chunk_id") or str(uuid.uuid4()),
-            "collection_id": p.get("collection_id", collection_id),
-            "resource_id": p.get("resource_id", resource_id),
-            "user_id": p.get("user_id") or user_id,
-            "index": p.get("index", 0),
-            "level": p.get("level", "parent"),
-            "content": p.get("content", ""),
-            "tokens": p.get("tokens", 0),
-            "anchor": p.get("anchor") or {},
-            "modality": p.get("modality"),
-            "retrieval_mode": p.get("retrieval_mode"),
-            "labels": p.get("labels") or [],
-            "topics": p.get("topics") or [],
-            "attachments": p.get("attachments") or [],
-            "created_at": now,
-        })
-
-    # Segment docs for byo_segments.
-    segment_docs = []
-    for s in segments:
-        segment_docs.append({
-            "segment_id": s.get("segment_id") or str(uuid.uuid4()),
-            "parent_chunk_id": s["parent_chunk_id"],
-            "collection_id": s.get("collection_id", collection_id),
-            "resource_id": s.get("resource_id", resource_id),
-            "user_id": s.get("user_id") or user_id,
-            "index": s.get("index", 0),
-            "content": s.get("content", ""),
-            "tokens": s.get("tokens", 0),
-            "questions": s.get("questions") or [],
-            "anchor": s.get("anchor") or {},
-            "modality": s.get("modality"),
-            "retrieval_mode": s.get("retrieval_mode"),
-            "topics": s.get("topics") or [],
-            "embedding": s.get("embedding"),
-            "created_at": now,
-        })
-
-    # Batched inserts with retry — a single insert_many on ~150 segments
-    # each carrying a 1536-float embedding can exceed the socket timeout
-    # on shared Atlas tiers. Parents are light; we batch them too for
-    # symmetry but they'd fit in one call.
-    t_p = _time.time()
-    await _insert_many_batched(db.byo_chunks, parent_docs, label="byo_chunks")
-    log.info(
-        "[INDEXER] parents written resource=%s count=%d ms=%d",
-        resource_id[:8], len(parent_docs), int((_time.time() - t_p) * 1000),
-        extra={"event": "IDX_PARENTS_WRITTEN", "count": len(parent_docs)},
-    )
-    t_s = _time.time()
-    # Estimate payload size so we can correlate timeouts with data size.
-    approx_bytes = sum(
-        len((d.get("content") or "")) + 8 * len(d.get("embedding") or [])
-        for d in segment_docs
+    # ── Qdrant: the ONLY content store ──────────────────────────
+    # All retrieval reads go through Qdrant. No MongoDB backup for chunks.
+    # If this fails, the job retries — resource is NOT marked "ready".
+    from byo.shared.store import get_content_store
+    store = get_content_store()
+    store_parents, store_segs = await store.upsert(
+        resource_id=resource_id,
+        collection_id=collection_id,
+        user_id=user_id,
+        resource_name=resource_name,
+        parents=parents,
+        segments=segments,
     )
     log.info(
-        "[INDEXER] segments writing resource=%s count=%d approx_bytes=%d batch_size=%d",
-        resource_id[:8], len(segment_docs), approx_bytes, INSERT_BATCH,
-        extra={"event": "IDX_SEGMENTS_WRITING",
-               "count": len(segment_docs),
-               "approx_bytes": approx_bytes,
-               "batch_size": INSERT_BATCH},
-    )
-    await _insert_many_batched(db.byo_segments, segment_docs, label="byo_segments")
-    log.info(
-        "[INDEXER] segments written resource=%s count=%d ms=%d",
-        resource_id[:8], len(segment_docs), int((_time.time() - t_s) * 1000),
-        extra={"event": "IDX_SEGMENTS_WRITTEN", "count": len(segment_docs)},
+        "[INDEXER] Qdrant upserted resource=%s parents=%d segments=%d",
+        resource_id[:8], store_parents, store_segs,
+        extra={"event": "IDX_STORE_UPSERT",
+               "parents": store_parents, "segments": store_segs},
     )
 
-    # Keep the resource record's chunk_count aligned with parent count
-    # (retrieval + UI surfaces count parents, not segments).
+    # Update resource metadata in MongoDB (just the count, not content)
     await db.byo_resources.update_one(
         {"resource_id": resource_id},
-        {"$set": {"chunk_count": len(parent_docs)}},
+        {"$set": {"chunk_count": store_parents, "segment_count": store_segs}},
     )
-
-    # ── Content store: the PRIMARY storage for retrieval ──────────
-    # All retrieval reads go through this store (Qdrant by default).
-    # The Mongo writes above are kept as an operational backup — the
-    # content store is the source of truth for search/fetch/nearby.
-    try:
-        from byo.shared.store import get_content_store
-        store = get_content_store()
-        store_parents, store_segs = await store.upsert(
-            resource_id=resource_id,
-            collection_id=collection_id,
-            user_id=user_id,
-            resource_name=resource_name,
-            parents=parents,
-            segments=segments,
-        )
-        log.info(
-            "[INDEXER] content store upserted resource=%s parents=%d segments=%d",
-            resource_id[:8], store_parents, store_segs,
-            extra={"event": "IDX_STORE_UPSERT",
-                   "parents": store_parents, "segments": store_segs},
-        )
-    except Exception as e:
-        log.error(
-            "[INDEXER] content store upsert failed: %s", e,
-            extra={"event": "IDX_STORE_FAIL", "error": repr(e)},
-            exc_info=True,
-        )
 
     total_ms = int((_time.time() - t0) * 1000)
     log.info(

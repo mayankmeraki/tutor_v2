@@ -248,6 +248,203 @@ TUTOR_TOOLS = [
             "required": ["steps"],
         },
     },
+    # ── DSA / System Design / Mock Interview tools ─────────────────────
+    {
+        "name": "run_code",
+        "description": (
+            "Execute the student's code against test cases using Judge0. "
+            "Call this when the student clicks Run or Submit, or when you need "
+            "to verify their implementation. Returns pass/fail per test case "
+            "with actual output, expected output, time, and memory.\n"
+            "ONLY available in DSA and mock_interview modes."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "code": {
+                    "type": "string",
+                    "description": "The source code to execute. Read from <code-state> tag.",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "javascript", "java", "cpp", "go", "typescript"],
+                    "description": "Programming language.",
+                },
+                "test_cases": {
+                    "type": "array",
+                    "description": "Test cases to run against.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "input": {"type": "string", "description": "stdin input"},
+                            "expected": {"type": "string", "description": "expected stdout"},
+                        },
+                        "required": ["input", "expected"],
+                    },
+                },
+            },
+            "required": ["code", "language", "test_cases"],
+        },
+    },
+    {
+        "name": "push_code",
+        "description": (
+            "Modify the student's code editor. Supports multiple operations:\n"
+            "- 'replace': replace entire editor contents (for skeleton code)\n"
+            "- 'insert': insert code at a specific line number\n"
+            "- 'delete_lines': remove specific line numbers\n"
+            "- 'append': add code at the end\n"
+            "- 'replace_lines': replace a range of lines with new code\n\n"
+            "Use action='replace' for initial skeleton. Use action='insert'/'delete_lines'/"
+            "'replace_lines' to make surgical edits (add hints, fix examples, remove TODO comments).\n"
+            "In mock mode: DO NOT use this — the student writes everything.\n"
+            "The student sees changes appear immediately."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "action": {
+                    "type": "string",
+                    "enum": ["replace", "insert", "append", "delete_lines", "replace_lines"],
+                    "description": "What to do. Default 'replace'.",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Source code for replace/insert/append/replace_lines.",
+                },
+                "language": {
+                    "type": "string",
+                    "enum": ["python", "javascript", "java", "cpp", "go"],
+                    "description": "Programming language.",
+                },
+                "at_line": {
+                    "type": "integer",
+                    "description": "Line number for insert (1-indexed). Code is inserted BEFORE this line.",
+                },
+                "lines": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Line numbers for delete_lines (1-indexed).",
+                },
+                "from_line": {
+                    "type": "integer",
+                    "description": "Start line for replace_lines (1-indexed, inclusive).",
+                },
+                "to_line": {
+                    "type": "integer",
+                    "description": "End line for replace_lines (1-indexed, inclusive).",
+                },
+                "highlight_lines": {
+                    "type": "array",
+                    "items": {"type": "integer"},
+                    "description": "Line numbers to highlight after the operation.",
+                },
+            },
+            "required": ["code", "language"],
+        },
+    },
+    {
+        "name": "draw_on_canvas",
+        "description": (
+            "Modify the shared system design canvas. Works as a GRAPH — you add/remove "
+            "nodes (components) and edges (connections) by ID. The canvas auto-layouts "
+            "everything — you never specify coordinates.\n\n"
+            "Operations (combine multiple in one call):\n"
+            "- add_nodes: add components (rect/ellipse/diamond with label)\n"
+            "- add_edges: connect components by ID (arrow with optional label)\n"
+            "- remove: delete components or edges by ID\n"
+            "- update: change a component's label or sublabel\n"
+            "- annotate: add a text note near a component\n"
+            "- highlight: flash components to draw student's attention\n"
+            "- clear: wipe the entire canvas\n\n"
+            "The student can also draw on this canvas. Their components appear in "
+            "<canvas-state> with their IDs and labels."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "add_nodes": {
+                    "type": "array",
+                    "description": (
+                        "Add shapes to the canvas. Auto-positioned (no coordinates needed).\n"
+                        "Use for architecture components AND whiteboard notes:\n"
+                        "- Service box: {id:'api', label:'API Server', type:'rect'}\n"
+                        "- Requirements box: {id:'reqs', label:'Functional Requirements', content:'1. Upload files\\n2. Download files\\n3. Sync across devices', type:'rect'}\n"
+                        "- Comparison: two boxes side by side with different content\n"
+                        "- Database: {id:'db', label:'PostgreSQL', type:'ellipse'}\n"
+                        "Use content for multiline text inside boxes."
+                    ),
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string", "description": "Unique ID for referencing later"},
+                            "label": {"type": "string", "description": "Title/header of the shape"},
+                            "content": {"type": "string", "description": "Multiline body text inside the shape (use \\n for newlines). For requirements, estimations, notes."},
+                            "sublabel": {"type": "string", "description": "Small detail text below label"},
+                            "type": {
+                                "type": "string",
+                                "enum": ["rect", "diamond", "ellipse"],
+                                "description": "rect=service/box, diamond=decision, ellipse=database/queue",
+                            },
+                        },
+                        "required": ["id", "label"],
+                    },
+                },
+                "add_edges": {
+                    "type": "array",
+                    "description": "Connections between components.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "from": {"type": "string", "description": "Source component ID"},
+                            "to": {"type": "string", "description": "Target component ID"},
+                            "label": {"type": "string", "description": "Edge label (e.g., 'HTTP', 'async')"},
+                        },
+                        "required": ["from", "to"],
+                    },
+                },
+                "remove": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "IDs of components or edges to remove.",
+                },
+                "update": {
+                    "type": "array",
+                    "description": "Modify existing components.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "id": {"type": "string"},
+                            "label": {"type": "string"},
+                            "sublabel": {"type": "string"},
+                        },
+                        "required": ["id"],
+                    },
+                },
+                "annotate": {
+                    "type": "array",
+                    "description": "Add text notes near components.",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "near": {"type": "string", "description": "Component ID to place annotation near"},
+                            "text": {"type": "string"},
+                        },
+                        "required": ["near", "text"],
+                    },
+                },
+                "highlight": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": "Component IDs to highlight (temporary flash).",
+                },
+                "clear": {
+                    "type": "boolean",
+                    "description": "Clear entire canvas before other operations.",
+                },
+            },
+        },
+    },
     # ── Knowledge / sub-agent tools (filtered out of main tutor) ─────────
     {
         "name": "query_knowledge",

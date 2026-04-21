@@ -1289,12 +1289,304 @@ async function runCommand(cmd) {
     case 'code-highlight': _codeHighlightLines(cmd); break;
     case 'run':      _runStudentCode(cmd.target); break;
     case 'scene3d':  await renderScene3D(cmd); break;
+    case 'ds':       await renderDS(cmd); break;
     default:
       console.warn('[Board] Unknown command:', cmd.cmd);
   }
 
   autoScroll();
 }
+
+// ── Data Structure visualization — unified `ds` command ─────────────
+//
+// {cmd:"ds", type:"array|linked-list|hash-map|tree|stack|queue",
+//  data:[...], pointers:{name:index}, highlight:{index:state}, id:"arr1"}
+//
+// Highlight states: active, found, compared, fade, error
+// Pointers: labeled arrows above cells/nodes
+// Update via {cmd:"update", target:"arr1", data:..., pointers:..., highlight:...}
+
+async function renderDS(cmd) {
+  if (!cmd.id) cmd.id = 'ds-' + Math.random().toString(36).slice(2, 8);
+  var el = createElement('div', cmd, 'bd-ds', 'bd-ds-' + (cmd.type || 'array'));
+
+  // Store data on element for update
+  el.dataset.dsType = cmd.type || 'array';
+  el._dsData = cmd.data;
+  el._dsPointers = cmd.pointers || {};
+  el._dsHighlight = cmd.highlight || {};
+  el._dsColHeaders = cmd.col_headers;
+  el._dsRowHeaders = cmd.row_headers;
+
+  _renderDSInner(el, cmd);
+  placeElement(el, cmd.placement, cmd);
+}
+
+function _renderDSInner(el, cmd) {
+  el.innerHTML = '';
+  var type = cmd.type || 'array';
+  var data = cmd.data || [];
+  var ptrs = cmd.pointers || {};
+  var hl = cmd.highlight || {};
+
+  if (type === 'array') {
+    var row = document.createElement('div');
+    row.className = 'bd-ds-arr';
+    var ptrByIdx = {};
+    for (var pn in ptrs) ptrByIdx[ptrs[pn]] = pn;
+
+    for (var i = 0; i < data.length; i++) {
+      var cell = document.createElement('div');
+      var state = hl[String(i)] || hl[i] || 'normal';
+      cell.className = 'bd-ds-cell bd-ds-' + state;
+      cell.textContent = data[i];
+
+      if (ptrByIdx[i] !== undefined) {
+        var ptr = document.createElement('div');
+        ptr.className = 'bd-ds-ptr bd-ds-ptr-' + state;
+        ptr.textContent = ptrByIdx[i];
+        cell.appendChild(ptr);
+      }
+      var idx = document.createElement('div');
+      idx.className = 'bd-ds-idx';
+      idx.textContent = i;
+      cell.appendChild(idx);
+      row.appendChild(cell);
+    }
+    el.appendChild(row);
+
+  } else if (type === 'hash-map') {
+    var tbl = document.createElement('div');
+    tbl.className = 'bd-ds-hm';
+    var hk = document.createElement('div');
+    hk.className = 'bd-ds-hm-h'; hk.textContent = 'Key';
+    var hv = document.createElement('div');
+    hv.className = 'bd-ds-hm-h'; hv.textContent = 'Value';
+    tbl.appendChild(hk); tbl.appendChild(hv);
+    if (typeof data === 'object' && !Array.isArray(data)) {
+      for (var k in data) {
+        var kc = document.createElement('div');
+        kc.className = 'bd-ds-hm-k'; kc.textContent = k;
+        var vc = document.createElement('div');
+        vc.className = 'bd-ds-hm-v'; vc.textContent = data[k];
+        tbl.appendChild(kc); tbl.appendChild(vc);
+      }
+    }
+    el.appendChild(tbl);
+
+  } else if (type === 'linked-list') {
+    var row = document.createElement('div');
+    row.className = 'bd-ds-ll';
+    var ptrByIdx = {};
+    for (var pn in ptrs) ptrByIdx[ptrs[pn]] = pn;
+
+    for (var i = 0; i < data.length; i++) {
+      var node = document.createElement('div');
+      node.className = 'bd-ds-ll-node';
+      var state = hl[String(i)] || hl[i] || 'normal';
+
+      if (ptrByIdx[i] !== undefined) {
+        var ptr = document.createElement('div');
+        ptr.className = 'bd-ds-ptr bd-ds-ptr-' + state;
+        ptr.textContent = ptrByIdx[i];
+        node.appendChild(ptr);
+      }
+
+      var box = document.createElement('div');
+      box.className = 'bd-ds-ll-box bd-ds-' + state;
+      var val = document.createElement('div');
+      val.className = 'bd-ds-ll-val';
+      val.textContent = data[i];
+      var nxt = document.createElement('div');
+      nxt.className = 'bd-ds-ll-next';
+      nxt.textContent = '→';
+      box.appendChild(val); box.appendChild(nxt);
+      node.appendChild(box);
+      row.appendChild(node);
+
+      if (i < data.length - 1) {
+        var arrow = document.createElement('span');
+        arrow.className = 'bd-ds-ll-arrow';
+        arrow.textContent = '→';
+        row.appendChild(arrow);
+      }
+    }
+    var nil = document.createElement('span');
+    nil.className = 'bd-ds-ll-null';
+    nil.textContent = 'null';
+    row.appendChild(nil);
+    el.appendChild(row);
+
+  } else if (type === 'stack' || type === 'queue') {
+    var col = document.createElement('div');
+    col.className = 'bd-ds-stack';
+    var items = type === 'stack' ? data.slice().reverse() : data;
+    for (var i = 0; i < items.length; i++) {
+      var cell = document.createElement('div');
+      var isTop = type === 'stack' ? (i === 0) : (i === items.length - 1);
+      cell.className = 'bd-ds-stack-el ' + (isTop ? 'bd-ds-stack-top' : 'bd-ds-stack-mid');
+      cell.textContent = items[i];
+      col.appendChild(cell);
+    }
+    var lbl = document.createElement('div');
+    lbl.className = 'bd-ds-stack-lbl';
+    lbl.textContent = type === 'stack' ? '← top' : '← front';
+    el.appendChild(lbl);
+    el.appendChild(col);
+
+  } else if (type === 'tree') {
+    // Measure tree dimensions first
+    var treeDepth = _treeDepth(data);
+    var treeLeaves = _treeLeaves(data);
+    var nodeR = 16;
+    var dyStep = 44;
+    var leafSpacing = 42;
+    var svgW = Math.max(200, treeLeaves * leafSpacing + 40);
+    var svgH = Math.max(80, treeDepth * dyStep + 40);
+    var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+    svg.setAttribute('width', String(svgW));
+    svg.setAttribute('height', String(svgH));
+    svg.style.display = 'block';
+    svg.style.maxWidth = '100%';
+    _renderTreeSVG(svg, data, ptrs, hl, svgW / 2, nodeR + 4, 0, svgW / 2 - 20, nodeR, dyStep);
+    el.appendChild(svg);
+
+  } else if (type === 'grid') {
+    // 2D grid/matrix — for DP tables, BFS grids, matrix problems
+    // data = [[row0], [row1], ...], highlight keys = "row,col"
+    var rows = data.length;
+    var cols = rows > 0 ? (data[0].length || 0) : 0;
+    var colHeaders = cmd.col_headers;
+    var rowHeaders = cmd.row_headers;
+
+    var grid = document.createElement('div');
+    grid.className = 'bd-ds-grid';
+    grid.style.gridTemplateColumns = (rowHeaders ? '28px ' : '') + 'repeat(' + cols + ', 1fr)';
+
+    // Column headers
+    if (colHeaders) {
+      if (rowHeaders) { var sp = document.createElement('div'); sp.className = 'bd-ds-grid-hdr'; grid.appendChild(sp); }
+      for (var c = 0; c < colHeaders.length; c++) {
+        var ch = document.createElement('div');
+        ch.className = 'bd-ds-grid-hdr';
+        ch.textContent = colHeaders[c];
+        grid.appendChild(ch);
+      }
+    }
+
+    // Rows
+    for (var r = 0; r < rows; r++) {
+      if (rowHeaders) {
+        var rh = document.createElement('div');
+        rh.className = 'bd-ds-grid-rhdr';
+        rh.textContent = rowHeaders[r] !== undefined ? rowHeaders[r] : r;
+        grid.appendChild(rh);
+      }
+      for (var c = 0; c < cols; c++) {
+        var cell = document.createElement('div');
+        var key = r + ',' + c;
+        var state = hl[key] || 'normal';
+        cell.className = 'bd-ds-grid-cell bd-ds-' + state;
+        var val = data[r][c];
+        cell.textContent = (val !== null && val !== undefined) ? val : '';
+        grid.appendChild(cell);
+      }
+    }
+    el.appendChild(grid);
+  }
+}
+
+function _treeDepth(node) {
+  if (!node || typeof node !== 'object') return 0;
+  if (node.val === undefined && node.value === undefined) return 0;
+  return 1 + Math.max(_treeDepth(node.left), _treeDepth(node.right));
+}
+
+function _treeLeaves(node) {
+  if (!node || typeof node !== 'object') return 0;
+  if (node.val === undefined && node.value === undefined) return 0;
+  if (!node.left && !node.right) return 1;
+  return _treeLeaves(node.left) + _treeLeaves(node.right);
+}
+
+function _renderTreeSVG(svg, node, ptrs, hl, x, y, depth, hSpread, nodeR, dyStep) {
+  if (!node || typeof node !== 'object') return;
+  var val = node.val !== undefined ? node.val : node.value;
+  if (val === undefined) return;
+
+  var r = nodeR || 16;
+  var gap = hSpread / Math.pow(2, depth);
+  var dy = dyStep || 44;
+  var lx = x - gap, ly = y + dy;
+  var rx = x + gap, ry = y + dy;
+
+  // Draw edges first (behind nodes)
+  if (node.left) {
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x); line.setAttribute('y1', y + r);
+    line.setAttribute('x2', lx); line.setAttribute('y2', ly - r);
+    line.setAttribute('stroke', 'rgba(255,255,255,0.08)');
+    line.setAttribute('stroke-width', '1.2');
+    svg.appendChild(line);
+    _renderTreeSVG(svg, node.left, ptrs, hl, lx, ly, depth + 1, hSpread, nodeR, dyStep);
+  }
+  if (node.right) {
+    var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+    line.setAttribute('x1', x); line.setAttribute('y1', y + r);
+    line.setAttribute('x2', rx); line.setAttribute('y2', ry - r);
+    line.setAttribute('stroke', 'rgba(255,255,255,0.08)');
+    line.setAttribute('stroke-width', '1.2');
+    svg.appendChild(line);
+    _renderTreeSVG(svg, node.right, ptrs, hl, rx, ry, depth + 1, hSpread, nodeR, dyStep);
+  }
+
+  // Determine highlight state
+  var state = 'normal';
+  for (var pn in ptrs) {
+    if (ptrs[pn] === val) state = hl[String(val)] || 'active';
+  }
+  if (hl[String(val)]) state = hl[String(val)];
+
+  var colors = {
+    normal:  {fill:'rgba(255,255,255,0.025)',stroke:'rgba(255,255,255,0.06)',text:'rgba(255,255,255,0.3)'},
+    active:  {fill:'rgba(245,216,154,0.06)',stroke:'rgba(245,216,154,0.2)',text:'#f5d89a'},
+    found:   {fill:'rgba(52,211,153,0.06)',stroke:'rgba(52,211,153,0.2)',text:'#34d399'},
+    compared:{fill:'rgba(131,216,251,0.05)',stroke:'rgba(131,216,251,0.15)',text:'#83d8fb'},
+    fade:    {fill:'rgba(255,255,255,0.01)',stroke:'rgba(255,255,255,0.03)',text:'rgba(255,255,255,0.12)'},
+    error:   {fill:'rgba(248,113,113,0.06)',stroke:'rgba(248,113,113,0.2)',text:'#f87171'},
+  };
+  var c = colors[state] || colors.normal;
+
+  // Node circle
+  var circ = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  circ.setAttribute('cx', x); circ.setAttribute('cy', y);
+  circ.setAttribute('r', r); circ.setAttribute('fill', c.fill);
+  circ.setAttribute('stroke', c.stroke); circ.setAttribute('stroke-width', '1.2');
+  svg.appendChild(circ);
+
+  // Value text
+  var txt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  txt.setAttribute('x', x); txt.setAttribute('y', y + 4);
+  txt.setAttribute('text-anchor', 'middle'); txt.setAttribute('fill', c.text);
+  txt.setAttribute('font-size', String(val > 99 ? 8 : val > 9 ? 9 : 10));
+  txt.setAttribute('font-family', 'JetBrains Mono, monospace');
+  txt.setAttribute('font-weight', '600');
+  txt.textContent = val;
+  svg.appendChild(txt);
+
+  // Pointer labels above node
+  for (var pn in ptrs) {
+    if (ptrs[pn] === val) {
+      var lbl = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      lbl.setAttribute('x', x); lbl.setAttribute('y', y - r - 5);
+      lbl.setAttribute('text-anchor', 'middle'); lbl.setAttribute('fill', c.text);
+      lbl.setAttribute('font-size', '8'); lbl.setAttribute('font-weight', '700');
+      lbl.textContent = pn;
+      svg.appendChild(lbl);
+    }
+  }
+}
+
 
 // ── Code block — read-only OR editable OR runnable+tests ───────────
 //
@@ -2782,8 +3074,8 @@ function _loadMermaid(cb) {
         lineColor: '#94a3b8',
         secondaryColor: '#1a2332',
         tertiaryColor: '#1a2332',
-        fontFamily: "'CoalhandLuke', 'Caveat', cursive",
-        fontSize: '16px',
+        fontFamily: "'Inter', 'SF Pro', -apple-system, system-ui, sans-serif",
+        fontSize: '14px',
         nodeBorder: '#53d8fb',
         clusterBkg: 'rgba(52,211,153,0.08)',
         clusterBorder: '#34d399',
@@ -2827,12 +3119,28 @@ async function renderMermaid(cmd) {
       var mermaidId = 'mermaid-' + (cmd.id || Math.random().toString(36).slice(2));
       window.mermaid.render(mermaidId, cmd.code).then(function(result) {
         container.innerHTML = result.svg;
-        container.style.cssText = 'padding:8px;';
-        // Style the SVG to match the board
+        container.style.cssText = 'padding:8px;position:relative;overflow:auto;max-height:500px;cursor:grab;';
         var svg = container.querySelector('svg');
         if (svg) {
-          svg.style.maxWidth = '100%';
           svg.style.height = 'auto';
+          svg.style.transformOrigin = '0 0';
+          // Add zoom controls
+          var zoom = document.createElement('div');
+          zoom.className = 'bd-mermaid-zoom';
+          zoom.innerHTML = '<button onclick="this.parentElement.parentElement._mZoom(1.2)">+</button><button onclick="this.parentElement.parentElement._mZoom(0.8)">−</button><button onclick="this.parentElement.parentElement._mZoom(0)">⟲</button>';
+          container.appendChild(zoom);
+          var scale = 1;
+          container._mZoom = function(factor) {
+            if (factor === 0) scale = 1; else scale = Math.min(Math.max(0.3, scale * factor), 3);
+            svg.style.transform = 'scale(' + scale + ')';
+          };
+          // Scroll wheel zoom
+          container.addEventListener('wheel', function(e) {
+            e.preventDefault();
+            scale *= (e.deltaY < 0 ? 1.1 : 0.9);
+            scale = Math.min(Math.max(0.3, scale), 3);
+            svg.style.transform = 'scale(' + scale + ')';
+          }, {passive: false});
         }
       }).catch(function(err) {
         container.textContent = 'Diagram error: ' + err.message;
@@ -3530,6 +3838,25 @@ async function renderUpdate(cmd) {
   if (!cmd.target) return;
   var el = document.getElementById(cmd.target);
   if (!el) return;
+
+  // ── DS update — re-render with new data/pointers/highlight ──
+  if (el.classList.contains('bd-ds')) {
+    if (cmd.data !== undefined) el._dsData = cmd.data;
+    if (cmd.pointers !== undefined) el._dsPointers = cmd.pointers;
+    if (cmd.highlight !== undefined) el._dsHighlight = cmd.highlight;
+    if (cmd.col_headers !== undefined) el._dsColHeaders = cmd.col_headers;
+    if (cmd.row_headers !== undefined) el._dsRowHeaders = cmd.row_headers;
+    _renderDSInner(el, {
+      type: el.dataset.dsType,
+      data: el._dsData,
+      pointers: el._dsPointers,
+      highlight: el._dsHighlight,
+      col_headers: el._dsColHeaders,
+      row_headers: el._dsRowHeaders,
+    });
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    return;
+  }
 
   // Normalize literal escape sequences (model often double-escapes \n)
   var text = cmd.text || '';

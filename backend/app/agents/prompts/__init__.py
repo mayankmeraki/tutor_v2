@@ -237,7 +237,24 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
     # Detect subject from course metadata or session context
     subject_id = _detect_subject(context_data)
-    tutor_prompt = build_tutor_system_prompt(subject_id=subject_id)
+    session_mode = context_data.get("session_mode", "general")
+    # Extract mock company for company-specific prompt composition
+    _mock_company = None
+    if session_mode == "mock_interview":
+        try:
+            import json as _mj
+            _sc_raw = context_data.get("sessionContext", "")
+            _sc_parsed = _mj.loads(_sc_raw) if isinstance(_sc_raw, str) and _sc_raw else (_sc_raw if isinstance(_sc_raw, dict) else {})
+            _mock_company = _sc_parsed.get("company") or _sc_parsed.get("interviewState", {}).get("company")
+        except Exception:
+            pass
+    prompt_sections = context_data.get("prompt_sections")
+    tutor_prompt = build_tutor_system_prompt(
+        prompt_sections=prompt_sections,
+        subject_id=subject_id,
+        session_mode=session_mode,
+        mock_company=_mock_company,
+    )
     static_parts = [tutor_prompt, TOOLKIT_PROMPT, TAGS_PROMPT]
 
     # Voice mode instructions (locked for entire session — voice is the only mode)
@@ -348,6 +365,79 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     session_metrics = context_data.get("sessionMetrics")
     if session_metrics:
         parts.append(f"[Session Metrics]\n{session_metrics}\n")
+
+    # ─── DSA / SD / Mock Interview state ──────────────────────
+    if session_mode in ("dsa", "sd", "mock_interview"):
+        parts.append("\n═══════════════════════════════════════════════════")
+        _mode_labels = {"dsa": "DSA CODING", "sd": "SYSTEM DESIGN", "mock_interview": "MOCK INTERVIEW"}
+        parts.append(f" {_mode_labels.get(session_mode, 'DSA')} MODE")
+        parts.append("═══════════════════════════════════════════════════\n")
+
+        _problem_data = context_data.get("problemData")
+        if _problem_data:
+            parts.append(f"[Problem Metadata]\n{_problem_data}\n")
+
+        _code_state = context_data.get("codeState")
+        if _code_state:
+            import json as _cj
+            _cs = _cj.loads(_code_state) if isinstance(_code_state, str) else _code_state
+            _code_content = _cs.get('code', '')
+            if _code_content.strip():
+                parts.append(f"[STUDENT'S CODE EDITOR — current contents, written by the student]\n<code-state lang=\"{_cs.get('lang', 'python')}\">\n{_code_content}\n</code-state>\n")
+            else:
+                parts.append("[STUDENT'S CODE EDITOR — empty. Use push_code tool to send starter code.]\n")
+
+            # Test results from last run
+            _test_results = context_data.get("testResults")
+            if not _test_results:
+                try:
+                    import json as _trj
+                    _sc_for_tests = _trj.loads(context_data.get("sessionContext", "{}")) if isinstance(context_data.get("sessionContext"), str) else context_data.get("sessionContext", {})
+                    _test_results = _sc_for_tests.get("testResults")
+                except Exception:
+                    pass
+            if _test_results:
+                _tr = _test_results if isinstance(_test_results, dict) else {}
+                _passed = _tr.get("passed", 0)
+                _total = _tr.get("total", 0)
+                parts.append(f"[LAST TEST RUN — {_passed}/{_total} passed]")
+                for _r in (_tr.get("results") or [])[:10]:
+                    _tag = "✓ PASS" if _r.get("passed") else "✗ FAIL"
+                    _inp = str(_r.get("input", ""))[:60]
+                    _exp = str(_r.get("expected", ""))[:40]
+                    _act = str(_r.get("actual", ""))[:40]
+                    _err = str(_r.get("error", ""))[:60]
+                    if _r.get("passed"):
+                        parts.append(f"  {_tag} | input: {_inp}")
+                    else:
+                        parts.append(f"  {_tag} | input: {_inp} | expected: {_exp} | got: {_act}" + (f" | error: {_err}" if _err else ""))
+                parts.append("")
+
+        _canvas_state = context_data.get("canvasState")
+        if _canvas_state:
+            import json as _cj2
+            _cvs = _cj2.loads(_canvas_state) if isinstance(_canvas_state, str) else _canvas_state
+            _elements = _cvs.get("elements", []) if isinstance(_cvs, dict) else []
+            if _elements:
+                _lines = ["[CANVAS — element index (use IDs to reference/modify)]"]
+                for _el in _elements:
+                    _lbl = f' "{_el.get("label")}"' if _el.get("label") else ""
+                    _src = " (tutor)" if _el.get("source") == "tutor" else ""
+                    _lines.append(f"  {_el.get('id','?')}: {_el.get('type','?')}{_lbl}{_src}")
+                parts.append("\n".join(_lines) + "\n")
+            else:
+                parts.append("[CANVAS — empty. Use draw_on_canvas to add components.]\n")
+
+        _interview_state = context_data.get("interviewState")
+        if _interview_state:
+            parts.append(
+                f'<interview-state phase="{_interview_state.get("phase", "")}" '
+                f'elapsed="{_interview_state.get("elapsed", "")}" '
+                f'hints_used="{_interview_state.get("hints_used", 0)}" '
+                f'silence="{_interview_state.get("silence", "0s")}" '
+                f'timer_minutes="{_interview_state.get("timer_minutes", 45)}" '
+                f'company="{_interview_state.get("company", "generic")}" />\n'
+            )
 
     # Video follow-along state (dynamic — changes every turn)
     video_state_raw = context_data.get("videoState")

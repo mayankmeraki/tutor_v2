@@ -21,6 +21,7 @@ question-gen batch size = 20. Text capped at 2000 chars per embedding.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 
@@ -179,32 +180,52 @@ async def _call_haiku_for_questions(segments: list[dict]) -> list[list[str]]:
 
 # ── Embedding ──────────────────────────────────────────────────────────
 
-async def _generate_embeddings(texts: list[str]) -> list[list[float]]:
-    """Call the embeddings endpoint for a batch of texts."""
-    try:
-        import httpx
-        from app.core.config import settings
+async def _generate_embeddings(texts: list[str], _retries: int = 3) -> list[list[float]]:
+    """Call the embeddings endpoint for a batch of texts with retry."""
+    import httpx
+    from app.core.config import settings
 
-        api_key = settings.OPENROUTER_API_KEY
-        if not api_key:
-            log.warning("No API key for embeddings")
+    api_key = settings.OPENROUTER_API_KEY
+    if not api_key:
+        log.warning("No API key for embeddings")
+        return [[] for _ in texts]
+
+    for attempt in range(1, _retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    "https://openrouter.ai/api/v1/embeddings",
+                    headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
+                    json={"model": EMBED_MODEL, "input": texts},
+                )
+
+                if resp.status_code == 429:
+                    wait = min(30, 2 ** attempt)
+                    log.warning("Embedding API rate limited — retrying in %ds (attempt %d/%d)", wait, attempt, _retries)
+                    await asyncio.sleep(wait)
+                    continue
+
+                if resp.status_code != 200:
+                    log.warning("Embedding API error: %d (attempt %d/%d)", resp.status_code, attempt, _retries)
+                    if attempt < _retries:
+                        await asyncio.sleep(2 ** attempt)
+                        continue
+                    return [[] for _ in texts]
+
+                data = resp.json()
+                sorted_data = sorted(data["data"], key=lambda x: x["index"])
+                return [item["embedding"] for item in sorted_data]
+
+        except (httpx.TimeoutException, httpx.ConnectError) as e:
+            wait = min(15, 2 ** attempt)
+            log.warning("Embedding request failed (attempt %d/%d, retry in %ds): %s", attempt, _retries, wait, e)
+            if attempt < _retries:
+                await asyncio.sleep(wait)
+            else:
+                log.error("Embedding generation failed after %d attempts: %s", _retries, e)
+                return [[] for _ in texts]
+        except Exception as e:
+            log.error("Embedding generation failed: %s", e)
             return [[] for _ in texts]
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            resp = await client.post(
-                "https://openrouter.ai/api/v1/embeddings",
-                headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-                json={"model": EMBED_MODEL, "input": texts},
-            )
-
-            if resp.status_code != 200:
-                log.warning("Embedding API error: %d", resp.status_code)
-                return [[] for _ in texts]
-
-            data = resp.json()
-            sorted_data = sorted(data["data"], key=lambda x: x["index"])
-            return [item["embedding"] for item in sorted_data]
-
-    except Exception as e:  # noqa: BLE001
-        log.error("Embedding generation failed: %s", e)
-        return [[] for _ in texts]
+    return [[] for _ in texts]

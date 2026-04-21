@@ -1740,6 +1740,83 @@ body {
   width: 4px; cursor: col-resize; background: var(--border);
   transition: background 0.2s; flex-shrink: 0;
 }
+
+/* ─── Workspace Panel (DSA/SD/Mock) ──── */
+.ws-resize-handle {
+  width: 5px; cursor: ew-resize; background: transparent;
+  flex-shrink: 0; position: relative; z-index: 10;
+  transition: background 0.15s;
+}
+.ws-resize-handle::after {
+  content: ''; position: absolute; top: 50%; left: 50%;
+  transform: translate(-50%, -50%);
+  width: 3px; height: 28px; border-radius: 2px;
+  background: rgba(255,255,255,0.04);
+  transition: background 0.15s;
+}
+.ws-resize-handle:hover { background: rgba(52,211,153,0.06); }
+.ws-resize-handle:hover::after { background: rgba(52,211,153,0.2); }
+.ws-resize-handle.hidden { display: none !important; }
+
+.ws-panel {
+  width: 42%; min-width: 200px; display: flex; flex-direction: column;
+  border-left: 1px solid var(--border); background: #0c1016;
+  position: relative; overflow: hidden; z-index: 10;
+}
+.ws-panel.hidden { display: none !important; }
+.ws-pane-head {
+  height: 26px; display: flex; align-items: center; padding: 0 10px;
+  border-bottom: 1px solid var(--border); font-size: 9px; color: rgba(255,255,255,.25); gap: 6px; flex-shrink: 0;
+}
+.ws-pane-fname { color: rgba(255,255,255,.7); font-weight: 500; }
+.ws-pane-sync {
+  margin-left: auto; font-size: 7px; color: var(--accent); display: flex; align-items: center; gap: 3px;
+}
+.ws-pane-sync::before {
+  content: ''; width: 4px; height: 4px; border-radius: 50%;
+  background: var(--accent); animation: ws-pulse 2s infinite;
+}
+@keyframes ws-pulse { 0%,100%{opacity:.3} 50%{opacity:1} }
+.ws-pane-tests {
+  border-top: 1px solid var(--border); padding: 5px 10px;
+  font-size: 9px; font-family: 'JetBrains Mono', monospace; flex-shrink: 0;
+  max-height: 80px; overflow-y: auto;
+}
+.ws-pane-acts {
+  display: flex; gap: 5px; padding: 5px 10px; align-items: center;
+  border-top: 1px solid var(--border); flex-shrink: 0;
+}
+.ws-pane-cx { margin-left: auto; font-size: 7px; color: rgba(255,255,255,.2); }
+.ws-btn {
+  padding: 4px 10px; border-radius: 4px; font-size: 9px; font-weight: 600;
+  border: 1px solid var(--border); cursor: pointer; background: rgba(255,255,255,.03); color: rgba(255,255,255,.5);
+}
+.ws-btn:hover { background: rgba(255,255,255,.05); }
+.ws-btn-run { }
+.ws-btn-submit { background: var(--accent); color: #000; border-color: var(--accent); }
+.ws-btn-submit:hover { background: #5ce8b5; }
+.ws-canvas-toolbar {
+  display: flex; gap: 2px; padding: 4px 10px; border-bottom: 1px solid var(--border);
+  align-items: center; flex-shrink: 0; background: #060e11;
+}
+.ws-tool {
+  width: 34px; height: 30px; display: grid; place-items: center; border-radius: 6px;
+  border: 1px solid rgba(255,255,255,.08); cursor: pointer; font-size: 16px;
+  color: rgba(255,255,255,.5); background: rgba(255,255,255,.02); transition: all .12s;
+}
+.ws-tool:hover { border-color: rgba(255,255,255,.15); color: rgba(255,255,255,.8); background: rgba(255,255,255,.05); }
+.ws-tool.sel { background: rgba(52,211,153,.12); border-color: rgba(52,211,153,.25); color: #34d399; box-shadow: 0 0 8px rgba(52,211,153,.08); }
+.ws-tool-sep { width: 1px; height: 12px; background: var(--border); margin: 0 2px; }
+
+/* DSA screen tabs */
+#dsa-screen { display: none; flex-direction: column; height: 100vh; }
+.dsa-tab-content { display: none; overflow-y: auto; flex: 1; }
+.dsa-tab-content.active { display: block !important; }
+
+/* DSA mode: shrink board to give workspace room */
+#main-layout.dsa-mode #board-panel { flex: 2; }
+#main-layout.dsa-mode #chat-panel { display: none; }
+#main-layout.dsa-mode #split-handle { display: none; }
 #split-handle:hover { background: var(--accent); }
 
 /* Board panel header (reuses spotlight IDs) */
@@ -5947,13 +6024,9 @@ body {
 
 /* ─── Voice Indicator (top-left pill) ────────────────────── */
 .voice-indicator {
-  position: fixed; top: 94px; left: 16px; z-index: 50;
-  display: flex; align-items: center; gap: 8px;
-  padding: 6px 14px; border-radius: 20px;
-  background: rgba(17,20,19,0.88); border: 1px solid var(--border);
-  pointer-events: none; backdrop-filter: blur(8px);
+  display: none !important;
 }
-.voice-indicator.hidden { display: none; }
+.voice-indicator.hidden { display: none !important; }
 .voice-indicator-bars { display: flex; gap: 2px; height: 16px; align-items: center; }
 .vbar {
   width: 3px; border-radius: 2px; background: var(--text-dim); height: 4px;
@@ -5988,26 +6061,11 @@ body {
 .voice-bar-wrap.hidden { display: none; }
 
 /* ── Voice bar progress + status ── */
-.vb-progress { height:2px; border-radius:1px; margin:0 8px 0; overflow:hidden; display:none }
-.vb-progress.active { display:block }
-.vb-progress.thinking { background:rgba(52,211,153,.15) }
-.vb-progress.thinking::after { content:''; display:block; height:100%; width:30%;
-  background:var(--accent); border-radius:1px; animation:vbPulse 1.5s ease-in-out infinite }
-.vb-progress.speaking { background:rgba(52,211,153,.15) }
-.vb-progress.speaking::after { content:''; display:block; height:100%; width:100%;
-  background:var(--accent); border-radius:1px; animation:vbSlide 3s linear infinite }
-.vb-progress.paused { background:rgba(251,191,36,.15) }
-.vb-progress.paused::after { content:''; display:block; height:100%; width:60%;
-  background:#fbbf24; border-radius:1px }
-@keyframes vbPulse { 0%,100%{transform:translateX(-100%)} 50%{transform:translateX(350%)} }
-@keyframes vbSlide { from{transform:translateX(-100%)} to{transform:translateX(100%)} }
+.vb-progress { height:0; display:none }
+.vb-progress.active { display:none }
 
-.vb-status { text-align:center; font-size:11px; padding:4px 0 2px; display:none;
-  font-weight:500; letter-spacing:.3px }
-.vb-status.active { display:block }
-.vb-status.thinking { color:var(--accent) }
-.vb-status.speaking { color:var(--text-muted) }
-.vb-status.paused { color:#fbbf24 }
+.vb-status { text-align:center; font-size:0; padding:0; display:none; height:0; overflow:hidden }
+.vb-status.active { display:none }
 
 /* ── Pause / Resume buttons ── */
 .voice-bar-pause, .voice-bar-resume {
@@ -7454,4 +7512,78 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   .input-wrap{margin:0 16px}
   .demos{grid-template-columns:1fr}
   .lp-hero h1{font-size:26px}
+}
+
+/* ═══ Study Track Cards ═══ */
+.study-track-card {
+  position: relative;
+  min-width: 240px;
+  max-width: 320px;
+  padding: 16px 18px;
+  border-radius: 12px;
+  background: #0b1018;
+  border: 1px solid rgba(255,255,255,.05);
+  cursor: pointer;
+  transition: all .18s ease;
+  flex-shrink: 0;
+  scroll-snap-align: start;
+  overflow: hidden;
+}
+.study-track-active {
+  border-color: rgba(52,211,153,.12);
+  background: linear-gradient(165deg, rgba(11,16,24,1) 0%, rgba(52,211,153,.03) 100%);
+}
+.study-track-active:hover {
+  border-color: rgba(52,211,153,.25);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 32px rgba(52,211,153,.06), 0 2px 8px rgba(0,0,0,.3);
+}
+.study-track-glow {
+  position: absolute;
+  top: -1px; right: -1px; bottom: -1px; left: -1px;
+  border-radius: 12px;
+  background: linear-gradient(135deg, rgba(52,211,153,.08) 0%, transparent 50%, rgba(96,165,250,.05) 100%);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .25s;
+}
+.study-track-active:hover .study-track-glow { opacity: 1; }
+.study-track-soon {
+  opacity: .45;
+  cursor: default;
+}
+.study-track-soon:hover {
+  opacity: .55;
+}
+.study-track-tag {
+  font-size: 8px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 3px;
+  background: rgba(var(--tag-c), .06);
+  color: rgba(var(--tag-c), .6);
+  letter-spacing: .2px;
+}
+
+/* ═══ DSA Mode Picker Popover ═══ */
+.dsa-pick-btn:hover {
+  background: rgba(255,255,255,.04) !important;
+}
+.dsa-pick-btn[data-pick="study"]:hover {
+  background: rgba(52,211,153,.08) !important;
+}
+.dsa-pick-btn[data-pick="practice"]:hover {
+  background: rgba(96,165,250,.08) !important;
+}
+#dsa-mode-picker {
+  animation: dsa-pick-in .12s ease-out;
+}
+@keyframes dsa-pick-in {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ═══ DSA Topic Accordion ═══ */
+.dsa-topic-accordion:hover {
+  border-color: rgba(255,255,255,.07) !important;
 }

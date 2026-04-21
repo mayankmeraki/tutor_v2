@@ -68,6 +68,38 @@ async def execute_tutor_tool(
         elif name in ("resume_video", "seek_video"):
             return "OK"  # control tools handled by chat.py SSE
 
+        # ── DSA / System Design / Mock Interview tools ──
+        elif name == "run_code":
+            from .code_execution import handle_run_code
+            return await handle_run_code(tool_input, context_data or {})
+
+        elif name == "push_code":
+            return {
+                "text": "Code pushed to editor.",
+                "__ws_event": {
+                    "type": "CODE_PUSH",
+                    "data": {
+                        "code": tool_input.get("code", ""),
+                        "language": tool_input.get("language", "python"),
+                        "highlight_lines": tool_input.get("highlight_lines", []),
+                        "replace": tool_input.get("replace", True),
+                    },
+                },
+            }
+
+        elif name == "draw_on_canvas":
+            return {
+                "text": "Drawing added to canvas.",
+                "__ws_event": {
+                    "type": "CANVAS_DRAW",
+                    "data": {
+                        "shapes": tool_input.get("shapes", []),
+                        "connections": tool_input.get("connections", []),
+                        "clear": tool_input.get("clear", False),
+                    },
+                },
+            }
+
         else:
             log.warning("Unknown tool: %s", name)
             return f"Unknown tool: {name}"

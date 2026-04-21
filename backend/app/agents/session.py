@@ -85,6 +85,19 @@ class Session:
     # ── Generated visuals (from visual_gen agents) ──
     generated_visuals: dict = field(default_factory=dict)  # {visual_id: {"html": ..., "title": ...}}
 
+    # ── Session Blueprint (frozen at session start) ──
+    blueprint: dict | None = None  # SessionBlueprint.to_dict()
+
+    # ── DSA / System Design / Mock Interview mode ──
+    session_mode: str = "general"  # general | dsa | sd | mock_interview
+    problem_data: dict | None = None  # loaded from dsa_problems / sd_problems
+    mock_start_time: float | None = None
+    mock_timer_minutes: int = 45
+    mock_hints_used: int = 0
+    mock_phase: str = "intro"  # intro | clarify | approach | code | test | optimize | debrief
+    mock_last_student_msg_time: float | None = None
+    mock_company: str = "generic"  # google | meta | amazon | generic
+
     # ── Conversation context management ──
     conversation_summary: str | None = None  # Haiku-generated digest of older messages
     summary_covers_through: int = 0          # How many messages the summary covers
@@ -361,6 +374,7 @@ async def _try_restore_session(session_id: str) -> Session | None:
             pre_assessment_note=bs.get("preAssessmentNote"),
             last_assessment_summary=bs.get("lastAssessmentSummary"),
             delegation_result=bs.get("delegationResult"),
+            blueprint=bs.get("blueprint"),
             llm_cost_cents=bs.get("llmCostCents", 0.0),
             llm_total_input_tokens=bs.get("llmTotalInputTokens", 0),
             llm_total_output_tokens=bs.get("llmTotalOutputTokens", 0),

@@ -81,7 +81,11 @@ class PDFProcessor(BaseProcessor):
         except ImportError:
             # marker-pdf not installed — fall back to PyMuPDF
             log.warning("marker-pdf not available, falling back to PyMuPDF")
-            return self._extract_pymupdf(file_path, resource_id)
+            try:
+                return self._extract_pymupdf(file_path, resource_id)
+            except Exception as e2:
+                log.error("PyMuPDF fallback also failed: %s", e2)
+                return ProcessResult(markdown="", meta={"error": str(e2)})
 
         except Exception as e:
             log.error("PDF extraction failed for %s: %s", resource_id[:8], e)

@@ -22,7 +22,7 @@ def get_mongo_client() -> AsyncIOMotorClient:
 
 
 def get_mongo_db():
-    return get_mongo_client()["capacity"]
+    return get_mongo_client()["tutor_v2"]
 
 
 def get_tutor_db():

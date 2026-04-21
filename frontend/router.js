@@ -23,6 +23,9 @@ const Router = (() => {
     { path: '/session/:id',   title: 'Session — Capacity',     auth: true,  handler: handleSession },
     { path: '/session',       title: 'Home — Capacity',        auth: true,  handler: () => navigate('/home', { replace: true }) },
     { path: '/for-business',  title: 'For Institutions — Euler', auth: false, handler: handleBusiness },
+    { path: '/dsa',           title: 'DSA & Design — Euler',    auth: true,  handler: handleDSA },
+    { path: '/dsa/:slug',     title: 'Problem — Euler',         auth: true,  handler: handleDSAProblem },
+    { path: '/mock',          title: 'Mock Interview — Euler',  auth: true,  handler: handleMock },
   ];
 
   function matchPath(pattern, pathname) {
@@ -92,6 +95,12 @@ const Router = (() => {
   }
 
   function handleBusiness() { showScreen('business'); }
+
+  function handleDSA() { showScreen('dsa'); }
+
+  function handleDSAProblem(params) { showScreen('dsa-problem', params.slug); }
+
+  function handleMock() { showScreen('dsa'); setTimeout(() => { if (typeof _switchDSATab === 'function') _switchDSATab('mock'); }, 50); }
 
   // ─── Popstate ─────────────────────────────────────────────
 

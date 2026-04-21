@@ -2229,6 +2229,62 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             results = await _web_search(query) if query else None
             return json.dumps(results) if results else "No results found"
 
+        # ── DSA / System Design / Mock Interview tools ──
+        elif name == "run_code":
+            from app.tools.code_execution import handle_run_code
+            result = await handle_run_code(inp, context_data or {})
+            if isinstance(result, dict):
+                if "__ws_event" in result:
+                    _pending = context_data.setdefault("_pending_ws_events", [])
+                    _pending.append(result["__ws_event"])
+                return result.get("text", "Code executed.")
+            return result if isinstance(result, str) else str(result)
+
+        elif name == "push_code":
+            _pending = context_data.setdefault("_pending_ws_events", [])
+            _action = inp.get("action", "replace")
+            _evt_data = {
+                "action": _action,
+                "code": inp.get("code", ""),
+                "language": inp.get("language", "python"),
+                "highlight_lines": inp.get("highlight_lines", []),
+            }
+            if _action == "insert":
+                _evt_data["at_line"] = inp.get("at_line", 1)
+            elif _action == "delete_lines":
+                _evt_data["lines"] = inp.get("lines", [])
+            elif _action == "replace_lines":
+                _evt_data["from_line"] = inp.get("from_line", 1)
+                _evt_data["to_line"] = inp.get("to_line", 1)
+            _pending.append({"type": "CODE_PUSH", "data": _evt_data})
+            _labels = {"replace": "Code replaced in editor.", "insert": f"Code inserted at line {inp.get('at_line', 1)}.",
+                       "append": "Code appended to editor.", "delete_lines": f"Lines {inp.get('lines', [])} deleted.",
+                       "replace_lines": f"Lines {inp.get('from_line')}-{inp.get('to_line')} replaced."}
+            return _labels.get(_action, "Code pushed to editor.")
+
+        elif name == "draw_on_canvas":
+            _pending = context_data.setdefault("_pending_ws_events", [])
+            _pending.append({
+                "type": "CANVAS_DRAW",
+                "data": {
+                    "add_nodes": inp.get("add_nodes", []),
+                    "add_edges": inp.get("add_edges", []),
+                    "remove": inp.get("remove", []),
+                    "update": inp.get("update", []),
+                    "annotate": inp.get("annotate", []),
+                    "highlight": inp.get("highlight", []),
+                    "clear": inp.get("clear", False),
+                },
+            })
+            parts = []
+            if inp.get("add_nodes"): parts.append(f"{len(inp['add_nodes'])} nodes added")
+            if inp.get("add_edges"): parts.append(f"{len(inp['add_edges'])} connections added")
+            if inp.get("remove"): parts.append(f"{len(inp['remove'])} items removed")
+            if inp.get("update"): parts.append(f"{len(inp['update'])} items updated")
+            if inp.get("highlight"): parts.append(f"{len(inp['highlight'])} items highlighted")
+            if inp.get("clear"): parts.append("canvas cleared")
+            return "Canvas updated: " + ", ".join(parts) if parts else "Canvas operation complete."
+
         else:
             slog.warning("Unknown tool: %s", name)
             return f"Tool '{name}' executed (no specific handler)"
@@ -2619,8 +2675,135 @@ async def _generate_for_turn(
                 except Exception as _te:
                     log.debug("Auto video context injection failed (ws): %s", _te)
 
+            # ── DSA / SD / Mock mode detection ──────────────────────
+            _sc_raw = context_data.get("sessionContext", "")
+            try:
+                _sc_obj = json.loads(_sc_raw) if isinstance(_sc_raw, str) and _sc_raw else (_sc_raw if isinstance(_sc_raw, dict) else {})
+            except (json.JSONDecodeError, TypeError):
+                _sc_obj = {}
+
+            _session_mode = _sc_obj.get("mode", session.session_mode or "general")
+            if _session_mode != session.session_mode and _session_mode in ("dsa", "sd", "mock_interview"):
+                session.session_mode = _session_mode
+                slog.info("Session mode set: %s", _session_mode, extra={"event": "SESSION_MODE"})
+
+                # Create blueprint if not already frozen
+                if not session.blueprint:
+                    from app.agents.blueprint import classify_intent
+                    _bp = await classify_intent(
+                        text=session.student_intent or "",
+                        explicit_mode=_session_mode,
+                        explicit_interaction=_sc_obj.get("interaction"),
+                        explicit_slug=_sc_obj.get("problem_slug"),
+                        explicit_company=_sc_obj.get("company"),
+                        explicit_timer=_sc_obj.get("timer_minutes"),
+                    )
+                    session.blueprint = _bp.to_dict()
+                    slog.info("Blueprint frozen: mode=%s interaction=%s ui=%s sections=%s",
+                              _bp.mode, _bp.interaction, _bp.ui_layout,
+                              _bp.prompt_sections, extra={"event": "BLUEPRINT_FROZEN"})
+
+                # Load problem data on first turn (non-blocking — skip if MongoDB unavailable)
+                _problem_slug = _sc_obj.get("problem_slug")
+                if _problem_slug and not session.problem_data:
+                    try:
+                        from pymongo import MongoClient as _MC
+                        import certifi as _cert
+                        from app.core.config import settings as _settings
+                        _mdb = _MC(
+                            _settings.MONGODB_URI,
+                            tlsCAFile=_cert.where(),
+                            serverSelectionTimeoutMS=3000,
+                            connectTimeoutMS=3000,
+                        )["tutor_v2"]
+                        _coll = "sd_problems" if _session_mode == "sd" else "dsa_problems"
+                        session.problem_data = _mdb[_coll].find_one({"slug": _problem_slug}, {"_id": 0})
+                        if session.problem_data:
+                            slog.info("Loaded problem: %s", _problem_slug)
+                    except Exception as _pe:
+                        slog.warning("Problem load skipped (MongoDB unavailable): %s", _pe)
+
+                # Load teaching plan for the topic
+                if not session.current_plan:
+                    try:
+                        _topic_slug = None
+                        if session.problem_data:
+                            _topics = session.problem_data.get("topics", [])
+                            _topic_slug = _topics[0] if _topics else None
+                        if not _topic_slug:
+                            _topic_slug = _problem_slug or (_sc_obj.get("problem_slug", "") or "").replace("-", "_")
+                        if _topic_slug:
+                            from pymongo import MongoClient as _MC2
+                            import certifi as _cert2
+                            from app.core.config import settings as _s2
+                            _tdb = _MC2(_s2.MONGODB_URI, tlsCAFile=_cert2.where(), serverSelectionTimeoutMS=2000)["tutor_v2"]
+                            _plan_doc = _tdb["teaching_plans"].find_one({"slug": _topic_slug}, {"_id": 0})
+                            if not _plan_doc:
+                                _plan_doc = _tdb["teaching_plans"].find_one({"slug": _topic_slug.replace("_", "-")}, {"_id": 0})
+                            if _plan_doc:
+                                session.current_plan = _plan_doc
+                                slog.info("Loaded teaching plan: %s", _topic_slug)
+                    except Exception as _tpe:
+                        slog.warning("Teaching plan load skipped: %s", _tpe)
+
+                # Mock interview: initialize timer
+                if _session_mode == "mock_interview":
+                    import time as _t
+                    session.mock_start_time = _t.time()
+                    session.mock_timer_minutes = _sc_obj.get("timer_minutes", 45)
+                    session.mock_company = _sc_obj.get("company", "generic")
+                    session.mock_phase = "intro"
+
+            # Inject code/canvas/interview state into context
+            if session.session_mode in ("dsa", "mock_interview"):
+                _code_state = _sc_obj.get("codeState")
+                if _code_state:
+                    context_data["codeState"] = _code_state
+            if session.session_mode == "sd":
+                _canvas_state = _sc_obj.get("canvasState")
+                if _canvas_state:
+                    context_data["canvasState"] = _canvas_state
+                _canvas_snap = _sc_obj.get("canvasSnapshot")
+                if _canvas_snap:
+                    context_data["_canvasSnapshot"] = _canvas_snap
+            if session.session_mode == "mock_interview":
+                # Use client-side MockEngine state (real-time silence, hints, phase)
+                _client_state = _sc_obj.get("interviewState")
+                if _client_state:
+                    context_data["interviewState"] = _client_state
+                elif session.mock_start_time:
+                    # Fallback: compute from session fields (less accurate)
+                    import time as _t
+                    _elapsed = _t.time() - session.mock_start_time
+                    context_data["interviewState"] = {
+                        "phase": session.mock_phase,
+                        "elapsed": f"{int(_elapsed//60)}:{int(_elapsed%60):02d}",
+                        "hints_used": session.mock_hints_used,
+                        "silence": "0s",
+                        "timer_minutes": session.mock_timer_minutes,
+                        "company": session.mock_company,
+                    }
+
+            # Problem metadata for prompt injection
+            if session.problem_data:
+                _pd = session.problem_data
+                context_data["problemData"] = json.dumps({
+                    "name": _pd.get("name"),
+                    "difficulty": _pd.get("difficulty"),
+                    "topics": _pd.get("topics", []),
+                    "description": _pd.get("description", ""),
+                    "examples": _pd.get("examples", []),
+                    "constraints": _pd.get("constraints", []),
+                    "hints": _pd.get("hints", []),
+                    "optimal_complexity": _pd.get("optimal_complexity", {}),
+                    "test_cases": _pd.get("test_cases", [])[:5],
+                    "starter_code": _pd.get("starter_code", {}),
+                }, indent=2)
+
             tutor_prompt = build_tutor_prompt({
                 **context_data,
+                "session_mode": session.session_mode,
+                "prompt_sections": session.blueprint.get("prompt_sections") if session.blueprint else None,
                 "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
                 "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
                 "currentTopic": (
@@ -2695,6 +2878,24 @@ async def _generate_for_turn(
             ):
                 _removed_tools |= {"search", "fetch", "peek", "nearby", "list_contents"}
 
+            # ── DSA/SD/Mock tool filtering (blueprint-driven when available) ──
+            _bp = session.blueprint
+            if _bp and _bp.get("tools_enable") is not None:
+                _removed_tools |= {"run_code", "push_code", "draw_on_canvas", "complete_triage"}
+                _removed_tools -= set(_bp.get("tools_enable", []))
+                _removed_tools |= set(_bp.get("tools_disable", []))
+            elif session.session_mode == "dsa":
+                _removed_tools -= {"run_code", "push_code"}
+                _removed_tools |= {"draw_on_canvas", "complete_triage"}
+            elif session.session_mode == "sd":
+                _removed_tools -= {"draw_on_canvas"}
+                _removed_tools |= {"run_code", "push_code", "complete_triage"}
+            elif session.session_mode == "mock_interview":
+                _removed_tools -= {"run_code"}
+                _removed_tools |= {"push_code", "draw_on_canvas", "complete_triage"}
+            else:
+                _removed_tools |= {"run_code", "push_code", "draw_on_canvas"}
+
             if is_video_mode:
                 # Determine if this is a NEW pause (fresh timestamp) or a follow-up at same spot
                 _vid_ts = 0
@@ -2738,6 +2939,38 @@ async def _generate_for_turn(
             slog.info("Turn started", extra={"event": "TURN_START"})
 
             valid_messages = _validate_messages(claude_messages)
+
+            # Inject canvas snapshot as image in last user message (SD mode only)
+            _snap = context_data.get("_canvasSnapshot")
+            if _snap and session.session_mode == "sd":
+                # Only send if canvas changed (compare hash with last turn)
+                import hashlib as _hl
+                _snap_hash = _hl.md5(_snap[:200].encode() if isinstance(_snap, str) else _snap[:200]).hexdigest()
+                _last_hash = getattr(session, '_last_canvas_hash', None)
+                if _snap_hash != _last_hash:
+                    session._last_canvas_hash = _snap_hash
+                    _snap_b64 = _snap.split(",")[1] if "," in _snap else _snap
+                    # Validate base64 — skip if empty or too short (blank canvas)
+                    if not _snap_b64 or len(_snap_b64) < 100:
+                        slog.info("Canvas snapshot skipped (empty/too small)")
+                    elif valid_messages:
+                        _last_user = None
+                        for _m in reversed(valid_messages):
+                            if _m.get("role") == "user":
+                                _last_user = _m
+                                break
+                        if _last_user:
+                            _existing = _last_user.get("content", "")
+                            _parts = []
+                            if isinstance(_existing, str):
+                                _parts.append({"type": "text", "text": _existing})
+                            elif isinstance(_existing, list):
+                                _parts.extend(_existing)
+                            _parts.append({"type": "text", "text": "[Canvas snapshot — current state of the student's architecture diagram]"})
+                            _parts.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": _snap_b64}})
+                            _last_user["content"] = _parts
+                            slog.info("Canvas snapshot injected (%d bytes)", len(_snap_b64))
+
             api_kwargs = {
                 "system": tutor_prompt,
                 "messages": valid_messages,
@@ -2866,6 +3099,11 @@ async def _generate_for_turn(
 
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(result)})
                     yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
+
+                    # Drain pending WS events (from push_code, draw_on_canvas, run_code)
+                    _pending_evts = context_data.pop("_pending_ws_events", [])
+                    for _evt in _pending_evts:
+                        yield _sse(_evt)
 
                 # Save assistant message with tool_use blocks intact
                 assistant_content = _serialize_content(message.content)

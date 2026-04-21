@@ -92,16 +92,34 @@ async def lifespan(app: FastAPI):
     _key = settings.OPENROUTER_API_KEY if settings.LLM_PROVIDER == "openrouter" else settings.ANTHROPIC_API_KEY
     log.info("API Key:        %s", "set" if _key else "MISSING")
 
-    # Start BYO pipeline worker in background
+    # Start BYO pipeline worker in background (self-healing)
+    # Skip if BYO_WORKER_EXTERNAL=true (separate process handles it)
     _byo_worker_task = None
-    try:
-        import sys
-        sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
-        from byo.processing.orchestrator import run_worker
-        _byo_worker_task = asyncio.create_task(run_worker())
-        log.info("BYO pipeline worker started")
-    except Exception as e:
-        log.warning("BYO worker not started: %s", e)
+    if os.environ.get("BYO_WORKER_EXTERNAL", "").lower() in ("true", "1", "yes"):
+        log.info("BYO worker: EXTERNAL mode — skipping embedded worker (use scripts/start_byo.sh)")
+    else:
+        try:
+            import sys
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+            from byo.processing.orchestrator import run_worker
+
+            async def _byo_worker_supervisor():
+                """Restart worker if it crashes."""
+                while True:
+                    try:
+                        log.info("BYO pipeline worker starting")
+                        await run_worker()
+                    except asyncio.CancelledError:
+                        log.info("BYO pipeline worker cancelled")
+                        break
+                    except Exception as e:
+                        log.error("BYO pipeline worker crashed — restarting in 5s: %s", e)
+                        await asyncio.sleep(5)
+
+            _byo_worker_task = asyncio.create_task(_byo_worker_supervisor())
+            log.info("BYO pipeline worker started (embedded with supervisor)")
+        except Exception as e:
+            log.warning("BYO worker not started: %s", e)
 
     yield
 
@@ -384,6 +402,13 @@ app.include_router(learning_tools.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
 
+# DSA & System Design problem API
+try:
+    from app.api.routes.dsa import router as dsa_router
+    app.include_router(dsa_router)
+except Exception as e:
+    log.warning("DSA routes not loaded: %s", e)
+
 # WebSocket chat endpoint (voice beats + audio streaming)
 from app.api.routes.ws_chat import ws_chat
 app.add_api_websocket_route("/ws/chat", ws_chat)
@@ -564,7 +589,14 @@ _index_html = os.path.join(FRONTEND_DIR, "index.html")
 @app.get("/session/{session_id}")
 @app.get("/session/")
 @app.get("/session")
-async def spa_fallback(session_id: str = "", course_id: str = ""):
+@app.get("/dsa")
+@app.get("/dsa/")
+@app.get("/dsa/{slug}")
+@app.get("/mock")
+@app.get("/mock/")
+@app.get("/for-business")
+@app.get("/for-business/")
+async def spa_fallback(session_id: str = "", course_id: str = "", slug: str = ""):
     return FileResponse(_index_html, media_type="text/html")
 
 # Static files: frontend (must be last — catch-all mount)
