@@ -3389,12 +3389,19 @@ function cleanupActiveSession() {
   state.dsaProblemData = null;
   state.studentIntent = null;
   if (typeof _clearPracticeSilenceDetector === 'function') _clearPracticeSilenceDetector();
-  // Reset Ace editor so next session can re-initialize with new problem
+  // Destroy Ace editor instances properly so next session starts clean
+  if (window._dsaCodeEditor && window._dsaCodeEditor._ace) {
+    try { window._dsaCodeEditor._ace.destroy(); } catch(e) {}
+    window._dsaCodeEditor = null;
+  }
   ['ws-code-editor', 'ws-mock-code-editor'].forEach(function(id) {
     var el = document.getElementById(id);
-    if (el && el._aceReady) {
+    if (el) {
       el._aceReady = false;
+      // Remove all child nodes and Ace's injected classes
       el.innerHTML = '';
+      el.className = '';
+      el.style.cssText = 'flex:1;min-height:0';
     }
   });
   window._dsaCodeEditor = null;
@@ -12491,16 +12498,27 @@ async function initSetup() {
     });
   });
 
+  // Capture the back target BEFORE cleanup clears state.dsaMode.
+  // cleanupActiveSession sets dsaMode=null, so reading it after
+  // navigation starts would always return '/home'.
+  var _lastDsaMode = null;
+
   function _getSessionBackTarget() {
-    if (state.dsaMode === 'mock_interview') return '/dsa?tab=mock';
-    if (state.dsaMode === 'sd') return '/dsa?tab=sd';
-    if (state.dsaMode === 'dsa') return '/dsa?tab=dsa';
+    var mode = _lastDsaMode || state.dsaMode;
+    if (mode === 'mock_interview') return '/dsa?tab=mock';
+    if (mode === 'sd') return '/dsa?tab=sd';
+    if (mode === 'dsa') return '/dsa?tab=dsa';
+    if (state.courseId) return '/course/' + state.courseId;
     return '/home';
   }
 
+  // Track dsaMode changes so we always know where to go back
+  var _origCleanup = typeof cleanupActiveSession === 'function' ? cleanupActiveSession : null;
+
   $('#btn-back')?.addEventListener('click', () => {
+    // Snapshot dsaMode BEFORE cleanup clears it
+    _lastDsaMode = state.dsaMode;
     const backTarget = _getSessionBackTarget();
-    // Use the universal _backWithFeedback from index.html
     if (typeof _backWithFeedback === 'function') {
       _backWithFeedback(backTarget);
     } else {
@@ -21876,22 +21894,28 @@ function _initAceEditor(containerId) {
   var initLang = state.dsaLanguage || 'python';
   editor.session.setMode(langMap[initLang] || 'ace/mode/python');
 
-  // Load problem description + starter code into editor
+  // Load problem description + starter code into editor.
+  // dsaProblemData may not be ready yet (API fetch in background).
+  // Always poll — covers both fallback-loaded and API-loaded cases.
   if (state.dsaProblemData) {
     var fullText = _formatProblemForEditor(state.dsaProblemData, initLang);
     if (fullText) editor.setValue(fullText, -1);
-  } else if (state.dsaProblemSlug) {
-    // Data not loaded yet (API fetch in background) — poll briefly
+    _showProblemTestCases(state.dsaProblemData);
+  }
+  // Poll for API data even if we already loaded fallback (API data is authoritative)
+  if (state.dsaProblemSlug) {
     var _pollCount = 0;
     var _pollEditor = setInterval(function() {
       if (state.dsaProblemData && window._dsaCodeEditor) {
         clearInterval(_pollEditor);
-        var txt = _formatProblemForEditor(state.dsaProblemData, state.dsaLanguage || 'python');
-        if (txt && !window._dsaCodeEditor.getValue().trim()) {
-          window._dsaCodeEditor.setValue(txt);
+        var currentCode = window._dsaCodeEditor.getValue().trim();
+        // Only update if editor is empty or still has fallback content
+        if (!currentCode || currentCode.length < 20) {
+          var txt = _formatProblemForEditor(state.dsaProblemData, state.dsaLanguage || 'python');
+          if (txt) window._dsaCodeEditor.setValue(txt, -1);
         }
         _showProblemTestCases(state.dsaProblemData);
-      } else if (++_pollCount > 30) {
+      } else if (++_pollCount > 50) {
         clearInterval(_pollEditor);
       }
     }, 200);
@@ -22170,13 +22194,17 @@ _startDSASession = async function(slug, mode) {
       .then(function(data) {
         if (data) {
           state.dsaProblemData = data;
-          // Always update editor with API data (authoritative source)
-          if (window._dsaCodeEditor) {
-            var fullText = _formatProblemForEditor(data, state.dsaLanguage || 'python');
-            if (fullText) window._dsaCodeEditor.setValue(fullText);
+          // Update editor with API data — retry if editor not ready yet
+          function _trySetEditor(attempts) {
+            if (window._dsaCodeEditor) {
+              var fullText = _formatProblemForEditor(data, state.dsaLanguage || 'python');
+              if (fullText) window._dsaCodeEditor.setValue(fullText, -1);
+              _showProblemTestCases(data);
+            } else if (attempts < 20) {
+              setTimeout(function() { _trySetEditor(attempts + 1); }, 200);
+            }
           }
-          // Update test cases panel
-          _showProblemTestCases(data);
+          _trySetEditor(0);
         }
       })
       .catch(function() {});
