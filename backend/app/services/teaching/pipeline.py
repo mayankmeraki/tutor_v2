@@ -3007,7 +3007,7 @@ async def _generate_for_turn(
                 "system": tutor_prompt,
                 "messages": valid_messages,
                 "model": settings.tutor_model,
-                "max_tokens": 4096,
+                "max_tokens": 16384,
                 "tools": active_tools,
             }
 

@@ -737,7 +737,7 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
-          <a href="#" class="sc-nav-link" onclick="event.preventDefault();Router.navigate('/home')" style="font-size:11px;color:rgba(255,255,255,.35);text-decoration:none;padding:5px 10px">← Home</a>
+          <a href="#" class="sc-nav-link" onclick="event.preventDefault();_backWithFeedback('/home')" style="font-size:11px;color:rgba(255,255,255,.35);text-decoration:none;padding:5px 10px">← Home</a>
           <div class="sc-pill" id="dsa-logout">
             <div class="sc-pill-avatar" id="dsa-avatar">?</div>
             <span id="dsa-user-name">User</span>
@@ -832,7 +832,7 @@
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler</a>
         <div class="sc-nav-r">
-          <a href="#" class="sc-nav-link" onclick="event.preventDefault();Router.navigate('/dsa')">← Back</a>
+          <a href="#" class="sc-nav-link" onclick="event.preventDefault();_backWithFeedback('/dsa')">← Back</a>
         </div>
       </nav>
       <div class="body" style="overflow-y:auto;flex:1">
@@ -1535,7 +1535,34 @@ function submitSessionFeedback() {
 // Track turns for feedback trigger
 window._fbTurnCount = 0;
 
-// handleBackButton — now handled by #btn-back addEventListener in app.js
+// Universal back-with-feedback: ALL back/home navigation goes through here.
+// Shows feedback form if a session was active, then navigates to target.
+function _backWithFeedback(target) {
+  target = target || '/home';
+  var sid = '';
+  try { sid = (window._appState && window._appState.sessionId) || ''; } catch(e) {}
+  var hasSession = sid && sid.length > 5;
+  var turnCount = window._fbTurnCount || 0;
+  console.log('[BackWithFeedback] sid=' + (sid||'').slice(0,8) + ' turns=' + turnCount + ' target=' + target);
+  if (hasSession && turnCount >= 1 && typeof showFeedbackForm === 'function') {
+    window._fbOnClose = function() {
+      if (typeof Router !== 'undefined') Router.navigate(target);
+      else window.location.href = target;
+    };
+    showFeedbackForm();
+    // Safety: navigate after 30s even if user ignores the form
+    setTimeout(function() {
+      if (typeof Router !== 'undefined') Router.navigate(target);
+      else window.location.href = target;
+    }, 30000);
+    return;
+  }
+  if (typeof Router !== 'undefined') Router.navigate(target);
+  else window.location.href = target;
+}
+window._backWithFeedback = _backWithFeedback;
+
+// handleBackButton — delegates to _backWithFeedback
 function handleBackButton() {
   var btn = document.getElementById('btn-back');
   if (btn) btn.click();

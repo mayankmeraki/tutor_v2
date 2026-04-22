@@ -12500,16 +12500,12 @@ async function initSetup() {
 
   $('#btn-back')?.addEventListener('click', () => {
     const backTarget = _getSessionBackTarget();
-    const sid = state.sessionId || '';
-    const hasSession = sid && sid.length > 5;
-    const turnCount = window._fbTurnCount || 0;
-    console.log('[Back] sid=' + sid.slice(0,8) + ' turns=' + turnCount + ' target=' + backTarget);
-    if (hasSession && turnCount >= 1 && typeof showFeedbackForm === 'function') {
-      window._fbOnClose = () => Router.navigate(backTarget);
-      showFeedbackForm();
-      return;
+    // Use the universal _backWithFeedback from index.html
+    if (typeof _backWithFeedback === 'function') {
+      _backWithFeedback(backTarget);
+    } else {
+      Router.navigate(backTarget);
     }
-    Router.navigate(backTarget);
   });
 
   // Plan heading bar toggle

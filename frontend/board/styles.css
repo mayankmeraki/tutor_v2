@@ -1182,14 +1182,27 @@
 .bd-anim-fullscreen .bd-anim-box {
   min-height: 0;
   flex: 1 1 auto;
-  height: 0; /* flex grow */
+  height: 0;
   aspect-ratio: auto;
-  overflow: visible;
+  overflow: auto; /* scrollable if content exceeds modal */
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 
+/* In fullscreen the canvas pixel buffer stays at its original (inline) size.
+   CSS scales it to fill the modal — this is a ZOOM view, like enlarging an image.
+   object-fit:contain preserves aspect ratio without distortion. */
 .bd-anim-fullscreen .bd-anim-box canvas {
   display: block;
-  /* NO CSS sizing — resizeCanvas handles it */
+  width: 100% !important;
+  height: 100% !important;
+  object-fit: contain;
+}
+
+/* Figure narration column in fullscreen — visible alongside animation */
+.bd-anim-fullscreen .bd-figure-narration {
+  overflow-y: auto;
 }
 
 /* Backdrop — board faded but visible behind the modal */
@@ -1282,28 +1295,41 @@
 }
 
 .bd-anim-box:hover .bd-anim-controls,
-.bd-scene3d:hover .bd-anim-expand-btn {
+.bd-scene3d:hover > .bd-anim-expand-btn {
   opacity: 1;
 }
 
-.bd-anim-controls button {
+.bd-anim-controls button,
+.bd-anim-expand-btn {
   width: 28px;
   height: 28px;
   border-radius: 6px;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  background: rgba(0, 0, 0, 0.5);
-  color: rgba(255, 255, 255, 0.8);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(0, 0, 0, 0.6);
+  color: rgba(255, 255, 255, 0.5);
   cursor: pointer;
   font-size: 14px;
   display: flex;
   align-items: center;
   justify-content: center;
-  backdrop-filter: blur(6px);
+  backdrop-filter: blur(4px);
   transition: all 0.15s;
+  padding: 0;
 }
 
-.bd-anim-controls button:hover {
-  background: rgba(255, 255, 255, 0.15);
+.bd-anim-controls button:hover,
+.bd-anim-expand-btn:hover {
+  background: rgba(255, 255, 255, 0.12);
+  color: rgba(255, 255, 255, 0.8);
+}
+
+/* Standalone expand button (3D scenes — not inside .bd-anim-controls) */
+.bd-scene3d > .bd-anim-expand-btn {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  opacity: 0;
+  transition: opacity 0.2s;
 }
 
 

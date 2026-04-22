@@ -698,8 +698,8 @@ function buildControlBridge(scale, isWebGL) {
   // but we run in instance mode where those are `p.fill(...)`, `p.text(...)`.
   // Create local variables that proxy to `p` so both styles work.
   var p5Bindings =
-    '    var createCanvas=function(){return p.createCanvas.apply(p,arguments)};\n' +
-    '    var resizeCanvas=function(){return p.resizeCanvas.apply(p,arguments)};\n' +
+    '    var createCanvas=function(w,h,r){return p.createCanvas(W,H,r)};\n' +
+    '    var resizeCanvas=function(){W=p.width;H=p.height;return p.resizeCanvas.apply(p,arguments)};\n' +
     '    var noLoop=function(){return p.noLoop()};\n' +
     '    var loop=function(){return p.loop()};\n' +
     '    var frameRate=function(){return p.frameRate.apply(p,arguments)};\n' +
@@ -760,7 +760,8 @@ function buildControlBridge(scale, isWebGL) {
     '    // bare `frameCount`, `mouseX`, `width` etc. dynamic in instance mode.\n' +
     '    p._syncLocals = function() {\n' +
     '      frameCount=p.frameCount; mouseX=p.mouseX; mouseY=p.mouseY;\n' +
-    '      pmouseX=p.pmouseX; pmouseY=p.pmouseY; width=p.width; height=p.height;\n' +
+    '      pmouseX=p.pmouseX; pmouseY=p.pmouseY;\n' +
+    '      W=p.width; H=p.height; width=p.width; height=p.height;\n' +
     '      mouseIsPressed=p.mouseIsPressed; key=p.key; keyCode=p.keyCode;\n' +
     '    };\n' +
     '    var PI=Math.PI,TWO_PI=Math.PI*2,HALF_PI=Math.PI/2,QUARTER_PI=Math.PI/4;\n' +
@@ -845,9 +846,6 @@ function toggleAnimFullscreen(figure, animBox) {
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u26F6'; btn.title = 'Expand'; }
-    // Remove CSS transform scale — back to native size
-    var wrap = animBox.querySelector('.bd-anim-canvas-wrap');
-    if (wrap) { wrap.style.transform = ''; wrap.style.transformOrigin = ''; }
   } else {
     // ── Expand to fullscreen modal ──
     // IMPORTANT: Do NOT call resizeCanvas. p5 animations use absolute pixel
@@ -875,25 +873,9 @@ function toggleAnimFullscreen(figure, animBox) {
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
 
-    // Scale the canvas wrapper to fill the modal using CSS transform.
-    // The canvas pixel buffer stays at its original size — no blur, no
-    // coordinate mismatch, no text scaling issues.
-    requestAnimationFrame(function() {
-      var wrap = animBox.querySelector('.bd-anim-canvas-wrap');
-      if (!wrap) return;
-      var canvas = wrap.querySelector('canvas');
-      if (!canvas) return;
-      var modalRect = animBox.getBoundingClientRect();
-      var canvasW = canvas.width / (window.devicePixelRatio || 1);
-      var canvasH = canvas.height / (window.devicePixelRatio || 1);
-      if (canvasW > 0 && canvasH > 0 && modalRect.width > 0 && modalRect.height > 0) {
-        var scaleX = modalRect.width / canvasW;
-        var scaleY = modalRect.height / canvasH;
-        var s = Math.min(scaleX, scaleY); // fit inside modal, preserve aspect
-        wrap.style.transformOrigin = 'top left';
-        wrap.style.transform = 'scale(' + s.toFixed(4) + ')';
-      }
-    });
+    // No canvas resize or CSS scaling — the animation renders at its
+    // original size inside the modal. The modal CSS handles centering.
+    // This avoids ALL scaling bugs (wrong coordinates, blur, cutoff).
 
     // Escape key closes fullscreen
     figure._escHandler = function(e) {
@@ -1035,11 +1017,29 @@ async function createAnimation(cmd) {
   var pw = Math.round(elRect.width) || animW;
   var ph = Math.round(elRect.height) || animH;
 
+  // Guard: if LLM code is too short to be a real animation, skip compilation.
+  // Truncated LLM responses produce fragments that sanitizeCode's bracket
+  // balancer turns into invalid JS (e.g., adds `}` that creates `Unexpected token`).
+  if (!cmd.code || cmd.code.trim().length < 30) {
+    console.warn('[Animation] Code too short to be valid (' + (cmd.code || '').length + ' chars) — likely truncated');
+    canvasWrap.innerHTML = '<div style="padding:20px;color:rgba(255,255,255,0.25);font-size:12px;text-align:center">Animation is loading...</div>';
+    showSkeleton(el, canvasWrap, cmd, 'Code truncated', 1, false);
+    return;
+  }
+
   var isWebGL = /p\.WEBGL|,\s*WEBGL/.test(cmd.code);
   var scale = pw / 300;
   var code = sanitizeCode(cmd.code);
   code = code.replace(/p\.textSize\((\d+(?:\.\d+)?)\)/g, function(_, n) { return 'p.textSize(' + n + ' * S)'; });
   code = code.replace(/p\.strokeWeight\((\d+(?:\.\d+)?)\)/g, function(_, n) { return 'p.strokeWeight(Math.max(1, ' + n + ' * S))'; });
+  // Check if sanitized code has any real content (not just whitespace/semicolons)
+  var codeContent = code.replace(/[;\s{}()\[\]]/g, '').trim();
+  if (codeContent.length < 10) {
+    console.warn('[Animation] Sanitized code has no real content — truncated LLM output');
+    showSkeleton(el, canvasWrap, cmd, 'Animation code was truncated', scale, isWebGL);
+    return;
+  }
+
   var fullCode = buildControlBridge(scale, isWebGL) + '\n' + code;
 
   var sketchFn;
@@ -2489,7 +2489,6 @@ async function renderScene3D(cmd) {
   expand3dBtn.className = 'bd-anim-expand-btn';
   expand3dBtn.textContent = '\u26F6';
   expand3dBtn.title = 'Expand';
-  expand3dBtn.style.cssText += 'z-index:3;';
   expand3dBtn.addEventListener('click', function() {
     toggleAnimFullscreen(container, container);
   });
