@@ -1340,15 +1340,19 @@ function _wsNewTurn() {
 
 // ── Board streaming indicator — shown while LLM generates, hidden when first beat draws ──
 function _showBoardStreaming() {
-  const wrap = document.getElementById('bd-canvas-wrap');
-  if (!wrap) return;
   let el = document.getElementById('bd-streaming-indicator');
   if (el) return; // already showing
+  // bd-canvas-wrap may not exist yet on first session start (board engine
+  // creates it later). The indicator is position:fixed so it doesn't need
+  // a specific parent — fall back to the teaching layout or body.
+  const wrap = document.getElementById('bd-canvas-wrap')
+    || document.getElementById('teaching-layout')
+    || document.getElementById('canvas-stream')
+    || document.body;
   el = document.createElement('div');
   el.id = 'bd-streaming-indicator';
   el.innerHTML = `<div class="bd-stream-pulse"></div>`;
   wrap.appendChild(el);
-  // Show immediately (no delayed fade — thinking phase can be <1 second)
   el.classList.add('bd-stream-visible');
 }
 
@@ -19151,15 +19155,10 @@ function setVoiceBarState(newState) {
   if (newState !== 'thinking') {
     try { _hideBoardDrawingSkeleton(); } catch (e) {}
   }
-  // Only apply to teaching session voice bar — not Euler chat
+  // Voice bar may not exist yet on first session start (teaching layout
+  // not rendered). Still process the state — especially 'thinking' which
+  // shows the board streaming indicator regardless of voice bar presence.
   const field = document.getElementById('voice-bar-input');
-  if (!field) {
-    // Voice bar not found — still clear indicators
-    _hideBoardStreaming();
-    _hideBoardDrawingSkeleton();
-    removeStreamingIndicator();
-    return;
-  }
   const sendBtn = document.getElementById('voice-bar-send');
   const micBtn = document.getElementById('voice-mic-btn');
   const stopBtn = document.getElementById('voice-bar-stop');
@@ -21465,8 +21464,10 @@ function _startMockInterview() {
   state.dsaProblemSlug = null; // random
   state.mockCompany = state.mockCompany || 'generic';
   state.mockTimerMinutes = state.mockTimerMinutes || 45;
+  state.mockType = state.mockType || 'dsa';
 
-  const intent = `Mock interview: ${state.mockCompany} style, ${state.mockDifficulty} difficulty, ${state.mockTimerMinutes} min`;
+  const typeLabel = state.mockType === 'sd' ? 'System Design' : 'DSA Coding';
+  const intent = `Mock interview: ${typeLabel}, ${state.mockCompany} style, ${state.mockDifficulty} difficulty, ${state.mockTimerMinutes} min`;
   _startOnDemandSession(intent);
 }
 
@@ -21534,9 +21535,10 @@ function _initWorkspaceForMode() {
   } else if (mode === 'mock_interview') {
     var mockType = state.mockType || 'dsa';
     if (mockType === 'sd') {
-      // System Design mock → show canvas
+      // System Design mock → show canvas + load problem requirements
       document.getElementById('ws-canvas-pane').style.display = 'flex';
       window._sdCanvasState = { elements: [] };
+      _loadSDProblemOnBoard();
     } else {
       // DSA mock → use the SAME code editor pane as regular DSA
       document.getElementById('ws-code-pane').style.display = 'flex';
@@ -21870,7 +21872,6 @@ function _initAceEditor(containerId) {
     maxLines: Infinity,
     minLines: 10,
   });
-  try { editor.setOption('enableBasicAutocompletion', false); } catch(e) {}
   editor.renderer.setScrollMargin(8, 8);
 
   // Set initial language mode

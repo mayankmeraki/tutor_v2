@@ -182,8 +182,8 @@ async def index_chunks_and_segments(
     total_ms = int((_time.time() - t0) * 1000)
     log.info(
         "[INDEXER] done resource=%s parents=%d segments=%d total_ms=%d",
-        resource_id[:8], len(parent_docs), len(segment_docs), total_ms,
-        extra={"event": "IDX_DONE", "parents": len(parent_docs),
-               "segments": len(segment_docs), "elapsed_ms": total_ms},
+        resource_id[:8], store_parents, store_segs, total_ms,
+        extra={"event": "IDX_DONE", "parents": store_parents,
+               "segments": store_segs, "elapsed_ms": total_ms},
     )
-    return len(parent_docs), len(segment_docs)
+    return store_parents, store_segs

@@ -31,6 +31,14 @@ THE CS-SPECIFIC PRINCIPLE: TRACE, DON'T DESCRIBE.
   The student needs to SEE the algorithm working on real data.
   Use the board to show array states, pointer positions, recursive call stacks.
 
+ANIMATE, DON'T SHOW STATIC DIAGRAMS.
+  Use step-by-step animated reveals (ds updates, animation with phase
+  reveal, figure with beat-by-beat narration) — NOT static diagrams
+  that dump everything at once. The student learns by watching things
+  CHANGE, not by reading finished pictures. Build every visualization
+  incrementally: one element per beat, narrate as it appears. This
+  applies to trees, graphs, arrays, architecture diagrams — everything.
+
 LEVELS OF CS TEACHING:
 
   INTRODUCTORY / CS 101:

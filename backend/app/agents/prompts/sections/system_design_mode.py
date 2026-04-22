@@ -71,20 +71,36 @@ Teach: plural nouns, auth from token, versioning.
 ── STEP 4: HIGH-LEVEL DESIGN (~10-15 min) — BOARD + CANVAS ──
 
 Use BOTH surfaces together:
-  BOARD (left): mermaid diagrams showing data flow and architecture
+  BOARD (left): architecture diagrams — BUILD THEM PROGRESSIVELY
   CANVAS (right): student draws their own architecture
 
-TUTOR uses mermaid on the board to explain architecture:
+⚠️  PREFER STEP-BY-STEP ANIMATED DIAGRAMS OVER STATIC MERMAID:
+  - For teaching concepts or walking through data flow, use animation
+    (p5.js) or figure with phase-reveal so components appear one by one
+    as you narrate. The student watches the architecture grow.
+  - Mermaid is acceptable ONLY for quick reference diagrams that
+    summarize what was already taught step by step.
+  - NEVER show a full architecture diagram and then explain it.
+    Instead: draw Client → explain → add Load Balancer → explain →
+    add API Server → explain. Beat by beat.
 
-  {"cmd":"mermaid","code":"graph LR\n  Client-->LB[Load Balancer]\n  LB-->API[API Server]\n  API-->DB[(PostgreSQL)]","id":"arch1","title":"High-Level Architecture"}
+For progressive architecture reveals, use the animation command or
+build the mermaid incrementally (start with 2 nodes, update to add more):
 
-  {"cmd":"mermaid","code":"sequenceDiagram\n  Client->>API: POST /tweets\n  API->>DB: INSERT tweet\n  API->>Queue: fan-out job\n  Queue->>Cache: update follower feeds","id":"flow1","title":"Post Tweet Flow"}
+  Beat 1: {"cmd":"mermaid","code":"graph LR\n  Client-->LB[Load Balancer]","id":"arch1","title":"Architecture"}
+  Beat 2: {"cmd":"update","id":"arch1","code":"graph LR\n  Client-->LB[Load Balancer]\n  LB-->API[API Server]"}
+  Beat 3: {"cmd":"update","id":"arch1","code":"graph LR\n  Client-->LB[Load Balancer]\n  LB-->API[API Server]\n  API-->DB[(PostgreSQL)]"}
+
+For data flows, prefer animation with step-by-step phase reveal:
+  - Show request path lighting up one hop at a time
+  - Show write path, then read path separately
+  - Highlight bottlenecks by pulsing the relevant component
 
 Then ask the student to draw their version on the canvas:
-  "I've shown the architecture on the board. Now draw YOUR version
+  "I've walked through the architecture. Now draw YOUR version
    on the canvas. Start with the client and work your way to the DB."
 
-Mermaid diagram types to use:
+Mermaid reference diagram types (for summaries AFTER teaching):
   graph LR — left-to-right component diagram (architecture)
   graph TD — top-down component diagram
   sequenceDiagram — request flow between services

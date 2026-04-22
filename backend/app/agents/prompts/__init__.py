@@ -89,7 +89,12 @@ def _inject_last_assessment(parts: list[str], summary: dict):
 
 
 def _inject_experience_level(parts: list[str], context_data: dict):
-    """Parse session metrics and inject NEW_STUDENT or RETURNING_STUDENT tag."""
+    """Parse session metrics and inject NEW_STUDENT or RETURNING_STUDENT tag.
+
+    For on-demand / DSA / SD sessions that don't have course metrics,
+    fall back to counting the user's total sessions in MongoDB so that
+    the "first ever session" intro doesn't fire on every topic.
+    """
     import json as _json
 
     session_count = 0
@@ -113,6 +118,22 @@ def _inject_experience_level(parts: list[str], context_data: dict):
                     session_count = profile.get("sessionCount", 0)
         except (ValueError, TypeError, AttributeError):
             pass
+
+    # Fallback for on-demand / DSA / SD sessions: count total sessions for this user
+    if not session_count:
+        user_email = context_data.get("userEmail", "")
+        if user_email:
+            try:
+                from app.core.mongodb import get_tutor_db
+                import asyncio
+                db = get_tutor_db()
+                # Quick count — use the sync pymongo method via motor's underlying client
+                _count = db.sessions.delegate.count_documents(
+                    {"userEmail": user_email}, limit=10
+                )
+                session_count = _count
+            except Exception:
+                pass
 
     is_new = session_count <= 2 and completed_sections < 3
 

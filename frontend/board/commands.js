@@ -49,6 +49,13 @@ export async function runCommand(cmd) {
     case 'delete':   renderDelete(cmd); break;
     case 'clone':    await renderClone(cmd); break;
     case 'clear':    clearBoard(); break;
+    // LLM sometimes shortens {cmd:"ds",type:"tree"} to {cmd:"tree"} — catch and redirect
+    case 'tree': case 'array': case 'linked-list': case 'hash-map':
+    case 'stack': case 'queue': case 'grid': case 'graph': case 'matrix':
+      cmd.type = cmd.type || cmd.cmd;
+      cmd.cmd = 'ds';
+      await executeCommand(cmd);
+      return;
     default:
       console.warn('[Board] Unknown command:', cmd.cmd);
   }

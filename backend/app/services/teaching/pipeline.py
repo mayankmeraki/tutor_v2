@@ -1232,6 +1232,33 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
     if getattr(session, '_planner_spawned', False):
         slog.info("[PLANNER_SPAWN] skipped — already spawned")
         return
+    # Check if a pre-built teaching plan exists for the topic in MongoDB.
+    # This is generic — any session type (DSA, SD, mock, future topic modules)
+    # that has a matching teaching_plan will skip the planner and use it directly.
+    # On-demand free-text sessions (no problem_slug, no topic identifier) fall
+    # through to the planner as normal.
+    _slug = None
+    if session.problem_data:
+        _topics = session.problem_data.get("topics", [])
+        _slug = _topics[0] if _topics else None
+    if not _slug:
+        _slug = (context_data.get("problemSlug") or context_data.get("topicSlug") or "").replace("-", "_")
+    if _slug:
+        try:
+            from pymongo import MongoClient as _MC
+            import certifi as _cert
+            from app.core.config import settings as _s
+            _db = _MC(_s.MONGODB_URI, tlsCAFile=_cert.where(),
+                      serverSelectionTimeoutMS=2000)["tutor_v2"]
+            _plan = _db["teaching_plans"].find_one({"slug": _slug}, {"_id": 0})
+            if not _plan:
+                _plan = _db["teaching_plans"].find_one({"slug": _slug.replace("_", "-")}, {"_id": 0})
+            if _plan:
+                session.current_plan = _plan
+                slog.info("[PLANNER_SPAWN] skipped — loaded pre-built teaching plan: %s", _slug)
+                return
+        except Exception as e:
+            slog.warning("[PLANNER_SPAWN] pre-built plan check failed: %s", e)
 
     # Spawn on first turn — planner runs in background while tutor starts teaching.
     # No need to wait for observations — the planner has intent + student model + course content.
@@ -2716,7 +2743,10 @@ async def _generate_for_turn(
                             serverSelectionTimeoutMS=3000,
                             connectTimeoutMS=3000,
                         )["tutor_v2"]
-                        _coll = "sd_problems" if _session_mode == "sd" else "dsa_problems"
+                        # For mock interviews, mockType determines whether it's a DSA or SD problem
+                        _mock_type = _sc_obj.get("mockType", "dsa")
+                        _is_sd = _session_mode == "sd" or (_session_mode == "mock_interview" and _mock_type == "sd")
+                        _coll = "sd_problems" if _is_sd else "dsa_problems"
                         session.problem_data = _mdb[_coll].find_one({"slug": _problem_slug}, {"_id": 0})
                         if session.problem_data:
                             slog.info("Loaded problem: %s", _problem_slug)

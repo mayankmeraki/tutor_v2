@@ -672,6 +672,23 @@ function sanitizeCode(code) {
     code = '(' + code + ')(p, W, H);';
   }
 
+  // ── Common LLM syntax errors that cause "Unexpected token 'if'" ──
+
+  // 1. Missing semicolons after closing brace before a statement keyword.
+  //    LLM outputs: `} if (x) {` which can fail ASI in some contexts.
+  //    Fix: ensure `}` before `if|for|while|let|const|var` has `;` between.
+  code = code.replace(/\}(\s*)(if|for|while|let |const |var |return )/g, '};\n$1$2');
+
+  // 2. Python-style inline conditionals: `var x = if (cond) val else other`
+  //    JavaScript uses ternary: `var x = cond ? val : other`
+  //    This is hard to fix generally, but catch simple patterns:
+  code = code.replace(/=\s*if\s*\(([^)]+)\)\s+([^;]+?)\s+else\s+([^;]+)/g,
+    '= ($1) ? $2 : $3');
+
+  // 3. Incomplete function expression followed by keyword:
+  //    `p.setup = function() { ... }p.draw` → add semicolon
+  code = code.replace(/\}(p\.|var |let |const )/g, '};\n$1');
+
   return code;
 }
 
@@ -686,7 +703,7 @@ function buildControlBridge(scale, isWebGL) {
     '    var noLoop=function(){return p.noLoop()};\n' +
     '    var loop=function(){return p.loop()};\n' +
     '    var frameRate=function(){return p.frameRate.apply(p,arguments)};\n' +
-    '    var pixelDensity=function(){return p.pixelDensity.apply(p,arguments)};\n' +
+    '    var pixelDensity=function(d){if(d!==undefined)d=Math.min(Math.max(d,window.devicePixelRatio||1),3);return p.pixelDensity.apply(p,d!==undefined?[d]:[])};\n' +
     '    var smooth=function(){return p.smooth?p.smooth():undefined};\n' +
     '    var noCursor=function(){return p.noCursor()};\n' +
     '    var cursor=function(){return p.cursor.apply(p,arguments)};\n' +
@@ -791,12 +808,17 @@ function toggleAnimFullscreen(figure, animBox) {
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u26F6'; btn.title = 'Expand'; }
-    // Resize p5 back
+    // Resize p5 back to normal container size with correct pixel density
     var inst = animBox._p5Instance;
     if (inst && typeof inst.resizeCanvas === 'function') {
       requestAnimationFrame(function() {
         var r = animBox.getBoundingClientRect();
-        try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
+        if (r.width > 0 && r.height > 0) {
+          try {
+            inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
+            inst.resizeCanvas(Math.round(r.width), Math.round(r.height));
+          } catch(e) {}
+        }
       });
     }
   } else {
@@ -817,23 +839,26 @@ function toggleAnimFullscreen(figure, animBox) {
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
-    // Resize p5 after CSS transition completes (not a hardcoded timeout)
+    // Resize p5 after fullscreen layout is settled.
+    // Must update BOTH pixel density and canvas size for sharp rendering.
     var inst = animBox._p5Instance;
-    if (inst && typeof inst.resizeCanvas === 'function') {
+    function _resizeToContainer() {
+      if (!inst || typeof inst.resizeCanvas !== 'function') return;
+      var r = animBox.getBoundingClientRect();
+      if (r.width > 0 && r.height > 0) {
+        try {
+          inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
+          inst.resizeCanvas(Math.round(r.width), Math.round(r.height));
+        } catch(e) {}
+      }
+    }
+    if (inst) {
       figure.addEventListener('transitionend', function onEnd() {
         figure.removeEventListener('transitionend', onEnd);
-        var r = animBox.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
-        }
+        _resizeToContainer();
       });
-      // Fallback if transition doesn't fire (e.g., no transition property)
-      setTimeout(function() {
-        var r = animBox.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          try { inst.resizeCanvas(Math.round(r.width), Math.round(r.height)); } catch(e) {}
-        }
-      }, 400);
+      // Fallback if transition doesn't fire
+      setTimeout(_resizeToContainer, 400);
     }
     // Escape key closes fullscreen
     figure._escHandler = function(e) {
@@ -885,7 +910,7 @@ async function createAnimation(cmd) {
 
   var canvasWrap = document.createElement('div');
   canvasWrap.className = 'bd-anim-canvas-wrap';
-  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:hidden;';
+  canvasWrap.style.cssText = 'width:100%;height:100%;overflow:visible;position:relative;';
   el.appendChild(canvasWrap);
 
   var animH = cmd.h || 280;
@@ -956,6 +981,7 @@ async function createAnimation(cmd) {
       sketchFn = new Function('p', 'W', 'H', fullCode.replace(/[^\x00-\x7F]/g, ''));
     } catch (e2) {
       console.warn('[Animation] Compile error — calling syntax fix:', e.message);
+      console.warn('[Animation] Broken code (first 500 chars):', fullCode.substring(0, 500));
       showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
       return;
     }
@@ -993,10 +1019,11 @@ async function createAnimation(cmd) {
         // are correct. AnimHelper injection uses live dimensions.
         var userSetup = p.setup;
         p.setup = function () {
-          // ALWAYS create canvas at container size FIRST. If the LLM's
-          // code skipped setup entirely (goes straight to p.draw without
-          // createCanvas), p5 defaults to 100x100 — way too small.
-          // p5 handles double createCanvas gracefully (replaces canvas).
+          // Set pixel density BEFORE createCanvas so the buffer matches display resolution.
+          // On Retina (dpr=2), this makes the canvas 2× internal resolution → sharp rendering.
+          // Capped at 2 to avoid excessive memory on 3× displays.
+          try { p.pixelDensity(Math.min(window.devicePixelRatio || 1, 2)); } catch (e) {}
+          // ALWAYS create canvas at container size FIRST.
           try { p.createCanvas(pw, ph); } catch (e) {}
           if (userSetup) userSetup.call(p);
           try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
@@ -1030,6 +1057,20 @@ async function createAnimation(cmd) {
   el._p5Instance = inst;
   var entry = { container: el, instance: inst, _running: true };
   board.animations.push(entry);
+
+  // Responsive resize for p5 canvas — match container when board layout changes
+  if (typeof ResizeObserver !== 'undefined') {
+    var _roP5 = new ResizeObserver(function(entries) {
+      var cr = entries[0].contentRect;
+      if (cr.width > 0 && cr.height > 0 && inst && typeof inst.resizeCanvas === 'function') {
+        try {
+          inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
+          inst.resizeCanvas(Math.round(cr.width), Math.round(cr.height));
+        } catch(e) {}
+      }
+    });
+    _roP5.observe(canvasWrap);
+  }
 
   // Blank detection disabled — Haiku fix causes more harm than good
   // var retryKey = cmd.id || 'anon';
@@ -1114,6 +1155,7 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
         }
         var userSetup = p.setup;
         p.setup = function () {
+          try { p.pixelDensity(Math.min(window.devicePixelRatio || 1, 2)); } catch (e) {}
           try { p.createCanvas(Math.round(rect.width) || 300, Math.round(rect.height) || 200); } catch (e) {}
           if (userSetup) userSetup.call(p);
           try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
@@ -2296,7 +2338,15 @@ async function renderScene3D(cmd) {
   var container = createElement('div', cmd, 'bd-scene3d');
   container.style.width = '100%';
   container.style.maxWidth = (cmd.width || 700) + 'px';
-  container.style.height = (cmd.height || 450) + 'px';
+  // Use aspect-ratio for responsive sizing instead of hardcoded px height.
+  // LLM-specified height still honored if provided.
+  if (cmd.height) {
+    container.style.height = cmd.height + 'px';
+  } else {
+    container.style.aspectRatio = '16 / 10';
+    container.style.minHeight = '280px';
+    container.style.maxHeight = '70vh';
+  }
   container.style.borderRadius = '10px';
   container.style.overflow = 'visible';
   container.style.border = 'none';
@@ -2381,6 +2431,20 @@ async function renderScene3D(cmd) {
     e.stopPropagation(); // prevent board scroll on zoom
   }, { passive: false });
   container.appendChild(threeRenderer.domElement);
+
+  // Responsive resize — adapt to container size changes (window resize, board layout)
+  if (typeof ResizeObserver !== 'undefined') {
+    var _ro3d = new ResizeObserver(function(entries) {
+      var cr = entries[0].contentRect;
+      if (cr.width > 0 && cr.height > 0) {
+        var nw = Math.round(cr.width), nh = Math.round(cr.height);
+        camera.aspect = nw / nh;
+        camera.updateProjectionMatrix();
+        threeRenderer.setSize(nw, nh);
+      }
+    });
+    _ro3d.observe(container);
+  }
 
   // Orbit controls
   var controls = null;
