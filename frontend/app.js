@@ -20575,13 +20575,9 @@ window._submitBizDemo = _submitBizDemo;
 // ═══════════════════════════════════════════════════════════
 
 function _switchDSATab(tab) {
-  // Update tab buttons
+  // Update tab buttons — styling handled by CSS .dsa-tab.active class
   document.querySelectorAll('.dsa-tab').forEach(btn => {
-    const isActive = btn.dataset.dsaTab === tab;
-    btn.style.color = isActive ? '#34d399' : 'rgba(255,255,255,.3)';
-    btn.style.borderBottomColor = isActive ? '#34d399' : 'transparent';
-    if (isActive) btn.classList.add('active');
-    else btn.classList.remove('active');
+    btn.classList.toggle('active', btn.dataset.dsaTab === tab);
   });
   // Update tab content
   document.querySelectorAll('.dsa-tab-content').forEach(el => {
@@ -21586,50 +21582,79 @@ function _loadSDProblemOnBoard() {
       if (typeof updateBoardEmptyState === 'function') updateBoardEmptyState();
     }
 
-    // 2. Draw problem template on the canvas (right side) — like a real whiteboard
+    // 2. Draw problem template on the canvas (after SDCanvas.init completes)
     setTimeout(function() {
-      if (typeof SDCanvas === 'undefined' || !SDCanvas.handleTutorDraw) return;
-      var nodes = [];
-      var y = 40;
+      if (typeof SDCanvas === 'undefined' || !SDCanvas.getCanvas) return;
+      var canvas = SDCanvas.getCanvas();
+      if (!canvas) return;
+      // Clear any stale objects
+      canvas.clear();
+      canvas.backgroundColor = 'transparent';
 
-      // Title
-      nodes.push({id: 'p-title', type: 'text', x: 40, y: y, content: 'Design: ' + (p.name || ''), label: p.name || ''});
-      y += 60;
-
-      // Description
-      if (p.description) {
-        nodes.push({id: 'p-desc', type: 'text', x: 40, y: y, content: (p.description || '').slice(0, 120), label: 'Description'});
-        y += 50;
-      }
-
-      // Functional Requirements box — check multiple data shapes
-      var frText = 'Functional Requirements\n';
+      // Build FR placeholder text
       var frList = (p.requirements && p.requirements.functional) ? p.requirements.functional
         : (p.plan && p.plan.requirements) ? p.plan.requirements
         : Array.isArray(p.requirements) ? p.requirements : null;
+      var frPlaceholder = '';
       if (frList && frList.length) {
-        frList.forEach(function(r, i) { frText += (i+1) + '. ' + r + '\n'; });
-      } else {
-        frText += '1. \n2. \n3. ';
+        frList.forEach(function(r, i) { frPlaceholder += (i+1) + '. ' + r + '\n'; });
       }
-      nodes.push({id: 'p-fr', type: 'rect', x: 40, y: y, width: 350, height: 160, label: 'FR', content: frText});
-      y += 190;
 
-      // Non-Functional Requirements box
-      var nfrText = 'Non-Functional Requirements\n';
+      // Build NFR placeholder text
       var nfrList = (p.requirements && p.requirements.non_functional) ? p.requirements.non_functional
         : (p.plan && p.plan.nfr) ? p.plan.nfr : null;
+      var nfrPlaceholder = '';
       if (nfrList && nfrList.length) {
-        nfrList.forEach(function(r, i) { nfrText += '- ' + r + '\n'; });
-      } else {
-        nfrText += '- \n- \n- ';
+        nfrList.forEach(function(r) { nfrPlaceholder += '- ' + r + '\n'; });
       }
-      nodes.push({id: 'p-nfr', type: 'rect', x: 40, y: y, width: 350, height: 140, label: 'NFR', content: nfrText});
 
-      try {
-        SDCanvas.handleTutorDraw({shapes: nodes, connections: [], clear: false});
-      } catch(e) { console.warn('[SD] Canvas preload failed:', e); }
-    }, 500);
+      // Draw on canvas: heading, description, then placeholder boxes
+      if (!canvas) return true;
+      var FONT = "'Inter', -apple-system, sans-serif";
+      var W = Math.min(canvas.getWidth() - 80, 520);
+      var y = 30;
+
+      // ── Heading ──
+      canvas.add(new fabric.Text(p.name || 'System Design Problem', {
+        left: 40, top: y, fontSize: 22, fontWeight: '700',
+        fill: '#fff', fontFamily: FONT,
+      }));
+      y += 40;
+
+      // ── Description ──
+      if (p.description) {
+        var desc = new fabric.Textbox(p.description, {
+          left: 40, top: y, width: W, fontSize: 13,
+          fill: 'rgba(255,255,255,0.5)', fontFamily: FONT,
+          lineHeight: 1.5, editable: false, splitByGrapheme: false,
+        });
+        canvas.add(desc);
+        y += desc.calcTextHeight() + 20;
+      }
+
+      // ── Helper: draw an empty labeled box ──
+      function drawBox(label, boxY, boxH) {
+        canvas.add(new fabric.Rect({
+          left: 40, top: boxY, width: W, height: boxH,
+          fill: 'transparent', stroke: 'rgba(255,255,255,0.12)',
+          strokeWidth: 1.5, rx: 8, ry: 8,
+        }));
+        canvas.add(new fabric.Text(label, {
+          left: 40 + W / 2, top: boxY + 16, fontSize: 14, fontWeight: '600',
+          fill: 'rgba(255,255,255,0.6)', fontFamily: FONT, originX: 'center',
+        }));
+        return boxH;
+      }
+
+      // ── FR box (empty — student fills in) ──
+      var frH = drawBox('Functional Requirements', y, 160);
+      y += frH + 20;
+
+      // ── NFR box (empty — student fills in) ──
+      drawBox('Non-Functional Requirements', y, 140);
+
+      canvas.renderAll();
+    }, 700);
 
     return true;
   };
@@ -21725,7 +21750,7 @@ var _activeTestCase = 0;
 function _switchTestTab(tab) {
   document.querySelectorAll('.ws-tc-tab').forEach(function(b) {
     var isActive = b.dataset.tcTab === tab;
-    b.style.color = isActive ? 'rgba(255,255,255,.7)' : 'rgba(255,255,255,.25)';
+    b.style.color = isActive ? '#34d399' : 'rgba(52,211,153,.35)';
     b.style.borderBottomColor = isActive ? '#34d399' : 'transparent';
   });
   var cases = document.getElementById('ws-tc-cases');
@@ -21733,13 +21758,35 @@ function _switchTestTab(tab) {
   if (cases) cases.style.display = tab === 'cases' ? 'block' : 'none';
   if (results) {
     results.style.display = tab === 'results' ? 'block' : 'none';
-    // Show empty state if no results yet
     var inner = document.getElementById('ws-code-tests');
     if (tab === 'results' && inner && !inner.innerHTML.trim()) {
-      inner.innerHTML = '<div style="color:rgba(255,255,255,.15);font-size:11px;padding:20px;text-align:center">Click Run or Submit to see results</div>';
+      inner.innerHTML = '<div style="color:rgba(52,211,153,.25);font-size:11px;padding:20px;text-align:center">Click ▶ Run or ✓ Submit to see results</div>';
     }
   }
 }
+
+// Resize handle between editor and test cases
+document.addEventListener('DOMContentLoaded', function() {
+  var handle = document.getElementById('ws-test-resize');
+  if (!handle) return;
+  var panel = document.getElementById('ws-code-testcases');
+  if (!panel) return;
+  handle.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    var startY = e.clientY;
+    var startH = panel.offsetHeight;
+    function onMove(e2) {
+      var delta = startY - e2.clientY;
+      panel.style.height = Math.max(80, Math.min(startH + delta, 400)) + 'px';
+    }
+    function onUp() {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+});
 window._switchTestTab = _switchTestTab;
 
 function _showTestCaseDetail(idx) {
@@ -22125,13 +22172,10 @@ _startDSASession = async function(slug, mode) {
       .then(function(data) {
         if (data) {
           state.dsaProblemData = data;
-          // Update editor if already initialized but was empty (fallback data was null)
+          // Always update editor with API data (authoritative source)
           if (window._dsaCodeEditor) {
-            var current = window._dsaCodeEditor.getValue().trim();
-            if (!current) {
-              var fullText = _formatProblemForEditor(data, state.dsaLanguage || 'python');
-              if (fullText) window._dsaCodeEditor.setValue(fullText);
-            }
+            var fullText = _formatProblemForEditor(data, state.dsaLanguage || 'python');
+            if (fullText) window._dsaCodeEditor.setValue(fullText);
           }
           // Update test cases panel
           _showProblemTestCases(data);

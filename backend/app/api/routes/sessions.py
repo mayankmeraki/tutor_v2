@@ -19,6 +19,23 @@ from app.services.session.session_service import (
 
 log = logging.getLogger(__name__)
 
+
+def _surface_dsa_meta(docs: list[dict]) -> list[dict]:
+    """Hoist DSA/mock metadata from backendState to top level for session cards."""
+    for d in docs:
+        bs = d.pop("backendState", None) or {}
+        mode = bs.get("sessionMode", "general")
+        if mode and mode != "general":
+            d["sessionMode"] = mode
+            d["mockPhase"] = bs.get("mockPhase")
+            d["mockCompany"] = bs.get("mockCompany")
+            pd = bs.get("problemData")
+            if pd and isinstance(pd, dict):
+                d["problemTitle"] = pd.get("name")
+                d["problemSlug"] = pd.get("slug")
+                d["problemDifficulty"] = pd.get("difficulty")
+    return docs
+
 router = APIRouter(prefix="/api/v1/sessions", tags=["sessions"])
 
 
@@ -51,12 +68,18 @@ async def all_my_sessions(user: dict = Depends(get_optional_user)):
             "sessionId", "courseId", "studentName", "startedAt", "status",
             "headline", "headlineDescription", "intent", "durationSec",
             "metrics", "sections", "plan.sessionObjective",
+            "backendState.sessionMode", "backendState.mockPhase",
+            "backendState.mockCompany", "backendState.problemData.name",
+            "backendState.problemData.slug", "backendState.problemData.difficulty",
         ]},
     ).sort("startedAt", -1).limit(20)
     docs = []
     async for doc in cursor:
         doc.pop("_id", None)
         docs.append(doc)
+
+    # Surface DSA/mock metadata at top level for session cards
+    _surface_dsa_meta(docs)
 
     # Enrich headlines (non-blocking — uses cached or fallback, fires bg tasks)
     docs = await _enrich_sessions_with_headlines(docs)
@@ -108,12 +131,16 @@ async def search_all(q: str = "", user: dict = Depends(get_optional_user)):
         {f: 1 for f in [
             "sessionId", "courseId", "studentName", "startedAt", "status",
             "headline", "headlineDescription", "intent", "durationSec",
+            "backendState.sessionMode", "backendState.mockPhase",
+            "backendState.mockCompany", "backendState.problemData.name",
+            "backendState.problemData.slug", "backendState.problemData.difficulty",
         ]},
     ).sort("startedAt", -1).limit(10)
     docs = []
     async for doc in cursor:
         doc.pop("_id", None)
         docs.append(doc)
+    _surface_dsa_meta(docs)
     return docs
 
 

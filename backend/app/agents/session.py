@@ -97,6 +97,8 @@ class Session:
     mock_phase: str = "intro"  # intro | clarify | approach | code | test | optimize | debrief
     mock_last_student_msg_time: float | None = None
     mock_company: str = "generic"  # google | meta | amazon | generic
+    canvas_state: dict | None = None   # Latest SD canvas snapshot (from client sessionConfig)
+    code_state: dict | None = None     # Latest DSA/mock code editor snapshot (from client sessionConfig)
 
     # ── Conversation context management ──
     conversation_summary: str | None = None  # Haiku-generated digest of older messages
@@ -388,6 +390,17 @@ async def _try_restore_session(session_id: str) -> Session | None:
             asset_registry=bs.get("assetRegistry", []),
             messages=_validate_restored_messages(bs.get("messages", [])),
             attachment_meta=bs.get("attachmentMeta", []),
+            # DSA / SD / Mock Interview restoration
+            session_mode=bs.get("sessionMode", "general"),
+            problem_data=bs.get("problemData"),
+            mock_start_time=bs.get("mockStartTime"),
+            mock_timer_minutes=bs.get("mockTimerMinutes", 45),
+            mock_hints_used=bs.get("mockHintsUsed", 0),
+            mock_phase=bs.get("mockPhase", "intro"),
+            mock_last_student_msg_time=bs.get("mockLastStudentMsgTime"),
+            mock_company=bs.get("mockCompany", "generic"),
+            canvas_state=bs.get("canvasState"),
+            code_state=bs.get("codeState"),
         )
 
         # Restore in-flight delegation state

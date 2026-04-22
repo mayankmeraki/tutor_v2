@@ -746,10 +746,19 @@
       </nav>
 
       <!-- Tab bar -->
-      <div style="display:flex;gap:2px;padding:0 20px;border-bottom:1px solid rgba(255,255,255,.05);background:rgba(12,16,22,1)">
-        <button class="dsa-tab active" data-dsa-tab="dsa" onclick="_switchDSATab('dsa')" style="padding:8px 16px;font-size:11px;font-weight:500;border:none;cursor:pointer;background:none;color:#34d399;border-bottom:2px solid #34d399;transition:all .12s">DSA</button>
-        <button class="dsa-tab" data-dsa-tab="sd" onclick="_switchDSATab('sd')" style="padding:8px 16px;font-size:11px;font-weight:500;border:none;cursor:pointer;background:none;color:rgba(255,255,255,.3);border-bottom:2px solid transparent;transition:all .12s">System Design</button>
-        <button class="dsa-tab" data-dsa-tab="mock" onclick="_switchDSATab('mock')" style="padding:8px 16px;font-size:11px;font-weight:500;border:none;cursor:pointer;background:none;color:rgba(255,255,255,.3);border-bottom:2px solid transparent;transition:all .12s">Mock Interview</button>
+      <div class="dsa-tab-bar">
+        <button class="dsa-tab active" data-dsa-tab="dsa" onclick="_switchDSATab('dsa')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+          DSA
+        </button>
+        <button class="dsa-tab" data-dsa-tab="sd" onclick="_switchDSATab('sd')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          System Design
+        </button>
+        <button class="dsa-tab" data-dsa-tab="mock" onclick="_switchDSATab('mock')">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Mock Interview
+        </button>
       </div>
 
       <!-- ── DSA Tab Content ── -->
@@ -983,27 +992,29 @@
             </div>
             <!-- Code editor -->
             <div id="ws-code-editor" style="flex:1;min-height:0"></div>
+            <!-- Resize handle between editor and test panel -->
+            <div id="ws-test-resize" style="height:4px;cursor:ns-resize;background:rgba(52,211,153,.06);flex-shrink:0;position:relative">
+              <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:30px;height:4px;border-radius:2px;background:rgba(52,211,153,.15)"></div>
+            </div>
             <!-- Test cases panel (LeetCode-style) -->
-            <div id="ws-code-testcases" style="border-top:1px solid rgba(255,255,255,.06);flex-shrink:0;max-height:220px;overflow:hidden;display:flex;flex-direction:column;padding-bottom:60px">
+            <div id="ws-code-testcases" style="border-top:1px solid rgba(52,211,153,.1);flex-shrink:0;height:200px;min-height:80px;overflow:hidden;display:flex;flex-direction:column;margin-bottom:60px">
               <!-- Tab bar: Testcase | Test Result -->
-              <div style="display:flex;align-items:center;padding:0 12px;border-bottom:1px solid rgba(255,255,255,.04);flex-shrink:0">
-                <button class="ws-tc-tab active" data-tc-tab="cases" onclick="_switchTestTab('cases')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:rgba(255,255,255,.5);cursor:pointer;border-bottom:2px solid transparent">
-                  <span style="color:rgba(52,211,153,.5);margin-right:3px">☑</span> Testcase
+              <div style="display:flex;align-items:center;padding:0 12px;border-bottom:1px solid rgba(52,211,153,.06);flex-shrink:0;background:rgba(52,211,153,.02)">
+                <button class="ws-tc-tab active" data-tc-tab="cases" onclick="_switchTestTab('cases')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:#34d399;cursor:pointer;border-bottom:2px solid #34d399">
+                  <span style="margin-right:3px">☑</span> Testcase
                 </button>
-                <span style="color:rgba(255,255,255,.08);margin:0 2px">|</span>
-                <button class="ws-tc-tab" data-tc-tab="results" onclick="_switchTestTab('results')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:rgba(255,255,255,.25);cursor:pointer;border-bottom:2px solid transparent">
+                <span style="color:rgba(52,211,153,.15);margin:0 4px">|</span>
+                <button class="ws-tc-tab" data-tc-tab="results" onclick="_switchTestTab('results')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:rgba(52,211,153,.35);cursor:pointer;border-bottom:2px solid transparent">
                   <span style="margin-right:3px">❯_</span> Test Result
                 </button>
-                <span id="ws-test-summary" style="margin-left:auto;font-size:9px;color:rgba(255,255,255,.15)"></span>
+                <span id="ws-test-summary" style="margin-left:auto;font-size:9px;color:rgba(52,211,153,.3)"></span>
               </div>
               <!-- Testcase content -->
               <div id="ws-tc-cases" style="flex:1;overflow-y:auto;padding:8px 12px">
-                <!-- Case tabs -->
                 <div id="ws-case-tabs" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap"></div>
-                <!-- Active case detail -->
                 <div id="ws-case-detail" style="font-family:'JetBrains Mono',monospace;font-size:11px"></div>
               </div>
-              <!-- Test Result content (hidden by default) -->
+              <!-- Test Result content -->
               <div id="ws-tc-results" style="display:none;flex:1;overflow-y:auto;padding:8px 12px">
                 <div id="ws-code-tests"></div>
               </div>

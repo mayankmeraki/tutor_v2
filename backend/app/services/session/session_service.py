@@ -75,6 +75,13 @@ _SESSION_CARD_FIELDS = {
     "sections": 1,
     "coursePosition": 1,
     "plan.sessionObjective": 1,
+    # DSA/SD/mock metadata for session cards (lightweight — no full problemData/canvas)
+    "backendState.sessionMode": 1,
+    "backendState.mockPhase": 1,
+    "backendState.mockCompany": 1,
+    "backendState.problemData.name": 1,
+    "backendState.problemData.slug": 1,
+    "backendState.problemData.difficulty": 1,
 }
 
 
@@ -500,6 +507,18 @@ async def sync_backend_state(session_id: str, session) -> None:
         "assetRegistry": session.asset_registry,
         "messages": session.messages,
         "attachmentMeta": session.attachment_meta,
+        # DSA / SD / Mock Interview persistence
+        "sessionMode": session.session_mode,
+        "problemData": session.problem_data,
+        "blueprint": session.blueprint,
+        "mockStartTime": session.mock_start_time,
+        "mockTimerMinutes": session.mock_timer_minutes,
+        "mockHintsUsed": session.mock_hints_used,
+        "mockPhase": session.mock_phase,
+        "mockLastStudentMsgTime": session.mock_last_student_msg_time,
+        "mockCompany": session.mock_company,
+        "canvasState": session.canvas_state,
+        "codeState": session.code_state,
     }
 
     if session.assessment_result:

@@ -25,7 +25,7 @@ const SDCanvas = (() => {
     { stroke: '#D79B00', fill: 'rgba(215,155,0,0.08)', name: 'orange' },     // workers
   ];
   const TUTOR_STYLE = { stroke: 'rgba(255,255,255,0.2)', fill: 'rgba(255,255,255,0.02)', text: 'rgba(255,255,255,0.4)' };
-  const FONT = "'Caveat', 'Segoe Print', cursive";
+  const FONT = "'Inter', -apple-system, system-ui, sans-serif";
   const MONO = "'JetBrains Mono', monospace";
 
   function _nextColor() { return PALETTE[_colorIdx++ % PALETTE.length]; }
@@ -408,7 +408,7 @@ const SDCanvas = (() => {
     if (!canvas) return;
     var w = s.w || 140, h = s.h || 55;
     var hasContent = s.content && s.content.trim();
-    if (hasContent) { var lines = s.content.split('\n'); h = Math.max(h, 34 + lines.length * 14); }
+    if (hasContent) { var lines = s.content.split('\n'); h = Math.max(h, 34 + lines.length * 16); }
 
     var cw = canvas.getWidth() || 600;
     if (_tutorX + w + 30 > cw) { _tutorX = 40; _tutorY += _tutorRowH + 35; _tutorRowH = 0; }
@@ -424,7 +424,16 @@ const SDCanvas = (() => {
       parts.push(new fabric.Rect({ left: 0, top: 0, width: w, height: h, fill: TUTOR_STYLE.fill, stroke: TUTOR_STYLE.stroke, strokeWidth: 1.5, rx: 6, ry: 6 }));
 
     if (s.label) parts.push(new fabric.Text(s.label, { left: 0, top: hasContent ? (-h / 2 + 14) : 0, fontSize: hasContent ? 13 : 14, fill: TUTOR_STYLE.text, fontFamily: FONT, fontWeight: '600', originX: 'center', originY: hasContent ? 'top' : 'center' }));
-    if (hasContent) parts.push(new fabric.Text(s.content, { left: -w / 2 + 10, top: -h / 2 + 30, fontSize: 10, fill: 'rgba(255,255,255,0.2)', fontFamily: MONO, lineHeight: 1.3, originX: 'left', originY: 'top' }));
+    if (hasContent) {
+      var isPlaceholder = s.content.indexOf('1. \n') >= 0 || s.content.indexOf('- \n') >= 0;
+      parts.push(new fabric.Text(s.content, {
+        left: -w / 2 + 12, top: -h / 2 + 32,
+        fontSize: isPlaceholder ? 10 : 12,
+        fill: isPlaceholder ? 'rgba(255,255,255,0.12)' : 'rgba(255,255,255,0.55)',
+        fontFamily: FONT, lineHeight: 1.4, originX: 'left', originY: 'top',
+        width: w - 24,
+      }));
+    }
     if (s.sublabel && !hasContent) parts.push(new fabric.Text(s.sublabel, { left: 0, top: 12, fontSize: 10, fill: 'rgba(255,255,255,0.15)', fontFamily: FONT, originX: 'center', originY: 'center' }));
 
     var group = new fabric.Group(parts, { left: x, top: y, _src: 'tutor', _sdId: s.id, _label: s.label || '' });
@@ -458,7 +467,8 @@ const SDCanvas = (() => {
   function handleTutorDraw(data) {
     if (!canvas) return;
     if (data.clear) clear();
-    (data.add_nodes || []).forEach(function(n) { addTutorShape({ id: n.id, type: n.type || 'rect', label: n.label, sublabel: n.sublabel, content: n.content }); });
+    var nodes = data.add_nodes || data.shapes || [];
+    nodes.forEach(function(n) { addTutorShape({ id: n.id, type: n.type || 'rect', label: n.label, sublabel: n.sublabel, content: n.content, w: n.width, h: n.height }); });
     (data.add_edges || []).forEach(function(e) { addTutorConnection({ from: e.from, to: e.to }); });
     (data.remove || []).forEach(function(id) { var rm = []; canvas.forEachObject(function(o) { if (o._sdId === id) rm.push(o); }); rm.forEach(function(o) { canvas.remove(o); }); });
     if (data.highlight && data.highlight.length) {
@@ -481,5 +491,6 @@ const SDCanvas = (() => {
     syncState();
   }
 
-  return { init, syncState, getSnapshot, clear, handleTutorDraw, addTutorShape, addTutorConnection };
+  function getCanvas() { return canvas; }
+  return { init, syncState, getSnapshot, clear, handleTutorDraw, addTutorShape, addTutorConnection, getCanvas };
 })();

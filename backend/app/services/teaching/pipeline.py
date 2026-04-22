@@ -2754,15 +2754,17 @@ async def _generate_for_turn(
                     session.mock_company = _sc_obj.get("company", "generic")
                     session.mock_phase = "intro"
 
-            # Inject code/canvas/interview state into context
+            # Inject code/canvas/interview state into context + persist on session
             if session.session_mode in ("dsa", "mock_interview"):
                 _code_state = _sc_obj.get("codeState")
                 if _code_state:
                     context_data["codeState"] = _code_state
+                    session.code_state = _code_state
             if session.session_mode == "sd":
                 _canvas_state = _sc_obj.get("canvasState")
                 if _canvas_state:
                     context_data["canvasState"] = _canvas_state
+                    session.canvas_state = _canvas_state
                 _canvas_snap = _sc_obj.get("canvasSnapshot")
                 if _canvas_snap:
                     context_data["_canvasSnapshot"] = _canvas_snap
