@@ -142,7 +142,7 @@ P5.JS FIGURE REVEAL — use AnimHelper with state guards:
     // Phase 1: DNA strand (revealed by first narration beat)
     if (s.strand > 0.1) {
       p.stroke(53, 216, 251, 180 * s.strand);
-      p.line(60, 110, 640, 110);
+      p.line(W*0.08, H*0.35, W*0.92, H*0.35);
       // ... draw strand details
     }
     // Phase 2: base pairs (revealed by second narration beat)
@@ -155,7 +155,7 @@ P5.JS FIGURE REVEAL — use AnimHelper with state guards:
     }
     // Phase 4: labels (revealed by fourth narration beat)
     if (s.labels > 0.1) {
-      A.label(350, 385, "RNA Pol reads 3'→5', builds 5'→3'", A.colors.warm);
+      A.label(W*0.5, H*0.9, "RNA Pol reads 3'→5', builds 5'→3'", A.colors.warm);
     }
   };
 
@@ -205,6 +205,24 @@ axes + a few spheres.
 
 For 2D: use AnimHelper for clean, consistent drawing.
 
+⚠️ CRITICAL — RESPONSIVE COORDINATES:
+  The canvas size is NOT fixed. It varies by screen size, board layout,
+  and whether the animation is inline or inside a figure column.
+  Your code receives W (width) and H (height) as parameters.
+
+  ALWAYS use W and H for positioning — NEVER hardcode pixel values.
+  ✓ p.ellipse(W*0.5, H*0.4, W*0.1, W*0.1)  — centered, 10% of width
+  ✓ p.textSize(W * 0.04)                     — scales with canvas
+  ✓ A.label(W*0.5, H*0.9, "text", color)    — bottom center
+  ✓ p.line(W*0.1, H*0.5, W*0.9, H*0.5)     — horizontal line at 10%-90%
+  ✗ p.ellipse(350, 200, 50, 50)             — BREAKS on different sizes
+  ✗ p.textSize(24)                           — too big on small canvas, tiny on large
+  ✗ p.line(60, 110, 640, 110)               — only works for one specific canvas size
+
+  Use A.nx(fraction) and A.ny(fraction) as shortcuts:
+    A.nx(0.5) = W * 0.5 (center X)
+    A.ny(0.3) = H * 0.3 (30% from top)
+
 Pattern:
   Beat 1: Create animation with A.init({allStatesStartAtZero})
   Beat 2+: Control via anim-control (state changes only, no new code)
@@ -218,7 +236,7 @@ AnimHelper setup (required at the start of your code):
 AnimHelper API:
   A.clear()                        — board bg fill
   A.grid(spacing, alpha)           — subtle grid
-  A.glow(x, y, r, color)          — glowing circle
+  A.glow(x, y, r, color)          — glowing circle (use W*fraction for x,y,r)
   A.label(x, y, text, color, sz)  — sans-serif label
   A.arrow(x1,y1, x2,y2, color)    — arrow with head
   A.dashed(x1,y1, x2,y2, color)   — dashed line

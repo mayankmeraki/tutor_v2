@@ -845,58 +845,56 @@ function toggleAnimFullscreen(figure, animBox) {
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u26F6'; btn.title = 'Expand'; }
-    // Resize p5 back to normal container size with correct pixel density
-    var inst = animBox._p5Instance;
-    if (inst && typeof inst.resizeCanvas === 'function') {
-      requestAnimationFrame(function() {
-        var r = animBox.getBoundingClientRect();
-        if (r.width > 0 && r.height > 0) {
-          try {
-            inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
-            inst.resizeCanvas(Math.round(r.width), Math.round(r.height));
-          } catch(e) {}
-        }
-      });
-    }
+    // Remove CSS transform scale — back to native size
+    var wrap = animBox.querySelector('.bd-anim-canvas-wrap');
+    if (wrap) { wrap.style.transform = ''; wrap.style.transformOrigin = ''; }
   } else {
-    // Expand to fullscreen
+    // ── Expand to fullscreen modal ──
+    // IMPORTANT: Do NOT call resizeCanvas. p5 animations use absolute pixel
+    // coordinates (textSize(24), rect(50,50,100,80)). Resizing the canvas
+    // changes the coordinate space but the LLM's code doesn't adapt.
+    // Instead, use CSS transform:scale() to enlarge the RENDERED output.
+    // This preserves the exact visual appearance at a larger display size.
     figure.classList.add('bd-anim-fullscreen');
+
     // Add backdrop overlay (click to close)
     var backdrop = document.createElement('div');
     backdrop.className = 'bd-anim-backdrop';
     backdrop.addEventListener('click', function() { toggleAnimFullscreen(figure, animBox); });
     figure.insertBefore(backdrop, figure.firstChild);
-    // Add visible close button
+
+    // Add close button
     var closeBtn = document.createElement('button');
     closeBtn.className = 'bd-anim-close-btn';
     closeBtn.textContent = '\u2715';
-    closeBtn.title = 'Close fullscreen';
+    closeBtn.title = 'Close';
     closeBtn.addEventListener('click', function() { toggleAnimFullscreen(figure, animBox); });
     figure.appendChild(closeBtn);
+
     // Update expand button
     var btn = animBox.querySelector('.bd-anim-expand-btn');
     if (btn) { btn.textContent = '\u2715'; btn.title = 'Restore'; }
-    // Resize p5 after fullscreen layout is settled.
-    // Must update BOTH pixel density and canvas size for sharp rendering.
-    var inst = animBox._p5Instance;
-    function _resizeToContainer() {
-      if (!inst || typeof inst.resizeCanvas !== 'function') return;
-      var r = animBox.getBoundingClientRect();
-      if (r.width > 0 && r.height > 0) {
-        try {
-          inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
-          inst.resizeCanvas(Math.round(r.width), Math.round(r.height));
-        } catch(e) {}
+
+    // Scale the canvas wrapper to fill the modal using CSS transform.
+    // The canvas pixel buffer stays at its original size — no blur, no
+    // coordinate mismatch, no text scaling issues.
+    requestAnimationFrame(function() {
+      var wrap = animBox.querySelector('.bd-anim-canvas-wrap');
+      if (!wrap) return;
+      var canvas = wrap.querySelector('canvas');
+      if (!canvas) return;
+      var modalRect = animBox.getBoundingClientRect();
+      var canvasW = canvas.width / (window.devicePixelRatio || 1);
+      var canvasH = canvas.height / (window.devicePixelRatio || 1);
+      if (canvasW > 0 && canvasH > 0 && modalRect.width > 0 && modalRect.height > 0) {
+        var scaleX = modalRect.width / canvasW;
+        var scaleY = modalRect.height / canvasH;
+        var s = Math.min(scaleX, scaleY); // fit inside modal, preserve aspect
+        wrap.style.transformOrigin = 'top left';
+        wrap.style.transform = 'scale(' + s.toFixed(4) + ')';
       }
-    }
-    if (inst) {
-      figure.addEventListener('transitionend', function onEnd() {
-        figure.removeEventListener('transitionend', onEnd);
-        _resizeToContainer();
-      });
-      // Fallback if transition doesn't fire
-      setTimeout(_resizeToContainer, 400);
-    }
+    });
+
     // Escape key closes fullscreen
     figure._escHandler = function(e) {
       if (e.key === 'Escape') { toggleAnimFullscreen(figure, animBox); }
@@ -1144,21 +1142,21 @@ async function createAnimation(cmd) {
   var entry = { container: el, instance: inst, _running: true };
   board.animations.push(entry);
 
-  // Responsive resize for p5 canvas — observe the PARENT anim-box (el),
-  // not the canvas wrapper, because the box has the layout constraints
-  // (aspect-ratio, min-height, flex). The canvas should fill whatever
-  // the box gives it.
+  // Responsive resize — only on SIGNIFICANT container size changes.
+  // Do NOT call pixelDensity here — it was already set in setup().
+  // Calling it on every resize causes a feedback loop (pixelDensity
+  // changes p.width → observer fires → resize → observer fires...).
   if (typeof ResizeObserver !== 'undefined') {
+    var _lastW = pw, _lastH = ph;
     var _roP5 = new ResizeObserver(function(entries) {
       var cr = entries[0].contentRect;
-      if (cr.width > 0 && cr.height > 0 && inst && typeof inst.resizeCanvas === 'function') {
-        var nw = Math.round(cr.width), nh = Math.round(cr.height);
-        // Only resize if dimensions actually changed (avoid infinite loops)
-        if (nw !== inst.width || nh !== inst.height) {
-          try {
-            inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
-            inst.resizeCanvas(nw, nh);
-          } catch(e) {}
+      var nw = Math.round(cr.width), nh = Math.round(cr.height);
+      // Only resize if dimensions changed by more than 5px (avoids
+      // sub-pixel jitter from rounding/pixelDensity feedback loops)
+      if (nw > 0 && nh > 0 && (Math.abs(nw - _lastW) > 5 || Math.abs(nh - _lastH) > 5)) {
+        _lastW = nw; _lastH = nh;
+        if (inst && typeof inst.resizeCanvas === 'function') {
+          try { inst.resizeCanvas(nw, nh); } catch(e) {}
         }
       }
     });
