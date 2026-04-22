@@ -73,9 +73,11 @@ def _pricing_table() -> dict[str, tuple[float, float]]:
     haiku45 = (settings.PRICE_HAIKU_45_INPUT, settings.PRICE_HAIKU_45_OUTPUT)
     haiku35 = (settings.PRICE_HAIKU_35_INPUT, settings.PRICE_HAIKU_35_OUTPUT)
     return {
-        # Opus 4.6 — primary Tutor model
+        # Opus — primary Tutor model
         "claude-opus-4-6": opus,
         "anthropic/claude-opus-4-6": opus,
+        "claude-opus-4.7": opus,
+        "anthropic/claude-opus-4.7": opus,
         # Sonnet 4.6
         "claude-sonnet-4-6": sonnet,
         "anthropic/claude-sonnet-4-6": sonnet,

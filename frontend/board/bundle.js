@@ -752,13 +752,50 @@ function buildControlBridge(scale, isWebGL) {
     '    var dist=function(){return p.dist.apply(p,arguments)};\n' +
     '    var noise=function(){return p.noise.apply(p,arguments)};\n' +
     '    var random=function(){return p.random.apply(p,arguments)};\n' +
-    '    var frameCount=0;\n' +
-    '    var mouseX=0,mouseY=0;\n' +
+    '    var frameCount=0,mouseX=0,mouseY=0,pmouseX=0,pmouseY=0;\n' +
     '    var width=W,height=H;\n' +
+    '    var mouseIsPressed=false,key="",keyCode=0;\n' +
+    '    // _syncLocals — called every frame from our draw wrapper to update\n' +
+    '    // these local vars with live p5 state. This is the ONLY way to make\n' +
+    '    // bare `frameCount`, `mouseX`, `width` etc. dynamic in instance mode.\n' +
+    '    p._syncLocals = function() {\n' +
+    '      frameCount=p.frameCount; mouseX=p.mouseX; mouseY=p.mouseY;\n' +
+    '      pmouseX=p.pmouseX; pmouseY=p.pmouseY; width=p.width; height=p.height;\n' +
+    '      mouseIsPressed=p.mouseIsPressed; key=p.key; keyCode=p.keyCode;\n' +
+    '    };\n' +
     '    var PI=Math.PI,TWO_PI=Math.PI*2,HALF_PI=Math.PI/2,QUARTER_PI=Math.PI/4;\n' +
     '    var CENTER=p.CENTER,LEFT=p.LEFT,RIGHT=p.RIGHT,TOP=p.TOP,BOTTOM=p.BOTTOM,BASELINE=p.BASELINE;\n' +
     '    var BOLD=p.BOLD,NORMAL=p.NORMAL,ITALIC=p.ITALIC;\n' +
-    '    var CLOSE=p.CLOSE;\n';
+    '    var CLOSE=p.CLOSE;\n' +
+    '    var background=function(){return p.background.apply(p,arguments)};\n' +
+    '    var image=function(){return p.image.apply(p,arguments)};\n' +
+    '    var loadImage=function(){return p.loadImage.apply(p,arguments)};\n' +
+    '    var bezier=function(){return p.bezier.apply(p,arguments)};\n' +
+    '    var curve=function(){return p.curve.apply(p,arguments)};\n' +
+    '    var noiseSeed=function(){return p.noiseSeed.apply(p,arguments)};\n' +
+    '    var randomSeed=function(){return p.randomSeed.apply(p,arguments)};\n' +
+    '    var strokeCap=function(){return p.strokeCap.apply(p,arguments)};\n' +
+    '    var strokeJoin=function(){return p.strokeJoin.apply(p,arguments)};\n' +
+    '    var rectMode=function(){return p.rectMode.apply(p,arguments)};\n' +
+    '    var ellipseMode=function(){return p.ellipseMode.apply(p,arguments)};\n' +
+    '    var angleMode=function(){return p.angleMode.apply(p,arguments)};\n' +
+    '    var colorMode=function(){return p.colorMode.apply(p,arguments)};\n' +
+    '    var blendMode=function(){return p.blendMode.apply(p,arguments)};\n' +
+    '    var ROUND=p.ROUND||"round",SQUARE=p.SQUARE||"square",PROJECT=p.PROJECT||"square";\n' +
+    '    var MITER=p.MITER||"miter",BEVEL=p.BEVEL||"bevel";\n' +
+    '    var RGB=p.RGB,HSB=p.HSB,HSL=p.HSL;\n' +
+    '    var DEGREES=p.DEGREES,RADIANS=p.RADIANS;\n' +
+    '    var CORNER=p.CORNER;\n' +
+    '    // Canvas2D context methods — LLMs call these bare (without p. or drawingContext.)\n' +
+    '    var drawingContext=p.drawingContext;\n' +
+    '    var setLineDash=function(){if(p.drawingContext)return p.drawingContext.setLineDash.apply(p.drawingContext,arguments)};\n' +
+    '    var getLineDash=function(){if(p.drawingContext)return p.drawingContext.getLineDash()};\n' +
+    '    var createLinearGradient=function(){if(p.drawingContext)return p.drawingContext.createLinearGradient.apply(p.drawingContext,arguments)};\n' +
+    '    var createRadialGradient=function(){if(p.drawingContext)return p.drawingContext.createRadialGradient.apply(p.drawingContext,arguments)};\n' +
+    '    var fillRect=function(){if(p.drawingContext)return p.drawingContext.fillRect.apply(p.drawingContext,arguments)};\n' +
+    '    var strokeRect=function(){if(p.drawingContext)return p.drawingContext.strokeRect.apply(p.drawingContext,arguments)};\n' +
+    '    var clearRect=function(){if(p.drawingContext)return p.drawingContext.clearRect.apply(p.drawingContext,arguments)};\n' +
+    '    var measureText=function(){if(p.drawingContext)return p.drawingContext.measureText.apply(p.drawingContext,arguments)};\n';
 
   return '\n' + p5Bindings +
     '    var _controlParams = {};\n' +
@@ -895,9 +932,39 @@ async function createAnimation(cmd) {
   var el = document.createElement('div');
   el.className = 'bd-anim-box';
 
-  // Controls: expand + restore
+  // Controls: zoom + expand
   var controls = document.createElement('div');
   controls.className = 'bd-anim-controls';
+
+  // Zoom in/out for 2D animations
+  var _zoomLevel = 1;
+  var zoomInBtn = document.createElement('button');
+  zoomInBtn.className = 'bd-anim-ctrl-btn';
+  zoomInBtn.textContent = '+';
+  zoomInBtn.title = 'Zoom in';
+  zoomInBtn.addEventListener('click', function() {
+    _zoomLevel = Math.min(_zoomLevel * 1.25, 3);
+    canvasWrap.style.transform = 'scale(' + _zoomLevel + ')';
+    canvasWrap.style.transformOrigin = 'center center';
+  });
+  var zoomOutBtn = document.createElement('button');
+  zoomOutBtn.className = 'bd-anim-ctrl-btn';
+  zoomOutBtn.textContent = '−';
+  zoomOutBtn.title = 'Zoom out';
+  zoomOutBtn.addEventListener('click', function() {
+    _zoomLevel = Math.max(_zoomLevel / 1.25, 0.5);
+    canvasWrap.style.transform = 'scale(' + _zoomLevel + ')';
+    canvasWrap.style.transformOrigin = 'center center';
+  });
+  var zoomResetBtn = document.createElement('button');
+  zoomResetBtn.className = 'bd-anim-ctrl-btn';
+  zoomResetBtn.textContent = '⟳';
+  zoomResetBtn.title = 'Reset zoom';
+  zoomResetBtn.addEventListener('click', function() {
+    _zoomLevel = 1;
+    canvasWrap.style.transform = '';
+  });
+
   var expandBtn = document.createElement('button');
   expandBtn.className = 'bd-anim-expand-btn';
   expandBtn.textContent = '\u26F6';
@@ -905,6 +972,10 @@ async function createAnimation(cmd) {
   expandBtn.addEventListener('click', function() {
     toggleAnimFullscreen(figure, el);
   });
+
+  controls.appendChild(zoomOutBtn);
+  controls.appendChild(zoomResetBtn);
+  controls.appendChild(zoomInBtn);
   controls.appendChild(expandBtn);
   el.appendChild(controls);
 
@@ -995,6 +1066,9 @@ async function createAnimation(cmd) {
   var setupComplete = new Promise(function(resolveSetup, rejectSetup) {
     try {
       inst = new p5(function(p) {
+        // Store p5 instance on wrapper so LLM closures always find it
+        canvasWrap._p5 = p;
+
         try { sketchFn(p, pw, ph); } catch (err) {
           console.warn('[Animation] Sketch runtime error:', err.message);
           canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation error: ' + escapeHtml(err.message) + '</div>';
@@ -1002,15 +1076,27 @@ async function createAnimation(cmd) {
           return;
         }
 
-        // Wrap draw() with board-bg fill + error boundary
+        // Wrap draw() with board-bg fill + error boundary.
+        // `p` is captured from THIS closure, so the LLM's draw() function
+        // (which also captures `p` from the sketchFn scope) has a valid reference.
         var userDraw = p.draw;
         if (userDraw) {
           var errors = 0;
+          var _p = p;
+          // The sketchFn scope has `var frameCount, mouseX, mouseY, width, height`
+          // as local variables. Since they're `var` (not `let/const`), we can
+          // reassign them from the draw wrapper's closure. We reach into the
+          // sketchFn's scope by storing a sync function during code build.
           p.draw = function () {
-            try { p.background(6, 14, 17); } catch (e) {}
-            try { userDraw.call(p); } catch (err) {
+            // Sync dynamic p5 state to the local vars in sketchFn scope.
+            // sketchFn code references these as bare `frameCount`, `mouseX`, etc.
+            try {
+              _p._syncLocals();
+              _p.background(6, 14, 17);
+            } catch (e) {}
+            try { userDraw.call(_p); } catch (err) {
               if (++errors === 1) console.warn('[Animation] draw() error:', err.message);
-              if (errors >= 30) p.noLoop();
+              if (errors >= 30) _p.noLoop();
             }
           };
         }
@@ -1058,18 +1144,25 @@ async function createAnimation(cmd) {
   var entry = { container: el, instance: inst, _running: true };
   board.animations.push(entry);
 
-  // Responsive resize for p5 canvas — match container when board layout changes
+  // Responsive resize for p5 canvas — observe the PARENT anim-box (el),
+  // not the canvas wrapper, because the box has the layout constraints
+  // (aspect-ratio, min-height, flex). The canvas should fill whatever
+  // the box gives it.
   if (typeof ResizeObserver !== 'undefined') {
     var _roP5 = new ResizeObserver(function(entries) {
       var cr = entries[0].contentRect;
       if (cr.width > 0 && cr.height > 0 && inst && typeof inst.resizeCanvas === 'function') {
-        try {
-          inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
-          inst.resizeCanvas(Math.round(cr.width), Math.round(cr.height));
-        } catch(e) {}
+        var nw = Math.round(cr.width), nh = Math.round(cr.height);
+        // Only resize if dimensions actually changed (avoid infinite loops)
+        if (nw !== inst.width || nh !== inst.height) {
+          try {
+            inst.pixelDensity(Math.min(window.devicePixelRatio || 1, 2));
+            inst.resizeCanvas(nw, nh);
+          } catch(e) {}
+        }
       }
     });
-    _roP5.observe(canvasWrap);
+    _roP5.observe(el);
   }
 
   // Blank detection disabled — Haiku fix causes more harm than good
@@ -2392,6 +2485,17 @@ async function renderScene3D(cmd) {
     }
     container.appendChild(overlay);
   }
+
+  // Expand/fullscreen button for 3D scenes
+  var expand3dBtn = document.createElement('button');
+  expand3dBtn.className = 'bd-anim-expand-btn';
+  expand3dBtn.textContent = '\u26F6';
+  expand3dBtn.title = 'Expand';
+  expand3dBtn.style.cssText += 'z-index:3;';
+  expand3dBtn.addEventListener('click', function() {
+    toggleAnimFullscreen(container, container);
+  });
+  container.appendChild(expand3dBtn);
 
   // Drag hint — bottom center, fades after 6 seconds
   var hint = document.createElement('div');

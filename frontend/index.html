@@ -1336,7 +1336,14 @@ function showFeedbackForm() {
     try { sid = (window._appState && window._appState.sessionId) || ''; } catch (e) {}
     _fbSessionId = sid;
     var key = 'fb_shown_' + sid;
-    try { if (sessionStorage.getItem(key)) return; sessionStorage.setItem(key, '1'); } catch (e) {}
+    try {
+      if (sessionStorage.getItem(key)) {
+        // Already shown for this session — skip form but STILL navigate
+        if (window._fbOnClose) { try { window._fbOnClose(); } catch (e) {} window._fbOnClose = null; }
+        return;
+      }
+      sessionStorage.setItem(key, '1');
+    } catch (e) {}
 
     // Reset state
     _fbScore = null;

@@ -2271,6 +2271,7 @@ function handleSSEEvent(event) {
       if (state._streamUpdateTimer) { clearTimeout(state._streamUpdateTimer); state._streamUpdateTimer = null; }
       updateAIMessageStream(state.accumulatedText); // final parse
       state.totalAssistantTurns++;
+      window._fbTurnCount = (window._fbTurnCount || 0) + 1;
       finalizeAIMessage(state.accumulatedText);
       state.messages.push({
         id: state.currentMessageId || generateId(),

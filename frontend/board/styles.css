@@ -1114,81 +1114,89 @@
 }
 
 /* Canvas area inside figure — matches board bg so animation blends */
+/* ═══════════════════════════════════════════════════════════════════
+   ANIMATION BOX — the p5 canvas container
+
+   DESIGN PRINCIPLE: the canvas element's HTML width/height attributes
+   ARE the pixel buffer. NEVER use CSS to resize the canvas — that
+   stretches the bitmap and causes blur/fade. Instead:
+   1. The container (.bd-anim-box) sets its size via CSS (aspect-ratio)
+   2. p5's createCanvas(w, h) creates the pixel buffer at container size
+   3. The ResizeObserver calls resizeCanvas() when the container changes
+   4. The canvas element's native size always matches the container
+   ═══════════════════════════════════════════════════════════════════ */
+
 .bd-anim-box {
   display: block;
   overflow: visible;
   background: var(--bd-bg);
   position: relative;
-  /* aspect-ratio gives the container a computed height BEFORE p5 reads it.
-     No padding — padding was causing the canvas wrapper to measure smaller
-     than the anim-box, creating a pixel buffer mismatch that clipped content. */
   aspect-ratio: 16 / 10;
   min-height: 320px;
   width: 100%;
   padding: 0;
 }
-/* p5 canvas — fill the anim box, match container dimensions */
+
 .bd-anim-box canvas {
   display: block;
   background: var(--bd-bg);
-  width: 100% !important;
-  height: 100% !important;
+  /* NO width/height override — p5 sets these natively via createCanvas */
 }
 
-/* Figure inside a row */
+/* Figure inside a row (figure + narration side-by-side) */
 .bd-row > .bd-anim-figure {
   flex: 0 0 55%;
   max-width: 600px;
 }
 
-/* Standalone figure — responsive, fill available space */
+/* Standalone figure — fill available width */
 .bd-anim-figure:not(.bd-row *) {
   width: 95%;
   max-width: 100%;
 }
 
-/* Fullscreen mode — modal overlay, semi-transparent so session shows through */
+/* ═══════════════════════════════════════════════════════════════════
+   FULLSCREEN — modal floating over the board with faded background
+   ═══════════════════════════════════════════════════════════════════ */
+
 .bd-anim-fullscreen {
   position: fixed !important;
-  inset: 32px !important;
+  /* Smaller than full viewport so the board shows behind */
+  top: 48px !important;
+  left: 10% !important;
+  right: 10% !important;
+  bottom: 80px !important;
   z-index: 9990 !important;
   width: auto !important;
   max-width: none !important;
   margin: 0 !important;
-  border-radius: 16px;
-  box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rgba(255,255,255,0.06);
-  background: #060e11 !important;
+  border-radius: 14px;
+  border: 1px solid rgba(255,255,255,0.08);
+  box-shadow: 0 24px 80px rgba(0,0,0,0.7);
+  background: var(--bd-bg, #060e11) !important;
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  filter: none !important;
-  opacity: 1 !important;
-  backdrop-filter: none !important;
-  -webkit-backdrop-filter: none !important;
 }
+
 .bd-anim-fullscreen .bd-anim-box {
   min-height: 0;
   flex: 1 1 auto;
-  height: 0;
+  height: 0; /* flex grow */
   aspect-ratio: auto;
   overflow: visible;
 }
-/* In fullscreen: DON'T force canvas to 100% CSS size — let p5 control the
-   canvas element size directly via resizeCanvas(). CSS scaling over the pixel
-   buffer causes the faded/blurry look because it stretches the bitmap. */
+
 .bd-anim-fullscreen .bd-anim-box canvas {
-  width: auto !important;
-  height: auto !important;
-  max-width: 100%;
-  max-height: 100%;
   display: block;
-  margin: 0 auto;
+  /* NO CSS sizing — resizeCanvas handles it */
 }
-/* Backdrop — semi-transparent so teaching session is visible underneath */
+
+/* Backdrop — board faded but visible behind the modal */
 .bd-anim-backdrop {
   position: fixed;
   inset: 0;
-  background: rgba(6,14,17,0.75);
+  background: rgba(6,14,17,0.65);
   z-index: 9989;
 }
 /* Close button — top-right corner of fullscreen modal */
@@ -1268,9 +1276,13 @@
   z-index: 5;
   opacity: 0;
   transition: opacity 0.2s ease;
+  display: flex;
+  gap: 4px;
+  align-items: center;
 }
 
-.bd-anim-box:hover .bd-anim-controls {
+.bd-anim-box:hover .bd-anim-controls,
+.bd-scene3d:hover .bd-anim-expand-btn {
   opacity: 1;
 }
 
@@ -1812,14 +1824,22 @@
 }
 .bd-scene3d canvas {
   display: block;
-  width: 100% !important;
-  height: 100% !important;
   border-radius: 10px;
   pointer-events: auto !important;
   touch-action: none;
   cursor: grab;
   user-select: none;
   overflow: visible;
+}
+
+/* 3D scene fullscreen — reuse the same modal pattern as p5 */
+.bd-scene3d.bd-anim-fullscreen {
+  border-radius: 14px;
+}
+.bd-scene3d.bd-anim-fullscreen canvas {
+  border-radius: 0;
+  width: 100% !important;
+  height: 100% !important;
 }
 .bd-scene3d canvas:active { cursor: grabbing; }
 
@@ -1978,43 +1998,51 @@
   opacity: 1;
 }
 .bd-stream-pulse {
-  width: 28px;
-  height: 28px;
+  width: 32px;
+  height: 32px;
   border-radius: 50%;
   position: relative;
   animation: bd-heartbeat 1.6s ease-in-out infinite;
 }
-/* Glowing core */
+/* Multicolor Siri core — rotating gradient */
 .bd-stream-pulse::before {
   content: '';
   position: absolute;
-  inset: 0;
+  inset: -4px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(52,211,153,0.7) 0%, rgba(96,165,250,0.4) 50%, transparent 70%);
+  background: conic-gradient(
+    from 0deg,
+    rgba(52,211,153,0.8),
+    rgba(96,165,250,0.8),
+    rgba(167,139,250,0.8),
+    rgba(251,146,60,0.7),
+    rgba(248,113,113,0.7),
+    rgba(167,139,250,0.8),
+    rgba(96,165,250,0.8),
+    rgba(52,211,153,0.8)
+  );
+  filter: blur(6px);
+  animation: bd-siri-spin 3s linear infinite;
 }
-/* Outer ring pulse */
+/* Dark center cutout */
 .bd-stream-pulse::after {
   content: '';
   position: absolute;
-  inset: -8px;
+  inset: 4px;
   border-radius: 50%;
-  border: 2px solid rgba(52,211,153,0.3);
-  animation: bd-ring-pulse 1.6s ease-in-out infinite;
+  background: radial-gradient(circle, rgba(6,14,17,0.6) 0%, rgba(6,14,17,0.9) 100%);
 }
 
 @keyframes bd-heartbeat {
   0%, 100% { transform: scale(0.8); opacity: 0.5; }
-  15% { transform: scale(1.2); opacity: 1; }
+  15% { transform: scale(1.25); opacity: 1; }
   30% { transform: scale(0.9); opacity: 0.7; }
-  45% { transform: scale(1.1); opacity: 0.9; }
+  45% { transform: scale(1.15); opacity: 0.95; }
   60% { transform: scale(0.85); opacity: 0.6; }
 }
-@keyframes bd-ring-pulse {
-  0%, 100% { transform: scale(0.8); opacity: 0; }
-  15% { transform: scale(1.3); opacity: 0.5; }
-  30% { transform: scale(1); opacity: 0.2; }
-  45% { transform: scale(1.2); opacity: 0.4; }
-  60% { transform: scale(0.9); opacity: 0.1; }
+@keyframes bd-siri-spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
 }
 .bd-stream-text {
   font-family: var(--bd-font, 'Inter', sans-serif);

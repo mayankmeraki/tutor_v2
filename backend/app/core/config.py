@@ -20,7 +20,7 @@ class Settings(BaseSettings):
 
     # ── Model tiers (all OpenRouter IDs by default) ──
     # Heavy: best quality, used for teaching (Tutor)
-    MODEL_HEAVY: str = Field(default="anthropic/claude-opus-4-6")
+    MODEL_HEAVY: str = Field(default="anthropic/claude-opus-4.7")
     # Mid: good balance, used for planning + enrichment
     MODEL_MID: str = Field(default="anthropic/claude-sonnet-4-6")
     # Fast: cheap & quick, used for reranking, classification, sub-agents
