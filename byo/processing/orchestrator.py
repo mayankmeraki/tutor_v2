@@ -363,19 +363,34 @@ async def _process_job(job: dict):
             )
         else:
             # Normal completion with chunks
+            n_chunks = len(chunks)
+            n_segments = len(result.get("segments", []))
+
+            # Strip bulk content from job result — data is in Qdrant now.
+            # Keep only a summary so the job doc stays small.
+            cleaned_result = {
+                "summary": {
+                    "chunks": n_chunks,
+                    "segments": n_segments,
+                    "pages": result.get("extraction", {}).get("meta", {}).get("pages", 0) if isinstance(result.get("extraction"), dict) else 0,
+                    "extractor": result.get("extraction", {}).get("meta", {}).get("extractor", "") if isinstance(result.get("extraction"), dict) else "",
+                },
+            }
+
             await _update_job(db, job_id, {
                 "state": JobState.COMPLETE,
                 "progress": 1.0,
                 "completed_at": datetime.utcnow(),
                 "locked_by": None,
+                "result": cleaned_result,
             })
             await db.byo_resources.update_one(
                 {"resource_id": job["resource_id"]},
                 {"$set": {
                     "status": ResourceStatus.READY,
                     "progress": 1.0,
-                    "chunk_count": len(chunks),
-                    "segment_count": len(result.get("segments", [])),
+                    "chunk_count": n_chunks,
+                    "segment_count": n_segments,
                 }},
             )
 

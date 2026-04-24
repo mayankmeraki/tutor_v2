@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Euler — AI tutor that teaches you live</title>
-  <link rel="stylesheet" href="/styles.css?v=20260424e">
+  <link rel="stylesheet" href="/styles.css?v=20260424j">
   <link rel="stylesheet" href="/board/styles.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
@@ -1191,11 +1191,7 @@
         <div class="vb-progress" id="vb-progress"></div>
         <div class="vb-status" id="vb-status"></div>
         <div class="voice-bar" id="voice-bar-main">
-          <!-- Waveform animation — visible when listening -->
-          <div class="vb-waveform" id="vb-waveform"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
-          <!-- Text area (expands vertically as you type/speak) -->
-          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Type or speak your answer..." autocomplete="off"></textarea>
-          <!-- Bottom row: attach + controls on left, send + mic on right -->
+          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
           <div class="vb-bottom">
             <div class="vb-bottom-left">
               <button class="vb-icon-btn" id="voice-bar-attach" title="Attach file">
@@ -1214,31 +1210,9 @@
               </button>
             </div>
             <div class="vb-bottom-right">
-              <button class="vb-send-btn" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send" style="display:none">
+              <button class="vb-send-btn visible" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send (Enter)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
-              <button class="vb-mic-btn scribe-muted" id="voice-mic-btn" title="Mic off (click to unmute)">
-                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
-                  <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
-                  <line x1="3" y1="3" x2="21" y2="21" stroke-width="2.5" stroke-linecap="round"/>
-                </svg>
-              </button>
-              <script>
-              (function() {
-                var micOn = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
-                var micOff = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/><line x1="3" y1="3" x2="21" y2="21" stroke-width="2.5" stroke-linecap="round"/></svg>';
-                var btn = document.getElementById('voice-mic-btn');
-                // Expose for app.js _updateMicUI
-                window._micSetIcon = function(isOn) {
-                  btn.innerHTML = isOn ? micOn : micOff;
-                };
-                btn.addEventListener('click', function(e) {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  if (typeof scribeStart === 'function') scribeStart('voice-bar-input');
-                });
-              })();
-              </script>
             </div>
           </div>
         </div>
@@ -1332,7 +1306,7 @@
   <script src="/router.js"></script>
   <script src="/board/bundle.js"></script>
   <script src="/animation-helpers.js"></script>
-  <script src="/app.js?v=20260424i"></script>
+  <script src="/app.js?v=20260424j"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->
 <div class="fb-overlay" id="fb-overlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
   <div class="fb-modal">

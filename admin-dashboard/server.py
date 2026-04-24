@@ -74,6 +74,10 @@ def get_db():
 
 async def ensure_indexes():
     """Create indexes used by dashboard queries — idempotent / no-op if exist."""
+    print(
+        "  ... Connecting to MongoDB and ensuring indexes (first run can take ~10-30s) ...",
+        flush=True,
+    )
     db = get_db()
     try:
         # Sessions: filtering by user, time windows, transcript timestamps
@@ -84,9 +88,9 @@ async def ensure_indexes():
         await db.users.create_index("email", unique=True)
         await db.users.create_index("createdAt")
         await db.session_feedback.create_index("createdAt")
-        print("  ✓ Indexes ensured")
+        print("  OK Indexes ensured", flush=True)
     except Exception as e:
-        print(f"  ⚠ Could not ensure indexes: {e}")
+        print(f"  WARN Could not ensure indexes: {e}", flush=True)
 
 
 # ── TTL cache ───────────────────────────────────────────────────────
@@ -933,11 +937,21 @@ def run_async(coro):
 
 class ThreadedHTTPServer(ThreadingMixIn, HTTPServer):
     daemon_threads = True
+    allow_reuse_address = True
 
 
 class DashboardHandler(BaseHTTPRequestHandler):
+    server_version = "EulerAdmin/1.0"
+
     def log_message(self, fmt, *args):
-        pass
+        if os.environ.get("DASHBOARD_ACCESS_LOG") != "1":
+            return
+        try:
+            line = fmt % args if args else fmt
+        except Exception:
+            line = str(fmt)
+        sys.stderr.write(f"  [access] {line}\n")
+        sys.stderr.flush()
 
     def _json(self, data, status=200):
         body = json.dumps(data, default=str).encode()
@@ -958,10 +972,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_GET(self):
         parsed = urlparse(self.path)
-        path = parsed.path.rstrip("/")
+        # Normalize: empty or "/" -> "/", "/dashboard" stays; avoids missing "/" edge cases
+        raw = parsed.path or "/"
+        if not raw.startswith("/"):
+            raw = "/" + raw
+        path = raw.rstrip("/") or "/"
 
         try:
-            if path == "" or path == "/dashboard":
+            if path in ("/", "/dashboard"):
                 self._html(DASHBOARD_HTML)
             elif path.startswith("/replay/"):
                 self._html(REPLAY_HTML)
@@ -993,7 +1011,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
                 sid = path.split("/api/replay/", 1)[1]
                 self._json(run_async(fetch_replay(sid)))
             else:
-                self.send_error(404)
+                self._json({"error": "Not found"}, 404)
         except Exception as e:
             self._json({"error": str(e)}, 500)
 
@@ -2282,21 +2300,38 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=PORT)
     args = parser.parse_args()
 
-    print(f"\n  Euler Admin Dashboard")
-    print(f"  http://localhost:{args.port}")
+    print("\n  Euler Admin Dashboard", flush=True)
+    print(f"  Open: http://127.0.0.1:{args.port}/  (same UI at /dashboard)", flush=True)
+    print(
+        f"  Tip: response header Server: {DashboardHandler.server_version} confirms this app.",
+        flush=True,
+    )
 
     # One-time index creation (no-op if they exist)
     try:
         run_async(ensure_indexes())
     except Exception as _e:
-        print(f"  ⚠ index creation error (continuing): {_e}")
-    print()
+        print(f"  WARN index creation error (continuing): {_e}", flush=True)
 
+    print(f"  Binding HTTP server to 0.0.0.0:{args.port} ...", flush=True)
     server = ThreadedHTTPServer(("0.0.0.0", args.port), DashboardHandler)
+    addr = server.server_address
+    host, port = addr[0], addr[1]
+    print(f"  OK Bound to {host}:{port}", flush=True)
+    print(
+        "  Listening (process is idle until you open the URL or call /api/*).",
+        flush=True,
+    )
+    print(
+        "  Optional: set DASHBOARD_ACCESS_LOG=1 to log each HTTP request to stderr.",
+        flush=True,
+    )
+    print("  Press Ctrl+C to stop.\n", flush=True)
+
     try:
         server.serve_forever()
     except KeyboardInterrupt:
-        print("\nShutting down.")
+        print("\nShutting down.", flush=True)
         server.server_close()
         if _client:
             _client.close()

@@ -17660,12 +17660,6 @@ function applyTeachingMode() {
   speedWrap?.classList.remove('hidden');
   micFloat?.classList.remove('hidden');
 
-  // Auto-start mic in always-listening mode
-  setTimeout(function() {
-    if (typeof scribeStart === 'function' && !_scribe.active) {
-      scribeStart('voice-bar-input');
-    }
-  }, 2000);
 }
 
 // ── ElevenLabs Streaming TTS (chunked playback for low latency) ──

@@ -1,4 +1,15 @@
+import os
+from pathlib import Path
 from urllib.parse import quote_plus
+
+# Load .env early so ALL modules (including Qdrant, which reads os.environ directly) get the vars
+try:
+    from dotenv import load_dotenv
+    _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
+    if _env_path.exists():
+        load_dotenv(_env_path, override=False)
+except ImportError:
+    pass
 
 from pydantic import Field, computed_field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
