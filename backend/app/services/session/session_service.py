@@ -300,8 +300,8 @@ async def _enrich_sessions_with_headlines(sessions: list[dict]) -> list[dict]:
     needs_generation = []
 
     for s in sessions:
-        existing = s.get("headline", "")
-        is_stale = bool(_re.match(r"^Session \d+$", existing))
+        existing = s.get("headline") or ""
+        is_stale = bool(existing and _re.match(r"^Session \d+$", existing))
 
         if existing and not is_stale:
             continue  # Good headline cached

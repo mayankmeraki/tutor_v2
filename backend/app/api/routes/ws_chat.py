@@ -77,6 +77,22 @@ async def ws_chat(ws: WebSocket):
             elif msg_type == "VOICE_MODE":
                 router.voice_enabled = raw.get("enabled", True)
 
+            elif msg_type == "INJECT_CONTEXT":
+                # Inject judge results / system context into session messages.
+                # Appended as a user message so it shows in the tutor's conversation.
+                content = raw.get("content", "")
+                _inject_sid = raw.get("sessionId", "")
+                if content and _inject_sid:
+                    from app.agents.session import _sessions
+                    _inject_session = _sessions.get(_inject_sid)
+                    if _inject_session:
+                        _inject_session.messages.append({
+                            "role": "user",
+                            "content": [{"type": "text", "text": content}],
+                        })
+                        slog.info("Injected context: %s", content[:80],
+                                  extra={"event": "INJECT_CONTEXT"})
+
             elif msg_type == "PING":
                 await ws.send_json({"type": "PONG"})
 

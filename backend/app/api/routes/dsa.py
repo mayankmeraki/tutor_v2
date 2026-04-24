@@ -125,6 +125,17 @@ def list_curated_lists():
     return [{"name": l["_id"], "count": l["count"]} for l in results]
 
 
+@router.get("/sd/concepts")
+def get_sd_concepts():
+    """Return SD and LLD concept lists from ui_config collection."""
+    sd_doc = _safe_find_one("ui_config", {"key": "sd_concepts"})
+    lld_doc = _safe_find_one("ui_config", {"key": "lld_concepts"})
+    return {
+        "sd": sd_doc.get("sections", []) if sd_doc else [],
+        "lld": lld_doc.get("sections", []) if lld_doc else [],
+    }
+
+
 @router.get("/sd/problems")
 def list_sd_problems(
     difficulty: Optional[str] = None,

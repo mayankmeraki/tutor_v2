@@ -526,8 +526,20 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
     teaching_plan = context_data.get("teachingPlan")
     if teaching_plan:
-        parts.append("[TEACHING PLAN — Full outline of all sections and topics]\n")
-        parts.append(teaching_plan)
+        try:
+            import json as _tpj
+            _tp = _tpj.loads(teaching_plan) if isinstance(teaching_plan, str) else teaching_plan
+            _deep = _tp.pop("deep_content", None)
+            parts.append("[TEACHING PLAN — Outline]\n")
+            parts.append(_tpj.dumps(_tp, indent=2))
+            if _deep and isinstance(_deep, str):
+                _max = 8000
+                _trunc = _deep[:_max] + ("\n...[truncated]" if len(_deep) > _max else "")
+                parts.append("\n[TEACHING CONTENT — Reference material]\n")
+                parts.append(_trunc)
+        except Exception:
+            parts.append("[TEACHING PLAN]\n")
+            parts.append(teaching_plan if isinstance(teaching_plan, str) else str(teaching_plan))
 
     current_topic = context_data.get("currentTopic")
     if current_topic:

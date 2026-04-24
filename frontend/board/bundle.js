@@ -1017,11 +1017,9 @@ async function createAnimation(cmd) {
   var pw = Math.round(elRect.width) || animW;
   var ph = Math.round(elRect.height) || animH;
 
-  // Guard: if LLM code is too short to be a real animation, skip compilation.
-  // Truncated LLM responses produce fragments that sanitizeCode's bracket
-  // balancer turns into invalid JS (e.g., adds `}` that creates `Unexpected token`).
-  if (!cmd.code || cmd.code.trim().length < 30) {
-    console.warn('[Animation] Code too short to be valid (' + (cmd.code || '').length + ' chars) — likely truncated');
+  // Guard: only skip if code is truly empty
+  if (!cmd.code || cmd.code.trim().length < 10) {
+    console.warn('[Animation] Code empty or near-empty (' + (cmd.code || '').length + ' chars)');
     canvasWrap.innerHTML = '<div style="padding:20px;color:rgba(255,255,255,0.25);font-size:12px;text-align:center">Animation is loading...</div>';
     showSkeleton(el, canvasWrap, cmd, 'Code truncated', 1, false);
     return;
@@ -1032,11 +1030,11 @@ async function createAnimation(cmd) {
   var code = sanitizeCode(cmd.code);
   code = code.replace(/p\.textSize\((\d+(?:\.\d+)?)\)/g, function(_, n) { return 'p.textSize(' + n + ' * S)'; });
   code = code.replace(/p\.strokeWeight\((\d+(?:\.\d+)?)\)/g, function(_, n) { return 'p.strokeWeight(Math.max(1, ' + n + ' * S))'; });
-  // Check if sanitized code has any real content (not just whitespace/semicolons)
+  // Only skip if sanitized code is truly empty
   var codeContent = code.replace(/[;\s{}()\[\]]/g, '').trim();
-  if (codeContent.length < 10) {
-    console.warn('[Animation] Sanitized code has no real content — truncated LLM output');
-    showSkeleton(el, canvasWrap, cmd, 'Animation code was truncated', scale, isWebGL);
+  if (codeContent.length < 5) {
+    console.warn('[Animation] Sanitized code empty after cleanup');
+    showSkeleton(el, canvasWrap, cmd, 'Animation code was empty', scale, isWebGL);
     return;
   }
 

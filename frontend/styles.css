@@ -1795,6 +1795,25 @@ body {
 .ws-btn-run { }
 .ws-btn-submit { background: var(--accent); color: #000; border-color: var(--accent); }
 .ws-btn-submit:hover { background: #5ce8b5; }
+/* LLD split view */
+#ws-lld-pane { border-left: 1px solid var(--border); }
+#ws-lld-code { border-right: 1px solid rgba(255,255,255,.04); }
+#ws-lld-resize:hover { background: rgba(52,211,153,.15); }
+#ws-lld-toolbar { padding: 4px 8px; border-bottom: 1px solid var(--border); display: flex; gap: 2px; align-items: center; flex-shrink: 0; background: #060e11; }
+#ws-lld-toolbar .ws-tool { width: 28px; height: 26px; display: grid; place-items: center; border-radius: 4px; border: 1px solid rgba(255,255,255,.06); cursor: pointer; font-size: 13px; color: rgba(255,255,255,.3); background: transparent; }
+#ws-lld-toolbar .ws-tool.sel { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.15); color: #34d399; }
+
+.judge-loading-dots { display: flex; gap: 6px; }
+.judge-loading-dots span {
+  width: 8px; height: 8px; border-radius: 50%; background: #34d399;
+  animation: judge-bounce .6s ease-in-out infinite alternate;
+}
+.judge-loading-dots span:nth-child(2) { animation-delay: .15s; }
+.judge-loading-dots span:nth-child(3) { animation-delay: .3s; }
+@keyframes judge-bounce {
+  0% { opacity: .2; transform: scale(.7); }
+  100% { opacity: 1; transform: scale(1); }
+}
 .ws-canvas-toolbar {
   display: flex; gap: 2px; padding: 4px 10px; border-bottom: 1px solid var(--border);
   align-items: center; flex-shrink: 0; background: #060e11;
@@ -6033,16 +6052,16 @@ body {
 
 /* ─── Subtitle Bar (cinematic style) ─────────────────────── */
 .voice-subtitle-bar {
-  position: fixed; bottom: 70px; left: 0; right: 0; z-index: 50;
-  background: linear-gradient(transparent 0%, rgba(10,13,11,0.5) 40%, rgba(10,13,11,0.85) 100%);
-  padding: 30px 0 14px; text-align: center; pointer-events: none;
+  position: fixed; bottom: 110px; left: 0; right: 0; z-index: 60;
+  background: none;
+  padding: 0 0 8px; text-align: center; pointer-events: none;
   transition: opacity 0.3s;
 }
 .voice-subtitle-bar.hidden { display: none; }
 .voice-subtitle-text {
-  font-family: var(--font-sans); font-size: 17px; color: rgba(232,213,183,0.95);
-  text-shadow: 0 1px 8px rgba(0,0,0,0.95), 0 0 20px rgba(0,0,0,0.5);
-  line-height: 1.6; max-width: 680px; margin: 0 auto; padding: 0 20px;
+  font-family: var(--font-sans); font-size: 13px; color: rgba(232,213,183,0.85);
+  text-shadow: 0 1px 6px rgba(0,0,0,0.95), 0 0 16px rgba(0,0,0,0.6);
+  line-height: 1.5; max-width: 560px; margin: 0 auto; padding: 0 20px;
   word-wrap: break-word; overflow-wrap: break-word;
   letter-spacing: 0.01em;
   animation: sub-fade-in 0.25s ease;
@@ -6050,6 +6069,50 @@ body {
 @keyframes sub-fade-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 .voice-subtitle-text em { color: var(--yellow); font-style: normal; font-weight: 600; }
 .voice-subtitle-text:empty { display: none; }
+
+/* Warm aura behind voice bar when Euler speaks — multi-blob like Claude */
+.voice-bar-wrap.euler-speaking::before,
+.voice-bar-wrap.euler-speaking::after {
+  content: '';
+  position: absolute; z-index: -1;
+  border-radius: 50%;
+  filter: blur(40px);
+  pointer-events: none;
+}
+.voice-bar-wrap.euler-speaking::before {
+  width: 280px; height: 100px;
+  left: 50%; top: -30px;
+  transform: translateX(-50%);
+  background: radial-gradient(ellipse,
+    rgba(220,140,80,0.25) 0%,
+    rgba(200,100,60,0.15) 40%,
+    transparent 70%
+  );
+  animation: aura-blob1 2s ease-in-out infinite alternate;
+}
+.voice-bar-wrap.euler-speaking::after {
+  width: 200px; height: 80px;
+  left: 50%; top: -20px;
+  transform: translateX(-40%);
+  background: radial-gradient(ellipse,
+    rgba(240,180,120,0.2) 0%,
+    rgba(180,80,50,0.1) 50%,
+    transparent 70%
+  );
+  animation: aura-blob2 2.5s ease-in-out infinite alternate-reverse;
+}
+@keyframes aura-blob1 {
+  0% { opacity: 0.5; transform: translateX(-50%) scaleX(0.9); }
+  50% { opacity: 1; transform: translateX(-50%) scaleX(1.1); }
+  100% { opacity: 0.7; transform: translateX(-50%) scaleX(1.0); }
+}
+@keyframes aura-blob2 {
+  0% { opacity: 0.4; transform: translateX(-40%) scaleX(1.1) translateY(-5px); }
+  50% { opacity: 0.8; transform: translateX(-60%) scaleX(0.9) translateY(5px); }
+  100% { opacity: 0.5; transform: translateX(-40%) scaleX(1.0) translateY(0); }
+}
+/* Ensure voice-bar-wrap has position:relative for pseudo-elements */
+.voice-bar-wrap { position: fixed; }
 
 /* ─── Voice Indicator (top-left pill) ────────────────────── */
 .voice-indicator {
@@ -6084,9 +6147,11 @@ body {
 
 /* ─── Voice Input Bar (unified pill) ──────────────────────── */
 .voice-bar-wrap {
-  position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%);
-  z-index: 55; width: 100%; max-width: 500px; padding: 0 16px;
+  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  z-index: 55; width: 100%; max-width: 520px; padding: 0 16px;
+  cursor: grab; user-select: none;
 }
+.voice-bar-wrap.dragging { cursor: grabbing; }
 .voice-bar-wrap.hidden { display: none; }
 
 /* ── Voice bar progress + status ── */
@@ -6112,87 +6177,117 @@ body {
 .voice-bar-resume:not(.hidden) { display:flex }
 
 .voice-bar {
-  background: rgba(17,20,19,0.92);
-  border: 1px solid var(--border-active);
-  border-radius: 28px;
-  padding: 5px 5px 5px 18px;
-  display: flex; align-items: center; gap: 6px;
-  backdrop-filter: blur(12px);
-  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  background: rgba(12,16,22,0.95);
+  border: 1px solid rgba(52,211,153,0.1);
+  border-radius: 22px;
+  padding: 14px 16px 10px;
+  display: flex; flex-direction: column; gap: 0;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 .voice-bar:focus-within {
-  border-color: rgba(52,211,153,0.3);
-  box-shadow: 0 0 0 2px rgba(52,211,153,0.08), 0 4px 24px rgba(0,0,0,0.4);
+  border-color: rgba(52,211,153,0.2);
+  box-shadow: 0 0 0 2px rgba(52,211,153,0.05), 0 4px 30px rgba(0,0,0,0.5);
 }
 
 .voice-bar-input {
-  flex: 1; background: none; border: none; outline: none;
+  width: 100%; background: none; border: none; outline: none;
   color: var(--text); font-size: 14px; font-family: var(--font-sans);
-  padding: 8px 0; min-width: 0;
+  padding: 0 0 6px; min-width: 0;
   resize: none; overflow-y: auto;
-  max-height: 120px; min-height: 24px; line-height: 1.4;
+  max-height: 120px; min-height: 24px; line-height: 1.5;
 }
-.voice-bar-input::placeholder { color: var(--text-dim); }
-.voice-bar-input.transcript { color: var(--text-muted); font-style: italic; }
+.voice-bar-input::placeholder { color: rgba(255,255,255,0.2); }
 
-/* Mic button (right side of pill) */
-.voice-bar-mic {
-  width: 40px; height: 40px; border-radius: 50%;
-  background: rgba(52,211,153,0.1); border: 1.5px solid rgba(52,211,153,0.25);
+/* Bottom row: controls left, send+mic right */
+.vb-bottom {
+  display: flex; align-items: center; justify-content: space-between;
+  padding-top: 4px; border-top: 1px solid rgba(255,255,255,0.04);
+}
+.vb-bottom-left { display: flex; align-items: center; gap: 2px; }
+.vb-bottom-right { display: flex; align-items: center; gap: 6px; }
+
+.vb-icon-btn {
+  width: 30px; height: 30px; border-radius: 8px;
+  background: none; border: none; color: rgba(255,255,255,0.25);
+  cursor: pointer; display: flex; align-items: center; justify-content: center;
+  transition: all 0.12s;
+}
+.vb-icon-btn:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.5); }
+.vb-icon-btn.hidden { display: none; }
+
+.vb-send-btn {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: rgba(52,211,153,0.12); border: none;
+  color: var(--accent); cursor: pointer;
+  display: none; align-items: center; justify-content: center;
+  transition: all 0.12s;
+}
+.vb-send-btn.visible { display: flex; }
+.vb-send-btn:hover { background: rgba(52,211,153,0.2); }
+
+/* Mic button — prominent circle on right */
+.vb-mic-btn {
+  width: 38px; height: 38px; border-radius: 50%;
+  background: rgba(52,211,153,0.08); border: 2px solid rgba(52,211,153,0.2);
   color: var(--accent); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   transition: all 0.2s; flex-shrink: 0;
 }
-.voice-bar-mic:hover {
-  background: rgba(52,211,153,0.18); border-color: rgba(52,211,153,0.4);
+.vb-mic-btn:hover {
+  background: rgba(52,211,153,0.15); border-color: rgba(52,211,153,0.4);
 }
-.voice-bar-mic svg { width: 18px; height: 18px; }
+/* Mic active — green glow */
+.vb-mic-btn.scribe-active {
+  background: rgba(52,211,153,0.15) !important;
+  border-color: rgba(52,211,153,0.5) !important;
+  color: #34d399 !important;
+  box-shadow: 0 0 0 3px rgba(52,211,153,0.15);
+  animation: scribe-pulse 1.5s ease-in-out infinite;
+}
+.vb-mic-btn.scribe-active svg { stroke: #34d399 !important; }
+@keyframes scribe-pulse {
+  0%,100% { box-shadow: 0 0 0 3px rgba(52,211,153,.12); }
+  50% { box-shadow: 0 0 0 8px rgba(52,211,153,0); }
+}
+/* Mic muted — red tint, slash visible */
+.vb-mic-btn.scribe-muted {
+  background: rgba(248,113,113,0.06) !important;
+  border-color: rgba(248,113,113,0.2) !important;
+  color: rgba(248,113,113,0.5) !important;
+  animation: none; box-shadow: none;
+}
+.vb-mic-btn.scribe-muted svg { stroke: rgba(248,113,113,0.5) !important; }
+.vb-mic-btn.scribe-muted:hover {
+  background: rgba(248,113,113,0.1) !important;
+  border-color: rgba(248,113,113,0.35) !important;
+}
+.vb-mic-btn.scribe-muted:hover svg { stroke: rgba(248,113,113,0.7) !important; }
+.vb-mic-btn svg { width: 18px; height: 18px; }
+#mic-icon-on, #mic-icon-off { width: 18px; height: 18px; }
 
-/* Recording state — waveform dots + green tick button */
-.voice-bar.recording {
-  border-color: rgba(52,211,153,0.4);
+/* Scribe listening waveform animation — shows above input when mic is active */
+.vb-waveform {
+  display: none; height: 16px; align-items: center; justify-content: center;
+  gap: 2px; padding: 4px 0 2px;
 }
-.voice-bar.recording::before {
-  content: '';
-  position: absolute; top: 6px; left: 16px; right: 80px; height: 4px;
-  background: repeating-linear-gradient(
-    90deg,
-    rgba(52,211,153,0.6) 0px, rgba(52,211,153,0.6) 2px,
-    transparent 2px, transparent 6px
-  );
-  border-radius: 2px;
-  animation: vb-waveform 0.8s ease-in-out infinite alternate;
+.voice-bar.scribe-listening .vb-waveform { display: flex; }
+.vb-waveform span {
+  width: 2.5px; border-radius: 2px; background: #34d399;
+  animation: vb-wave 0.6s ease-in-out infinite alternate;
 }
-@keyframes vb-waveform {
-  0% { opacity: 0.3; transform: scaleY(0.5); }
-  50% { opacity: 0.8; transform: scaleY(1.5); }
-  100% { opacity: 0.5; transform: scaleY(0.8); }
+.vb-waveform span:nth-child(1) { height: 6px; animation-delay: 0s; }
+.vb-waveform span:nth-child(2) { height: 12px; animation-delay: 0.1s; }
+.vb-waveform span:nth-child(3) { height: 8px; animation-delay: 0.2s; }
+.vb-waveform span:nth-child(4) { height: 14px; animation-delay: 0.15s; }
+.vb-waveform span:nth-child(5) { height: 6px; animation-delay: 0.25s; }
+.vb-waveform span:nth-child(6) { height: 10px; animation-delay: 0.05s; }
+.vb-waveform span:nth-child(7) { height: 8px; animation-delay: 0.3s; }
+@keyframes vb-wave {
+  0% { transform: scaleY(0.4); opacity: 0.4; }
+  100% { transform: scaleY(1.2); opacity: 1; }
 }
-.voice-bar.recording .voice-bar-input {
-  opacity: 0.7; color: rgba(52,211,153,0.8); font-style: italic;
-}
-.voice-bar.recording .voice-bar-mic {
-  background: rgba(52,211,153,0.2); border-color: rgba(52,211,153,0.5); color: var(--accent);
-  animation: vb-tick-pulse 1.5s ease-in-out infinite;
-}
-.voice-bar.recording .voice-bar-mic:hover {
-  background: rgba(52,211,153,0.35); border-color: rgba(52,211,153,0.7);
-}
-/* Cancel button during recording */
-.voice-bar-cancel {
-  width: 32px; height: 32px; border-radius: 50%;
-  background: transparent; border: 1px solid rgba(255,255,255,0.15);
-  color: rgba(255,255,255,0.5); cursor: pointer;
-  font-size: 18px; line-height: 1;
-  display: flex; align-items: center; justify-content: center;
-  flex-shrink: 0; transition: all 0.15s; margin-right: 6px;
-}
-.voice-bar-cancel:hover {
-  background: rgba(248,113,113,0.15); border-color: rgba(248,113,113,0.4);
-  color: rgba(248,113,113,0.8);
-}
-@keyframes vb-tick-pulse { 0%,100%{box-shadow:0 0 6px rgba(52,211,153,0.15)} 50%{box-shadow:0 0 14px rgba(52,211,153,0.35)} }
 
 /* Speaking state */
 .voice-bar.speaking .voice-bar-mic {

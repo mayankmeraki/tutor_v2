@@ -23,7 +23,7 @@ class Judge0Client:
 
     async def submit(self, code: str, language: str, stdin: str = "",
                      expected_output: str = "", time_limit: float = 5,
-                     memory_limit: int = 128000) -> str:
+                     memory_limit: int = 512000) -> str:
         """Submit code, return submission token."""
         lang_id = LANG_IDS.get(language.lower())
         if not lang_id:

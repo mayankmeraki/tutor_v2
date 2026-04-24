@@ -57,11 +57,15 @@ async def upload_attachments(session_id: str, attachments: list[dict]) -> list[d
         await asyncio.get_event_loop().run_in_executor(None, _upload)
 
         gcs_path = f"gs://{BUCKET_NAME}/{blob_name}"
-        results.append({
+        entry = {
             "filename": fname,
             "mime_type": mime,
             "gcs_path": gcs_path,
-        })
-        log.info("Uploaded attachment: %s (%d bytes)", gcs_path, len(raw_bytes))
+        }
+        # Store base64 inline for small files (<2MB) so restored sessions can re-inject
+        if len(raw_bytes) < 2 * 1024 * 1024:
+            entry["data_b64"] = data_b64
+        results.append(entry)
+        log.info("Uploaded attachment: %s (%d bytes, inline=%s)", gcs_path, len(raw_bytes), "data_b64" in entry)
 
     return results

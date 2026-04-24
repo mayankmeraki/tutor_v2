@@ -339,6 +339,17 @@ TUTOR_TOOLS = [
                     "items": {"type": "integer"},
                     "description": "Line numbers to highlight after the operation.",
                 },
+                "test_cases": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "input": {"description": "Structured input dict or plain string. E.g. {\"s\": [\"h\",\"e\",\"l\",\"l\",\"o\"]}"},
+                            "expected": {"description": "Expected output. E.g. [\"o\",\"l\",\"l\",\"e\",\"h\"]"},
+                        },
+                    },
+                    "description": "Test cases for the problem. Each has 'input' and 'expected'. These populate the Testcase panel and enable Run/Submit. The judge wraps the student's code with a driver that calls their function with the input and checks the output.",
+                },
             },
             "required": ["code", "language"],
         },

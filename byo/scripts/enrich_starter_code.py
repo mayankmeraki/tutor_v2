@@ -1247,7 +1247,7 @@ def main():
         sys.exit(1)
 
     client = MongoClient(mongo_uri, tlsCAFile=certifi.where())
-    db = client["tutor_v2"]
+    db = client[os.environ.get("MONGODB_DB", "capacity")]
 
     total_updated = 0
     total_languages_added = 0

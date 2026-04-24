@@ -409,9 +409,20 @@ try:
 except Exception as e:
     log.warning("DSA routes not loaded: %s", e)
 
+# Judge0 code execution API
+try:
+    from app.api.routes.judge import router as judge_router
+    app.include_router(judge_router)
+except Exception as e:
+    log.warning("Judge routes not loaded: %s", e)
+
 # WebSocket chat endpoint (voice beats + audio streaming)
 from app.api.routes.ws_chat import ws_chat
 app.add_api_websocket_route("/ws/chat", ws_chat)
+
+# WebSocket STT — ElevenLabs Scribe realtime proxy
+from app.api.routes.scribe import ws_scribe
+app.add_api_websocket_route("/ws/scribe", ws_scribe)
 
 # BYO — Student materials upload
 try:
@@ -494,6 +505,54 @@ async def submit_feedback(request: Request):
         return {"status": "received", "note": "Email delivery pending"}
 
 
+# ─── ElevenLabs Scribe token (STT) ─────────────────────────────────
+
+@app.get("/api/v1/scribe-token")
+async def get_scribe_token():
+    """Generate a single-use token for ElevenLabs Scribe Realtime STT (client-side)."""
+    if not settings.ELEVENLABS_API_KEY:
+        return JSONResponse(status_code=503, content={"error": "STT not configured"})
+    try:
+        from elevenlabs.client import ElevenLabs
+        el = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
+        token = el.tokens.single_use.create("realtime_scribe")
+        return {"token": token.token}
+    except Exception as e:
+        log.error("Scribe token error: %s", e)
+        return JSONResponse(status_code=500, content={"error": str(e)})
+
+
+# ─── ElevenLabs Scribe batch STT (fallback when realtime unavailable) ──
+
+@app.post("/api/v1/scribe-batch")
+async def scribe_batch(request: Request):
+    """Transcribe an audio file using ElevenLabs Scribe v2 (non-realtime)."""
+    if not settings.ELEVENLABS_API_KEY:
+        return JSONResponse(status_code=503, content={"error": "STT not configured"})
+    try:
+        form = await request.form()
+        audio_file = form.get("file")
+        if not audio_file:
+            return {"text": "", "error": "No audio file"}
+        content = await audio_file.read()
+        if len(content) < 500:
+            return {"text": ""}
+
+        from elevenlabs.client import ElevenLabs
+        import io
+        el = ElevenLabs(api_key=settings.ELEVENLABS_API_KEY)
+        result = el.speech_to_text.convert(
+            file=io.BytesIO(content),
+            model_id="scribe_v2",
+        )
+        text = result.text if result else ""
+        log.info("[Scribe-Batch] Transcribed: %s", text[:80])
+        return {"text": text}
+    except Exception as e:
+        log.warning("[Scribe-Batch] Error: %s", e)
+        return {"text": "", "error": str(e)}
+
+
 # ─── Session feedback (stored in DB) ──────────────────────────────
 
 @app.post("/api/v1/session-feedback")
@@ -513,9 +572,9 @@ async def submit_session_feedback(request: Request):
     doc = {
         "sessionId": body.get("sessionId", ""),
         "userEmail": user_email,
-        "score": body.get("score"),          # 1-10 NPS
-        "reason": body.get("reason", ""),     # why low score (if < 7)
-        "highlight": body.get("highlight", ""),  # what went well
+        "score": body.get("score"),            # 1-5 emoji scale
+        "chips": body.get("chips", []),        # quick-select feedback tags
+        "comment": body.get("comment", ""),    # freeform text
         "createdAt": datetime.now(timezone.utc),
         "userAgent": request.headers.get("user-agent", "")[:200],
     }

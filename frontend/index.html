@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Euler — AI tutor that teaches you live</title>
-  <link rel="stylesheet" href="/styles.css">
+  <link rel="stylesheet" href="/styles.css?v=20260424e">
   <link rel="stylesheet" href="/board/styles.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
@@ -764,12 +764,49 @@
       <!-- ── DSA Tab Content ── -->
       <div class="dsa-tab-content active" id="dsa-tab-dsa" style="overflow-y:auto;flex:1">
         <div style="max-width:1100px;margin:0 auto;padding:20px 28px 80px">
-          <!-- Search -->
-          <div style="max-width:620px;margin:0 auto 24px;text-align:center">
-            <input type="text" id="dsa-search-input" placeholder='Paste any question, or type: "teach me DP", "solve Two Sum", "help with this LeetCode problem"'
-                   style="width:100%;padding:13px 16px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(11,16,24,1);color:#fff;font-size:12px;outline:none" autocomplete="off">
-            <div style="font-size:8px;color:rgba(255,255,255,0.15);margin-top:5px">Paste a LeetCode problem, ask about a concept, or pick from the list below</div>
+          <!-- Hero + Search -->
+          <div style="max-width:620px;margin:0 auto 28px;text-align:center">
+            <h2 style="font-size:20px;font-weight:700;color:rgba(255,255,255,.85);margin-bottom:4px">What do you want to work on?</h2>
+            <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px">Paste a LeetCode problem, ask Euler to teach a topic, or pick one below</p>
+            <input type="text" id="dsa-search-input" placeholder='e.g. "solve Two Sum", "teach me DP", or paste a problem URL...'
+                   style="width:100%;padding:14px 18px;border-radius:12px;border:1px solid rgba(52,211,153,.12);background:rgba(11,16,24,1);color:#fff;font-size:13px;outline:none;transition:border-color .15s" onfocus="this.style.borderColor='rgba(52,211,153,.3)'" onblur="this.style.borderColor='rgba(52,211,153,.12)'" autocomplete="off">
           </div>
+
+          <!-- Quick actions -->
+          <div style="max-width:620px;margin:0 auto 28px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Teach me dynamic programming from scratch';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(52,211,153,.08);background:rgba(52,211,153,.03);color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(52,211,153,.2)';this.style.background='rgba(52,211,153,.06)'" onmouseleave="this.style.borderColor='rgba(52,211,153,.08)';this.style.background='rgba(52,211,153,.03)'">
+              Teach me DP from scratch
+            </button>
+            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Give me a random medium problem';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(96,165,250,.08);background:rgba(96,165,250,.03);color:rgba(96,165,250,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(96,165,250,.2)';this.style.background='rgba(96,165,250,.06)'" onmouseleave="this.style.borderColor='rgba(96,165,250,.08)';this.style.background='rgba(96,165,250,.03)'">
+              Random medium problem
+            </button>
+            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Explain sliding window pattern with examples';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(167,139,250,.08);background:rgba(167,139,250,.03);color:rgba(167,139,250,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(167,139,250,.2)';this.style.background='rgba(167,139,250,.06)'" onmouseleave="this.style.borderColor='rgba(167,139,250,.08)';this.style.background='rgba(167,139,250,.03)'">
+              Explain sliding window
+            </button>
+            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Help me with this problem I am stuck on';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(251,191,36,.08);background:rgba(251,191,36,.03);color:rgba(251,191,36,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(251,191,36,.2)';this.style.background='rgba(251,191,36,.06)'" onmouseleave="this.style.borderColor='rgba(251,191,36,.08)';this.style.background='rgba(251,191,36,.03)'">
+              I'm stuck on a problem
+            </button>
+          </div>
+
+          <!-- How it works -->
+          <div style="max-width:620px;margin:0 auto 28px;display:flex;gap:12px">
+            <div style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
+              <div style="font-size:16px;margin-bottom:4px">1</div>
+              <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.5);margin-bottom:2px">Pick a topic</div>
+              <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.4">Click any topic below to see problems. Choose Study to learn or Practice to solve.</div>
+            </div>
+            <div style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
+              <div style="font-size:16px;margin-bottom:4px">2</div>
+              <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.5);margin-bottom:2px">Learn with Euler</div>
+              <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.4">Euler teaches step-by-step with live animations, code walkthroughs, and visual explanations.</div>
+            </div>
+            <div style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
+              <div style="font-size:16px;margin-bottom:4px">3</div>
+              <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.5);margin-bottom:2px">Run & Submit</div>
+              <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.4">Write code in the editor, run against test cases, and get instant feedback — just like LeetCode.</div>
+            </div>
+          </div>
+
           <!-- Stats -->
           <div id="dsa-stats" style="display:flex;gap:10px;margin-bottom:20px"></div>
           <!-- Topics accordion list -->
@@ -780,10 +817,19 @@
       <!-- ── System Design Tab Content ── -->
       <div class="dsa-tab-content" id="dsa-tab-sd" style="overflow-y:auto;flex:1;display:none">
         <div style="max-width:1100px;margin:0 auto;padding:20px 28px 80px">
-          <div style="max-width:620px;margin:0 auto 24px;text-align:center">
-            <input type="text" id="sd-search-input" placeholder='"explain caching", "design Uber", "teach me how sharding works"'
-                   style="width:100%;padding:12px 14px;border-radius:9px;border:1px solid rgba(255,255,255,0.05);background:rgba(11,16,24,1);color:#fff;font-size:12px;outline:none" autocomplete="off">
-            <div style="font-size:8px;color:rgba(255,255,255,0.15);margin-top:5px">Learn concepts or design systems on the canvas with Euler</div>
+          <div style="max-width:620px;margin:0 auto 28px;text-align:center">
+            <h2 style="font-size:20px;font-weight:700;color:rgba(255,255,255,.85);margin-bottom:4px">System Design</h2>
+            <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px">Learn concepts, design architectures on the canvas, or practice interview problems</p>
+            <input type="text" id="sd-search-input" placeholder='e.g. "design Uber", "explain caching", "teach me sharding"'
+                   style="width:100%;padding:14px 18px;border-radius:12px;border:1px solid rgba(96,165,250,.12);background:rgba(11,16,24,1);color:#fff;font-size:13px;outline:none;transition:border-color .15s" onfocus="this.style.borderColor='rgba(96,165,250,.3)'" onblur="this.style.borderColor='rgba(96,165,250,.12)'" autocomplete="off">
+          </div>
+          <div style="max-width:620px;margin:0 auto 24px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
+            <button onclick="document.getElementById('sd-search-input').value='Explain how Redis works and when to use it';document.getElementById('sd-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(52,211,153,.08);background:rgba(52,211,153,.03);color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(52,211,153,.2)';this.style.background='rgba(52,211,153,.06)'" onmouseleave="this.style.borderColor='rgba(52,211,153,.08)';this.style.background='rgba(52,211,153,.03)'">
+              How does Redis work?
+            </button>
+            <button onclick="document.getElementById('sd-search-input').value='Walk me through designing a URL shortener';document.getElementById('sd-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(167,139,250,.08);background:rgba(167,139,250,.03);color:rgba(167,139,250,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(167,139,250,.2)';this.style.background='rgba(167,139,250,.06)'" onmouseleave="this.style.borderColor='rgba(167,139,250,.08)';this.style.background='rgba(167,139,250,.03)'">
+              Design a URL shortener
+            </button>
           </div>
           <!-- ═══ HLD Section ═══ -->
           <div style="margin-bottom:28px">
@@ -997,7 +1043,7 @@
               <div style="position:absolute;left:50%;top:0;transform:translateX(-50%);width:30px;height:4px;border-radius:2px;background:rgba(52,211,153,.15)"></div>
             </div>
             <!-- Test cases panel (LeetCode-style) -->
-            <div id="ws-code-testcases" style="border-top:1px solid rgba(52,211,153,.1);flex-shrink:0;height:200px;min-height:80px;overflow:hidden;display:flex;flex-direction:column;margin-bottom:60px">
+            <div id="ws-code-testcases" style="border-top:1px solid rgba(52,211,153,.1);flex-shrink:0;height:220px;min-height:100px;overflow:hidden;display:flex;flex-direction:column;margin-bottom:90px">
               <!-- Tab bar: Testcase | Test Result -->
               <div style="display:flex;align-items:center;padding:0 12px;border-bottom:1px solid rgba(52,211,153,.06);flex-shrink:0;background:rgba(52,211,153,.02)">
                 <button class="ws-tc-tab active" data-tc-tab="cases" onclick="_switchTestTab('cases')" style="padding:7px 10px;font-size:10px;font-weight:600;border:none;background:none;color:#34d399;cursor:pointer;border-bottom:2px solid #34d399">
@@ -1010,14 +1056,12 @@
                 <span id="ws-test-summary" style="margin-left:auto;font-size:9px;color:rgba(52,211,153,.3)"></span>
               </div>
               <!-- Testcase content -->
-              <div id="ws-tc-cases" style="flex:1;overflow-y:auto;padding:8px 12px">
+              <div id="ws-code-cases" style="flex:1;overflow-y:auto;padding:8px 12px">
                 <div id="ws-case-tabs" style="display:flex;gap:4px;margin-bottom:8px;flex-wrap:wrap"></div>
                 <div id="ws-case-detail" style="font-family:'JetBrains Mono',monospace;font-size:11px"></div>
               </div>
-              <!-- Test Result content -->
-              <div id="ws-tc-results" style="display:none;flex:1;overflow-y:auto;padding:8px 12px">
-                <div id="ws-code-tests"></div>
-              </div>
+              <!-- Test Result content — judge results render here -->
+              <div id="ws-code-tests" style="display:none;flex:1;overflow-y:auto"></div>
             </div>
           </div>
           <!-- SD: Drawing Canvas -->
@@ -1041,40 +1085,48 @@
             </div>
             <div id="ws-canvas-area" style="flex:1;position:relative;overflow:hidden;background:#0a0e14;background-image:radial-gradient(rgba(148,163,184,.03) 1px,transparent 1px);background-size:20px 20px">
               <canvas id="ws-fabric-canvas"></canvas>
-              <div id="ws-canvas-empty" style="position:absolute;inset:0;pointer-events:none;z-index:0;transition:opacity .5s;padding:24px 20px;overflow:hidden">
-                <!-- Ghost template — system design interview whiteboard layout -->
-                <div style="max-width:500px;margin:0 auto">
-                  <!-- Functional Requirements box -->
-                  <div style="border:1.5px solid rgba(255,255,255,.06);border-radius:10px;padding:16px 20px;margin-bottom:16px">
-                    <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.08);margin-bottom:8px">Functional Requirements</div>
-                    <div style="font-size:10px;color:rgba(255,255,255,.04);line-height:1.8">
-                      1. ...<br>2. ...<br>3. ...
-                    </div>
-                    <div style="display:flex;gap:24px;margin-top:10px">
-                      <div style="font-size:9px;color:rgba(255,255,255,.04)"><b style="color:rgba(255,255,255,.06)">Scale</b><br>— ... DAU</div>
-                      <div style="font-size:9px;color:rgba(255,255,255,.04)"><b style="color:rgba(255,255,255,.06)">Constraints</b><br>— ...</div>
-                    </div>
-                  </div>
-                  <!-- Non-Functional Requirements box -->
-                  <div style="border:1.5px solid rgba(255,255,255,.06);border-radius:10px;padding:16px 20px;margin-bottom:20px">
-                    <div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.08);margin-bottom:8px">Non-Functional Requirements</div>
-                    <div style="display:flex;gap:12px;align-items:center;justify-content:center;padding:8px 0">
-                      <div style="width:70px;height:35px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:8px;color:rgba(255,255,255,.04)">availability</div>
-                      <div style="color:rgba(255,255,255,.04);font-size:12px">→</div>
-                      <div style="width:70px;height:35px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:8px;color:rgba(255,255,255,.04)">consistency</div>
-                    </div>
-                  </div>
-                  <!-- Architecture hint -->
-                  <div style="display:flex;gap:12px;justify-content:center;align-items:center">
-                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">Client</div>
-                    <div style="color:rgba(255,255,255,.03);font-size:14px">→</div>
-                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">LB</div>
-                    <div style="color:rgba(255,255,255,.03);font-size:14px">→</div>
-                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:6px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">API</div>
-                    <div style="color:rgba(255,255,255,.03);font-size:14px">→</div>
-                    <div style="width:70px;height:40px;border:1.5px solid rgba(255,255,255,.04);border-radius:20px;display:grid;place-items:center;font-size:9px;color:rgba(255,255,255,.04)">DB</div>
-                  </div>
+              <div id="ws-canvas-empty" style="position:absolute;inset:0;pointer-events:none;z-index:0;transition:opacity .5s;display:flex;align-items:center;justify-content:center">
+                <div style="text-align:center;color:rgba(255,255,255,.15);font-size:12px;line-height:1.7;max-width:280px">
+                  <div style="font-size:28px;margin-bottom:12px;opacity:.4">✎</div>
+                  Draw your architecture here<br>
+                  <span style="font-size:10px;color:rgba(255,255,255,.08)">You can write things here and ask Euler to assess you via the text box below</span>
                 </div>
+              </div>
+            </div>
+          </div>
+          <!-- LLD: Code Editor + Canvas split view -->
+          <div id="ws-lld-pane" style="display:none;flex:1;flex-direction:row;min-height:0;overflow:hidden">
+            <!-- Left: Code editor -->
+            <div id="ws-lld-code" style="flex:1;display:flex;flex-direction:column;min-width:0;min-height:0;overflow:hidden">
+              <div class="ws-pane-head">
+                <span class="ws-pane-fname" id="ws-lld-fname">design.py</span>
+                <select id="ws-lld-lang" style="padding:2px 6px;border-radius:4px;background:rgba(255,255,255,.04);border:1px solid rgba(255,255,255,.06);color:rgba(255,255,255,.55);font-size:9px;outline:none;cursor:pointer">
+                  <option value="python">Python</option>
+                  <option value="javascript">JavaScript</option>
+                  <option value="java">Java</option>
+                  <option value="cpp">C++</option>
+                  <option value="go">Go</option>
+                </select>
+              </div>
+              <div id="ws-lld-editor" style="flex:1;min-height:0"></div>
+            </div>
+            <!-- Resize handle between code and canvas -->
+            <div id="ws-lld-resize" style="width:4px;cursor:ew-resize;background:rgba(52,211,153,.06);flex-shrink:0;position:relative">
+              <div style="position:absolute;top:50%;left:0;transform:translateY(-50%);width:4px;height:30px;border-radius:2px;background:rgba(52,211,153,.15)"></div>
+            </div>
+            <!-- Right: Canvas -->
+            <div id="ws-lld-canvas" style="flex:1;display:flex;flex-direction:column;min-width:0">
+              <div class="ws-canvas-toolbar" id="ws-lld-toolbar">
+                <button class="ws-tool sel" data-tool="select" title="Select">⊡</button>
+                <button class="ws-tool" data-tool="rect" title="Class">▢</button>
+                <button class="ws-tool" data-tool="arrow" title="Arrow">→</button>
+                <button class="ws-tool" data-tool="text" title="Text">A</button>
+                <button class="ws-tool" data-tool="freehand" title="Draw">✎</button>
+                <button class="ws-tool" data-tool="delete" title="Delete" style="color:rgba(248,113,113,.4)">✕</button>
+                <div style="margin-left:auto;font-size:8px;color:rgba(255,255,255,.12)">UML / Class diagram</div>
+              </div>
+              <div id="ws-lld-canvas-area" style="flex:1;position:relative;overflow:hidden;background:#0a0e14;background-image:radial-gradient(rgba(148,163,184,.03) 1px,transparent 1px);background-size:20px 20px">
+                <canvas id="ws-lld-fabric-canvas"></canvas>
               </div>
             </div>
           </div>
@@ -1139,24 +1191,56 @@
         <div class="vb-progress" id="vb-progress"></div>
         <div class="vb-status" id="vb-status"></div>
         <div class="voice-bar" id="voice-bar-main">
-          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
-          <button class="voice-bar-pause hidden" id="voice-bar-pause" onclick="togglePause()" title="Pause">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-          </button>
-          <button class="voice-bar-resume hidden" id="voice-bar-resume" onclick="togglePause()" title="Resume">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
-          </button>
-          <button class="voice-bar-stop hidden" id="voice-bar-stop" onclick="stopAll()" title="Stop tutor">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-          </button>
-          <button class="voice-bar-mic" id="voice-mic-btn" title="Hold to talk">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-              <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
-            </svg>
-          </button>
-          <button class="voice-bar-send" id="voice-bar-send" onclick="submitVoiceBarInput()">
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-          </button>
+          <!-- Waveform animation — visible when listening -->
+          <div class="vb-waveform" id="vb-waveform"><span></span><span></span><span></span><span></span><span></span><span></span><span></span></div>
+          <!-- Text area (expands vertically as you type/speak) -->
+          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Type or speak your answer..." autocomplete="off"></textarea>
+          <!-- Bottom row: attach + controls on left, send + mic on right -->
+          <div class="vb-bottom">
+            <div class="vb-bottom-left">
+              <button class="vb-icon-btn" id="voice-bar-attach" title="Attach file">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+              </button>
+              <input type="file" id="voice-bar-file-input" multiple accept="image/*,.pdf,.txt,.md,.png,.jpg,.jpeg,.webp" style="display:none">
+              <div id="voice-bar-attach-preview" style="display:none;gap:4px;flex-shrink:1;overflow-x:auto"></div>
+              <button class="vb-icon-btn hidden" id="voice-bar-pause" onclick="togglePause()" title="Pause tutor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+              </button>
+              <button class="vb-icon-btn hidden" id="voice-bar-resume" onclick="togglePause()" title="Resume tutor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+              </button>
+              <button class="vb-icon-btn hidden" id="voice-bar-stop" onclick="stopAll()" title="Stop tutor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </button>
+            </div>
+            <div class="vb-bottom-right">
+              <button class="vb-send-btn" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send" style="display:none">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+              </button>
+              <button class="vb-mic-btn scribe-muted" id="voice-mic-btn" title="Mic off (click to unmute)">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18">
+                  <rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>
+                  <line x1="3" y1="3" x2="21" y2="21" stroke-width="2.5" stroke-linecap="round"/>
+                </svg>
+              </button>
+              <script>
+              (function() {
+                var micOn = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>';
+                var micOff = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/><line x1="3" y1="3" x2="21" y2="21" stroke-width="2.5" stroke-linecap="round"/></svg>';
+                var btn = document.getElementById('voice-mic-btn');
+                // Expose for app.js _updateMicUI
+                window._micSetIcon = function(isOn) {
+                  btn.innerHTML = isOn ? micOn : micOff;
+                };
+                btn.addEventListener('click', function(e) {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (typeof scribeStart === 'function') scribeStart('voice-bar-input');
+                });
+              })();
+              </script>
+            </div>
+          </div>
         </div>
       </div>
       <div id="voice-hand-cursor" class="voice-hand hidden">
@@ -1248,7 +1332,7 @@
   <script src="/router.js"></script>
   <script src="/board/bundle.js"></script>
   <script src="/animation-helpers.js"></script>
-  <script src="/app.js"></script>
+  <script src="/app.js?v=20260424i"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->
 <div class="fb-overlay" id="fb-overlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
   <div class="fb-modal">
@@ -1542,9 +1626,13 @@ function _backWithFeedback(target) {
   var sid = '';
   try { sid = (window._appState && window._appState.sessionId) || ''; } catch(e) {}
   var hasSession = sid && sid.length > 5;
+  // Count both completed turns AND messages sent (covers mid-stream back)
   var turnCount = window._fbTurnCount || 0;
-  console.log('[BackWithFeedback] sid=' + (sid||'').slice(0,8) + ' turns=' + turnCount + ' target=' + target);
-  if (hasSession && turnCount >= 1 && typeof showFeedbackForm === 'function') {
+  var msgCount = 0;
+  try { msgCount = (window._appState && window._appState.messages) ? window._appState.messages.length : 0; } catch(e) {}
+  var hadActivity = turnCount >= 1 || msgCount >= 2;
+  console.log('[BackWithFeedback] sid=' + (sid||'').slice(0,8) + ' turns=' + turnCount + ' msgs=' + msgCount + ' target=' + target);
+  if (hasSession && hadActivity && typeof showFeedbackForm === 'function') {
     window._fbOnClose = function() {
       if (typeof Router !== 'undefined') Router.navigate(target);
       else window.location.href = target;

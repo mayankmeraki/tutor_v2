@@ -41,6 +41,23 @@ ONE state change per beat. Student watches the algorithm run.
   push_code(action="replace_lines", code="...", from_line=5, to_line=7, language="python") — replace range
   push_code(action="append", code="...", language="python")           — add to end
 
+TEST CASES — push_code accepts a test_cases parameter:
+  push_code(action="replace", language="python",
+            code="def reverse_string(s: list[str]) -> None:\n    pass",
+            test_cases=[
+              {"input": {"s": ["h","e","l","l","o"]}, "expected": ["o","l","l","e","h"]},
+              {"input": {"s": ["H","a","n","n","a","h"]}, "expected": ["h","a","n","n","a","H"]}
+            ])
+
+When you push code for a problem, ALWAYS include test_cases so the student
+can click Run and Submit. Test cases appear in the Testcase panel below the
+editor. The judge wraps the student's code with a driver that calls their
+function with each input and checks output — exactly like LeetCode.
+
+For problems you create on the fly (study mode, ad-hoc), YOU generate the
+test cases. Include 3-5 cases: basic, edge (empty, single element), larger.
+The input dict keys must match the function parameter names.
+
 If <code-state> is empty → push code NOW. Read <code-state> every turn.
 Board is for teaching. Editor is for code. Never write code on the board.
 

@@ -134,6 +134,17 @@ def _validate_messages(messages: list[dict]) -> list[dict]:
                         fixed_blocks.append({**block, "text": _clean_partial_content(text)})
                     else:
                         fixed_blocks.append(block)
+                elif isinstance(block, dict) and block.get("type") == "image" and block.get("source"):
+                    # Convert Anthropic image format → OpenRouter/OpenAI image_url format
+                    src = block["source"]
+                    if src.get("type") == "base64" and src.get("data"):
+                        mime = src.get("media_type", "image/png")
+                        fixed_blocks.append({
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{src['data']}"},
+                        })
+                    else:
+                        fixed_blocks.append(block)
                 else:
                     fixed_blocks.append(block)
             validated.append({**msg, "content": fixed_blocks})
@@ -1145,13 +1156,11 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     recent = messages[split:]
     old = messages[:split]
 
-    # Preserve first message if it has attachments (images/PDFs/audio/video)
-    pinned_first = None
-    if old and _has_multimodal(old[0]):
-        pinned_first = old[0]
-        old = old[1:]
+    # Preserve ALL messages with attachments (images/PDFs) — never drop uploads
+    pinned_multimodal = [m for m in old if _has_multimodal(m)]
+    old = [m for m in old if not _has_multimodal(m)]
     recent_tokens = _count_messages_tokens(recent)
-    pinned_tokens = _count_messages_tokens([pinned_first]) if pinned_first else 0
+    pinned_tokens = _count_messages_tokens(pinned_multimodal) if pinned_multimodal else 0
 
     result = []
 
@@ -1193,9 +1202,10 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
     # 3. Recent messages in full
     result.extend(recent)
 
-    # 4. Pin first message with attachments at the front (always visible to LLM)
-    if pinned_first:
-        result.insert(0, pinned_first)
+    # 4. Pin all messages with attachments at the front (always visible to LLM)
+    if pinned_multimodal:
+        for i, pm in enumerate(pinned_multimodal):
+            result.insert(i, pm)
 
     final_tokens = _count_messages_tokens(result)
     log.info(
@@ -1203,7 +1213,7 @@ def apply_context_window(session, messages: list[dict]) -> list[dict]:
         extra={
             "msg_count": len(result),
             "token_count": final_tokens,
-            "pinned_attachments": bool(pinned_first),
+            "pinned_attachments": len(pinned_multimodal),
         },
     )
 
@@ -1233,32 +1243,31 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
         slog.info("[PLANNER_SPAWN] skipped — already spawned")
         return
     # Check if a pre-built teaching plan exists for the topic in MongoDB.
-    # This is generic — any session type (DSA, SD, mock, future topic modules)
-    # that has a matching teaching_plan will skip the planner and use it directly.
-    # On-demand free-text sessions (no problem_slug, no topic identifier) fall
-    # through to the planner as normal.
+    # Uses content_search module: exact slug → alias table → text search → regex.
     _slug = None
     if session.problem_data:
         _topics = session.problem_data.get("topics", [])
         _slug = _topics[0] if _topics else None
     if not _slug:
         _slug = (context_data.get("problemSlug") or context_data.get("topicSlug") or "").replace("-", "_")
-    if _slug:
-        try:
-            from pymongo import MongoClient as _MC
-            import certifi as _cert
-            from app.core.config import settings as _s
-            _db = _MC(_s.MONGODB_URI, tlsCAFile=_cert.where(),
-                      serverSelectionTimeoutMS=2000)["tutor_v2"]
-            _plan = _db["teaching_plans"].find_one({"slug": _slug}, {"_id": 0})
-            if not _plan:
-                _plan = _db["teaching_plans"].find_one({"slug": _slug.replace("_", "-")}, {"_id": 0})
-            if _plan:
-                session.current_plan = _plan
-                slog.info("[PLANNER_SPAWN] skipped — loaded pre-built teaching plan: %s", _slug)
-                return
-        except Exception as e:
-            slog.warning("[PLANNER_SPAWN] pre-built plan check failed: %s", e)
+
+    try:
+        from pymongo import MongoClient as _MC
+        import certifi as _cert
+        from app.core.config import settings as _s
+        _db = _MC(_s.MONGODB_URI, tlsCAFile=_cert.where(),
+                  serverSelectionTimeoutMS=2000)["tutor_v2"]
+
+        from app.services.teaching.content_search import find_teaching_plan
+        _intent = session.student_intent or context_data.get("studentIntent", "")
+        _plan = find_teaching_plan(_db, _slug, _intent, slog)
+
+        if _plan:
+            session.current_plan = _plan
+            slog.info("[PLANNER_SPAWN] skipped — loaded pre-built teaching plan: %s", _plan.get("slug", "?"))
+            return
+    except Exception as e:
+        slog.warning("[PLANNER_SPAWN] pre-built plan check failed: %s", e)
 
     # Spawn on first turn — planner runs in background while tutor starts teaching.
     # No need to wait for observations — the planner has intent + student model + course content.
@@ -1558,8 +1567,13 @@ def _promote_plan(session, plan_data: dict) -> None:
 def _format_completed(completed: list[dict]) -> str | None:
     if not completed:
         return None
-    lines = [f"- {t.get('title', '?')} [concept={t.get('concept', '?')}]" for t in completed]
-    return "\n".join(lines)
+    lines = []
+    for t in completed:
+        if isinstance(t, dict):
+            lines.append(f"- {t.get('title', '?')} [concept={t.get('concept', '?')}]")
+        elif isinstance(t, str):
+            lines.append(f"- {t}")
+    return "\n".join(lines) if lines else None
 
 
 def _format_agent_results(completed: list[dict]) -> str | None:
@@ -2284,10 +2298,17 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
                 _evt_data["from_line"] = inp.get("from_line", 1)
                 _evt_data["to_line"] = inp.get("to_line", 1)
             _pending.append({"type": "CODE_PUSH", "data": _evt_data})
+            # Push test cases if provided
+            _test_cases = inp.get("test_cases")
+            if _test_cases and isinstance(_test_cases, list):
+                _pending.append({"type": "TEST_CASES_PUSH", "data": {"test_cases": _test_cases}})
             _labels = {"replace": "Code replaced in editor.", "insert": f"Code inserted at line {inp.get('at_line', 1)}.",
                        "append": "Code appended to editor.", "delete_lines": f"Lines {inp.get('lines', [])} deleted.",
                        "replace_lines": f"Lines {inp.get('from_line')}-{inp.get('to_line')} replaced."}
-            return _labels.get(_action, "Code pushed to editor.")
+            _result = _labels.get(_action, "Code pushed to editor.")
+            if _test_cases:
+                _result += f" {len(_test_cases)} test cases loaded."
+            return _result
 
         elif name == "draw_on_canvas":
             _pending = context_data.setdefault("_pending_ws_events", [])
@@ -2405,24 +2426,19 @@ async def _generate_for_turn(
                 if not data or not mime:
                     continue
                 if mime.startswith("image/"):
+                    # OpenRouter format: image_url with data URI
                     content_parts.append({
-                        "type": "image",
-                        "source": {"type": "base64", "media_type": mime, "data": data},
+                        "type": "image_url",
+                        "image_url": {"url": f"data:{mime};base64,{data}"},
                     })
-                elif mime.startswith("audio/"):
-                    fmt = mime.split("/")[-1]
-                    if fmt == "mpeg": fmt = "mp3"
-                    elif fmt == "x-wav": fmt = "wav"
+                elif mime == "application/pdf" or fname.lower().endswith(".pdf"):
+                    # OpenRouter PDF format
                     content_parts.append({
-                        "type": "input_audio",
-                        "input_audio": {"data": data, "format": fmt},
-                    })
-                elif mime.startswith("video/"):
-                    content_parts.append({
-                        "type": "video_url",
-                        "video_url": {"url": f"data:{mime};base64,{data}"},
+                        "type": "file",
+                        "file": {"filename": fname, "file_data": f"data:application/pdf;base64,{data}"},
                     })
                 else:
+                    # Other files: use file content type
                     content_parts.append({
                         "type": "file",
                         "file": {"filename": fname, "file_data": f"data:{mime};base64,{data}"},
@@ -2443,6 +2459,24 @@ async def _generate_for_turn(
 
             import asyncio as _aio
             _aio.create_task(_bg_upload(sid, attachments, session))
+
+    # Re-inject stored attachments for restored sessions (images from previous turns)
+    if session.attachment_meta and claude_messages:
+        _stored_images = [a for a in session.attachment_meta if a.get("data_b64") and a.get("mime_type", "").startswith("image/")]
+        if _stored_images and not any(_has_multimodal(m) for m in claude_messages):
+            # No images in current messages — inject stored ones into first user message
+            for m in claude_messages:
+                if m.get("role") == "user":
+                    _existing = m.get("content", "")
+                    _parts = [{"type": "text", "text": _existing}] if isinstance(_existing, str) else (list(_existing) if isinstance(_existing, list) else [])
+                    for _sa in _stored_images[:3]:  # max 3 images to avoid token explosion
+                        _parts.insert(0, {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{_sa['mime_type']};base64,{_sa['data_b64']}"},
+                        })
+                    _parts.insert(0, {"type": "text", "text": "[Previously uploaded files — still available for reference]"})
+                    m["content"] = _parts
+                    break
 
     user_email = _extract_user_email(context_data)
     slog = SessionLogger(log, session_id=sid, user=user_email or "")
@@ -2784,7 +2818,11 @@ async def _generate_for_turn(
                     session.mock_company = _sc_obj.get("company", "generic")
                     session.mock_phase = "intro"
 
-            # Inject code/canvas/interview state into context + persist on session
+            # Inject code/canvas/interview/test state into context + persist on session
+            _test_results = _sc_obj.get("testResults")
+            if _test_results:
+                context_data["testResults"] = _test_results
+
             if session.session_mode in ("dsa", "mock_interview"):
                 _code_state = _sc_obj.get("codeState")
                 if _code_state:
@@ -2819,7 +2857,7 @@ async def _generate_for_turn(
             # Problem metadata for prompt injection
             if session.problem_data:
                 _pd = session.problem_data
-                context_data["problemData"] = json.dumps({
+                _problem_json = {
                     "name": _pd.get("name"),
                     "difficulty": _pd.get("difficulty"),
                     "topics": _pd.get("topics", []),
@@ -2830,12 +2868,21 @@ async def _generate_for_turn(
                     "optimal_complexity": _pd.get("optimal_complexity", {}),
                     "test_cases": _pd.get("test_cases", [])[:5],
                     "starter_code": _pd.get("starter_code", {}),
-                }, indent=2)
+                }
+                # SD enriched fields — pass ALL to tutor for teaching/practice/mock
+                for _ef in ("level_expectations", "edge_cases", "follow_ups",
+                            "deep_dives", "common_mistakes", "solution_outline",
+                            "teaching_notes", "requirements", "key_decisions",
+                            "evaluation_rubric"):
+                    if _pd.get(_ef):
+                        _problem_json[_ef] = _pd[_ef]
+                context_data["problemData"] = json.dumps(_problem_json, indent=2)
 
             tutor_prompt = build_tutor_prompt({
                 **context_data,
                 "session_mode": session.session_mode,
                 "prompt_sections": session.blueprint.get("prompt_sections") if session.blueprint else None,
+                "interaction": session.blueprint.get("interaction", "study") if session.blueprint else "study",
                 "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
                 "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
                 "currentTopic": (
@@ -2923,8 +2970,8 @@ async def _generate_for_turn(
                 _removed_tools -= {"draw_on_canvas"}
                 _removed_tools |= {"run_code", "push_code", "complete_triage"}
             elif session.session_mode == "mock_interview":
-                _removed_tools -= {"run_code"}
-                _removed_tools |= {"push_code", "draw_on_canvas", "complete_triage"}
+                # Mock: tutor has NO code/canvas tools — student does everything
+                _removed_tools |= {"run_code", "push_code", "draw_on_canvas", "complete_triage"}
             else:
                 _removed_tools |= {"run_code", "push_code", "draw_on_canvas"}
 
@@ -2999,7 +3046,7 @@ async def _generate_for_turn(
                             elif isinstance(_existing, list):
                                 _parts.extend(_existing)
                             _parts.append({"type": "text", "text": "[Canvas snapshot — current state of the student's architecture diagram]"})
-                            _parts.append({"type": "image", "source": {"type": "base64", "media_type": "image/png", "data": _snap_b64}})
+                            _parts.append({"type": "image_url", "image_url": {"url": f"data:image/png;base64,{_snap_b64}"}})
                             _last_user["content"] = _parts
                             slog.info("Canvas snapshot injected (%d bytes)", len(_snap_b64))
 
@@ -3007,7 +3054,7 @@ async def _generate_for_turn(
                 "system": tutor_prompt,
                 "messages": valid_messages,
                 "model": settings.tutor_model,
-                "max_tokens": 16384,
+                "max_tokens": 32768,
                 "tools": active_tools,
             }
 
@@ -3112,7 +3159,9 @@ async def _generate_for_turn(
                 for block in tool_blocks:
                     if await request.is_disconnected():
                         return
-                    yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
+                    # Skip SSE events for terminal/silent tools (no visible delay to student)
+                    if not is_terminal:
+                        yield _sse({"type": "TOOL_CALL_START", "toolCallId": block.id, "toolCallName": block.name})
 
                     # EVERY tool call MUST produce a result — never leave orphaned
                     try:
@@ -3130,7 +3179,8 @@ async def _generate_for_turn(
                         result = f"Tool error ({block.name}): {str(tool_err)[:200]}\n{tb}"
 
                     tool_results.append({"type": "tool_result", "tool_use_id": block.id, "content": str(result)})
-                    yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
+                    if not is_terminal:
+                        yield _sse({"type": "TOOL_CALL_END", "toolCallId": block.id})
 
                     # Drain pending WS events (from push_code, draw_on_canvas, run_code)
                     _pending_evts = context_data.pop("_pending_ws_events", [])

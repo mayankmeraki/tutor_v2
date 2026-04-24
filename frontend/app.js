@@ -262,11 +262,11 @@ const SessionManager = (() => {
       endedAt: null,
       durationSec: 0,
       intent: { raw: intent || '', scenario: scenario || 'course' },
-      coursePosition: {
+      coursePosition: coursePosition && coursePosition.lessonId ? {
         startedAt: { lessonId: coursePosition.lessonId, sectionIndex: coursePosition.sectionIndex },
         current: { lessonId: coursePosition.lessonId, sectionIndex: coursePosition.sectionIndex },
         completedCourseSections: coursePosition.completedCourseSections || [],
-      },
+      } : null,
       plan: {},
       sections: [],
       transcript: [],
@@ -326,6 +326,8 @@ const SessionManager = (() => {
       sections: session.sections,
       metrics: session.metrics,
       coursePosition: session.coursePosition,
+      headline: session.headline || null,
+      headlineDescription: session.headlineDescription || null,
       plan: session.plan,
       durationSec: session.durationSec,
       summaries: session.summaries,
@@ -358,6 +360,22 @@ const SessionManager = (() => {
       activeBoardDrawContent: state.boardDraw?.rawContent || null,
       teachingMode: state.teachingMode,
       voiceSpeed: state.voiceSpeed,
+      // DSA/SD session state
+      dsaState: (state.dsaMode) ? {
+        mode: state.dsaMode,
+        problemSlug: state.dsaProblemSlug,
+        language: state.dsaLanguage || 'python',
+        code: window._dsaCodeEditor ? window._dsaCodeEditor.getValue() : null,
+        cursorRow: window._dsaCodeEditor && window._dsaCodeEditor._ace ? window._dsaCodeEditor._ace.getCursorPosition().row : 0,
+        cursorCol: window._dsaCodeEditor && window._dsaCodeEditor._ace ? window._dsaCodeEditor._ace.getCursorPosition().column : 0,
+        canvasJSON: (typeof SDCanvas !== 'undefined' && SDCanvas.getCanvas && SDCanvas.getCanvas()) ? JSON.stringify(SDCanvas.getCanvas().toJSON(['_sdSource', '_sdId', '_sdLabel', '_sdType', '_sdBadgeFor', '_sdForNode'])) : null,
+        lldCanvasJSON: window._lldCanvas ? JSON.stringify(window._lldCanvas.toJSON()) : null,
+        testResults: window._lastTestResults || null,
+        mockCompany: state.mockCompany || null,
+        mockType: state.mockType || null,
+        mockLevel: state.mockLevel || null,
+        mockDifficulty: state.mockDifficulty || null,
+      } : null,
       videoState: (state.video?.active || state.video?.lessonId || state._videoWatchAlong) ? {
         lessonId: state.video.lessonId,
         lessonTitle: state.video.lessonTitle,
@@ -1196,63 +1214,122 @@ function bindInputHandlers(inputId, submitFnStr) {
   });
 }
 
-window.startVoiceInput = function(targetId) {
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  if (!SpeechRecognition) {
-    console.warn('Speech recognition not supported');
-    return;
-  }
-
-  const textarea = $(`#${targetId}`);
-  if (!textarea) return;
-
-  // Find the mic button near this input
-  const wrapper = textarea.closest('.input-wrapper');
-  const micBtn = wrapper?.querySelector('.input-mic-btn');
-
-  // Toggle off if already recording
-  if (micBtn?.classList.contains('recording')) {
-    micBtn._recognition?.stop();
-    micBtn.classList.remove('recording');
-    return;
-  }
-
-  const recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = true;
-  recognition.lang = 'en-US';
-
-  if (micBtn) {
-    micBtn.classList.add('recording');
-    micBtn._recognition = recognition;
-  }
-
-  let finalTranscript = textarea.value;
-
-  recognition.onresult = (event) => {
-    let interim = '';
-    for (let i = event.resultIndex; i < event.results.length; i++) {
-      if (event.results[i].isFinal) {
-        finalTranscript += (finalTranscript ? ' ' : '') + event.results[i][0].transcript;
-      } else {
-        interim += event.results[i][0].transcript;
-      }
-    }
-    textarea.value = finalTranscript + (interim ? ' ' + interim : '');
-  };
-
-  recognition.onend = () => {
-    if (micBtn) micBtn.classList.remove('recording');
-    textarea.value = finalTranscript;
-    textarea.focus();
-  };
-
-  recognition.onerror = () => {
-    if (micBtn) micBtn.classList.remove('recording');
-  };
-
-  recognition.start();
+// ═══ Voice Input — Browser SpeechRecognition (simple, reliable) ═══
+var _scribe = {
+  recognition: null, active: false, muted: true,
+  targetInput: null, committed: '', partial: '',
 };
+function scribeStart(inputId) {
+  // Toggle mute if already active
+  if (_scribe.active) { scribeMute(); return; }
+  var SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SR) { console.warn('[Voice] Not supported'); return; }
+  var input = document.getElementById(inputId || 'voice-bar-input');
+  if (!input) return;
+  _scribe.targetInput = input;
+  _scribe.committed = '';
+  _scribe.partial = '';
+  _scribe.muted = false;
+  _scribe.active = true;
+  if (state.isStreaming) stopAll();
+
+  var rec = new SR();
+  rec.continuous = true;
+  rec.interimResults = true;
+  rec.lang = 'en-US';
+  _scribe.recognition = rec;
+
+  rec.onresult = function(e) {
+    if (_scribe.muted) return;
+    var final = '', interim = '';
+    // Only process NEW results (from resultIndex), not all results
+    for (var i = e.resultIndex; i < e.results.length; i++) {
+      if (e.results[i].isFinal) final += e.results[i][0].transcript;
+      else interim += e.results[i][0].transcript;
+    }
+    if (final) _scribe.committed += (_scribe.committed ? ' ' : '') + final;
+    _scribe.partial = interim;
+
+    // Update input
+    if (_scribe.targetInput) {
+      var full = _scribe.committed + (_scribe.partial ? (_scribe.committed ? ' ' : '') + _scribe.partial : '');
+      _scribe.targetInput.value = full;
+      _scribe.targetInput.style.height = 'auto';
+      _scribe.targetInput.style.height = Math.min(_scribe.targetInput.scrollHeight, 100) + 'px';
+    }
+
+    // Interrupt tutor if speaking
+    if (state.isStreaming && (final.length > 3 || interim.length > 5)) stopAll();
+
+    // Auto-submit: when a final transcript chunk arrives, wait 1.5s of silence then send
+    if (final) {
+      if (_scribe._sendTimer) clearTimeout(_scribe._sendTimer);
+      _scribe._sendTimer = setTimeout(function() {
+        if (_scribe.targetInput && _scribe.targetInput.value.trim() && !state.isStreaming) {
+          var text = _scribe.targetInput.value.trim();
+          _scribe.targetInput.value = '';
+          _scribe.targetInput.style.height = '';
+          _scribe.committed = '';
+          _scribe.partial = '';
+          console.log('[Voice] Auto-send: "' + text.slice(0, 40) + '"');
+          voiceShowSubtitle('You: ' + (text.length > 60 ? text.slice(0, 60) + '...' : text));
+          streamADK(text);
+          if (_scribe.targetInput) _scribe.targetInput.placeholder = 'Listening...';
+        }
+      }, 1500);
+    }
+    // Cancel auto-send if user is still speaking (new interim)
+    if (interim && _scribe._sendTimer) { clearTimeout(_scribe._sendTimer); _scribe._sendTimer = null; }
+  };
+
+  rec.onend = function() {
+    // Always restart if active and unmuted — keeps mic always on
+    if (_scribe.active && !_scribe.muted) {
+      try { rec.start(); } catch(e) {}
+    }
+  };
+  rec.onerror = function(e) {
+    if (e.error !== 'no-speech' && e.error !== 'aborted') console.warn('[Voice]', e.error);
+  };
+  rec.start();
+  _updateMicUI();
+}
+
+function _updateMicUI() {
+  var on = _scribe.active && !_scribe.muted;
+  var micBtn = document.getElementById('voice-mic-btn');
+  if (micBtn) {
+    micBtn.className = on ? 'vb-mic-btn scribe-active' : 'vb-mic-btn scribe-muted';
+    micBtn.title = on ? 'Listening (click to mute)' : 'Mic off (click to unmute)';
+  }
+  if (typeof window._micSetIcon === 'function') window._micSetIcon(on);
+  var bar = document.getElementById('voice-bar-main');
+  if (bar) { if (on) bar.classList.add('scribe-listening'); else bar.classList.remove('scribe-listening'); }
+  if (_scribe.targetInput) _scribe.targetInput.placeholder = on ? 'Listening...' : 'Your answer...';
+}
+
+function scribeMute() {
+  if (!_scribe.active) return;
+  _scribe.muted = !_scribe.muted;
+  if (_scribe.recognition) {
+    if (_scribe.muted) try { _scribe.recognition.stop(); } catch(e) {}
+    else try { _scribe.recognition.start(); } catch(e) {}
+  }
+  if (!_scribe.muted && state.isStreaming) stopAll();
+  _updateMicUI();
+}
+
+function scribeStop() {
+  if (_scribe._sendTimer) clearTimeout(_scribe._sendTimer);
+  if (_scribe.recognition) { try { _scribe.recognition.onend = null; _scribe.recognition.stop(); } catch(e) {} _scribe.recognition = null; }
+  _scribe.active = false; _scribe.muted = true;
+  _updateMicUI();
+}
+
+window.startVoiceInput = function(id) { scribeStart(id); };
+window.scribeStart = scribeStart;
+window.scribeStop = scribeStop;
+
 
 // ═══════════════════════════════════════════════════════════
 // Module 5: Unified Block System (Infinity Canvas)
@@ -1649,7 +1726,7 @@ function _wsOnMessage(msg) {
   try { evt = JSON.parse(msg.data); } catch { return; }
 
   if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE'
-      && evt.type !== 'CODE_PUSH' && evt.type !== 'TEST_RESULT' && evt.type !== 'CANVAS_DRAW') {
+      && evt.type !== 'CODE_PUSH' && evt.type !== 'TEST_CASES_PUSH' && evt.type !== 'TEST_RESULT' && evt.type !== 'CANVAS_DRAW' && evt.type !== 'DONE') {
     if (!turn) {
       console.warn(`[WS] Event ${evt.type} dropped — no active turn (gen=${evt.gen} wsGen=${_ws.generation})`);
       return;
@@ -1768,6 +1845,18 @@ function _wsOnMessage(msg) {
       }
       const langSel = document.getElementById('ws-code-lang');
       if (langSel && d.language) langSel.value = d.language;
+      break;
+    }
+    case 'TEST_CASES_PUSH': {
+      const tcd = evt.data || {};
+      const tc = tcd.test_cases || [];
+      console.log('[DSA] TEST_CASES_PUSH:', tc.length, 'cases');
+      if (tc.length) {
+        // Store on problemData so Run/Submit can use them
+        if (!state.dsaProblemData) state.dsaProblemData = {};
+        state.dsaProblemData.test_cases = tc;
+        _showProblemTestCases(state.dsaProblemData);
+      }
       break;
     }
     case 'TEST_RESULT': {
@@ -2194,8 +2283,22 @@ async function streamADK(userMessageContent, isSystemTrigger = false, isSessionS
   // ── WebSocket is the only path (voice mode hardcoded) ──
   if (_ws.enabled && _ws.conn && _ws.conn.readyState === WebSocket.OPEN) {
     _eagerReset();
-    const wsAttachments = _eulerAttachments.length ? _eulerAttachments.slice() : null;
-    if (wsAttachments) { _eulerAttachments = []; _renderAttachPreview('euler-attach-preview'); }
+    // Collect attachments from both home input and voice bar
+    var wsAttachments = _eulerAttachments.length ? _eulerAttachments.slice() : [];
+    if (typeof _vbPendingFiles !== 'undefined' && _vbPendingFiles.length) {
+      _vbPendingFiles.forEach(function(f) { wsAttachments.push({ name: f.name, type: f.type, base64: f.base64 }); });
+      _vbClearFiles();
+    }
+    // Also extract inline images from multipart content arrays
+    if (Array.isArray(userMessageContent)) {
+      userMessageContent.forEach(function(part) {
+        if (part.type === 'image' && part.source && part.source.data) {
+          wsAttachments.push({ name: 'inline.png', type: part.source.media_type || 'image/png', base64: part.source.data });
+        }
+      });
+    }
+    if (!wsAttachments.length) wsAttachments = null;
+    if (_eulerAttachments.length) { _eulerAttachments = []; _renderAttachPreview('euler-attach-preview'); }
     const sent = wsSendMessage(
       typeof userMessageContent === 'string' ? userMessageContent : '',
       context,
@@ -2608,10 +2711,11 @@ function buildContext() {
         code: window._dsaCodeEditor.state.doc.toString(),
       };
     }
-    // Include last test results so tutor knows what passed/failed
+    // Include test results so tutor knows what passed/failed.
+    // _lastTestResults persists until new test run or session cleanup —
+    // every message includes it so the tutor always has context.
     if (window._lastTestResults) {
       _scObj.testResults = window._lastTestResults;
-      window._lastTestResults = null; // clear after sending
     }
     if (window._sdCanvasState) {
       _scObj.canvasState = window._sdCanvasState;
@@ -3251,6 +3355,8 @@ function disconnectAgentEvents() {
 }
 
 function cleanupActiveSession() {
+  // Stop Scribe STT if running
+  if (typeof scribeStop === 'function') { try { scribeStop(); } catch(e) {} }
   // Force save before cleanup so nothing is lost
   if (typeof SessionManager !== 'undefined' && SessionManager.saveSession) {
     try { SessionManager.saveSession(); } catch(e) {}
@@ -3394,7 +3500,7 @@ function cleanupActiveSession() {
     try { window._dsaCodeEditor._ace.destroy(); } catch(e) {}
     window._dsaCodeEditor = null;
   }
-  ['ws-code-editor', 'ws-mock-code-editor'].forEach(function(id) {
+  ['ws-code-editor', 'ws-mock-code-editor', 'ws-lld-editor'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) {
       el._aceReady = false;
@@ -3406,6 +3512,10 @@ function cleanupActiveSession() {
   });
   window._dsaCodeEditor = null;
   window._dsaTestPanel = null;
+  window._lastTestResults = null;
+  if (window._lldCanvas) { try { window._lldCanvas.dispose(); } catch(e) {} window._lldCanvas = null; }
+  var _lldFab = document.getElementById('ws-lld-fabric-canvas');
+  if (_lldFab) _lldFab._lldReady = false;
   // Hide workspace panel + reset layout
   var _wsPanel = document.getElementById('workspace-panel');
   if (_wsPanel) _wsPanel.classList.add('hidden');
@@ -12519,6 +12629,7 @@ async function initSetup() {
     // Snapshot dsaMode BEFORE cleanup clears it
     _lastDsaMode = state.dsaMode;
     const backTarget = _getSessionBackTarget();
+    console.log('[btn-back] dsaMode=' + state.dsaMode + ' _lastDsaMode=' + _lastDsaMode + ' target=' + backTarget);
     if (typeof _backWithFeedback === 'function') {
       _backWithFeedback(backTarget);
     } else {
@@ -12883,6 +12994,84 @@ window.continueSession = async function(sessionId) {
         };
         check();
       });
+    }
+
+    // ── Restore DSA/SD session state ──
+    if (sessionData.dsaState) {
+      var ds = sessionData.dsaState;
+      state.dsaMode = ds.mode;
+      state.dsaProblemSlug = ds.problemSlug;
+      state.dsaLanguage = ds.language || 'python';
+      state.mockCompany = ds.mockCompany;
+      state.mockType = ds.mockType;
+      state.mockLevel = ds.mockLevel;
+      state.mockDifficulty = ds.mockDifficulty;
+      window._lastTestResults = ds.testResults || null;
+
+      // Fetch problem data from API
+      if (ds.problemSlug) {
+        var _ep = (ds.mode === 'sd' || (ds.mode === 'mock_interview' && ds.mockType === 'sd')) ? 'sd' : 'dsa';
+        try {
+          var _pdRes = await fetch(state.apiUrl + '/api/v1/' + _ep + '/problems/' + ds.problemSlug, { headers: AuthManager.authHeaders() });
+          if (_pdRes.ok) state.dsaProblemData = await _pdRes.json();
+        } catch(e) {}
+      }
+
+      // Init workspace panel + editor/canvas
+      _initWorkspaceForMode();
+
+      // Restore code editor content after init
+      if (ds.code !== null && ds.code !== undefined) {
+        var _restoreEditor = function(attempts) {
+          if (window._dsaCodeEditor) {
+            window._dsaCodeEditor.setValue(ds.code);
+            if (window._dsaCodeEditor._ace) {
+              window._dsaCodeEditor._ace.moveCursorTo(ds.cursorRow || 0, ds.cursorCol || 0);
+              window._dsaCodeEditor._ace.clearSelection();
+            }
+          } else if (attempts < 20) {
+            setTimeout(function() { _restoreEditor(attempts + 1); }, 200);
+          }
+        };
+        _restoreEditor(0);
+      }
+
+      // Restore SD canvas from JSON
+      if (ds.canvasJSON) {
+        var _restoreCanvas = function(attempts) {
+          if (typeof SDCanvas !== 'undefined' && SDCanvas.getCanvas && SDCanvas.getCanvas()) {
+            try {
+              SDCanvas.getCanvas().loadFromJSON(JSON.parse(ds.canvasJSON), function() {
+                SDCanvas.getCanvas().renderAll();
+              });
+            } catch(e) { console.warn('[Restore] Canvas JSON load failed:', e); }
+          } else if (attempts < 20) {
+            setTimeout(function() { _restoreCanvas(attempts + 1); }, 200);
+          }
+        };
+        setTimeout(function() { _restoreCanvas(0); }, 300);
+      }
+
+      // Restore LLD canvas
+      if (ds.lldCanvasJSON) {
+        var _restoreLLD = function(attempts) {
+          if (window._lldCanvas) {
+            try {
+              window._lldCanvas.loadFromJSON(JSON.parse(ds.lldCanvasJSON), function() {
+                window._lldCanvas.renderAll();
+              });
+            } catch(e) {}
+          } else if (attempts < 20) {
+            setTimeout(function() { _restoreLLD(attempts + 1); }, 200);
+          }
+        };
+        setTimeout(function() { _restoreLLD(0); }, 300);
+      }
+
+      // Restore test results UI
+      if (ds.testResults && state.dsaProblemData) {
+        setTimeout(function() { _showProblemTestCases(state.dsaProblemData); }, 500);
+      }
     }
 
     // Restore voice/video mode state
@@ -17470,6 +17659,13 @@ function applyTeachingMode() {
   voiceInd?.classList.remove('hidden');
   speedWrap?.classList.remove('hidden');
   micFloat?.classList.remove('hidden');
+
+  // Auto-start mic in always-listening mode
+  setTimeout(function() {
+    if (typeof scribeStart === 'function' && !_scribe.active) {
+      scribeStart('voice-bar-input');
+    }
+  }, 2000);
 }
 
 // ── ElevenLabs Streaming TTS (chunked playback for low latency) ──
@@ -19192,10 +19388,12 @@ function setVoiceBarState(newState) {
   if (status) { status.className = 'vb-status'; status.textContent = ''; }
   if (field) { field.disabled = false; field.style.opacity = ''; }
 
-  // Remove old indicator
+  // Remove old indicator + speaking aura
   voiceBarSetThinking(false);
   removeStreamingIndicator();
   hideSessionPrep();
+  var _wrapEl = document.getElementById('voice-mic-float');
+  if (_wrapEl) _wrapEl.classList.remove('euler-speaking');
 
   switch (newState) {
     case 'idle':
@@ -19211,7 +19409,8 @@ function setVoiceBarState(newState) {
     case 'thinking':
       if (field) field.placeholder = 'Generating...';
       if (sendBtn) sendBtn.classList.add('hidden');
-      if (micBtn) micBtn.classList.add('hidden');
+      // Don't hide mic when Scribe is active — user needs to see mic state
+      if (micBtn && !(_scribe && _scribe.active)) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (progress) { progress.className = 'vb-progress active thinking'; }
       if (status) { status.className = 'vb-status active thinking'; status.textContent = ''; }
@@ -19226,6 +19425,9 @@ function setVoiceBarState(newState) {
       if (field) field.placeholder = 'Type to interrupt...';
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (pauseBtn) pauseBtn.classList.remove('hidden');
+      // Aura glow behind voice bar
+      var _wrap = document.getElementById('voice-mic-float');
+      if (_wrap) _wrap.classList.add('euler-speaking');
       if (progress) { progress.className = 'vb-progress active speaking'; }
       if (status) { status.className = 'vb-status active speaking'; status.textContent = ''; }
       if (vmStop) vmStop.classList.remove('hidden');
@@ -19348,7 +19550,7 @@ function _doSubmitVoiceBar(field) {
   const text = field.value.trim();
   field.value = '';
   field.style.height = '';
-  field.placeholder = 'Type your response...';
+  field.placeholder = (_scribe.active && !_scribe.muted) ? 'Listening...' : 'Your answer...';
 
   // Show sent confirmation in subtitle — important for student to know their message went through
   const preview = text.length > 80 ? text.slice(0, 80) + '...' : text;
@@ -19381,9 +19583,94 @@ function _doSubmitVoiceBar(field) {
     parts.push({ type: 'text', text: text });
     bd.studentDrawing = false;
     streamADK(parts);
+  } else if (_vbPendingFiles.length) {
+    // Build multipart with attached files + text
+    var parts = [];
+    _vbPendingFiles.forEach(function(f) {
+      parts.push({ type: 'image', source: { type: 'base64', media_type: f.type, data: f.base64 } });
+      parts.push({ type: 'text', text: '[ATTACHMENT] ' + f.name });
+    });
+    parts.push({ type: 'text', text: text });
+    _vbClearFiles();
+    streamADK(parts);
   } else {
     streamADK(text);
   }
+}
+
+// ── Voice bar file attachments ──
+var _vbPendingFiles = [];
+
+function _vbClearFiles() {
+  _vbPendingFiles = [];
+  var preview = document.getElementById('voice-bar-attach-preview');
+  if (preview) { preview.innerHTML = ''; preview.style.display = 'none'; }
+}
+
+(function _wireVoiceBarAttach() {
+  var btn = document.getElementById('voice-bar-attach');
+  var fileInput = document.getElementById('voice-bar-file-input');
+  if (!btn || !fileInput) { setTimeout(_wireVoiceBarAttach, 500); return; }
+
+  btn.addEventListener('click', function() { fileInput.click(); });
+  fileInput.addEventListener('change', function() {
+    var files = Array.from(fileInput.files || []);
+    fileInput.value = '';
+    files.forEach(function(f) {
+      if (f.size > 20 * 1024 * 1024) { console.warn('[Attach] File too large:', f.name); return; }
+      var reader = new FileReader();
+      reader.onload = function() {
+        var base64 = reader.result.split(',')[1];
+        _vbPendingFiles.push({ name: f.name, type: f.type || 'application/octet-stream', base64: base64 });
+        _vbRenderFilePreview();
+      };
+      reader.readAsDataURL(f);
+    });
+  });
+
+  // Also support drag-and-drop on the voice bar
+  var bar = document.getElementById('voice-bar-main');
+  if (bar) {
+    bar.addEventListener('dragover', function(e) { e.preventDefault(); bar.style.borderColor = 'rgba(52,211,153,0.4)'; });
+    bar.addEventListener('dragleave', function() { bar.style.borderColor = ''; });
+    bar.addEventListener('drop', function(e) {
+      e.preventDefault(); bar.style.borderColor = '';
+      var files = Array.from(e.dataTransfer.files || []);
+      files.forEach(function(f) {
+        if (f.size > 20 * 1024 * 1024) return;
+        var reader = new FileReader();
+        reader.onload = function() {
+          _vbPendingFiles.push({ name: f.name, type: f.type, base64: reader.result.split(',')[1] });
+          _vbRenderFilePreview();
+        };
+        reader.readAsDataURL(f);
+      });
+    });
+  }
+})();
+
+function _vbRenderFilePreview() {
+  var preview = document.getElementById('voice-bar-attach-preview');
+  if (!preview) return;
+  preview.style.display = 'flex';
+  preview.innerHTML = '';
+  _vbPendingFiles.forEach(function(f, i) {
+    var chip = document.createElement('div');
+    chip.style.cssText = 'display:flex;align-items:center;gap:4px;padding:2px 8px;border-radius:6px;background:rgba(52,211,153,.06);border:1px solid rgba(52,211,153,.12);font-size:9px;color:rgba(52,211,153,.6);white-space:nowrap';
+    var isImg = f.type.startsWith('image/');
+    chip.innerHTML = (isImg ? '<img src="data:' + f.type + ';base64,' + f.base64.slice(0, 200) + '" style="width:16px;height:16px;border-radius:2px;object-fit:cover">' : '📄')
+      + ' <span>' + f.name.slice(0, 15) + (f.name.length > 15 ? '...' : '') + '</span>'
+      + ' <button style="background:none;border:none;color:rgba(248,113,113,.5);cursor:pointer;font-size:11px;padding:0 2px" onclick="event.stopPropagation()">×</button>';
+    chip.querySelector('button').addEventListener('click', function() {
+      _vbPendingFiles.splice(i, 1);
+      _vbRenderFilePreview();
+    });
+    preview.appendChild(chip);
+  });
+  if (!_vbPendingFiles.length) preview.style.display = 'none';
+  // Show send button if files attached
+  var sendBtn = document.getElementById('voice-bar-send');
+  if (sendBtn && _vbPendingFiles.length) sendBtn.classList.add('visible');
 }
 
 // Show/hide send button based on input content
@@ -19398,10 +19685,43 @@ document.addEventListener('input', (e) => {
   }
 });
 
-// ── Enter key handler ───────────────────────────────────────
+// ── Draggable voice bar ──
+(function _wireVoiceBarDrag() {
+  var wrap = document.getElementById('voice-mic-float');
+  if (!wrap) { setTimeout(_wireVoiceBarDrag, 500); return; }
+  var dragging = false, startX = 0, startY = 0, origLeft = 0, origBottom = 0;
+  wrap.addEventListener('mousedown', function(e) {
+    // Only drag from the wrap/bar background, not from inputs/buttons
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('button')) return;
+    dragging = true;
+    startX = e.clientX; startY = e.clientY;
+    var rect = wrap.getBoundingClientRect();
+    origLeft = rect.left + rect.width / 2;
+    origBottom = window.innerHeight - rect.bottom;
+    wrap.classList.add('dragging');
+    wrap.style.transition = 'none';
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!dragging) return;
+    var dx = e.clientX - startX, dy = e.clientY - startY;
+    wrap.style.left = (origLeft + dx) + 'px';
+    wrap.style.bottom = (origBottom - dy) + 'px';
+    wrap.style.transform = 'translateX(-50%)';
+  });
+  document.addEventListener('mouseup', function() {
+    if (!dragging) return;
+    dragging = false;
+    wrap.classList.remove('dragging');
+    wrap.style.transition = '';
+  });
+})();
+
+// ── Enter or Right-Arrow sends ──
 document.addEventListener('keydown', (e) => {
-  if (e.key === 'Enter' && document.activeElement?.id === 'voice-bar-input') {
-    if (e.shiftKey) return; // Shift+Enter = newline
+  var isInput = document.activeElement && document.activeElement.id === 'voice-bar-input';
+  if (!isInput) return;
+  if (e.key === 'Enter' && !e.shiftKey) {
     e.preventDefault();
     submitVoiceBarInput();
   }
@@ -19414,126 +19734,15 @@ let _pttActive = false;
 
 // Voice recording is click-based only — no keyboard shortcut needed
 
-// ── Voice Input — Click-to-record flow ──
-// 1. Click mic → recording starts, mic becomes ✓ button, waveform shows
-// 2. Click ✓ → recording stops, transcript fills text box
-// 3. User edits text → presses Enter/Send to submit
+// Old click-to-record removed — replaced by Scribe STT (always-on mic)
 
-function startVoiceRecording() {
-  if (!('webkitSpeechRecognition' in window || 'SpeechRecognition' in window)) return;
-  _pttActive = true;
-
-  const bar = $('#voice-bar-main');
-  const micBtn = $('#voice-mic-btn');
-  const field = $('#voice-bar-input');
-  if (bar) bar.classList.add('recording');
-  // Change mic icon → tick (✓) + add cancel (×) button
-  if (micBtn) {
-    micBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><polyline points="20 6 9 17 4 12"/></svg>`;
-    micBtn.title = 'Done recording';
-    // Add cancel button before the mic/tick button
-    const cancelBtn = document.createElement('button');
-    cancelBtn.id = 'voice-rec-cancel';
-    cancelBtn.className = 'voice-bar-cancel';
-    cancelBtn.innerHTML = '×';
-    cancelBtn.title = 'Cancel recording';
-    cancelBtn.addEventListener('click', (e) => { e.preventDefault(); cancelVoiceRecording(); });
-    micBtn.parentNode.insertBefore(cancelBtn, micBtn);
-  }
-  if (field) { field.placeholder = 'Listening...'; field.value = ''; }
-
-  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-  _pttRecognition = new SpeechRecognition();
-  _pttRecognition.continuous = true;
-  _pttRecognition.interimResults = true;
-  _pttRecognition.lang = 'en-US';
-
-  _pttRecognition.onresult = (e) => {
-    let final = '', interim = '';
-    for (let i = 0; i < e.results.length; i++) {
-      if (e.results[i].isFinal) final += e.results[i][0].transcript;
-      else interim += e.results[i][0].transcript;
-    }
-    if (field) {
-      field.value = final + interim;
-      field.classList.add('transcript');
-    }
-  };
-  _pttRecognition.onerror = () => { stopVoiceRecording(); };
-  _pttRecognition.onend = () => {
-    // Speech recognition auto-stops after silence — restart if still recording
-    if (_pttActive && _pttRecognition) {
-      try { _pttRecognition.start(); } catch(e) {}
-    }
-  };
-  _pttRecognition.start();
-}
-
-function _restoreMicButton() {
-  const bar = $('#voice-bar-main');
-  const micBtn = $('#voice-mic-btn');
-  const cancelBtn = $('#voice-rec-cancel');
-  if (bar) bar.classList.remove('recording');
-  if (cancelBtn) cancelBtn.remove();
-  if (micBtn) {
-    micBtn.innerHTML = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="1" width="6" height="11" rx="3"/><path d="M19 10v1a7 7 0 0 1-14 0v-1"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>`;
-    micBtn.title = 'Click to record';
-  }
-  if (_pttRecognition) {
-    _pttRecognition.onend = null;
-    _pttRecognition.stop();
-    _pttRecognition = null;
-  }
-}
-
-function stopVoiceRecording() {
-  _pttActive = false;
-  _restoreMicButton();
-  const field = $('#voice-bar-input');
-  if (field) {
-    field.classList.remove('transcript');
-    field.placeholder = 'Type your response...';
-    if (field.value.trim()) {
-      field.focus();
-      field.style.height = 'auto';
-      field.style.height = field.scrollHeight + 'px';
-    }
-  }
-}
-
-function cancelVoiceRecording() {
-  _pttActive = false;
-  _restoreMicButton();
-  const field = $('#voice-bar-input');
-  if (field) {
-    field.value = '';
-    field.classList.remove('transcript');
-    field.placeholder = 'Type your response...';
-  }
-}
-
-// Voice bar input — Enter to send + auto-resize
+// Voice bar input — auto-resize only (Enter handled by global handler that respects Scribe state)
 document.addEventListener('DOMContentLoaded', () => {
   const vbInput = document.getElementById('voice-bar-input');
   if (vbInput) {
-    // Enter to send (Shift+Enter for newline)
-    vbInput.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter' && !e.shiftKey) {
-        e.preventDefault();
-        submitVoiceBarInput();
-      }
-    });
-    // Auto-resize textarea as user types
     vbInput.addEventListener('input', () => {
       vbInput.style.height = '';
       vbInput.style.height = Math.min(vbInput.scrollHeight, 120) + 'px';
-    });
-    // Show send button when text is present
-    vbInput.addEventListener('input', () => {
-      const sendBtn = document.getElementById('voice-bar-send');
-      if (sendBtn && !state.isStreaming) {
-        sendBtn.style.opacity = vbInput.value.trim() ? '1' : '';
-      }
     });
   }
 });
@@ -19549,32 +19758,7 @@ document.addEventListener('DOMContentLoaded', () => {
   }, 1000);
 });
 
-// Floating mic button — toggle click (not hold)
-document.addEventListener('DOMContentLoaded', () => {
-  const micBtn = document.getElementById('voice-mic-btn');
-  if (micBtn) {
-    micBtn.addEventListener('click', (e) => {
-      e.preventDefault();
-
-      // If tutor is streaming, stop it first (interrupt)
-      if (state.isStreaming && !_pttActive) {
-        stopGeneration();
-      }
-
-      if (_pttActive) {
-        // Stop recording AND auto-submit if there's text
-        stopVoiceRecording();
-        const field = document.getElementById('voice-bar-input');
-        if (field && field.value.trim()) {
-          // Small delay so the final transcript chunk arrives
-          setTimeout(() => submitVoiceBarInput(), 150);
-        }
-      } else {
-        startVoiceRecording();
-      }
-    });
-  }
-});
+// Old floating mic click handler removed — scribeStart handles mic via onclick in HTML
 
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -20675,363 +20859,27 @@ document.addEventListener('click', function(e) {
 // DSA & System Design Tab
 // ═══════════════════════════════════════════════════════════
 
-// Hardcoded fallback data when API is unavailable (seed not run yet)
-const _DSA_FALLBACK_TOPICS = [
-  {topic:'arrays',count:9},{topic:'two_pointers',count:5},{topic:'sliding_window',count:6},
-  {topic:'stack',count:7},{topic:'binary_search',count:7},{topic:'linked_list',count:11},
-  {topic:'trees',count:15},{topic:'graphs',count:13},{topic:'dynamic_programming',count:23},
-  {topic:'heap',count:7},{topic:'backtracking',count:9},{topic:'greedy',count:8},
-];
-const _DSA_FALLBACK_PROBLEMS = [
-  {num:1,name:'Two Sum',slug:'two-sum',difficulty:'easy',topics:['arrays','hash_map'],companies:['google','amazon','meta'],acceptance:52,
-    description:'Given an array of integers nums and an integer target, return indices of the two numbers such that they add up to target.\nYou may assume that each input would have exactly one solution, and you may not use the same element twice.',
-    examples:[{input:'nums = [2,7,11,15], target = 9',output:'[0,1]',explanation:'Because nums[0] + nums[1] == 9, we return [0, 1].'},{input:'nums = [3,2,4], target = 6',output:'[1,2]'}],
-    constraints:['2 <= nums.length <= 10^4','-10^9 <= nums[i] <= 10^9','Only one valid answer exists.'],
-    starter_code:{
-      python:"class Solution:\n    def twoSum(self, nums: list[int], target: int) -> list[int]:\n        # Write your solution here\n        pass",
-      javascript:"var twoSum = function(nums, target) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int[] twoSum(int[] nums, int target) {\n        // Write your solution here\n        return new int[]{};\n    }\n}",
-      cpp:"class Solution {\npublic:\n    vector<int> twoSum(vector<int>& nums, int target) {\n        // Write your solution here\n        return {};\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [2,7,11,15], target = 9",expected:"[0,1]"},
-      {input:"nums = [3,2,4], target = 6",expected:"[1,2]"},
-      {input:"nums = [3,3], target = 6",expected:"[0,1]"}
-    ]},
-  {num:2,name:'Valid Anagram',slug:'valid-anagram',difficulty:'easy',topics:['arrays','sorting'],companies:['amazon'],acceptance:63,
-    description:'Given two strings s and t, return true if t is an anagram of s, and false otherwise.',
-    examples:[{input:'s = "anagram", t = "nagaram"',output:'true'},{input:'s = "rat", t = "car"',output:'false'}],
-    constraints:['1 <= s.length, t.length <= 5 * 10^4','s and t consist of lowercase English letters.'],
-    starter_code:{
-      python:"class Solution:\n    def isAnagram(self, s: str, t: str) -> bool:\n        # Write your solution here\n        pass",
-      javascript:"var isAnagram = function(s, t) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public boolean isAnagram(String s, String t) {\n        // Write your solution here\n        return false;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    bool isAnagram(string s, string t) {\n        // Write your solution here\n        return false;\n    }\n};"
-    },
-    test_cases:[
-      {input:'s = "anagram", t = "nagaram"',expected:"true"},
-      {input:'s = "rat", t = "car"',expected:"false"},
-      {input:'s = "a", t = "a"',expected:"true"}
-    ]},
-  {num:3,name:'Contains Duplicate',slug:'contains-duplicate',difficulty:'easy',topics:['arrays','hash_set'],companies:['apple','amazon'],acceptance:61,
-    description:'Given an integer array nums, return true if any value appears at least twice in the array, and return false if every element is distinct.',
-    examples:[{input:'nums = [1,2,3,1]',output:'true'},{input:'nums = [1,2,3,4]',output:'false'}],
-    constraints:['1 <= nums.length <= 10^5','-10^9 <= nums[i] <= 10^9'],
-    starter_code:{
-      python:"class Solution:\n    def containsDuplicate(self, nums: list[int]) -> bool:\n        # Write your solution here\n        pass",
-      javascript:"var containsDuplicate = function(nums) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public boolean containsDuplicate(int[] nums) {\n        // Write your solution here\n        return false;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    bool containsDuplicate(vector<int>& nums) {\n        // Write your solution here\n        return false;\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [1,2,3,1]",expected:"true"},
-      {input:"nums = [1,2,3,4]",expected:"false"},
-      {input:"nums = [1,1,1,3,3,4,3,2,4,2]",expected:"true"}
-    ]},
-  {num:4,name:'Group Anagrams',slug:'group-anagrams',difficulty:'medium',topics:['arrays','hash_map'],companies:['amazon','meta'],acceptance:67,
-    starter_code:{
-      python:"class Solution:\n    def groupAnagrams(self, strs: list[str]) -> list[list[str]]:\n        # Write your solution here\n        pass",
-      javascript:"var groupAnagrams = function(strs) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public List<List<String>> groupAnagrams(String[] strs) {\n        // Write your solution here\n        return new ArrayList<>();\n    }\n}",
-      cpp:"class Solution {\npublic:\n    vector<vector<string>> groupAnagrams(vector<string>& strs) {\n        // Write your solution here\n        return {};\n    }\n};"
-    },
-    test_cases:[
-      {input:'strs = ["eat","tea","tan","ate","nat","bat"]',expected:'[["bat"],["nat","tan"],["ate","eat","tea"]]'},
-      {input:'strs = [""]',expected:'[[""]]'},
-      {input:'strs = ["a"]',expected:'[["a"]]'}
-    ]},
-  {num:5,name:'Top K Frequent Elements',slug:'top-k-frequent-elements',difficulty:'medium',topics:['heap','hash_map'],companies:['amazon','google'],acceptance:64,
-    starter_code:{
-      python:"class Solution:\n    def topKFrequent(self, nums: list[int], k: int) -> list[int]:\n        # Write your solution here\n        pass",
-      javascript:"var topKFrequent = function(nums, k) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int[] topKFrequent(int[] nums, int k) {\n        // Write your solution here\n        return new int[]{};\n    }\n}",
-      cpp:"class Solution {\npublic:\n    vector<int> topKFrequent(vector<int>& nums, int k) {\n        // Write your solution here\n        return {};\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [1,1,1,2,2,3], k = 2",expected:"[1,2]"},
-      {input:"nums = [1], k = 1",expected:"[1]"},
-      {input:"nums = [4,4,4,2,2,3,3,3], k = 2",expected:"[3,4]"}
-    ]},
-  {num:6,name:'Product of Array Except Self',slug:'product-of-array-except-self',difficulty:'medium',topics:['arrays','prefix'],companies:['meta','microsoft'],acceptance:65,
-    starter_code:{
-      python:"class Solution:\n    def productExceptSelf(self, nums: list[int]) -> list[int]:\n        # Write your solution here\n        pass",
-      javascript:"var productExceptSelf = function(nums) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int[] productExceptSelf(int[] nums) {\n        // Write your solution here\n        return new int[]{};\n    }\n}",
-      cpp:"class Solution {\npublic:\n    vector<int> productExceptSelf(vector<int>& nums) {\n        // Write your solution here\n        return {};\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [1,2,3,4]",expected:"[24,12,8,6]"},
-      {input:"nums = [-1,1,0,-3,3]",expected:"[0,0,9,0,0]"}
-    ]},
-  {num:7,name:'Longest Consecutive Sequence',slug:'longest-consecutive-sequence',difficulty:'medium',topics:['arrays','hash_set'],companies:['google','amazon'],acceptance:33,
-    starter_code:{
-      python:"class Solution:\n    def longestConsecutive(self, nums: list[int]) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var longestConsecutive = function(nums) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int longestConsecutive(int[] nums) {\n        // Write your solution here\n        return 0;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int longestConsecutive(vector<int>& nums) {\n        // Write your solution here\n        return 0;\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [100,4,200,1,3,2]",expected:"4"},
-      {input:"nums = [0,3,7,2,5,8,4,6,0,1]",expected:"9"},
-      {input:"nums = []",expected:"0"}
-    ]},
-  {num:8,name:'Valid Palindrome',slug:'valid-palindrome',difficulty:'easy',topics:['two_pointers','string'],companies:['meta','microsoft'],acceptance:44,
-    starter_code:{
-      python:"class Solution:\n    def isPalindrome(self, s: str) -> bool:\n        # Write your solution here\n        pass",
-      javascript:"var isPalindrome = function(s) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public boolean isPalindrome(String s) {\n        // Write your solution here\n        return false;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    bool isPalindrome(string s) {\n        // Write your solution here\n        return false;\n    }\n};"
-    },
-    test_cases:[
-      {input:'s = "A man, a plan, a canal: Panama"',expected:"true"},
-      {input:'s = "race a car"',expected:"false"},
-      {input:'s = " "',expected:"true"}
-    ]},
-  {num:9,name:'3Sum',slug:'3sum',difficulty:'medium',topics:['two_pointers','sorting'],companies:['amazon','meta','google'],acceptance:32,
-    starter_code:{
-      python:"class Solution:\n    def threeSum(self, nums: list[int]) -> list[list[int]]:\n        # Write your solution here\n        pass",
-      javascript:"var threeSum = function(nums) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public List<List<Integer>> threeSum(int[] nums) {\n        // Write your solution here\n        return new ArrayList<>();\n    }\n}",
-      cpp:"class Solution {\npublic:\n    vector<vector<int>> threeSum(vector<int>& nums) {\n        // Write your solution here\n        return {};\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [-1,0,1,2,-1,-4]",expected:"[[-1,-1,2],[-1,0,1]]"},
-      {input:"nums = [0,1,1]",expected:"[]"},
-      {input:"nums = [0,0,0]",expected:"[[0,0,0]]"}
-    ]},
-  {num:10,name:'Container With Most Water',slug:'container-with-most-water',difficulty:'medium',topics:['two_pointers','greedy'],companies:['amazon','google'],acceptance:54,
-    starter_code:{
-      python:"class Solution:\n    def maxArea(self, height: list[int]) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var maxArea = function(height) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int maxArea(int[] height) {\n        // Write your solution here\n        return 0;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int maxArea(vector<int>& height) {\n        // Write your solution here\n        return 0;\n    }\n};"
-    },
-    test_cases:[
-      {input:"height = [1,8,6,2,5,4,8,3,7]",expected:"49"},
-      {input:"height = [1,1]",expected:"1"},
-      {input:"height = [4,3,2,1,4]",expected:"16"}
-    ]},
-  {num:11,name:'Best Time to Buy and Sell Stock',slug:'best-time-to-buy-sell-stock',difficulty:'easy',topics:['sliding_window','arrays'],companies:['amazon','meta'],acceptance:54,
-    starter_code:{
-      python:"class Solution:\n    def maxProfit(self, prices: list[int]) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var maxProfit = function(prices) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int maxProfit(int[] prices) {\n        // Write your solution here\n        return 0;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int maxProfit(vector<int>& prices) {\n        // Write your solution here\n        return 0;\n    }\n};"
-    },
-    test_cases:[
-      {input:"prices = [7,1,5,3,6,4]",expected:"5"},
-      {input:"prices = [7,6,4,3,1]",expected:"0"},
-      {input:"prices = [2,4,1]",expected:"2"}
-    ]},
-  {num:12,name:'Longest Substring Without Repeating',slug:'longest-substring-without-repeating',difficulty:'medium',topics:['sliding_window','hash_map'],companies:['amazon','google','meta'],acceptance:34,
-    starter_code:{
-      python:"class Solution:\n    def lengthOfLongestSubstring(self, s: str) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var lengthOfLongestSubstring = function(s) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int lengthOfLongestSubstring(String s) {\n        // Write your solution here\n        return 0;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int lengthOfLongestSubstring(string s) {\n        // Write your solution here\n        return 0;\n    }\n};"
-    },
-    test_cases:[
-      {input:'s = "abcabcbb"',expected:"3"},
-      {input:'s = "bbbbb"',expected:"1"},
-      {input:'s = "pwwkew"',expected:"3"}
-    ]},
-  {num:13,name:'Valid Parentheses',slug:'valid-parentheses',difficulty:'easy',topics:['stack'],companies:['amazon','meta'],acceptance:40,
-    starter_code:{
-      python:"class Solution:\n    def isValid(self, s: str) -> bool:\n        # Write your solution here\n        pass",
-      javascript:"var isValid = function(s) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public boolean isValid(String s) {\n        // Write your solution here\n        return false;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    bool isValid(string s) {\n        // Write your solution here\n        return false;\n    }\n};"
-    },
-    test_cases:[
-      {input:'s = "()"',expected:"true"},
-      {input:'s = "()[]{}"',expected:"true"},
-      {input:'s = "(]"',expected:"false"}
-    ]},
-  {num:14,name:'Binary Search',slug:'binary-search',difficulty:'easy',topics:['binary_search'],companies:['google'],acceptance:55,
-    starter_code:{
-      python:"class Solution:\n    def search(self, nums: list[int], target: int) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var search = function(nums, target) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int search(int[] nums, int target) {\n        // Write your solution here\n        return -1;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int search(vector<int>& nums, int target) {\n        // Write your solution here\n        return -1;\n    }\n};"
-    },
-    test_cases:[
-      {input:"nums = [-1,0,3,5,9,12], target = 9",expected:"4"},
-      {input:"nums = [-1,0,3,5,9,12], target = 2",expected:"-1"},
-      {input:"nums = [5], target = 5",expected:"0"}
-    ]},
-  {num:15,name:'Reverse Linked List',slug:'reverse-linked-list',difficulty:'easy',topics:['linked_list'],companies:['amazon','microsoft'],acceptance:73,
-    starter_code:{
-      python:"# Definition for singly-linked list.\n# class ListNode:\n#     def __init__(self, val=0, next=None):\n#         self.val = val\n#         self.next = next\nclass Solution:\n    def reverseList(self, head: Optional[ListNode]) -> Optional[ListNode]:\n        # Write your solution here\n        pass",
-      javascript:"/**\n * Definition for singly-linked list.\n * function ListNode(val, next) {\n *     this.val = (val===undefined ? 0 : val)\n *     this.next = (next===undefined ? null : next)\n * }\n */\nvar reverseList = function(head) {\n    // Write your solution here\n};",
-      java:"/**\n * Definition for singly-linked list.\n * public class ListNode {\n *     int val;\n *     ListNode next;\n *     ListNode() {}\n *     ListNode(int val) { this.val = val; }\n *     ListNode(int val, ListNode next) { this.val = val; this.next = next; }\n * }\n */\nclass Solution {\n    public ListNode reverseList(ListNode head) {\n        // Write your solution here\n        return null;\n    }\n}",
-      cpp:"/**\n * Definition for singly-linked list.\n * struct ListNode {\n *     int val;\n *     ListNode *next;\n *     ListNode() : val(0), next(nullptr) {}\n *     ListNode(int x) : val(x), next(nullptr) {}\n *     ListNode(int x, ListNode *next) : val(x), next(next) {}\n * };\n */\nclass Solution {\npublic:\n    ListNode* reverseList(ListNode* head) {\n        // Write your solution here\n        return nullptr;\n    }\n};"
-    },
-    test_cases:[
-      {input:"head = [1,2,3,4,5]",expected:"[5,4,3,2,1]"},
-      {input:"head = [1,2]",expected:"[2,1]"},
-      {input:"head = []",expected:"[]"}
-    ]},
-  {num:16,name:'Invert Binary Tree',slug:'invert-binary-tree',difficulty:'easy',topics:['trees','recursion'],companies:['google'],acceptance:73,
-    starter_code:{
-      python:"# Definition for a binary tree node.\n# class TreeNode:\n#     def __init__(self, val=0, left=None, right=None):\n#         self.val = val\n#         self.left = left\n#         self.right = right\nclass Solution:\n    def invertTree(self, root: Optional[TreeNode]) -> Optional[TreeNode]:\n        # Write your solution here\n        pass",
-      javascript:"/**\n * Definition for a binary tree node.\n * function TreeNode(val, left, right) {\n *     this.val = (val===undefined ? 0 : val)\n *     this.left = (left===undefined ? null : left)\n *     this.right = (right===undefined ? null : right)\n * }\n */\nvar invertTree = function(root) {\n    // Write your solution here\n};",
-      java:"/**\n * Definition for a binary tree node.\n * public class TreeNode {\n *     int val;\n *     TreeNode left;\n *     TreeNode right;\n *     TreeNode() {}\n *     TreeNode(int val) { this.val = val; }\n *     TreeNode(int val, TreeNode left, TreeNode right) {\n *         this.val = val;\n *         this.left = left;\n *         this.right = right;\n *     }\n * }\n */\nclass Solution {\n    public TreeNode invertTree(TreeNode root) {\n        // Write your solution here\n        return null;\n    }\n}",
-      cpp:"/**\n * Definition for a binary tree node.\n * struct TreeNode {\n *     int val;\n *     TreeNode *left;\n *     TreeNode *right;\n *     TreeNode() : val(0), left(nullptr), right(nullptr) {}\n *     TreeNode(int x) : val(x), left(nullptr), right(nullptr) {}\n *     TreeNode(int x, TreeNode *left, TreeNode *right) : val(x), left(left), right(right) {}\n * };\n */\nclass Solution {\npublic:\n    TreeNode* invertTree(TreeNode* root) {\n        // Write your solution here\n        return nullptr;\n    }\n};"
-    },
-    test_cases:[
-      {input:"root = [4,2,7,1,3,6,9]",expected:"[4,7,2,9,6,3,1]"},
-      {input:"root = [2,1,3]",expected:"[2,3,1]"},
-      {input:"root = []",expected:"[]"}
-    ]},
-  {num:17,name:'Number of Islands',slug:'number-of-islands',difficulty:'medium',topics:['graphs','bfs_dfs'],companies:['amazon','google','meta'],acceptance:56,
-    starter_code:{
-      python:'class Solution:\n    def numIslands(self, grid: list[list[str]]) -> int:\n        # Write your solution here\n        pass',
-      javascript:"var numIslands = function(grid) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int numIslands(char[][] grid) {\n        // Write your solution here\n        return 0;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int numIslands(vector<vector<char>>& grid) {\n        // Write your solution here\n        return 0;\n    }\n};"
-    },
-    test_cases:[
-      {input:'grid = [["1","1","1","1","0"],["1","1","0","1","0"],["1","1","0","0","0"],["0","0","0","0","0"]]',expected:"1"},
-      {input:'grid = [["1","1","0","0","0"],["1","1","0","0","0"],["0","0","1","0","0"],["0","0","0","1","1"]]',expected:"3"}
-    ]},
-  {num:18,name:'Climbing Stairs',slug:'climbing-stairs',difficulty:'easy',topics:['dynamic_programming'],companies:['amazon','apple'],acceptance:51,
-    starter_code:{
-      python:"class Solution:\n    def climbStairs(self, n: int) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var climbStairs = function(n) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int climbStairs(int n) {\n        // Write your solution here\n        return 0;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int climbStairs(int n) {\n        // Write your solution here\n        return 0;\n    }\n};"
-    },
-    test_cases:[
-      {input:"n = 2",expected:"2"},
-      {input:"n = 3",expected:"3"},
-      {input:"n = 5",expected:"8"}
-    ]},
-  {num:19,name:'Coin Change',slug:'coin-change',difficulty:'medium',topics:['dynamic_programming'],companies:['amazon','google'],acceptance:42,
-    starter_code:{
-      python:"class Solution:\n    def coinChange(self, coins: list[int], amount: int) -> int:\n        # Write your solution here\n        pass",
-      javascript:"var coinChange = function(coins, amount) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int coinChange(int[] coins, int amount) {\n        // Write your solution here\n        return -1;\n    }\n}",
-      cpp:"class Solution {\npublic:\n    int coinChange(vector<int>& coins, int amount) {\n        // Write your solution here\n        return -1;\n    }\n};"
-    },
-    test_cases:[
-      {input:"coins = [1,5,10,25], amount = 30",expected:"2"},
-      {input:"coins = [2], amount = 3",expected:"-1"},
-      {input:"coins = [1], amount = 0",expected:"0"}
-    ]},
-  {num:20,name:'Merge Intervals',slug:'merge-intervals',difficulty:'medium',topics:['intervals','sorting'],companies:['google','meta','amazon'],acceptance:46,
-    starter_code:{
-      python:"class Solution:\n    def merge(self, intervals: list[list[int]]) -> list[list[int]]:\n        # Write your solution here\n        pass",
-      javascript:"var merge = function(intervals) {\n    // Write your solution here\n};",
-      java:"class Solution {\n    public int[][] merge(int[][] intervals) {\n        // Write your solution here\n        return new int[][]{};\n    }\n}",
-      cpp:"class Solution {\npublic:\n    vector<vector<int>> merge(vector<vector<int>>& intervals) {\n        // Write your solution here\n        return {};\n    }\n};"
-    },
-    test_cases:[
-      {input:"intervals = [[1,3],[2,6],[8,10],[15,18]]",expected:"[[1,6],[8,10],[15,18]]"},
-      {input:"intervals = [[1,4],[4,5]]",expected:"[[1,5]]"},
-      {input:"intervals = [[1,4],[0,4]]",expected:"[[0,4]]"}
-    ]},
-];
-const _SD_FALLBACK = [
-  {name:'URL Shortener (Bit.ly)',slug:'url-shortener',difficulty:'medium',description:'Hash generation, read-heavy caching, database scaling.',
-   plan:{requirements:['Shorten long URL → short code','Redirect short code → original URL','Custom alias + TTL optional'],nfr:['100:1 read-heavy','< 50ms redirect latency','1B total URLs'],entities:['URL','User'],api:['POST /shorten {url, alias?, ttl?}','GET /:code → 301 redirect'],deep_dives:['Hash generation: MD5 truncation vs Base62 counter vs Snowflake','Caching: Redis for hot short codes, TTL-based eviction','Database: sharding by short_code prefix']}},
-  {name:'Dropbox',slug:'dropbox',difficulty:'hard',description:'File sync, chunked uploads, conflict resolution, CDN.',
-   plan:{requirements:['Upload/download files','Sync across devices','Share files with permissions'],nfr:['Strong consistency for file state','Handle files up to 50GB','Low latency sync notifications'],entities:['File','FileVersion','User','SharedLink'],api:['POST /files/upload (chunked)','GET /files/{id}/download','POST /files/{id}/share'],deep_dives:['Chunked upload: resumable uploads, dedup via content hashing','Sync: notification service (long polling/WebSocket), conflict resolution','Storage: blob store (S3) + metadata DB, CDN for downloads']}},
-  {name:'Local Delivery Service',slug:'local-delivery',difficulty:'medium',description:'Geospatial indexing, order matching, real-time tracking.'},
-  {name:'News Aggregator',slug:'news-aggregator',difficulty:'medium',description:'RSS feeds, ranking, personalization, fanout.'},
-  {name:'Ticketmaster',slug:'ticketmaster',difficulty:'hard',description:'Seat reservation, high contention, distributed locking.',
-   plan:{requirements:['Browse events and available seats','Reserve and purchase seats','Handle concurrent bookings for same seat'],nfr:['No double-booking (strong consistency for seats)','Handle 10K+ concurrent users for popular events','< 2s booking confirmation'],entities:['Event','Venue','Seat','Booking','User'],api:['GET /events/{id}/seats → available seats','POST /bookings {event_id, seat_ids}','POST /payments {booking_id}'],deep_dives:['Seat locking: pessimistic lock with TTL vs optimistic with version','Flash sale pattern: queue + worker pool, not direct DB writes','Payment: two-phase with hold → confirm, saga for rollback']}},
-  {name:'FB News Feed',slug:'news-feed',difficulty:'hard',description:'Fan-out on write vs read, ranking, caching layers.',
-   plan:{requirements:['Post content (text, images)','See personalized feed of friends\' posts','Like and comment on posts'],nfr:['Feed renders < 200ms','Scale to 1B+ users','Eventually consistent is OK for feed'],entities:['User','Post','Follow','Feed'],api:['POST /posts {content}','GET /feed?cursor=X → Post[]','POST /posts/{id}/like'],deep_dives:['Fan-out: write (push to follower feeds) vs read (pull at request time) vs hybrid','Celebrity problem: fan-out on read for users with >10K followers','Feed ranking: chronological vs ML-ranked, pre-computed vs on-the-fly','Caching: per-user feed cache in Redis, invalidation on new post']}},
-  {name:'Tinder',slug:'tinder',difficulty:'medium',description:'Geospatial matching, swipe queue, recommendation.'},
-  {name:'WhatsApp',slug:'chat-system',difficulty:'medium',description:'WebSockets, message queues, E2E encryption, delivery receipts.',
-   plan:{requirements:['Send messages 1:1 and in groups','Real-time delivery','Message delivery receipts (sent, delivered, read)'],nfr:['< 100ms message delivery','E2E encryption','Handle 100M concurrent connections'],entities:['User','Message','Conversation','Group'],api:['POST /messages {conversation_id, text}','GET /conversations/{id}/messages','WS /ws/chat (real-time)'],deep_dives:['Connection management: WebSocket gateway, sticky sessions','Message delivery: write-ahead to queue, push to recipient, store','Offline delivery: store in inbox, push on reconnect','Group messages: fan-out to all members, read receipts aggregation']}},
-  {name:'Rate Limiter',slug:'rate-limiter',difficulty:'easy',description:'Token bucket, sliding window, Redis-based counters.'},
-  {name:'Online Auction',slug:'online-auction',difficulty:'hard',description:'Real-time bidding, consistency, fraud detection.'},
-  {name:'Instagram',slug:'instagram',difficulty:'hard',description:'Photo uploads, CDN, news feed, story expiry.'},
-  {name:'YouTube Top K',slug:'youtube-topk',difficulty:'medium',description:'Streaming top-K, count-min sketch, heavy hitters.'},
-  {name:'Uber',slug:'uber',difficulty:'hard',description:'Geohash, matching, surge pricing, ETA estimation.',
-   plan:{requirements:['Rider requests ride','Match rider to nearby driver','Real-time location tracking'],nfr:['< 10s to find a driver','Handle 1M concurrent rides','Location updates every 4s'],entities:['Rider','Driver','Ride','Location'],api:['POST /rides/request {pickup, destination}','POST /rides/{id}/accept','PUT /drivers/{id}/location'],deep_dives:['Geospatial matching: geohash/S2 cells for nearby driver lookup','Matching algorithm: nearest available vs ETA-optimized','Surge pricing: demand/supply ratio per geohash cell','Real-time tracking: WebSocket for rider, batch location updates from driver']}},
-  {name:'Google Docs',slug:'google-docs',difficulty:'hard',description:'Real-time collaboration, OT/CRDT, conflict resolution.'},
-  {name:'LeetCode',slug:'leetcode',difficulty:'medium',description:'Code execution sandbox, queue, result storage.'},
-];
-
-const _SD_CONCEPTS = [
-  {section:'Core Concepts', items:[
-    {name:'Networking Essentials',slug:'networking',icon:'🌐',desc:'TCP/UDP, DNS, HTTP, load balancing fundamentals'},
-    {name:'API Design',slug:'api-design',icon:'🔌',desc:'REST vs gRPC, pagination, rate limiting, versioning'},
-    {name:'Data Modeling',slug:'data-modeling',icon:'📐',desc:'Schema design, normalization, denormalization trade-offs'},
-    {name:'Database Indexing',slug:'db-indexing',icon:'📇',desc:'B-trees, hash indexes, composite indexes, query planning'},
-    {name:'Caching',slug:'caching',icon:'⚡',desc:'Cache-aside, write-through, TTL, eviction policies'},
-    {name:'Sharding',slug:'sharding',icon:'🔀',desc:'Range vs hash sharding, rebalancing, hot spots'},
-    {name:'Consistent Hashing',slug:'consistent-hashing',icon:'🎯',desc:'Virtual nodes, ring topology, minimal redistribution'},
-    {name:'CAP Theorem',slug:'cap-theorem',icon:'⚖️',desc:'Consistency vs availability, partition tolerance trade-offs'},
-    {name:'Numbers to Know',slug:'numbers-to-know',icon:'🔢',desc:'Latency, throughput, storage estimates for back-of-envelope'},
-  ]},
-  {section:'Patterns', items:[
-    {name:'Real-time Updates',slug:'realtime-updates',icon:'📡',desc:'WebSockets, SSE, long polling, pub/sub'},
-    {name:'Dealing with Contention',slug:'contention',icon:'🔒',desc:'Optimistic/pessimistic locking, CAS, queuing'},
-    {name:'Multi-step Processes',slug:'sagas',icon:'🔗',desc:'Sagas, compensating transactions, idempotency'},
-    {name:'Scaling Reads',slug:'scaling-reads',icon:'📖',desc:'Read replicas, caching layers, CDN, denormalization'},
-    {name:'Scaling Writes',slug:'scaling-writes',icon:'✍️',desc:'Sharding, write-ahead log, batching, async writes'},
-    {name:'Handling Large Blobs',slug:'large-blobs',icon:'📦',desc:'Chunked upload, S3, CDN, resumable transfers'},
-    {name:'Long Running Tasks',slug:'long-tasks',icon:'⏳',desc:'Job queues, workers, progress tracking, retries'},
-  ]},
-  {section:'Key Technologies', items:[
-    {name:'Redis',slug:'redis',icon:'🔴',desc:'In-memory cache, pub/sub, sorted sets, rate limiting'},
-    {name:'Elasticsearch',slug:'elasticsearch',icon:'🔍',desc:'Full-text search, inverted index, aggregations'},
-    {name:'Kafka',slug:'kafka',icon:'📨',desc:'Event streaming, partitions, consumer groups, exactly-once'},
-    {name:'API Gateway',slug:'api-gateway',icon:'🚪',desc:'Routing, auth, rate limiting, request transformation'},
-    {name:'Cassandra',slug:'cassandra',icon:'💎',desc:'Wide-column, eventual consistency, high write throughput'},
-    {name:'DynamoDB',slug:'dynamodb',icon:'⚡',desc:'Serverless, single-digit ms latency, partition key design'},
-    {name:'PostgreSQL',slug:'postgresql',icon:'🐘',desc:'ACID, JSONB, extensions, read replicas'},
-    {name:'ZooKeeper',slug:'zookeeper',icon:'🦁',desc:'Distributed coordination, leader election, config mgmt'},
-  ]},
-];
-
-const _LLD_CONCEPTS = [
-  {section:'Core Principles', items:[
-    {name:'OOP Principles',slug:'oop-principles',icon:'🧱',desc:'Encapsulation, inheritance, polymorphism, abstraction'},
-    {name:'SOLID Principles',slug:'solid-principles',icon:'🏗️',desc:'Single Responsibility, Open/Closed, Liskov, ISP, DIP'},
-    {name:'UML Class Diagrams',slug:'uml-class-diagrams',icon:'📊',desc:'Classes, relationships, associations, composition'},
-    {name:'LLD Framework',slug:'lld-framework',icon:'🗺️',desc:'Requirements → Entities → Relationships → Patterns → Code'},
-  ]},
-  {section:'Design Patterns', items:[
-    {name:'Creational Patterns',slug:'design-patterns-creational',icon:'🏭',desc:'Factory, Abstract Factory, Builder, Singleton, Prototype'},
-    {name:'Structural Patterns',slug:'design-patterns-structural',icon:'🔌',desc:'Adapter, Bridge, Composite, Decorator, Facade, Proxy'},
-    {name:'Behavioral Patterns',slug:'design-patterns-behavioral',icon:'🎭',desc:'Observer, Strategy, Command, State, Template Method'},
-  ]},
-];
-
-const _LLD_FALLBACK = [
-  {name:'Parking Lot System',slug:'parking-lot-system',difficulty:'medium',type:'lld',description:'Design a parking lot with multiple floors, vehicle types, and pricing strategies.'},
-  {name:'Library Management',slug:'library-management-system',difficulty:'easy',type:'lld',description:'Design a library system with books, members, borrowing, and fines.'},
-  {name:'Elevator System',slug:'elevator-system',difficulty:'hard',type:'lld',description:'Design multiple elevators with scheduling algorithms and state management.'},
-  {name:'Vending Machine',slug:'vending-machine',difficulty:'easy',type:'lld',description:'Design a vending machine with states, inventory, and payment.'},
-  {name:'Chess Game',slug:'chess-game',difficulty:'hard',type:'lld',description:'Design a chess game with pieces, board, rules, and move validation.'},
-  {name:'Movie Ticket Booking',slug:'movie-ticket-booking-system',difficulty:'hard',type:'lld',description:'Design BookMyShow — shows, seats, concurrency, payments.'},
-  {name:'Splitwise',slug:'splitwise-expense-sharing',difficulty:'medium',type:'lld',description:'Design expense sharing — users, groups, balances, settlements.'},
-  {name:'Online Shopping Cart',slug:'online-shopping-cart',difficulty:'medium',type:'lld',description:'Design an e-commerce cart — products, inventory, checkout.'},
-  {name:'Stack Overflow',slug:'stack-overflow-qa-platform',difficulty:'hard',type:'lld',description:'Design Q&A — questions, answers, votes, reputation system.'},
-  {name:'Rate Limiter',slug:'rate-limiter-lld',difficulty:'medium',type:'lld',description:'Design token bucket and sliding window rate limiters.'},
-];
-
 async function _loadDSAScreen() {
   const apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
-  let problems = _DSA_FALLBACK_PROBLEMS;
-  let topics = _DSA_FALLBACK_TOPICS;
-  let sdProblems = _SD_FALLBACK;
+  let problems = [];
+  let topics = [];
+  let sdProblems = [];
+  let sdConcepts = [];
+  let lldConcepts = [];
 
   try {
     const hdrs = typeof AuthManager !== 'undefined' && AuthManager.authHeaders ? AuthManager.authHeaders() : {};
-    const [probRes, topicRes, sdRes] = await Promise.all([
+    const [probRes, topicRes, sdRes, conceptsRes] = await Promise.all([
       fetch(`${apiUrl}/api/v1/dsa/problems?limit=150`, { headers: hdrs }).catch(() => null),
       fetch(`${apiUrl}/api/v1/dsa/topics`, { headers: hdrs }).catch(() => null),
       fetch(`${apiUrl}/api/v1/sd/problems`, { headers: hdrs }).catch(() => null),
+      fetch(`${apiUrl}/api/v1/sd/concepts`, { headers: hdrs }).catch(() => null),
     ]);
     if (probRes && probRes.ok) { try { const d = await probRes.json(); if (d.problems && d.problems.length) problems = d.problems; } catch(e){} }
     if (topicRes && topicRes.ok) { try { const d = await topicRes.json(); if (Array.isArray(d) && d.length) topics = d; } catch(e){} }
     if (sdRes && sdRes.ok) { try { const d = await sdRes.json(); if (d.problems && d.problems.length) sdProblems = d.problems; } catch(e){} }
-  } catch (e) { console.warn('[DSA] API failed, using fallback data'); }
+    if (conceptsRes && conceptsRes.ok) { try { const d = await conceptsRes.json(); sdConcepts = d.sd || []; lldConcepts = d.lld || []; } catch(e){} }
+  } catch (e) { console.warn('[DSA] API fetch failed:', e); }
 
   // Wire up search input
   const searchInput = document.getElementById('dsa-search-input');
@@ -21054,15 +20902,15 @@ async function _loadDSAScreen() {
   // Split SD problems into HLD and LLD
   var hldProblems = sdProblems.filter(function(p) { return p.type !== 'lld'; });
   var lldProblems = sdProblems.filter(function(p) { return p.type === 'lld'; });
-  if (!lldProblems.length) lldProblems = _LLD_FALLBACK;
+  // LLD problems come from the SD API (type === 'lld')
 
-  console.log('[DSA] Rendering', problems.length, 'DSA,', hldProblems.length, 'HLD,', lldProblems.length, 'LLD,', topics.length, 'topics');
+  console.log('[DSA] Rendering', problems.length, 'DSA,', hldProblems.length, 'HLD,', lldProblems.length, 'LLD,', topics.length, 'topics,', sdConcepts.length, 'SD concepts,', lldConcepts.length, 'LLD concepts');
   // Store problems for topic drill-down
   window._dsaAllProblems = problems;
 
   _renderDSATopicAccordions(topics, problems);
-  _renderSDPage(hldProblems);
-  _renderLLDPage(lldProblems);
+  _renderSDPage(hldProblems, sdConcepts);
+  _renderLLDPage(lldProblems, lldConcepts);
 
   // SD search input
   const sdInput = document.getElementById('sd-search-input');
@@ -21230,7 +21078,7 @@ function _openDSATopicProblems(topic, displayName) {
   if (!container || !listEl) return;
 
   // Filter problems for this topic
-  const problems = (window._dsaAllProblems || _DSA_FALLBACK_PROBLEMS).filter(p =>
+  const problems = (window._dsaAllProblems || []).filter(p =>
     (p.topics || []).includes(topic)
   );
 
@@ -21270,13 +21118,13 @@ window._closeDSATopicProblems = _closeDSATopicProblems;
 
 // _renderDSAProblems removed — problems now shown per-topic via _openDSATopicProblems
 
-function _renderSDPage(problems) {
+function _renderSDPage(problems, sdConcepts) {
   // Render concept cards (horizontal scroll)
   var conceptsEl = document.getElementById('sd-concepts');
-  if (conceptsEl) {
+  if (conceptsEl && sdConcepts && sdConcepts.length) {
     conceptsEl.innerHTML = '';
-    _SD_CONCEPTS.forEach(function(section) {
-      section.items.forEach(function(item) {
+    sdConcepts.forEach(function(section) {
+      (section.items || []).forEach(function(item) {
         var card = document.createElement('div');
         card.style.cssText = 'min-width:150px;max-width:180px;padding:10px 12px;border-radius:9px;background:rgba(96,165,250,.02);border:1px solid rgba(96,165,250,.05);cursor:pointer;flex-shrink:0;scroll-snap-align:start;transition:all .12s';
         card.onmouseenter = function() { card.style.borderColor = 'rgba(96,165,250,.15)'; card.style.transform = 'translateY(-1px)'; };
@@ -21312,13 +21160,13 @@ function _renderSDPage(problems) {
 }
 
 
-function _renderLLDPage(problems) {
+function _renderLLDPage(problems, lldConcepts) {
   // Render LLD concept cards
   var conceptsEl = document.getElementById('lld-concepts');
-  if (conceptsEl) {
+  if (conceptsEl && lldConcepts && lldConcepts.length) {
     conceptsEl.innerHTML = '';
-    _LLD_CONCEPTS.forEach(function(section) {
-      section.items.forEach(function(item) {
+    lldConcepts.forEach(function(section) {
+      (section.items || []).forEach(function(item) {
         var card = document.createElement('div');
         card.style.cssText = 'min-width:150px;max-width:180px;padding:10px 12px;border-radius:9px;background:rgba(167,139,250,.02);border:1px solid rgba(167,139,250,.05);cursor:pointer;flex-shrink:0;scroll-snap-align:start;transition:all .12s';
         card.onmouseenter = function() { card.style.borderColor = 'rgba(167,139,250,.15)'; card.style.transform = 'translateY(-1px)'; };
@@ -21370,8 +21218,7 @@ async function _loadDSAProblemDetail(slug) {
       if (res.ok) p = await res.json();
     } catch(e) {}
 
-    // Fallback to hardcoded data
-    if (!p) p = _DSA_FALLBACK_PROBLEMS.find(x => x.slug === slug);
+    if (!p) p = (window._dsaAllProblems || []).find(x => x.slug === slug);
     if (!p) throw new Error('Not found');
     const diffColors = { easy: '#34d399', medium: '#fbbf24', hard: '#f87171' };
 
@@ -21535,32 +21382,103 @@ function _initWorkspaceForMode() {
   document.getElementById('ws-code-pane').style.display = 'none';
   document.getElementById('ws-canvas-pane').style.display = 'none';
   document.getElementById('ws-mock-pane').style.display = 'none';
+  var lldPane = document.getElementById('ws-lld-pane');
+  if (lldPane) lldPane.style.display = 'none';
+
+  var isLLD = state.dsaProblemData && state.dsaProblemData.type === 'lld';
 
   if (mode === 'dsa') {
     document.getElementById('ws-code-pane').style.display = 'flex';
     _initAceEditor('ws-code-editor');
     _startPracticeSilenceDetector();
+  } else if (mode === 'sd' && isLLD) {
+    // LLD: split view — code editor + canvas side by side
+    if (lldPane) {
+      lldPane.style.display = 'flex';
+      _initAceEditor('ws-lld-editor');
+      _initLLDCanvas();
+      _startPracticeSilenceDetector();
+    }
   } else if (mode === 'sd') {
+    // HLD: canvas only
     document.getElementById('ws-canvas-pane').style.display = 'flex';
     window._sdCanvasState = { elements: [] };
     _startPracticeSilenceDetector();
-    // Load SD problem requirements onto the board for practice mode
     _loadSDProblemOnBoard();
-    // SDCanvas.init() called from the wrapper below after a delay
   } else if (mode === 'mock_interview') {
     var mockType = state.mockType || 'dsa';
     if (mockType === 'sd') {
-      // System Design mock → show canvas + load problem requirements
       document.getElementById('ws-canvas-pane').style.display = 'flex';
       window._sdCanvasState = { elements: [] };
       _loadSDProblemOnBoard();
     } else {
-      // DSA mock → use the SAME code editor pane as regular DSA
       document.getElementById('ws-code-pane').style.display = 'flex';
       _initAceEditor('ws-code-editor');
     }
     _startMockTimer();
   }
+}
+
+function _initLLDCanvas() {
+  var area = document.getElementById('ws-lld-canvas-area');
+  var fabricCanvas = document.getElementById('ws-lld-fabric-canvas');
+  if (!area || !fabricCanvas || fabricCanvas._lldReady) return;
+  fabricCanvas._lldReady = true;
+
+  var w = area.offsetWidth || 400, h = area.offsetHeight || 400;
+  fabricCanvas.width = w; fabricCanvas.height = h;
+  var lldCanvas = new fabric.Canvas('ws-lld-fabric-canvas', {
+    width: w, height: h, backgroundColor: 'transparent',
+    selection: true, preserveObjectStacking: true,
+  });
+
+  // Resize observer
+  var ro = new ResizeObserver(function(entries) {
+    var rect = entries[0].contentRect;
+    if (rect.width > 10 && rect.height > 10) {
+      lldCanvas.setDimensions({ width: rect.width, height: rect.height });
+      lldCanvas.renderAll();
+    }
+  });
+  ro.observe(area);
+
+  // Wire LLD resize handle
+  var handle = document.getElementById('ws-lld-resize');
+  var codePanel = document.getElementById('ws-lld-code');
+  if (handle && codePanel && !handle._wired) {
+    handle._wired = true;
+    handle.addEventListener('mousedown', function(e) {
+      e.preventDefault();
+      var startX = e.clientX, startW = codePanel.offsetWidth;
+      var onMove = function(e2) {
+        var nw = Math.max(150, startW + (e2.clientX - startX));
+        codePanel.style.flex = 'none';
+        codePanel.style.width = nw + 'px';
+      };
+      var onUp = function() {
+        document.removeEventListener('mousemove', onMove);
+        document.removeEventListener('mouseup', onUp);
+        lldCanvas.setDimensions({ width: area.offsetWidth, height: area.offsetHeight });
+        lldCanvas.renderAll();
+      };
+      document.addEventListener('mousemove', onMove);
+      document.addEventListener('mouseup', onUp);
+    });
+  }
+
+  // Wire toolbar
+  var toolbar = document.getElementById('ws-lld-toolbar');
+  if (toolbar) {
+    toolbar.querySelectorAll('.ws-tool').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        toolbar.querySelectorAll('.ws-tool').forEach(function(b) { b.classList.remove('sel'); });
+        btn.classList.add('sel');
+        // Use same tool handling as SDCanvas if available
+      });
+    });
+  }
+
+  window._lldCanvas = lldCanvas;
 }
 
 var _practiceSilenceTimer = null;
@@ -21873,6 +21791,7 @@ function _initAceEditor(containerId) {
   const container = document.getElementById(containerId);
   if (!container || container._aceReady) return;
 
+  ace.config.set('basePath', 'https://cdn.jsdelivr.net/npm/ace-builds@1.32.6/src-min-noconflict');
   const editor = ace.edit(containerId, {
     mode: 'ace/mode/python',
     theme: 'ace/theme/tomorrow_night',
@@ -21884,15 +21803,16 @@ function _initAceEditor(containerId) {
     tabSize: 4,
     useSoftTabs: true,
     wrap: false,
-    maxLines: Infinity,
     minLines: 10,
   });
   editor.renderer.setScrollMargin(8, 8);
 
-  // Set initial language mode
+  // Set initial language mode — defer to next tick so Ace workers are loaded
   var langMap = { python: 'ace/mode/python', javascript: 'ace/mode/javascript', java: 'ace/mode/java', cpp: 'ace/mode/c_cpp', go: 'ace/mode/golang', typescript: 'ace/mode/typescript' };
   var initLang = state.dsaLanguage || 'python';
-  editor.session.setMode(langMap[initLang] || 'ace/mode/python');
+  var initMode = langMap[initLang] || 'ace/mode/python';
+  editor.session.setMode(initMode);
+  setTimeout(function() { editor.session.setMode(initMode); }, 100);
 
   // Load problem description + starter code into editor.
   // dsaProblemData may not be ready yet (API fetch in background).
@@ -21947,13 +21867,13 @@ function _initAceEditor(containerId) {
 
 // Language selector change handler
 document.addEventListener('change', function(e) {
-  if (e.target.id === 'ws-code-lang' && window._dsaCodeEditor) {
+  if ((e.target.id === 'ws-code-lang' || e.target.id === 'ws-lld-lang') && window._dsaCodeEditor) {
     var lang = e.target.value;
     var prevLang = state.dsaLanguage || 'python';
     window._dsaCodeEditor.setLanguage(lang);
     // Update filename to match language
     var fnameMap = { python: 'solution.py', javascript: 'solution.js', java: 'Solution.java', cpp: 'solution.cpp', go: 'solution.go', typescript: 'solution.ts' };
-    var fnameEl = document.getElementById('ws-code-fname');
+    var fnameEl = document.getElementById('ws-code-fname') || document.getElementById('ws-lld-fname');
     if (fnameEl) fnameEl.textContent = fnameMap[lang] || 'solution.' + lang;
     // Always swap to new language's problem text + starter code
     if (state.dsaProblemData) {
@@ -21965,24 +21885,259 @@ document.addEventListener('change', function(e) {
 });
 
 function _wsRunCode() {
-  if (!window._dsaCodeEditor) return;
-  if (state.isStreaming) return; // don't interrupt — wait for tutor to finish
+  if (!window._dsaCodeEditor) { console.warn('[Run] No editor'); return; }
   const code = window._dsaCodeEditor.getValue();
-  if (!code.trim()) return;
+  if (!code.trim()) { console.warn('[Run] Code empty'); return; }
   const lang = state.dsaLanguage || 'python';
-  const tests = state.dsaProblemData && state.dsaProblemData.test_cases ? JSON.stringify(state.dsaProblemData.test_cases.slice(0, 3)) : '[]';
-  streamADK(`[Student clicked RUN]\nUse run_code tool to execute my code. Language: ${lang}\nTest cases: ${tests}\n\nMy code:\n\`\`\`${lang}\n${code}\n\`\`\``);
+  const tests = state.dsaProblemData && state.dsaProblemData.test_cases
+    ? state.dsaProblemData.test_cases.slice(0, 3) : [];
+  if (!tests.length) { console.warn('[Run] No test cases'); return; }
+  _runViaJudge(code, lang, tests, false);
 }
 
 function _wsSubmitCode() {
   if (!window._dsaCodeEditor) return;
-  if (state.isStreaming) return; // don't interrupt
   const code = window._dsaCodeEditor.getValue();
   if (!code.trim()) return;
   const lang = state.dsaLanguage || 'python';
-  const tests = state.dsaProblemData && state.dsaProblemData.test_cases ? JSON.stringify(state.dsaProblemData.test_cases) : '[]';
-  streamADK(`[Student clicked SUBMIT]\nUse run_code tool to execute against ALL test cases, then give brief feedback. Language: ${lang}\nTest cases: ${tests}\n\nMy code:\n\`\`\`${lang}\n${code}\n\`\`\``);
+  const tests = state.dsaProblemData && state.dsaProblemData.test_cases
+    ? state.dsaProblemData.test_cases : [];
+  if (!tests.length) return;
+  _runViaJudge(code, lang, tests, true);
 }
+
+// Guard: prevent parallel judge calls
+var _judgeInFlight = false;
+var _judgeAbort = null;
+
+async function _runViaJudge(code, language, testCases, isSubmit) {
+  // Cancel any in-flight judge call (e.g., Run then Submit)
+  if (_judgeInFlight && _judgeAbort) {
+    try { _judgeAbort.abort(); } catch(e) {}
+  }
+  _judgeAbort = new AbortController();
+  _judgeInFlight = true;
+
+  const endpoint = isSubmit ? '/api/v1/judge/submit' : '/api/v1/judge/run';
+
+  // Disable BOTH buttons during execution
+  const runBtn = document.querySelector('.ws-btn-run');
+  const subBtn = document.querySelector('.ws-btn-submit');
+  const origRun = runBtn ? runBtn.textContent : '';
+  const origSub = subBtn ? subBtn.textContent : '';
+  if (runBtn) { runBtn.disabled = true; }
+  if (subBtn) { subBtn.disabled = true; }
+  const activeBtn = isSubmit ? subBtn : runBtn;
+  if (activeBtn) activeBtn.textContent = isSubmit ? '⏳ Judging...' : '⏳ Running...';
+  _switchTestTab('results');
+
+  var _judgePanel = document.getElementById('ws-code-tests');
+  if (_judgePanel) {
+    var _tcCount = testCases.length;
+    _judgePanel.innerHTML = '<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px 16px;gap:12px">'
+      + '<div class="judge-loading-dots"><span></span><span></span><span></span></div>'
+      + '<div style="color:rgba(52,211,153,.6);font-size:12px;font-weight:500">'
+      + (isSubmit ? 'Judging' : 'Running') + ' ' + _tcCount + ' test case' + (_tcCount !== 1 ? 's' : '') + '...</div>'
+      + '</div>';
+  }
+
+  // Send test cases as-is — the backend handles structured inputs
+  // ({input: {nums: [1,2]}, expected: [0,1]}) and wraps the student
+  // code with a test harness for Judge0.
+  const formattedTests = testCases;
+
+  try {
+    const apiUrl = state.apiUrl || window.location.origin;
+    const headers = { 'Content-Type': 'application/json' };
+    if (typeof AuthManager !== 'undefined' && AuthManager.authHeaders) {
+      Object.assign(headers, AuthManager.authHeaders());
+    }
+    const resp = await fetch(`${apiUrl}${endpoint}`, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ code, language, test_cases: formattedTests }),
+      signal: _judgeAbort.signal,
+    });
+    const data = await resp.json();
+
+    if (data.error && !data.results?.length) {
+      _showJudgeError(data.error);
+    } else {
+      _showJudgeResults(data.results || [], data.passed, data.total, isSubmit);
+
+      // Store for sessionConfig side-channel (legacy)
+      window._lastTestResults = {
+        passed: data.passed,
+        total: data.total,
+        all_passed: data.all_passed,
+        results: (data.results || []).map(r => ({
+          input: r.input, expected: r.expected, actual: r.actual,
+          passed: r.passed, error: r.error, time_ms: r.time_ms,
+        })),
+      };
+
+      // Inject test results into chat history as a system message.
+      // This is the primary way the tutor gets context — it shows up
+      // naturally in the conversation like "[Student ran code: 2/3 passed]"
+      // and persists across turns (tutor can reference it later).
+      _injectTestResultsMessage(data, code, isSubmit);
+    }
+  } catch (e) {
+    if (e.name === 'AbortError') {
+      console.log('[Judge] Cancelled — new request superseded');
+    } else {
+      _showJudgeError('Judge service unavailable — is Judge0 running? (' + e.message + ')');
+    }
+  } finally {
+    _judgeInFlight = false;
+    if (runBtn) { runBtn.disabled = false; runBtn.textContent = origRun; }
+    if (subBtn) { subBtn.disabled = false; subBtn.textContent = origSub; }
+  }
+}
+
+function _showJudgeResults(results, passed, total, isSubmit) {
+  const panel = document.getElementById('ws-code-tests');
+  if (!panel) return;
+  const allPassed = passed === total;
+  const statusColor = allPassed ? '#34d399' : '#f87171';
+  const statusText = allPassed
+    ? (isSubmit ? '✓ Accepted' : `✓ ${passed}/${total} passed`)
+    : `✗ ${passed}/${total} passed`;
+  const maxTime = Math.max(...results.map(r => r.time_ms || 0));
+
+  // Header
+  let html = `<div style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.06);display:flex;align-items:center;gap:8px">
+    <span style="font-size:13px;font-weight:700;color:${statusColor}">${statusText}</span>
+    ${maxTime ? `<span style="font-size:9px;color:rgba(255,255,255,.2)">Runtime: ${maxTime}ms</span>` : ''}
+  </div>`;
+
+  // Per-case results
+  results.forEach((r, i) => {
+    const passed = r.passed;
+    const bg = passed ? 'rgba(52,211,153,.03)' : 'rgba(248,113,113,.03)';
+    const border = passed ? 'rgba(52,211,153,.1)' : 'rgba(248,113,113,.1)';
+    const icon = passed ? '✓' : '✗';
+    const iconColor = passed ? '#34d399' : '#f87171';
+    html += `<div style="margin:6px 10px;padding:10px 12px;border-radius:8px;background:${bg};border:1px solid ${border};font-size:10px">
+      <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+        <span style="width:18px;height:18px;border-radius:50%;background:${passed ? 'rgba(52,211,153,.15)' : 'rgba(248,113,113,.15)'};display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:${iconColor}">${icon}</span>
+        <span style="font-weight:600;color:rgba(255,255,255,.7)">Case ${i+1}</span>
+        <span style="font-size:9px;color:${iconColor};font-weight:600">${passed ? 'Passed' : (r.status || 'Failed')}</span>
+        ${r.time_ms ? `<span style="color:rgba(255,255,255,.15);margin-left:auto;font-family:monospace;font-size:9px">${r.time_ms}ms</span>` : ''}
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr ${passed ? '' : '1fr'};gap:8px;font-family:'JetBrains Mono',monospace;font-size:9px">
+        <div>
+          <div style="color:rgba(255,255,255,.25);margin-bottom:3px;font-size:8px;text-transform:uppercase;letter-spacing:.5px">Input</div>
+          <div style="color:rgba(255,255,255,.55);word-break:break-all">${_escHtml(String(r.input || '')).slice(0, 120)}</div>
+        </div>
+        <div>
+          <div style="color:rgba(255,255,255,.25);margin-bottom:3px;font-size:8px;text-transform:uppercase;letter-spacing:.5px">Expected</div>
+          <div style="color:rgba(255,255,255,.55);word-break:break-all">${_escHtml(String(r.expected || ''))}</div>
+        </div>
+        ${!passed ? `<div>
+          <div style="color:rgba(248,113,113,.5);margin-bottom:3px;font-size:8px;text-transform:uppercase;letter-spacing:.5px">Output</div>
+          <div style="color:#f87171;word-break:break-all">${_escHtml(r.actual || r.error || 'No output')}</div>
+        </div>` : ''}
+      </div>
+    </div>`;
+  });
+
+  panel.innerHTML = html;
+
+  // Color the case tabs in Testcase view (Case 1 green, Case 2 red, etc.)
+  const caseTabs = document.getElementById('ws-case-tabs');
+  if (caseTabs) {
+    caseTabs.querySelectorAll('button').forEach((btn, i) => {
+      if (i < results.length) {
+        const p = results[i].passed;
+        btn.style.borderColor = p ? 'rgba(52,211,153,.3)' : 'rgba(248,113,113,.3)';
+        btn.style.color = p ? '#34d399' : '#f87171';
+        btn.style.background = p ? 'rgba(52,211,153,.06)' : 'rgba(248,113,113,.06)';
+      }
+    });
+  }
+
+  // Update summary badge
+  const summary = document.getElementById('ws-test-summary');
+  if (summary) {
+    summary.innerHTML = `<span style="color:${statusColor};font-weight:600">${passed}/${total}</span>`;
+  }
+}
+
+function _showJudgeError(msg) {
+  const panel = document.getElementById('ws-code-tests');
+  if (!panel) return;
+  panel.innerHTML = `<div style="padding:16px;text-align:center;color:rgba(248,113,113,.6);font-size:11px">${_escHtml(msg)}</div>`;
+}
+
+function _escHtml(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+function _injectTestResultsMessage(data, code, isSubmit) {
+  // Build a concise summary that goes into chat history as a user message.
+  // The tutor sees this like any other student message and can respond to it.
+  const action = isSubmit ? 'SUBMITTED' : 'RAN';
+  const results = data.results || [];
+  let summary = `[CODE ${action} — ${data.passed}/${data.total} passed${data.all_passed ? ' ✓' : ''}]\n`;
+
+  results.forEach((r, i) => {
+    if (r.passed) {
+      summary += `  Case ${i+1}: ✓ passed`;
+    } else {
+      summary += `  Case ${i+1}: ✗ failed`;
+      if (r.expected) summary += ` | expected: ${String(r.expected).slice(0, 60)}`;
+      if (r.actual) summary += ` | got: ${String(r.actual).slice(0, 60)}`;
+      if (r.error) summary += ` | error: ${String(r.error).slice(0, 80)}`;
+    }
+    if (r.time_ms) summary += ` (${r.time_ms}ms)`;
+    summary += '\n';
+  });
+
+  // Append to server-side messages via WS so it persists in session history.
+  // Send as a special system-injected user message (not displayed in chat UI
+  // but visible to the tutor in the conversation context).
+  // Send via the active WS connection (voice mode) or _ws.conn (board mode)
+  var ws = _ws && _ws.conn && _ws.conn.readyState === WebSocket.OPEN ? _ws.conn : null;
+  if (ws) {
+    ws.send(JSON.stringify({
+      type: 'INJECT_CONTEXT',
+      sessionId: state.sessionId || '',
+      content: summary.trim(),
+    }));
+  }
+
+  // Also append to local session messages for SessionManager persistence
+  state.messages.push({
+    id: generateId(),
+    role: 'user',
+    content: summary.trim(),
+    timestamp: Date.now(),
+    _system: true, // flag so chat UI can optionally hide/dim these
+  });
+}
+
+function _switchTestTab(tab) {
+  document.querySelectorAll('.ws-tc-tab').forEach(t => {
+    const isActive = t.dataset.tcTab === tab;
+    t.classList.toggle('active', isActive);
+    t.style.color = isActive ? '#34d399' : 'rgba(255,255,255,.3)';
+    t.style.borderBottomColor = isActive ? '#34d399' : 'transparent';
+  });
+  const casesPanel = document.getElementById('ws-code-cases');
+  const resultsPanel = document.getElementById('ws-code-tests');
+  if (casesPanel) casesPanel.style.display = tab === 'cases' ? '' : 'none';
+  if (resultsPanel) resultsPanel.style.display = tab === 'results' ? '' : 'none';
+
+  // Update tab count badge with result summary
+  if (tab === 'results') {
+    const summary = document.getElementById('ws-test-summary');
+    if (summary && window._lastTestResults) {
+      const r = window._lastTestResults;
+      const color = r.all_passed ? '#34d399' : '#f87171';
+      summary.innerHTML = `<span style="color:${color};font-weight:600">${r.passed}/${r.total} passed</span>`;
+    }
+  }
+}
+window._switchTestTab = _switchTestTab;
 
 function _wsMockHint() {
   if (typeof MockEngine !== 'undefined') {
@@ -22174,40 +22329,27 @@ _startDSASession = async function(slug, mode) {
   _unlockAudio();
   wsReconnect();
 
-  // Set DSA state AFTER cleanup (use fallback data while API fetches in background)
-  var fallbackProblem = slug ? (_DSA_FALLBACK_PROBLEMS.find(function(p) { return p.slug === slug; }) || _SD_FALLBACK.find(function(p) { return p.slug === slug; }) || null) : null;
+  // Set DSA state AFTER cleanup — problem data comes from API
   state.dsaMode = mode;
   state.dsaProblemSlug = slug;
-  state.dsaProblemData = fallbackProblem;
+  state.dsaProblemData = null;
   state.dsaLanguage = 'python';
   state.studentName = user.name;
   state.userEmail = user.email;
   state.studentIntent = savedIntent || (slug ? slug.replace(/-/g, ' ') : (mode === 'sd' ? 'System design practice' : 'DSA practice'));
 
-  // Fetch problem data from API in background (updates state when ready)
+  // Fetch problem data BEFORE workspace init (need type for LLD detection)
   if (slug) {
     var _apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
     var _endpoint = mode === 'sd' ? 'sd' : 'dsa';
     var _hdrs = AuthManager.authHeaders ? AuthManager.authHeaders() : {};
-    fetch(`${_apiUrl}/api/v1/${_endpoint}/problems/${slug}`, { headers: _hdrs })
-      .then(function(r) { return r.ok ? r.json() : null; })
-      .then(function(data) {
-        if (data) {
-          state.dsaProblemData = data;
-          // Update editor with API data — retry if editor not ready yet
-          function _trySetEditor(attempts) {
-            if (window._dsaCodeEditor) {
-              var fullText = _formatProblemForEditor(data, state.dsaLanguage || 'python');
-              if (fullText) window._dsaCodeEditor.setValue(fullText, -1);
-              _showProblemTestCases(data);
-            } else if (attempts < 20) {
-              setTimeout(function() { _trySetEditor(attempts + 1); }, 200);
-            }
-          }
-          _trySetEditor(0);
-        }
-      })
-      .catch(function() {});
+    try {
+      var _pdResp = await fetch(`${_apiUrl}/api/v1/${_endpoint}/problems/${slug}`, { headers: _hdrs });
+      if (_pdResp.ok) {
+        var _pdData = await _pdResp.json();
+        if (_pdData) state.dsaProblemData = _pdData;
+      }
+    } catch(e) { console.warn('[DSA] Problem fetch failed:', e); }
   }
 
   // Show teaching layout with empty course map (no course for DSA)
@@ -22230,10 +22372,26 @@ _startDSASession = async function(slug, mode) {
   Router.navigate('/session/' + state.sessionId, { skipHandler: true });
 
   // Create session in MongoDB (non-blocking)
-  SessionManager.createSession(null, state.studentName, state.studentIntent, {}, 1, mode).catch(() => {});
+  var _headline = state.dsaProblemData ? state.dsaProblemData.name : state.studentIntent;
+  var _headlineDesc = mode === 'sd' ? 'System Design' : mode === 'mock_interview' ? 'Mock Interview' : 'DSA Practice';
+  SessionManager.createSession(null, state.studentName, state.studentIntent, {}, 1, mode).then(function(s) {
+    if (s) { s.headline = _headline; s.headlineDescription = _headlineDesc; }
+  }).catch(function() {});
 
-  // Init workspace pane immediately (no delay)
-  setTimeout(_initWorkspaceForMode, 50);
+  // Init workspace pane (problem data already fetched — LLD detection works)
+  setTimeout(function() {
+    _initWorkspaceForMode();
+    // Populate editor + test cases once workspace is ready
+    if (state.dsaProblemData) {
+      setTimeout(function() {
+        if (window._dsaCodeEditor) {
+          var txt = _formatProblemForEditor(state.dsaProblemData, state.dsaLanguage || 'python');
+          if (txt) window._dsaCodeEditor.setValue(txt, -1);
+        }
+        _showProblemTestCases(state.dsaProblemData);
+      }, 200);
+    }
+  }, 50);
 
   // Set course title
   const titleEl = document.getElementById('course-title');
@@ -22384,43 +22542,32 @@ _startMockInterview = async function() {
   _unlockAudio();
   wsReconnect();
 
-  // Pick fallback problem immediately (API fetch in background)
-  var candidates = _DSA_FALLBACK_PROBLEMS.filter(function(p) { return p.difficulty === mockDifficulty; });
-  var fallbackPick = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
-
-  // Set mock state AFTER cleanup
+  // Set mock state AFTER cleanup — problem comes from API
   state.dsaMode = 'mock_interview';
   state.mockCompany = mockCompany;
   state.mockTimerMinutes = mockTimerMinutes;
   state.mockDifficulty = mockDifficulty;
   state.mockType = mockType;
   state.mockLevel = mockLevel;
-  state.dsaProblemData = fallbackPick;
-  state.dsaProblemSlug = fallbackPick ? fallbackPick.slug : null;
+  state.dsaProblemData = null;
+  state.dsaProblemSlug = null;
   state.studentName = user.name;
   state.userEmail = user.email;
 
-  // Fetch from API in background (updates state when ready, before trigger is sent)
+  // Fetch problem from API BEFORE sending trigger (must not race)
   var _apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
   var _mockParams = new URLSearchParams({ company: mockCompany, difficulty: mockDifficulty, type: mockType, timer_minutes: String(mockTimerMinutes) });
   var _mockHdrs = AuthManager.authHeaders ? AuthManager.authHeaders() : {};
-  fetch(`${_apiUrl}/api/v1/mock/start?${_mockParams}`, { method: 'POST', headers: _mockHdrs })
-    .then(function(r) { return r.ok ? r.json() : null; })
-    .then(function(data) {
-      if (data && data.problem) {
-        state.dsaProblemData = data.problem;
-        state.dsaProblemSlug = data.problem.slug;
-        // Update editor with problem description if already initialized
-        if (window._dsaCodeEditor) {
-          var current = window._dsaCodeEditor.getValue().trim();
-          if (!current || current.split('\n').length < 5) {
-            var fullText = _formatProblemForEditor(data.problem, state.dsaLanguage || 'python');
-            if (fullText) window._dsaCodeEditor.setValue(fullText);
-          }
-        }
-        _showProblemTestCases(data.problem);
+  try {
+    var _mockResp = await fetch(`${_apiUrl}/api/v1/mock/start?${_mockParams}`, { method: 'POST', headers: _mockHdrs });
+    if (_mockResp.ok) {
+      var _mockData = await _mockResp.json();
+      if (_mockData && _mockData.problem) {
+        state.dsaProblemData = _mockData.problem;
+        state.dsaProblemSlug = _mockData.problem.slug;
       }
-    }).catch(function() {});
+    }
+  } catch(e) { console.warn('[Mock] Problem fetch failed:', e); }
 
   const emptyCourseMap = { title: 'Mock Interview', modules: [], lessons: [] };
   state.courseId = null;
@@ -22438,10 +22585,26 @@ _startMockInterview = async function() {
   Router.navigate('/session/' + state.sessionId, { skipHandler: true });
 
   try {
-    await SessionManager.createSession(null, state.studentName, state.studentIntent, {}, 1, 'mock');
+    var _ms = await SessionManager.createSession(null, state.studentName, state.studentIntent, {}, 1, 'mock');
+    if (_ms) {
+      _ms.headline = state.dsaProblemData ? state.dsaProblemData.name : 'Mock Interview';
+      _ms.headlineDescription = 'Mock Interview — ' + (state.mockCompany || 'Generic') + ' ' + (state.mockType === 'sd' ? 'System Design' : 'DSA');
+    }
   } catch(e) {}
 
-  setTimeout(_initWorkspaceForMode, 300);
+  setTimeout(function() {
+    _initWorkspaceForMode();
+    // Populate editor/test cases after workspace is ready (problem data already fetched)
+    if (state.dsaProblemData) {
+      setTimeout(function() {
+        if (window._dsaCodeEditor) {
+          var txt = _formatProblemForEditor(state.dsaProblemData, state.dsaLanguage || 'python');
+          if (txt) window._dsaCodeEditor.setValue(txt, -1);
+        }
+        _showProblemTestCases(state.dsaProblemData);
+      }, 200);
+    }
+  }, 300);
 
   const titleEl = document.getElementById('course-title');
   if (titleEl) titleEl.textContent = `Mock Interview (${state.mockCompany})`;
@@ -22460,10 +22623,13 @@ ${problemCtx}
 
 INSTRUCTIONS:
 - Follow SECTION_MOCK_INTERVIEW_MODE + the ${state.mockCompany.toUpperCase()} company section.
-- Calibrate depth for ${state.mockLevel || 'L5'} level. Adjust follow-up intensity, system design expectations, and evaluation bar accordingly.
-- You are the INTERVIEWER. Present the problem. WAIT for clarifying questions. Evaluate, don't teach.
-- At the 40-minute mark, stop the interview and deliver structured feedback on the board.
-- Feedback must reference specific moments from the interview with signal tags (Strong/OK/Weak).`;
+- Calibrate depth for ${state.mockLevel || 'L5'} level.
+- You are the INTERVIEWER. Present ONLY the problem above. Do NOT pick a different problem.
+- DO NOT teach, explain concepts, or reveal answers. You are EVALUATING.
+- Use the enriched fields (edge_cases, deep_dives, solution_outline, common_mistakes) as your GRADING RUBRIC — never share them with the student.
+- If the student is stuck, give minimal nudges. If they fundamentally can't proceed, note it for debrief and suggest they study this topic after the interview.
+- WAIT for clarifying questions. Be a WALL. Let the student drive.
+- At the 40-minute mark, stop and deliver structured feedback referencing specific moments.`;
 
   // Wait for WS to be ready, then send trigger ONCE (max 10s)
   let _mockTriggerSent = false;
@@ -22866,133 +23032,174 @@ const _SDCanvas_OLD_UNUSED = (() => {
     canvas.renderAll();
   }
 
-  // Tutor adds shapes via CANVAS_DRAW events
-  var _nextTutorX = 40;
-  var _nextTutorY = 40;
-  var _tutorRowHeight = 0;
+  // ── Tutor shape drawing with auto-layout ──
 
-  function addTutorShape(s) {
-    if (!canvas) { console.warn('[SD] addTutorShape: no canvas'); return; }
-    var cw = canvas.getWidth() || 600;
+  var _NODE_W = 140, _NODE_H = 52, _GAP_X = 50, _GAP_Y = 70;
 
-    // Auto-layout: place in a flow — left to right, wrap to next row
-    var w = s.w || 120, h = s.h || 50;
-    var x, y;
-    if (s.x !== undefined && s.x > 0) {
-      // Explicit position provided
-      x = s.x <= 100 ? (s.x / 100) * cw : s.x;
-      y = s.y <= 100 ? (s.y / 100) * (canvas.getHeight() || 400) : s.y;
-    } else {
-      // Auto-position: flow layout
-      if (_nextTutorX + w + 20 > cw) {
-        _nextTutorX = 40;
-        _nextTutorY += _tutorRowHeight + 30;
-        _tutorRowHeight = 0;
-      }
-      x = _nextTutorX;
-      y = _nextTutorY;
-      _nextTutorX += w + 40;
-      _tutorRowHeight = Math.max(_tutorRowHeight, h);
+  function _autoLayout(nodes, edges) {
+    // Build adjacency: find root nodes (no incoming edges) and compute layers via BFS
+    var ids = nodes.map(function(n) { return n.id; });
+    var incoming = {}; ids.forEach(function(id) { incoming[id] = 0; });
+    var children = {}; ids.forEach(function(id) { children[id] = []; });
+    (edges || []).forEach(function(e) {
+      if (incoming[e.to] !== undefined) incoming[e.to]++;
+      if (children[e.from]) children[e.from].push(e.to);
+    });
+    var roots = ids.filter(function(id) { return incoming[id] === 0; });
+    if (!roots.length) roots = [ids[0]];
+
+    // BFS to assign layers
+    var layer = {}; var visited = {};
+    var queue = roots.map(function(id) { return { id: id, depth: 0 }; });
+    roots.forEach(function(id) { visited[id] = true; });
+    while (queue.length) {
+      var cur = queue.shift();
+      layer[cur.id] = cur.depth;
+      (children[cur.id] || []).forEach(function(cid) {
+        if (!visited[cid]) { visited[cid] = true; queue.push({ id: cid, depth: cur.depth + 1 }); }
+      });
     }
+    // Assign unvisited nodes to last layer + 1
+    var maxLayer = 0;
+    ids.forEach(function(id) { if (layer[id] !== undefined && layer[id] > maxLayer) maxLayer = layer[id]; });
+    ids.forEach(function(id) { if (layer[id] === undefined) layer[id] = ++maxLayer; });
 
-    // Build all parts, then group them so they move together
-    var hasContent = s.content && s.content.trim();
+    // Group nodes by layer
+    var layers = {};
+    ids.forEach(function(id) {
+      var l = layer[id];
+      if (!layers[l]) layers[l] = [];
+      layers[l].push(id);
+    });
+
+    // Position: center each layer horizontally
+    var positions = {};
+    var sortedLayers = Object.keys(layers).map(Number).sort(function(a, b) { return a - b; });
+    sortedLayers.forEach(function(l) {
+      var row = layers[l];
+      var totalW = row.length * _NODE_W + (row.length - 1) * _GAP_X;
+      var startX = -totalW / 2 + _NODE_W / 2;
+      row.forEach(function(id, i) {
+        positions[id] = { x: startX + i * (_NODE_W + _GAP_X), y: l * (_NODE_H + _GAP_Y) };
+      });
+    });
+    return positions;
+  }
+
+  function _createNodeGroup(s, x, y) {
+    var w = _NODE_W, h = _NODE_H;
     var parts = [];
-
-    // Calculate height based on content
-    var actualH = h;
-    if (hasContent) {
-      var contentLines = s.content.split('\n');
-      actualH = Math.max(h, 36 + contentLines.length * 13);
-    }
-    _tutorRowHeight = Math.max(_tutorRowHeight, actualH);
-
-    // Shape background
-    var shape;
-    if (s.type === 'ellipse' || s.type === 'circle') {
-      shape = new fabric.Ellipse({ left: 0, top: 0, rx: w / 2, ry: actualH / 2, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5 });
-    } else if (s.type === 'diamond') {
-      shape = new fabric.Rect({ left: 0, top: 0, width: w * 0.7, height: actualH * 0.7, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5, angle: 45 });
+    var isDB = s.type === 'ellipse' || s.type === 'circle' || s.type === 'cylinder';
+    if (isDB) {
+      parts.push(new fabric.Ellipse({ left: 0, top: 0, rx: w / 2, ry: h / 2, fill: 'rgba(99,102,241,0.06)', stroke: 'rgba(99,102,241,0.25)', strokeWidth: 1.5 }));
     } else {
-      shape = new fabric.Rect({ left: 0, top: 0, width: w, height: actualH, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5, rx: 4, ry: 4 });
+      parts.push(new fabric.Rect({ left: 0, top: 0, width: w, height: h, fill: COLORS.tutor.fill, stroke: COLORS.tutor.stroke, strokeWidth: 1.5, rx: 6, ry: 6 }));
     }
-    parts.push(shape);
-
-    // Label (title)
     if (s.label) {
-      var labelTop = hasContent ? -actualH / 2 + 12 : (s.sublabel ? -6 : 0);
       parts.push(new fabric.Text(s.label, {
-        left: 0, top: labelTop,
-        fontSize: hasContent ? 11 : 10, fill: COLORS.tutor.text,
-        fontFamily: 'Inter, sans-serif', fontWeight: hasContent ? '600' : '500',
-        originX: 'center', originY: hasContent ? 'top' : 'center',
+        left: 0, top: s.sublabel ? -5 : 0, fontSize: 10, fill: COLORS.tutor.text,
+        fontFamily: 'Inter, sans-serif', fontWeight: '600', originX: 'center', originY: 'center',
+        textAlign: 'center',
       }));
     }
-
-    // Content body
-    if (hasContent) {
-      parts.push(new fabric.Text(s.content, {
-        left: -w / 2 + 10, top: -actualH / 2 + 28,
-        fontSize: 9, fill: 'rgba(255,255,255,0.3)',
-        fontFamily: 'JetBrains Mono, monospace', lineHeight: 1.4,
-        originX: 'left', originY: 'top',
-      }));
-    }
-
-    // Sublabel
-    if (s.sublabel && !hasContent) {
+    if (s.sublabel) {
       parts.push(new fabric.Text(s.sublabel, {
-        left: 0, top: 10,
-        fontSize: 7, fill: 'rgba(255,255,255,0.15)',
-        fontFamily: 'Inter, sans-serif',
-        originX: 'center', originY: 'center',
+        left: 0, top: 10, fontSize: 7, fill: 'rgba(255,255,255,0.2)',
+        fontFamily: 'Inter, sans-serif', originX: 'center', originY: 'center',
       }));
     }
-
-    // Group everything so it moves together
-    var group = new fabric.Group(parts, {
-      left: x, top: y,
+    return new fabric.Group(parts, {
+      left: x, top: y, originX: 'center', originY: 'center',
       _sdSource: 'tutor', _sdId: s.id, _sdLabel: s.label || '',
     });
-    canvas.add(group);
+  }
+
+  function _drawEdge(fromObj, toObj, label) {
+    var fc = fromObj.getCenterPoint(), tc = toObj.getCenterPoint();
+    // Shorten line to stop at node border
+    var dx = tc.x - fc.x, dy = tc.y - fc.y, dist = Math.sqrt(dx * dx + dy * dy);
+    if (dist < 1) return;
+    var ux = dx / dist, uy = dy / dist;
+    var x1 = fc.x + ux * 28, y1 = fc.y + uy * 28;
+    var x2 = tc.x - ux * 28, y2 = tc.y - uy * 28;
+
+    var line = new fabric.Line([x1, y1, x2, y2], {
+      stroke: 'rgba(255,255,255,0.15)', strokeWidth: 1.2,
+      selectable: false, evented: false, _sdSource: 'tutor',
+    });
+    canvas.add(line);
+    // Arrowhead
+    var angle = Math.atan2(y2 - y1, x2 - x1);
+    canvas.add(new fabric.Triangle({
+      left: x2, top: y2, width: 8, height: 8,
+      fill: 'rgba(255,255,255,0.2)', angle: (angle * 180 / Math.PI) + 90,
+      originX: 'center', originY: 'center',
+      selectable: false, evented: false, _sdSource: 'tutor',
+    }));
+    // Edge label
+    if (label) {
+      canvas.add(new fabric.Text(label, {
+        left: (x1 + x2) / 2 + 5, top: (y1 + y2) / 2 - 8,
+        fontSize: 7, fill: 'rgba(52,211,153,0.4)',
+        fontFamily: 'Inter, sans-serif', originX: 'center', originY: 'center',
+        selectable: false, evented: false, _sdSource: 'tutor',
+      }));
+    }
+  }
+
+  function _zoomToFit() {
+    if (!canvas) return;
+    var objs = canvas.getObjects().filter(function(o) { return o._sdSource === 'tutor'; });
+    if (!objs.length) return;
+    var minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+    objs.forEach(function(o) {
+      var br = o.getBoundingRect();
+      if (br.left < minX) minX = br.left;
+      if (br.top < minY) minY = br.top;
+      if (br.left + br.width > maxX) maxX = br.left + br.width;
+      if (br.top + br.height > maxY) maxY = br.top + br.height;
+    });
+    var contentW = maxX - minX, contentH = maxY - minY;
+    var cw = canvas.getWidth(), ch = canvas.getHeight();
+    var pad = 40;
+    var scale = Math.min((cw - pad * 2) / (contentW || 1), (ch - pad * 2) / (contentH || 1), 1.5);
+    scale = Math.max(scale, 0.3);
+    var vpCenterX = (minX + maxX) / 2, vpCenterY = (minY + maxY) / 2;
+    canvas.setViewportTransform([scale, 0, 0, scale, cw / 2 - vpCenterX * scale, ch / 2 - vpCenterY * scale]);
     canvas.renderAll();
   }
 
-  function addTutorConnection(c) {
-    if (!canvas) return;
-    // Find tutor shapes by _sdId
-    var fromObj = null, toObj = null;
-    canvas.forEachObject(o => {
-      if (o._sdId === c.from) fromObj = o;
-      if (o._sdId === c.to) toObj = o;
+  // Legacy wrappers for non-batch single adds
+  function addTutorShape(s) { _batchedNodes.push(s); }
+  function addTutorConnection(c) { _batchedEdges.push(c); }
+  var _batchedNodes = [], _batchedEdges = [];
+
+  function _flushBatch() {
+    if (!canvas || (!_batchedNodes.length && !_batchedEdges.length)) return;
+    var positions = _autoLayout(_batchedNodes, _batchedEdges);
+    _batchedNodes.forEach(function(n) {
+      var pos = positions[n.id] || { x: 0, y: 0 };
+      canvas.add(_createNodeGroup(n, pos.x, pos.y));
     });
-    if (fromObj && toObj) {
-      var fc = fromObj.getCenterPoint();
-      var tc = toObj.getCenterPoint();
-      var line = new fabric.Line([fc.x, fc.y, tc.x, tc.y], {
-        stroke: 'rgba(255,255,255,0.1)', strokeWidth: 1.2,
-        selectable: false, evented: false, _sdSource: 'tutor',
+    canvas.renderAll();
+    _batchedEdges.forEach(function(e) {
+      var fromObj = null, toObj = null;
+      canvas.forEachObject(function(o) {
+        if (o._sdId === e.from) fromObj = o;
+        if (o._sdId === e.to) toObj = o;
       });
-      canvas.add(line);
-      // Arrowhead
-      var angle = Math.atan2(tc.y - fc.y, tc.x - fc.x);
-      var head = new fabric.Triangle({
-        left: tc.x, top: tc.y, width: 8, height: 8,
-        fill: 'rgba(255,255,255,0.12)',
-        angle: (angle * 180 / Math.PI) + 90,
-        originX: 'center', originY: 'center',
-        selectable: false, evented: false, _sdSource: 'tutor',
-      });
-      canvas.add(head);
-      canvas.renderAll();
-    }
+      if (fromObj && toObj) _drawEdge(fromObj, toObj, e.label);
+    });
+    _batchedNodes = []; _batchedEdges = [];
+    _zoomToFit();
   }
 
   function clear() {
     if (!canvas) return;
     var toRemove = [];
-    canvas.forEachObject(o => { if (!o.excludeFromExport) toRemove.push(o); });
-    toRemove.forEach(o => canvas.remove(o));
+    canvas.forEachObject(function(o) { if (o._sdSource === 'tutor') toRemove.push(o); });
+    toRemove.forEach(function(o) { canvas.remove(o); });
+    canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
     canvas.renderAll();
   }
 
@@ -23095,18 +23302,57 @@ const _SDCanvas_OLD_UNUSED = (() => {
     if (!canvas) return;
     if (data.clear) clear();
 
-    // Add nodes
-    (data.add_nodes || []).forEach(n => {
-      addTutorShape({
-        id: n.id, type: n.type || 'rect',
-        label: n.label, sublabel: n.sublabel,
-      });
+    // Tutor sometimes sends JSON strings instead of arrays — parse them
+    var _parse = function(v) { if (typeof v === 'string') { try { return JSON.parse(v); } catch(e) { return []; } } return v || []; };
+    data.add_nodes = _parse(data.add_nodes);
+    data.add_edges = _parse(data.add_edges);
+    data.remove = _parse(data.remove);
+    data.update = _parse(data.update);
+    data.annotate = _parse(data.annotate);
+    data.highlight = _parse(data.highlight);
+
+    // Collect existing tutor node IDs so we know what's already on canvas
+    var _existingIds = {};
+    canvas.forEachObject(function(o) { if (o._sdId && o._sdSource === 'tutor') _existingIds[o._sdId] = true; });
+
+    // Only clear tutor drawings if we're adding a full new set of nodes
+    // (edges-only = incremental update on existing diagram)
+    if (data.add_nodes.length > 0) {
+      // Remove only tutor edges/annotations — keep tutor nodes if IDs overlap (re-layout)
+      var existingTutor = [];
+      canvas.forEachObject(function(o) { if (o._sdSource === 'tutor') existingTutor.push(o); });
+      existingTutor.forEach(function(o) { canvas.remove(o); });
+      canvas.setViewportTransform([1, 0, 0, 1, 0, 0]);
+      _existingIds = {};
+    }
+
+    // Batch NEW nodes for layout, edges reference existing or new nodes
+    _batchedNodes = []; _batchedEdges = [];
+    (data.add_nodes || []).forEach(function(n) {
+      if (!_existingIds[n.id]) {
+        _batchedNodes.push({ id: n.id, type: n.type || 'rect', label: n.label, sublabel: n.sublabel });
+      }
+    });
+    (data.add_edges || []).forEach(function(e) {
+      _batchedEdges.push({ from: e.from, to: e.to, label: e.label });
     });
 
-    // Add edges
-    (data.add_edges || []).forEach(e => {
-      addTutorConnection({ from: e.from, to: e.to, label: e.label });
-    });
+    // Flush: layout new nodes if any, then always draw edges (they may reference existing nodes)
+    if (_batchedNodes.length) {
+      _flushBatch();
+    } else if (_batchedEdges.length) {
+      // Edges-only: draw against existing canvas objects
+      _batchedEdges.forEach(function(e) {
+        var fromObj = null, toObj = null;
+        canvas.forEachObject(function(o) {
+          if (o._sdId === e.from) fromObj = o;
+          if (o._sdId === e.to) toObj = o;
+        });
+        if (fromObj && toObj) _drawEdge(fromObj, toObj, e.label);
+      });
+      _batchedEdges = [];
+      _zoomToFit();
+    }
 
     // Remove
     (data.remove || []).forEach(id => {
@@ -23540,10 +23786,42 @@ const _SDCanvas_OLD_UNUSED = (() => {
     try {
       var els = [];
       canvas.forEachObject(function(o) {
-        if (o.type==='line'&&o.stroke==='rgba(255,255,255,0.015)') return; // skip grid
-        els.push({ id:o._sdId||'', type:o.type, label:o.text||o._label||'', source:o._src||'student' });
+        if (o.type==='line'&&o.stroke==='rgba(255,255,255,0.015)') return; // grid
+        if (o._sdBadgeFor) return; // badges
+        if ((o.type === 'triangle' || o.type === 'text') && o._sdId && (o._sdId.indexOf('_head') > 0 || o._sdId.indexOf('_label') > 0)) return; // edge sub-parts
+        var label = o.text || o._label || o._sdLabel || '';
+        var source = o._src || o._sdSource || 'student';
+        var entry = { id: o._sdId || '', label: label, source: source };
+
+        // Type classification
+        if (o.type === 'group') entry.type = 'box';
+        else if (o.type === 'line' && (o._sdFromId || o._sdToId)) {
+          entry.type = 'edge';
+          entry.from = o._sdFromId || '';
+          entry.to = o._sdToId || '';
+        } else if (o.type === 'line') entry.type = 'line';
+        else if (o.type === 'rect') entry.type = 'box';
+        else if (o.type === 'ellipse') entry.type = 'ellipse';
+        else if (o.type === 'i-text' || o.type === 'textbox') entry.type = 'text';
+        else if (o.type === 'path') entry.type = 'freehand';
+        else entry.type = o.type;
+
+        // Position + bounds
+        var br = o.getBoundingRect ? o.getBoundingRect() : null;
+        if (br) {
+          entry.x = Math.round(br.left);
+          entry.y = Math.round(br.top);
+          entry.w = Math.round(br.width);
+          entry.h = Math.round(br.height);
+        }
+        els.push(entry);
       });
-      window._sdCanvasState = { elements: els };
+      window._sdCanvasState = {
+        elements: els,
+        canvasWidth: canvas.getWidth(),
+        canvasHeight: canvas.getHeight(),
+        elementCount: els.length,
+      };
     } finally { _syncing = false; }
   }
 
@@ -23584,32 +23862,99 @@ const _SDCanvas_OLD_UNUSED = (() => {
     canvas.add(group); canvas.renderAll();
   }
 
+  var _edgeCounter = 0;
   function addTutorConnection(c) {
     if (!canvas) return;
     var from=null, to=null;
     canvas.forEachObject(function(o){ if(o._sdId===c.from) from=o; if(o._sdId===c.to) to=o; });
-    if (!from||!to) return;
+    if (!from||!to) { console.warn('[SD] Edge skipped: from='+c.from+' to='+c.to+' (node not found)'); return; }
     var fc=from.getCenterPoint(), tc=to.getCenterPoint();
-    canvas.add(new fabric.Line([fc.x,fc.y,tc.x,tc.y], { stroke:'rgba(255,255,255,0.1)',strokeWidth:1.2,selectable:false,evented:false,_src:'tutor' }));
+    var edgeId = c.id || ('edge_' + (++_edgeCounter));
+    canvas.add(new fabric.Line([fc.x,fc.y,tc.x,tc.y], { stroke:'rgba(255,255,255,0.15)',strokeWidth:1.2,selectable:false,evented:false,_src:'tutor',_sdId:edgeId,_sdFromId:c.from,_sdToId:c.to }));
     var a=Math.atan2(tc.y-fc.y,tc.x-fc.x);
-    canvas.add(new fabric.Triangle({ left:tc.x,top:tc.y,width:8,height:8, fill:'rgba(255,255,255,0.12)', angle:(a*180/Math.PI)+90, originX:'center',originY:'center',selectable:false,evented:false,_src:'tutor' }));
+    canvas.add(new fabric.Triangle({ left:tc.x,top:tc.y,width:8,height:8, fill:'rgba(255,255,255,0.2)', angle:(a*180/Math.PI)+90, originX:'center',originY:'center',selectable:false,evented:false,_src:'tutor',_sdId:edgeId+'_head' }));
+    // Edge label
+    if (c.label) {
+      canvas.add(new fabric.Text(c.label, { left:(fc.x+tc.x)/2+5,top:(fc.y+tc.y)/2-8, fontSize:7,fill:'rgba(52,211,153,0.4)',fontFamily:'Inter,sans-serif',originX:'center',originY:'center',selectable:false,evented:false,_src:'tutor',_sdId:edgeId+'_label' }));
+    }
     canvas.renderAll();
   }
 
   function handleTutorDraw(data) {
     if (!canvas) return;
     if (data.clear) clear();
+
+    // Parse string arrays
+    var _p = function(v) { if (typeof v === 'string') { try { return JSON.parse(v); } catch(e) { return []; } } return v || []; };
+    data.add_nodes = _p(data.add_nodes);
+    data.add_edges = _p(data.add_edges);
+    data.remove = _p(data.remove);
+    data.update = _p(data.update);
+    data.annotate = _p(data.annotate);
+    data.highlight = _p(data.highlight);
+
+    // Add nodes
     (data.add_nodes||[]).forEach(function(n) { addTutorShape({id:n.id,type:n.type||'rect',label:n.label,sublabel:n.sublabel,content:n.content}); });
-    (data.add_edges||[]).forEach(function(e) { addTutorConnection({from:e.from,to:e.to}); });
-    (data.remove||[]).forEach(function(id) { canvas.forEachObject(function(o){if(o._sdId===id)canvas.remove(o);}); });
-    if (data.highlight&&data.highlight.length) {
-      var ids=new Set(data.highlight);
-      canvas.forEachObject(function(o){ if(ids.has(o._sdId)){var os=o.stroke;o.set('stroke','#f5d89a');canvas.renderAll();setTimeout(function(){o.set('stroke',os);canvas.renderAll();},2000);} });
-    }
-    (data.annotate||[]).forEach(function(a) {
-      var target=null; canvas.forEachObject(function(o){if(o._sdId===a.near)target=o;});
-      if(target){var cp=target.getCenterPoint();canvas.add(new fabric.Text(a.text,{left:cp.x+(target.width||60)/2+15,top:cp.y,fontSize:9,fill:'rgba(52,211,153,0.5)',fontFamily:'Inter,sans-serif',originY:'center',_src:'tutor'}));canvas.renderAll();}
+
+    // Add edges (with IDs + labels)
+    (data.add_edges||[]).forEach(function(e) { addTutorConnection({from:e.from,to:e.to,label:e.label,id:e.id}); });
+
+    // Remove (works for both nodes and edges by ID)
+    (data.remove||[]).forEach(function(id) {
+      var toRemove = [];
+      canvas.forEachObject(function(o){ if(o._sdId===id || o._sdId===id+'_head' || o._sdId===id+'_label') toRemove.push(o); });
+      toRemove.forEach(function(o) { canvas.remove(o); });
     });
+
+    // Update labels/sublabels (works for both student and tutor elements)
+    (data.update||[]).forEach(function(u) {
+      canvas.forEachObject(function(o) {
+        if (o._sdId !== u.id) return;
+        if (o.type === 'group' && o._objects) {
+          // Tutor-drawn group: update text objects inside
+          o._objects.forEach(function(inner) {
+            if (inner.type === 'text') {
+              if (u.label && inner.fontSize >= 9) inner.set('text', u.label);
+              if (u.sublabel && inner.fontSize < 9) inner.set('text', u.sublabel);
+            }
+          });
+          if (u.label) { o._label = u.label; o._sdLabel = u.label; }
+          o.dirty = true;
+        } else if (o.type === 'i-text' || o.type === 'text' || o.type === 'textbox') {
+          if (u.label) o.set('text', u.label);
+        } else {
+          // Student-drawn shape: update stored label
+          if (u.label) { o._label = u.label; o._sdLabel = u.label; }
+        }
+      });
+    });
+
+    // Highlight (flash yellow border for 2s)
+    if (data.highlight && data.highlight.length) {
+      var hids = new Set(data.highlight);
+      canvas.forEachObject(function(o) {
+        if (!hids.has(o._sdId)) return;
+        var origStroke = o.stroke;
+        o.set('stroke', '#f5d89a'); canvas.renderAll();
+        setTimeout(function() { o.set('stroke', origStroke); canvas.renderAll(); }, 2000);
+      });
+    }
+
+    // Annotate (attach note near a node — works for student or tutor elements)
+    (data.annotate||[]).forEach(function(a) {
+      var target = null;
+      canvas.forEachObject(function(o) { if (o._sdId === a.near) target = o; });
+      if (target) {
+        var cp = target.getCenterPoint();
+        canvas.add(new fabric.Text(a.text, {
+          left: cp.x + (target.width || 60) / 2 + 15, top: cp.y,
+          fontSize: 9, fill: 'rgba(52,211,153,0.5)', fontFamily: 'Inter,sans-serif',
+          originY: 'center', _src: 'tutor', _sdId: 'note_' + (++_edgeCounter),
+        }));
+        canvas.renderAll();
+      }
+    });
+
     syncState();
   }
 
