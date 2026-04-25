@@ -19738,7 +19738,8 @@ function setVoiceBarState(newState) {
       if (status) { status.className = 'vb-status active thinking'; status.textContent = ''; }
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      voiceHideSubtitle();
+      // Delay subtitle hide so "You: ..." stays visible briefly after voice submit
+      setTimeout(function() { if (_vbState === 'thinking') voiceHideSubtitle(); }, 2000);
       // Show board streaming indicator
       _showBoardStreaming();
       break;
