@@ -41,3 +41,5 @@ wireframe-*.html
 *.zip
 *.tar.gz
 *.tgz
+
+.graphify/
