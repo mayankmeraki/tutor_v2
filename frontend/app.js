@@ -18322,6 +18322,7 @@ function voiceShowSubtitle(text) {
   // Ensure subtitle bar is visible
   const bar = $('#voice-subtitle-bar');
   if (bar) bar.classList.remove('hidden');
+  _positionSubtitleBar();
 }
 
 function voiceHideSubtitle() {
@@ -19812,6 +19813,45 @@ function setVoiceBarState(newState) {
   var _wrapEl = document.getElementById('voice-mic-float');
   if (_wrapEl) _wrapEl.classList.remove('euler-speaking');
 
+  // ── Speak mode overlay state ──
+  if (state.inputMode === 'speak' && typeof SpeakMode !== 'undefined' && SpeakMode.isActive()) {
+    var speakStop = document.getElementById('speak-stop-btn');
+    var speakPause = document.getElementById('speak-pause-btn');
+    var speakResume = document.getElementById('speak-resume-btn');
+
+    // Reset speak controls
+    if (speakStop) speakStop.classList.add('hidden');
+    if (speakPause) speakPause.classList.add('hidden');
+    if (speakResume) speakResume.classList.add('hidden');
+
+    switch (newState) {
+      case 'idle':
+        // Only set to idle if not actively listening (listening state is driven by SpeakMode)
+        if (!SpeakMode.isListening()) {
+          SpeakMode._setOverlayState('speak-idle');
+          SpeakMode._updateTranscript('Tap to speak');
+        }
+        break;
+      case 'thinking':
+        SpeakMode._setOverlayState('speak-idle');
+        SpeakMode._updateTranscript('Thinking...');
+        if (speakStop) speakStop.classList.remove('hidden');
+        break;
+      case 'speaking':
+        SpeakMode._setOverlayState('speak-tutor');
+        SpeakMode._updateTranscript('Tap mic to interrupt');
+        if (speakStop) speakStop.classList.remove('hidden');
+        if (speakPause) speakPause.classList.remove('hidden');
+        break;
+      case 'paused':
+        SpeakMode._setOverlayState('speak-tutor');
+        SpeakMode._updateTranscript('Paused — tap mic or resume');
+        if (speakResume) speakResume.classList.remove('hidden');
+        break;
+    }
+  }
+
+  if (state.inputMode !== 'speak') {
   switch (newState) {
     case 'idle':
       if (field) field.placeholder = 'Your answer...';
@@ -19864,6 +19904,18 @@ function setVoiceBarState(newState) {
       if (vmSend) vmSend.classList.remove('hidden');
       break;
   }
+  } // end if (state.inputMode !== 'speak')
+
+  _positionSubtitleBar();
+}
+
+function _positionSubtitleBar() {
+  var wrap = document.getElementById('voice-mic-float');
+  var bar = document.getElementById('voice-subtitle-bar');
+  if (!wrap || !bar) return;
+  var wrapRect = wrap.getBoundingClientRect();
+  var wrapBottom = window.innerHeight - wrapRect.top;
+  bar.style.bottom = (wrapBottom + 8) + 'px';
 }
 
 /**
