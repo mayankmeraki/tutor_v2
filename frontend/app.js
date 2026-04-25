@@ -1332,6 +1332,320 @@ window.scribeStop = scribeStop;
 
 
 // ═══════════════════════════════════════════════════════════
+// Module 4b: Inline Mic Input
+// ═══════════════════════════════════════════════════════════
+
+var InlineMic = (() => {
+  var _listening = false;
+  var _scribeWs = null;
+  var _micStream = null;
+  var _audioCtx = null;
+  var _analyser = null;
+  var _scriptNode = null;
+  var _animFrameId = null;
+  var _committed = '';
+  var _submitTimer = null;
+  var _tapDebounce = 0;
+
+  function isListening() { return _listening; }
+
+  function toggle() {
+    if (_listening) {
+      _stopAndDiscard();
+    } else {
+      _startListening();
+    }
+  }
+
+  async function _startListening() {
+    var now = Date.now();
+    if (now - _tapDebounce < 300) return;
+    _tapDebounce = now;
+
+    if (state.isStreaming) {
+      stopAll();
+    }
+
+    if (!_micStream) {
+      try {
+        _micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+      } catch (err) {
+        console.warn('[InlineMic] Mic permission denied:', err);
+        _showToast('Microphone access required');
+        return;
+      }
+    }
+
+    _listening = true;
+    _committed = '';
+    if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
+
+    var overlay = document.getElementById('vb-waveform-overlay');
+    if (overlay) overlay.classList.remove('hidden');
+
+    var micBtn = document.getElementById('voice-bar-mic-toggle');
+    if (micBtn) {
+      micBtn.classList.add('listening');
+      micBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
+      micBtn.title = 'Cancel voice input';
+    }
+
+    _startAudioCapture(_micStream);
+    _connectScribe();
+
+    console.log('[InlineMic] Started listening');
+  }
+
+  function _stopListening() {
+    if (!_listening) return;
+    _listening = false;
+
+    _stopAudioCapture();
+    _disconnectScribe();
+
+    if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
+
+    var overlay = document.getElementById('vb-waveform-overlay');
+    if (overlay) overlay.classList.add('hidden');
+
+    var micBtn = document.getElementById('voice-bar-mic-toggle');
+    if (micBtn) {
+      micBtn.classList.remove('listening');
+      micBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
+      micBtn.title = 'Voice input';
+    }
+
+    if (_micStream) {
+      _micStream.getTracks().forEach(function(t) { t.stop(); });
+      _micStream = null;
+    }
+
+    if (_audioCtx) {
+      try { _audioCtx.close(); } catch (e) {}
+      _audioCtx = null;
+      _analyser = null;
+      _scriptNode = null;
+    }
+
+    console.log('[InlineMic] Stopped listening');
+  }
+
+  function _stopAndDiscard() {
+    _committed = '';
+    _stopListening();
+    console.log('[InlineMic] Dismissed — nothing sent');
+  }
+
+  function _autoSubmit() {
+    var spokenText = _committed.trim();
+    _committed = '';
+    _submitTimer = null;
+
+    _stopListening();
+
+    if (!spokenText) return;
+
+    var field = document.getElementById('voice-bar-input');
+    if (field) {
+      var existing = field.value.trim();
+      field.value = existing ? existing + ' ' + spokenText : spokenText;
+    }
+
+    console.log('[InlineMic] Auto-submit: "' + spokenText.slice(0, 40) + '"');
+    submitVoiceBarInput();
+  }
+
+  // ── Audio Capture ──
+
+  function _startAudioCapture(stream) {
+    if (!_audioCtx) {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    }
+    var source = _audioCtx.createMediaStreamSource(stream);
+
+    _analyser = _audioCtx.createAnalyser();
+    _analyser.fftSize = 256;
+    _analyser.smoothingTimeConstant = 0.7;
+    source.connect(_analyser);
+
+    _scriptNode = _audioCtx.createScriptProcessor(4096, 1, 1);
+    _scriptNode.onaudioprocess = function(e) {
+      if (!_listening || !_scribeWs || _scribeWs.readyState !== WebSocket.OPEN) return;
+      var input = e.inputBuffer.getChannelData(0);
+      var pcm16 = new Int16Array(input.length);
+      for (var i = 0; i < input.length; i++) {
+        var s = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      var bytes = new Uint8Array(pcm16.buffer);
+      var binary = '';
+      for (var j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+      var b64 = btoa(binary);
+      try {
+        _scribeWs.send(JSON.stringify({ type: 'audio', data: b64 }));
+      } catch (err) {
+        console.warn('[InlineMic] Audio send error:', err);
+      }
+    };
+
+    _analyser.connect(_scriptNode);
+    _scriptNode.connect(_audioCtx.destination);
+
+    _animateWaveform();
+  }
+
+  function _stopAudioCapture() {
+    if (_animFrameId) { cancelAnimationFrame(_animFrameId); _animFrameId = null; }
+    if (_scriptNode) {
+      try { _scriptNode.disconnect(); } catch (e) {}
+      _scriptNode = null;
+    }
+    if (_analyser) {
+      try { _analyser.disconnect(); } catch (e) {}
+      _analyser = null;
+    }
+    _resetWaveformBars();
+  }
+
+  // ── Waveform Animation ──
+
+  function _animateWaveform() {
+    if (!_analyser || !_listening) return;
+    var bars = document.querySelectorAll('#inline-waveform span');
+    if (!bars.length) return;
+
+    var dataArray = new Uint8Array(_analyser.frequencyBinCount);
+
+    function draw() {
+      if (!_listening || !_analyser) return;
+      _animFrameId = requestAnimationFrame(draw);
+      _analyser.getByteFrequencyData(dataArray);
+
+      var step = Math.floor(dataArray.length / bars.length);
+      for (var i = 0; i < bars.length; i++) {
+        var val = dataArray[i * step] || 0;
+        var h = Math.max(4, (val / 255) * 20);
+        bars[i].style.height = h + 'px';
+      }
+    }
+    draw();
+  }
+
+  function _resetWaveformBars() {
+    var bars = document.querySelectorAll('#inline-waveform span');
+    bars.forEach(function(b) { b.style.height = ''; });
+  }
+
+  // ── Scribe WebSocket ──
+
+  function _connectScribe() {
+    if (_scribeWs) _disconnectScribe();
+
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    var token = state.wsToken || '';
+    var url = proto + '://' + location.host + '/ws/scribe?token=' + encodeURIComponent(token);
+
+    _scribeWs = new WebSocket(url);
+
+    _scribeWs.onopen = function() {
+      console.log('[InlineMic] Scribe WS opened');
+    };
+
+    _scribeWs.onmessage = function(e) {
+      var msg;
+      try { msg = JSON.parse(e.data); } catch (err) { return; }
+
+      if (msg.type === 'ready') {
+        console.log('[InlineMic] Scribe ready');
+        return;
+      }
+
+      if (msg.type === 'committed') {
+        var text = msg.text || '';
+        if (text.trim()) {
+          _committed += (_committed ? ' ' : '') + text.trim();
+        }
+        if (_submitTimer) clearTimeout(_submitTimer);
+        _submitTimer = setTimeout(function() {
+          _autoSubmit();
+        }, 500);
+        return;
+      }
+
+      if (msg.type === 'partial') {
+        var partial = msg.text || '';
+        if (state.isStreaming && partial.length > 5) {
+          stopAll();
+        }
+        return;
+      }
+
+      if (msg.type === 'error') {
+        console.warn('[InlineMic] Scribe error:', msg.message);
+        _showToast(msg.message || 'Voice error');
+        _stopAndDiscard();
+        return;
+      }
+    };
+
+    _scribeWs.onclose = function() {
+      console.log('[InlineMic] Scribe WS closed');
+      _scribeWs = null;
+    };
+
+    _scribeWs.onerror = function(err) {
+      console.warn('[InlineMic] Scribe WS error:', err);
+      _scribeWs = null;
+      if (_listening) {
+        _showToast('Voice connection error');
+        _stopAndDiscard();
+      }
+    };
+  }
+
+  function _disconnectScribe() {
+    if (_scribeWs) {
+      try { _scribeWs.send(JSON.stringify({ type: 'stop' })); } catch (e) {}
+      try { _scribeWs.close(); } catch (e) {}
+      _scribeWs = null;
+    }
+  }
+
+  function _showToast(msg) {
+    if (typeof showToast === 'function') showToast(msg);
+    else console.warn('[InlineMic]', msg);
+  }
+
+  // ── Support Check ──
+
+  function checkSupport() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      var micToggle = document.getElementById('voice-bar-mic-toggle');
+      if (micToggle) micToggle.style.display = 'none';
+      return false;
+    }
+    return true;
+  }
+
+  // ── Visibility change: stop listening if tab loses focus ──
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden && _listening) {
+      console.log('[InlineMic] Tab hidden — stopping');
+      _stopAndDiscard();
+    }
+  });
+
+  return {
+    isListening: isListening,
+    toggle: toggle,
+    checkSupport: checkSupport,
+  };
+})();
+window.InlineMic = InlineMic;
+
+// ═══════════════════════════════════════════════════════════
 // Module 5: Unified Block System (Infinity Canvas)
 // ═══════════════════════════════════════════════════════════
 
@@ -17616,6 +17930,8 @@ document.addEventListener('DOMContentLoaded', () => {
   Router.init();
   initSetup();
   Router.resolve(location.pathname);
+
+  if (typeof InlineMic !== 'undefined') InlineMic.checkSupport();
 
   // Clean up agent event SSE on page unload
   window.addEventListener('beforeunload', () => cleanupActiveSession());
