@@ -20160,8 +20160,8 @@ document.addEventListener('input', (e) => {
   if (!wrap) { setTimeout(_wireVoiceBarDrag, 500); return; }
   var dragging = false, startX = 0, startY = 0, origLeft = 0, origBottom = 0;
   wrap.addEventListener('mousedown', function(e) {
-    // Only drag from the wrap/bar background, not from inputs/buttons
-    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('button')) return;
+    // Only drag from the wrap/bar background, not from inputs/buttons/orb
+    if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('button') || e.target.closest('.speak-orb-container') || e.target.closest('.speak-mic-active') || e.target.closest('.speak-keyboard-btn')) return;
     dragging = true;
     startX = e.clientX; startY = e.clientY;
     var rect = wrap.getBoundingClientRect();
