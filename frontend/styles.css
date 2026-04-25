@@ -7738,13 +7738,13 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   display: none;
 }
 
-/* Speak mode overlay — sits inside voice-bar-wrap, replaces textarea */
+/* Speak mode overlay — compact horizontal bar layout */
 .speak-mode-overlay {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
-  padding: 24px 16px 12px;
-  gap: 12px;
+  padding: 8px 12px;
+  gap: 10px;
   width: 100%;
 }
 .speak-mode-overlay.hidden {
@@ -7762,13 +7762,14 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 96px;
-  height: 96px;
+  width: 44px;
+  height: 44px;
+  min-width: 44px;
   position: relative;
 }
 .speak-orb {
-  width: 80px;
-  height: 80px;
+  width: 40px;
+  height: 40px;
   border-radius: 50%;
   position: relative;
   display: flex;
@@ -7781,7 +7782,7 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 }
 .speak-orb-glow {
   position: absolute;
-  inset: -12px;
+  inset: -6px;
   border-radius: 50%;
   transition: box-shadow .4s ease, opacity .4s ease;
 }
@@ -7800,7 +7801,7 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 
 /* Idle: warm amber */
 .speak-mode-overlay.speak-idle .speak-orb-glow {
-  box-shadow: 0 0 30px 8px rgba(201,184,150,.5);
+  box-shadow: 0 0 16px 4px rgba(201,184,150,.45);
   opacity: 1;
 }
 .speak-mode-overlay.speak-idle .speak-orb-inner {
@@ -7810,7 +7811,7 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 
 /* Listening: green */
 .speak-mode-overlay.speak-listening .speak-orb-glow {
-  box-shadow: 0 0 35px 10px rgba(52,211,153,.6);
+  box-shadow: 0 0 18px 5px rgba(52,211,153,.5);
   opacity: 1;
 }
 .speak-mode-overlay.speak-listening .speak-orb-inner {
@@ -7820,7 +7821,7 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 
 /* Tutor responding: purple */
 .speak-mode-overlay.speak-tutor .speak-orb-glow {
-  box-shadow: 0 0 35px 10px rgba(139,92,246,.6);
+  box-shadow: 0 0 18px 5px rgba(139,92,246,.5);
   opacity: 1;
 }
 .speak-mode-overlay.speak-tutor .speak-orb-inner {
@@ -7832,7 +7833,7 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 .speak-mode-overlay.speak-tutor .speak-orb::after {
   content: '';
   position: absolute;
-  inset: -18px;
+  inset: -8px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(139,92,246,.2) 0%, transparent 70%);
   animation: speak-tutor-aura 2s ease-in-out infinite;
@@ -7848,14 +7849,14 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 3px;
-  height: 40px;
+  gap: 2px;
+  height: 22px;
 }
 .speak-waveform span {
   display: block;
-  width: 4px;
-  height: 8px;
-  border-radius: 2px;
+  width: 2.5px;
+  height: 6px;
+  border-radius: 1.5px;
   background: rgba(255,255,255,.6);
   transition: height .08s ease;
 }
@@ -7872,8 +7873,8 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 .speak-mode-overlay.speak-idle .speak-waveform span:nth-child(6) { animation-delay: .15s; }
 .speak-mode-overlay.speak-idle .speak-waveform span:nth-child(7) { animation-delay: 0s; }
 @keyframes speak-idle-pulse {
-  0%, 100% { height: 8px; opacity: .5; }
-  50% { height: 18px; opacity: .8; }
+  0%, 100% { height: 6px; opacity: .5; }
+  50% { height: 14px; opacity: .8; }
 }
 
 /* When JS drives waveform bars, disable CSS animation */
@@ -7893,38 +7894,44 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 .speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(6) { animation-delay: .2s; }
 .speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(7) { animation-delay: 0s; }
 @keyframes speak-tutor-pulse {
-  0%, 100% { height: 8px; opacity: .4; }
-  50% { height: 14px; opacity: .7; }
+  0%, 100% { height: 6px; opacity: .4; }
+  50% { height: 12px; opacity: .7; }
 }
 
-/* ── Transcript text below orb ── */
+/* ── Transcript text — fills middle of horizontal bar ── */
 .speak-transcript {
   font-size: 13px;
-  color: rgba(255,255,255,.65);
-  text-align: center;
-  min-height: 20px;
-  max-width: 90%;
+  color: rgba(255,255,255,.55);
+  text-align: left;
+  flex: 1;
+  min-width: 0;
   line-height: 1.4;
-  word-break: break-word;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Show full text when actively listening (transcript can wrap) */
+.speak-mode-overlay.speak-listening .speak-transcript {
+  white-space: normal;
+  color: rgba(255,255,255,.75);
 }
 
-/* ── Bottom controls ── */
+/* ── Controls — inline at right of horizontal bar ── */
 .speak-bottom {
   display: flex;
   align-items: center;
-  justify-content: space-between;
-  width: 100%;
-  padding: 0 4px;
+  gap: 6px;
+  flex-shrink: 0;
 }
 .speak-bottom-left {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 .speak-bottom-right {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 4px;
 }
 
 /* Keyboard button */
@@ -7953,8 +7960,8 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   border-radius: 50%;
   color: #34d399;
   cursor: pointer;
-  width: 36px;
-  height: 36px;
+  width: 32px;
+  height: 32px;
   display: flex;
   align-items: center;
   justify-content: center;

@@ -1602,7 +1602,7 @@ var SpeakMode = (() => {
       var step = Math.floor(dataArray.length / bars.length);
       for (var i = 0; i < bars.length; i++) {
         var val = dataArray[i * step] || 0;
-        var h = Math.max(6, (val / 255) * 40);
+        var h = Math.max(4, (val / 255) * 20);
         bars[i].style.height = h + 'px';
       }
     }
