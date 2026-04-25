@@ -7738,14 +7738,19 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   display: none;
 }
 
-/* Speak mode overlay — compact horizontal bar layout */
+/* Speak mode overlay — compact horizontal bar, matches .voice-bar box */
 .speak-mode-overlay {
   display: flex;
   flex-direction: row;
   align-items: center;
-  padding: 8px 12px;
+  padding: 10px 16px;
   gap: 10px;
   width: 100%;
+  background: rgba(12,16,22,0.95);
+  border: 1px solid rgba(52,211,153,0.1);
+  border-radius: 22px;
+  backdrop-filter: blur(16px);
+  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
 }
 .speak-mode-overlay.hidden {
   display: none !important;
