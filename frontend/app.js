@@ -19849,6 +19849,11 @@ function _showStopButton(show) {
 // ── Unified voice bar submit ────────────────────────────────
 
 function submitVoiceBarInput() {
+  // If mic is listening, stop it and discard spoken text — submit typed text only
+  if (typeof InlineMic !== 'undefined' && InlineMic.isListening()) {
+    InlineMic.toggle();
+  }
+
   const field = $('#voice-bar-input');
   if (!field || !field.value.trim()) return;
 
