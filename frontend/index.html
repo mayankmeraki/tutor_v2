@@ -1213,6 +1213,44 @@
               <button class="vb-send-btn visible" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send (Enter)">
                 <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
               </button>
+              <button class="vb-mic-toggle" id="voice-bar-mic-toggle" onclick="SpeakMode.toggle()" title="Switch to speak mode">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+              </button>
+            </div>
+          </div>
+        </div>
+        <div class="speak-mode-overlay hidden" id="speak-mode-overlay">
+          <div class="speak-orb-container" onclick="SpeakMode.onOrbTap()">
+            <div class="speak-orb">
+              <div class="speak-orb-glow"></div>
+              <div class="speak-orb-inner">
+                <div class="speak-waveform" id="speak-waveform">
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="speak-transcript" id="speak-transcript">Tap to speak</div>
+          <div class="speak-bottom">
+            <div class="speak-bottom-left">
+              <button class="vb-icon-btn hidden" id="speak-stop-btn" onclick="stopAll()" title="Stop tutor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+              </button>
+              <button class="vb-icon-btn hidden" id="speak-pause-btn" onclick="togglePause()" title="Pause tutor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+              </button>
+              <button class="vb-icon-btn hidden" id="speak-resume-btn" onclick="togglePause()" title="Resume tutor">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+              </button>
+              <button class="speak-keyboard-btn" id="speak-keyboard-btn" onclick="SpeakMode.exit()" title="Switch to typing">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="4" width="20" height="14" rx="2"/><line x1="6" y1="8" x2="6" y2="8" stroke-width="2" stroke-linecap="round"/><line x1="10" y1="8" x2="10" y2="8" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="8" x2="14" y2="8" stroke-width="2" stroke-linecap="round"/><line x1="18" y1="8" x2="18" y2="8" stroke-width="2" stroke-linecap="round"/><line x1="6" y1="12" x2="6" y2="12" stroke-width="2" stroke-linecap="round"/><line x1="10" y1="12" x2="10" y2="12" stroke-width="2" stroke-linecap="round"/><line x1="14" y1="12" x2="14" y2="12" stroke-width="2" stroke-linecap="round"/><line x1="18" y1="12" x2="18" y2="12" stroke-width="2" stroke-linecap="round"/><line x1="8" y1="16" x2="16" y2="16"/></svg>
+                <span>Type</span>
+              </button>
+            </div>
+            <div class="speak-bottom-right">
+              <button class="speak-mic-active" id="speak-mic-btn" onclick="SpeakMode.onOrbTap()" title="Tap to speak">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+              </button>
             </div>
           </div>
         </div>
