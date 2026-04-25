@@ -1193,13 +1193,15 @@
         <div class="voice-bar" id="voice-bar-main">
           <!-- Type mode content -->
           <div class="vb-type-content" id="vb-type-content">
-            <div class="vb-waveform-overlay hidden" id="vb-waveform-overlay">
-              <div class="inline-waveform" id="inline-waveform">
-                <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+            <div class="vb-textarea-wrap">
+              <div class="vb-waveform-overlay hidden" id="vb-waveform-overlay">
+                <div class="inline-waveform" id="inline-waveform">
+                  <span></span><span></span><span></span><span></span><span></span><span></span><span></span>
+                </div>
+                <span class="listening-label">Listening...</span>
               </div>
-              <span class="listening-label">Listening...</span>
+              <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
             </div>
-            <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
             <div class="vb-bottom">
               <div class="vb-bottom-left">
                 <button class="vb-icon-btn" id="voice-bar-attach" title="Attach file">
@@ -1221,7 +1223,7 @@
                 <button class="vb-send-btn visible" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send (Enter)">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
                 </button>
-                <button class="vb-mic-toggle" id="voice-bar-mic-toggle" onclick="InlineMic.toggle()" title="Voice input">
+                <button class="vb-mic-toggle" id="voice-bar-mic-toggle" onclick="InlineMic.toggle()" title="Voice input (Ctrl+M)">
                   <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
                 </button>
               </div>

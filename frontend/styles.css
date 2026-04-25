@@ -7775,8 +7775,8 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   background: rgba(52,211,153,.12);
 }
 
-/* .vb-type-content needs position relative for overlay */
-.vb-type-content {
+/* Textarea wrapper — relative container for waveform overlay */
+.vb-textarea-wrap {
   position: relative;
 }
 

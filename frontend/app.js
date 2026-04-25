@@ -1389,7 +1389,7 @@ var InlineMic = (() => {
     if (micBtn) {
       micBtn.classList.add('listening');
       micBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-      micBtn.title = 'Cancel voice input';
+      micBtn.title = 'Cancel voice input (Ctrl+M)';
     }
 
     _startAudioCapture(_micStream);
@@ -1414,7 +1414,7 @@ var InlineMic = (() => {
     if (micBtn) {
       micBtn.classList.remove('listening');
       micBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
-      micBtn.title = 'Voice input';
+      micBtn.title = 'Voice input (Ctrl+M)';
     }
 
     if (_micStream) {
@@ -1453,6 +1453,8 @@ var InlineMic = (() => {
       field.value = existing ? existing + ' ' + spokenText : spokenText;
     }
 
+    // Show what the student said
+    voiceShowSubtitle('You: ' + (spokenText.length > 60 ? spokenText.slice(0, 60) + '...' : spokenText));
     console.log('[InlineMic] Auto-submit: "' + spokenText.slice(0, 40) + '"');
     submitVoiceBarInput();
   }
@@ -1634,6 +1636,14 @@ var InlineMic = (() => {
     if (document.hidden && _listening) {
       console.log('[InlineMic] Tab hidden — stopping');
       _stopAndDiscard();
+    }
+  });
+
+  // ── Ctrl+M keyboard shortcut ──
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'm') {
+      e.preventDefault();
+      toggle();
     }
   });
 
