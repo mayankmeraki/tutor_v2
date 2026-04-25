@@ -7733,259 +7733,51 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   background: rgba(52,211,153,.08);
 }
 
-/* Hide textarea when speak mode is active */
-.voice-bar-wrap.speak-active #voice-bar-main {
-  display: none;
-}
-
-/* Speak mode overlay — compact horizontal bar, matches .voice-bar box */
-.speak-mode-overlay {
-  display: flex;
-  flex-direction: row;
-  align-items: center;
-  padding: 20px 16px;
-  gap: 10px;
-  width: 100%;
-  background: rgba(12,16,22,0.95);
-  border: 1px solid rgba(52,211,153,0.1);
-  border-radius: 22px;
-  backdrop-filter: blur(16px);
-  box-shadow: 0 4px 30px rgba(0,0,0,0.5);
-}
-.speak-mode-overlay.hidden {
-  display: none !important;
-}
-
-/* Show overlay when speak-active */
-.voice-bar-wrap.speak-active .speak-mode-overlay {
-  display: flex;
-}
-
-/* ── Orb ── */
-.speak-orb-container {
-  cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 44px;
-  height: 44px;
-  min-width: 44px;
-  position: relative;
-}
-.speak-orb {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: transform .2s ease;
-}
-.speak-orb-container:hover .speak-orb {
-  transform: scale(1.06);
-}
-.speak-orb-glow {
+/* ── Inline mic waveform overlay ── */
+.vb-waveform-overlay {
   position: absolute;
-  inset: -6px;
-  border-radius: 50%;
-  transition: box-shadow .4s ease, opacity .4s ease;
-}
-.speak-orb-inner {
-  width: 100%;
-  height: 100%;
-  border-radius: 50%;
+  inset: 0;
   display: flex;
   align-items: center;
-  justify-content: center;
-  overflow: hidden;
-  transition: background .4s ease, border-color .4s ease;
-}
-
-/* ── Orb color states ── */
-
-/* Idle: warm amber */
-.speak-mode-overlay.speak-idle .speak-orb-glow {
-  box-shadow: 0 0 16px 4px rgba(201,184,150,.45);
-  opacity: 1;
-}
-.speak-mode-overlay.speak-idle .speak-orb-inner {
-  background: rgba(201,184,150,.3);
-  border: 1.5px solid rgba(201,184,150,.35);
-}
-
-/* Listening: green */
-.speak-mode-overlay.speak-listening .speak-orb-glow {
-  box-shadow: 0 0 18px 5px rgba(52,211,153,.5);
-  opacity: 1;
-}
-.speak-mode-overlay.speak-listening .speak-orb-inner {
-  background: rgba(52,211,153,.35);
-  border: 1.5px solid rgba(52,211,153,.45);
-}
-
-/* Tutor responding: purple */
-.speak-mode-overlay.speak-tutor .speak-orb-glow {
-  box-shadow: 0 0 18px 5px rgba(139,92,246,.5);
-  opacity: 1;
-}
-.speak-mode-overlay.speak-tutor .speak-orb-inner {
-  background: rgba(139,92,246,.35);
-  border: 1.5px solid rgba(139,92,246,.45);
-}
-
-/* Tutor aura — pulse */
-.speak-mode-overlay.speak-tutor .speak-orb::after {
-  content: '';
-  position: absolute;
-  inset: -8px;
-  border-radius: 50%;
-  background: radial-gradient(circle, rgba(139,92,246,.2) 0%, transparent 70%);
-  animation: speak-tutor-aura 2s ease-in-out infinite;
+  gap: 8px;
+  padding: 0 16px;
+  background: rgba(12,16,22,0.92);
+  border-radius: 14px;
+  z-index: 2;
   pointer-events: none;
 }
-@keyframes speak-tutor-aura {
-  0%, 100% { transform: scale(1); opacity: .5; }
-  50% { transform: scale(1.15); opacity: .8; }
-}
+.vb-waveform-overlay.hidden { display: none; }
 
-/* ── Waveform bars inside orb ── */
-.speak-waveform {
+.vb-waveform-overlay .inline-waveform {
   display: flex;
   align-items: center;
-  justify-content: center;
   gap: 2px;
-  height: 22px;
+  height: 24px;
 }
-.speak-waveform span {
+.vb-waveform-overlay .inline-waveform span {
   display: block;
   width: 2.5px;
   height: 6px;
   border-radius: 1.5px;
-  background: rgba(255,255,255,.6);
+  background: #34d399;
   transition: height .08s ease;
 }
-
-/* Idle CSS animation fallback */
-.speak-mode-overlay.speak-idle .speak-waveform span {
-  animation: speak-idle-pulse 2s ease-in-out infinite;
-}
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(1) { animation-delay: 0s; }
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(2) { animation-delay: .15s; }
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(3) { animation-delay: .3s; }
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(4) { animation-delay: .45s; }
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(5) { animation-delay: .3s; }
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(6) { animation-delay: .15s; }
-.speak-mode-overlay.speak-idle .speak-waveform span:nth-child(7) { animation-delay: 0s; }
-@keyframes speak-idle-pulse {
-  0%, 100% { height: 6px; opacity: .5; }
-  50% { height: 14px; opacity: .8; }
-}
-
-/* When JS drives waveform bars, disable CSS animation */
-.speak-waveform.js-driven span {
-  animation: none !important;
-}
-
-/* Tutor state CSS pulse */
-.speak-mode-overlay.speak-tutor .speak-waveform span {
-  animation: speak-tutor-pulse 2.5s ease-in-out infinite;
-}
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(1) { animation-delay: 0s; }
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(2) { animation-delay: .2s; }
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(3) { animation-delay: .4s; }
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(4) { animation-delay: .6s; }
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(5) { animation-delay: .4s; }
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(6) { animation-delay: .2s; }
-.speak-mode-overlay.speak-tutor .speak-waveform span:nth-child(7) { animation-delay: 0s; }
-@keyframes speak-tutor-pulse {
-  0%, 100% { height: 6px; opacity: .4; }
-  50% { height: 12px; opacity: .7; }
-}
-
-/* ── Transcript text — fills middle of horizontal bar ── */
-.speak-transcript {
+.vb-waveform-overlay .listening-label {
   font-size: 13px;
-  color: rgba(255,255,255,.55);
-  text-align: left;
-  flex: 1;
-  min-width: 0;
-  line-height: 1.4;
+  color: rgba(255,255,255,.5);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-}
-/* Show full text when actively listening (transcript can wrap) */
-.speak-mode-overlay.speak-listening .speak-transcript {
-  white-space: normal;
-  color: rgba(255,255,255,.75);
 }
 
-/* ── Controls — inline at right of horizontal bar ── */
-.speak-bottom {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  flex-shrink: 0;
-}
-.speak-bottom-left {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-.speak-bottom-right {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-}
-
-/* Keyboard button */
-.speak-keyboard-btn {
-  background: none;
-  border: 1px solid rgba(255,255,255,.12);
-  border-radius: 8px;
-  color: rgba(255,255,255,.55);
-  cursor: pointer;
-  padding: 5px 10px;
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  font-size: 12px;
-  transition: color .15s, border-color .15s;
-}
-.speak-keyboard-btn:hover {
-  color: rgba(255,255,255,.85);
-  border-color: rgba(255,255,255,.25);
-}
-
-/* Mic active button (in speak mode bottom-right) */
-.speak-mic-active {
-  background: none;
-  border: 1.5px solid rgba(52,211,153,.3);
-  border-radius: 50%;
+/* Mic button listening state */
+.vb-mic-toggle.listening {
   color: #34d399;
-  cursor: pointer;
-  width: 32px;
-  height: 32px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  transition: border-color .2s, box-shadow .2s, background .2s;
-}
-.speak-mic-active:hover {
-  border-color: rgba(52,211,153,.5);
-  background: rgba(52,211,153,.1);
+  border-color: rgba(52,211,153,.4);
+  background: rgba(52,211,153,.12);
 }
 
-/* Pulsing ring when actively listening */
-.speak-mic-active.listening {
-  border-color: #34d399;
-  box-shadow: 0 0 0 3px rgba(52,211,153,.2);
-  animation: speak-mic-pulse 1.5s ease-in-out infinite;
-}
-@keyframes speak-mic-pulse {
-  0%, 100% { box-shadow: 0 0 0 3px rgba(52,211,153,.2); }
-  50% { box-shadow: 0 0 0 6px rgba(52,211,153,.1); }
+/* .vb-type-content needs position relative for overlay */
+.vb-type-content {
+  position: relative;
 }
 
 /* Subtitle bar dynamic positioning */
