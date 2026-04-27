@@ -1557,15 +1557,14 @@ var InlineMic = (() => {
     _committed = '';
     if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
 
-    var overlay = document.getElementById('vb-waveform-overlay');
-    if (overlay) overlay.classList.remove('hidden');
-
+    // Show mic pill, hide mic button
     var micBtn = document.getElementById('voice-bar-mic-toggle');
-    if (micBtn) {
-      micBtn.classList.add('listening');
-      micBtn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-      micBtn.title = 'Cancel voice input (Ctrl+M)';
-    }
+    var micPill = document.getElementById('vb-mic-pill');
+    if (micBtn) micBtn.classList.add('hidden');
+    if (micPill) micPill.classList.add('visible');
+
+    // Drive orb to listening state
+    AuroraOrb.setState('listening');
 
     _startAudioCapture(_micStream);
     _connectScribe();
@@ -1582,15 +1581,14 @@ var InlineMic = (() => {
 
     if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
 
-    var overlay = document.getElementById('vb-waveform-overlay');
-    if (overlay) overlay.classList.add('hidden');
-
+    // Restore mic button, hide pill
     var micBtn = document.getElementById('voice-bar-mic-toggle');
-    if (micBtn) {
-      micBtn.classList.remove('listening');
-      micBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>';
-      micBtn.title = 'Voice input (Ctrl+M)';
-    }
+    var micPill = document.getElementById('vb-mic-pill');
+    if (micBtn) micBtn.classList.remove('hidden');
+    if (micPill) micPill.classList.remove('visible');
+
+    // Return orb to idle
+    AuroraOrb.setState('idle');
 
     if (_micStream) {
       _micStream.getTracks().forEach(function(t) { t.stop(); });
@@ -1626,12 +1624,13 @@ var InlineMic = (() => {
     if (field) {
       var existing = field.value.trim();
       field.value = existing ? existing + ' ' + spokenText : spokenText;
+      // Trigger auto-grow
+      field.style.height = 'auto';
+      field.style.height = Math.min(field.scrollHeight, 160) + 'px';
+      field.focus();
     }
 
-    // Show what the student said
-    voiceShowSubtitle('You: ' + (spokenText.length > 60 ? spokenText.slice(0, 60) + '...' : spokenText));
-    console.log('[InlineMic] Auto-submit: "' + spokenText.slice(0, 40) + '"');
-    submitVoiceBarInput();
+    console.log('[InlineMic] Transcription populated (no auto-submit): "' + spokenText.slice(0, 40) + '"');
   }
 
   // ── Audio Capture ──
