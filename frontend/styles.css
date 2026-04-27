@@ -6109,7 +6109,7 @@ body {
   position: relative; width: 64px; height: 64px; flex-shrink: 0;
 }
 .aurora-orb-waveform {
-  position: absolute; inset: 0; width: 100%; height: 100%;
+  position: absolute; left: 0; top: 0; width: inherit; height: inherit;
   overflow: visible;
   transition: transform .4s cubic-bezier(.16,1,.3,1);
 }
@@ -6167,7 +6167,7 @@ body {
 
 /* Listening pulse rings */
 .aurora-listen-ring {
-  position: absolute; inset: 0;
+  position: absolute; left: 0; top: 0; width: inherit; height: inherit;
   border: 1px solid #76d4b3;
   border-radius: 50%; opacity: 0; pointer-events: none;
   display: none;
@@ -6177,7 +6177,7 @@ body {
 
 /* Buffering arc */
 .aurora-buf-arc {
-  position: absolute; inset: 0; width: 100%; height: 100%;
+  position: absolute; left: 0; top: 0; width: inherit; height: inherit;
   pointer-events: none; display: none;
 }
 .aurora-buf-arc.active { display: block; }
