@@ -6081,18 +6081,45 @@ body {
   opacity: 0; transform: translateY(4px);
   transition: opacity 0.3s ease, transform 0.3s ease;
   pointer-events: none;
+  max-height: 120px; overflow: hidden;
 }
 .vb-caption-bar.visible {
   opacity: 1; transform: translateY(0);
 }
+.vb-caption-bar.cc-off { display: none; }
 .vb-caption-text {
   font-family: var(--font-serif, "Crimson Pro", Georgia, serif);
   font-size: 15px;
-  color: rgba(232,213,183,0.9);
+  color: rgba(232,213,183,0.5);
   line-height: 1.5;
   text-shadow: 0 1px 4px rgba(0,0,0,0.5);
 }
 .vb-caption-text:empty { display: none; }
+
+/* Word-by-word highlight */
+.cap-w { transition: color 0.12s ease, font-weight 0.12s ease; }
+.cap-w.cap-active { color: #fff; font-weight: 700; }
+
+/* Caption fade-in animation */
+.vb-caption-text.cap-enter {
+  animation: capFadeIn 0.35s ease-out forwards;
+}
+@keyframes capFadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+/* CC toggle button */
+.vb-cc-btn {
+  width: 26px; height: 26px; border-radius: 6px;
+  background: none; border: none;
+  color: rgba(255,255,255,0.25); cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
+  font-family: var(--font-sans); transition: color 0.15s;
+}
+.vb-cc-btn:hover { color: rgba(255,255,255,0.5); }
+.vb-cc-btn.cc-on { color: var(--accent); }
 
 /* ── Voice bar row: orb + input ── */
 .vb-row {
@@ -6224,24 +6251,19 @@ body {
   transition: background 0.3s;
 }
 
-/* Mic pill */
-.vb-mic-pill {
-  display: none; align-items: center; gap: 6px;
-  padding: 3px 9px;
-  background: rgba(118,212,179,.14);
-  border: 1px solid rgba(118,212,179,.4);
-  color: #76d4b3;
-  border-radius: 100px;
-  font-family: var(--font-mono, "JetBrains Mono", monospace);
-  font-size: 9px; letter-spacing: .16em;
-  cursor: pointer;
+/* Mic pill (legacy — hidden, replaced by red mic button) */
+.vb-mic-pill { display: none; }
+.vb-mic-pill.visible { display: none; }
+.vb-mic-pill-dot { display: none; }
+
+/* Mic recording state — red icon with pulse */
+.vb-icon-btn.mic-recording {
+  color: #ef4444;
+  animation: micRecordPulse 1.4s ease-in-out infinite;
 }
-.vb-mic-pill.visible { display: inline-flex; }
-.vb-mic-pill-dot {
-  width: 5px; height: 5px; border-radius: 50%;
-  background: #76d4b3;
-  animation: auroraBlink 1.2s ease-in-out infinite;
-  box-shadow: 0 0 6px #76d4b3;
+@keyframes micRecordPulse {
+  0%, 100% { color: #ef4444; }
+  50% { color: #f87171; }
 }
 
 /* Divider */

@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Euler — AI tutor that teaches you live</title>
-  <link rel="stylesheet" href="/styles.css?v=20260427s">
+  <link rel="stylesheet" href="/styles.css?v=20260427v">
   <link rel="stylesheet" href="/board/styles.css?v=20260427c">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
@@ -1262,6 +1262,8 @@
                   <button class="vb-icon-btn hidden" id="voice-bar-stop" onclick="stopAll()" title="Stop tutor">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
                   </button>
+                  <span class="vb-divider"></span>
+                  <button class="vb-cc-btn cc-on" id="vb-cc-toggle" onclick="toggleCaptions()" title="Toggle captions">CC</button>
                 </div>
                 <div class="vb-bottom-right">
                   <!-- Mic pill (listening mode) -->
@@ -1372,7 +1374,7 @@
   <script src="/router.js"></script>
   <script src="/board/bundle.js"></script>
   <script src="/animation-helpers.js"></script>
-  <script src="/app.js?v=20260427ai"></script>
+  <script src="/app.js?v=20260427al"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->
 <div class="fb-overlay" id="fb-overlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
   <div class="fb-modal">

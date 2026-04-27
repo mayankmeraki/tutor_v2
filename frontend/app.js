@@ -1261,25 +1261,7 @@ function scribeStart(inputId) {
     // Interrupt tutor if speaking
     if (state.isStreaming && (final.length > 3 || interim.length > 5)) stopAll();
 
-    // Auto-submit: when a final transcript chunk arrives, wait 1.5s of silence then send
-    if (final) {
-      if (_scribe._sendTimer) clearTimeout(_scribe._sendTimer);
-      _scribe._sendTimer = setTimeout(function() {
-        if (_scribe.targetInput && _scribe.targetInput.value.trim() && !state.isStreaming) {
-          var text = _scribe.targetInput.value.trim();
-          _scribe.targetInput.value = '';
-          _scribe.targetInput.style.height = '';
-          _scribe.committed = '';
-          _scribe.partial = '';
-          console.log('[Voice] Auto-send: "' + text.slice(0, 40) + '"');
-          voiceShowSubtitle('You: ' + (text.length > 60 ? text.slice(0, 60) + '...' : text));
-          streamADK(text);
-          if (_scribe.targetInput) _scribe.targetInput.placeholder = 'Listening...';
-        }
-      }, 1500);
-    }
-    // Cancel auto-send if user is still speaking (new interim)
-    if (interim && _scribe._sendTimer) { clearTimeout(_scribe._sendTimer); _scribe._sendTimer = null; }
+    // No auto-submit — mic stays on until user manually stops it
   };
 
   rec.onend = function() {
@@ -1782,10 +1764,7 @@ var InlineMic = (() => {
         }
         // Update textarea with committed text (replacing any interim partial)
         _updateFieldLive();
-        if (_submitTimer) clearTimeout(_submitTimer);
-        _submitTimer = setTimeout(function() {
-          _autoSubmit();
-        }, 1500);
+        // No auto-submit — mic stays on until user manually stops it
         return;
       }
 
@@ -2733,6 +2712,7 @@ async function _wsPlayAudio(beat, beatNum, turn) {
   await new Promise(resolve => {
     const done = (reason) => {
       console.log(`[WS Audio] Beat #${beatNum} ended (${reason || 'done'})`);
+      _stopCaptionHighlight();
       URL.revokeObjectURL(url);
       if (turn.audioEl === audio) turn.audioEl = null;
       if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null;
@@ -2741,13 +2721,13 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     audio.onended = () => done('ended');
     audio.onerror = (e) => { console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
     audio.play()
-      .then(() => console.log(`[WS Audio] Beat #${beatNum} playing`))
+      .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing`); _startCaptionHighlight(audio); })
       .catch((err) => {
         console.warn(`[WS Audio] Beat #${beatNum} play failed:`, err.message);
         // Retry once after short delay — autoplay may have been unlocked
         setTimeout(() => {
           audio.play()
-            .then(() => console.log(`[WS Audio] Beat #${beatNum} playing (retry)`))
+            .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing (retry)`); _startCaptionHighlight(audio); })
             .catch((err2) => {
               console.error(`[WS Audio] Beat #${beatNum} autoplay blocked — skipping:`, err2.message);
               done('autoplay-blocked');
@@ -18454,7 +18434,20 @@ function estimateVoiceDuration(text) {
 
 // ── Subtitle display ────────────────────────────────────────
 
+var _captionsEnabled = true;
+var _captionHighlightTimer = null;
+
+function toggleCaptions() {
+  _captionsEnabled = !_captionsEnabled;
+  var btn = document.getElementById('vb-cc-toggle');
+  var bar = document.getElementById('vb-caption-bar');
+  if (btn) btn.classList.toggle('cc-on', _captionsEnabled);
+  if (bar) bar.classList.toggle('cc-off', !_captionsEnabled);
+  if (!_captionsEnabled) voiceHideSubtitle();
+}
+
 function voiceShowSubtitle(text) {
+  if (!_captionsEnabled) return;
   var el = document.getElementById('vb-caption-text');
   if (!el) return;
   var display = text
@@ -18467,18 +18460,54 @@ function voiceShowSubtitle(text) {
     .replace(/\$\$[\s\S]+?\$\$/g, '')
     .trim();
   if (!display) return;
-  el.innerHTML = display;
-  var bar = document.getElementById('vb-caption-bar');
-  if (bar) {
-    bar.classList.add('visible');
+  // Wrap each word in a span for word-by-word highlighting
+  var words = display.split(/(\s+)/); // preserve whitespace
+  var html = '';
+  for (var i = 0; i < words.length; i++) {
+    if (/^\s+$/.test(words[i])) { html += words[i]; continue; }
+    html += '<span class="cap-w">' + words[i] + '</span>';
   }
+  el.innerHTML = html;
+  // Trigger fade-in animation
+  el.classList.remove('cap-enter');
+  void el.offsetWidth;
+  el.classList.add('cap-enter');
+  var bar = document.getElementById('vb-caption-bar');
+  if (bar) bar.classList.add('visible');
 }
 
 function voiceHideSubtitle() {
+  _stopCaptionHighlight();
   var el = document.getElementById('vb-caption-text');
   if (el) el.innerHTML = '';
   var bar = document.getElementById('vb-caption-bar');
   if (bar) bar.classList.remove('visible');
+}
+
+function _startCaptionHighlight(audio) {
+  _stopCaptionHighlight();
+  var el = document.getElementById('vb-caption-text');
+  if (!el) return;
+  var spans = el.querySelectorAll('.cap-w');
+  if (spans.length === 0) return;
+  _captionHighlightTimer = setInterval(function() {
+    if (!audio || audio.paused || audio.ended || !audio.duration) return;
+    var progress = audio.currentTime / audio.duration;
+    var idx = Math.min(Math.floor(progress * spans.length), spans.length - 1);
+    for (var i = 0; i < spans.length; i++) {
+      spans[i].classList.toggle('cap-active', i === idx);
+    }
+  }, 60);
+}
+
+function _stopCaptionHighlight() {
+  if (_captionHighlightTimer) { clearInterval(_captionHighlightTimer); _captionHighlightTimer = null; }
+  // Remove any lingering active class
+  var el = document.getElementById('vb-caption-text');
+  if (el) {
+    var active = el.querySelectorAll('.cap-active');
+    for (var i = 0; i < active.length; i++) active[i].classList.remove('cap-active');
+  }
 }
 
 // ── Voice indicator ─────────────────────────────────────────
@@ -19964,7 +19993,7 @@ function setVoiceBarState(newState) {
   // Reset all buttons
   [stopBtn, pauseBtn, resumeBtn].forEach(function(b) { if (b) b.classList.add('hidden'); });
   if (sendBtn) sendBtn.classList.remove('disabled');
-  if (micBtn) micBtn.classList.remove('hidden');
+  if (micBtn) { micBtn.classList.remove('hidden'); micBtn.classList.remove('mic-recording'); }
   if (micPill) micPill.classList.remove('visible');
   if (field) { field.disabled = false; field.style.opacity = ''; }
 
@@ -19997,9 +20026,8 @@ function setVoiceBarState(newState) {
       break;
 
     case 'listening':
-      // Mic button hidden, pill shown
-      if (micBtn) micBtn.classList.add('hidden');
-      if (micPill) micPill.classList.add('visible');
+      // Mic button stays visible but turns red to indicate active recording
+      if (micBtn) { micBtn.classList.remove('hidden'); micBtn.classList.add('mic-recording'); }
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       break;
