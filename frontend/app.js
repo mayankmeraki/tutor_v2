@@ -18385,11 +18385,11 @@ function estimateVoiceDuration(text) {
 // ── Subtitle display ────────────────────────────────────────
 
 function voiceShowSubtitle(text) {
-  const el = $('#voice-subtitle-text');
+  var el = document.getElementById('vb-caption-text');
   if (!el) return;
-  let display = text
-    .replace(/\{ref:[^}]+\}/g, '')  // strip {ref:elementId} markers
-    .replace(/\[[^\]]*\]\s*/g, '')  // strip emotion tags like [excited], [thoughtfully]
+  var display = text
+    .replace(/\{ref:[^}]+\}/g, '')
+    .replace(/\[[^\]]*\]\s*/g, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/g, '<em>$1</em>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
@@ -18398,15 +18398,17 @@ function voiceShowSubtitle(text) {
     .trim();
   if (!display) return;
   el.innerHTML = display;
-  // Ensure subtitle bar is visible
-  const bar = $('#voice-subtitle-bar');
-  if (bar) bar.classList.remove('hidden');
-  _positionSubtitleBar();
+  var bar = document.getElementById('vb-caption-bar');
+  if (bar && (_vbState === 'speaking' || _vbState === 'drawing')) {
+    bar.classList.add('visible');
+  }
 }
 
 function voiceHideSubtitle() {
-  const el = $('#voice-subtitle-text');
+  var el = document.getElementById('vb-caption-text');
   if (el) el.innerHTML = '';
+  var bar = document.getElementById('vb-caption-bar');
+  if (bar) bar.classList.remove('visible');
 }
 
 // ── Voice indicator ─────────────────────────────────────────
