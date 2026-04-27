@@ -1299,7 +1299,7 @@ function _updateMicUI() {
   var on = _scribe.active && !_scribe.muted;
   var micBtn = document.getElementById('voice-bar-mic-toggle');
   if (micBtn) {
-    micBtn.className = on ? 'vb-mic-btn scribe-active' : 'vb-mic-btn scribe-muted';
+    micBtn.className = on ? 'vb-icon-btn scribe-active' : 'vb-icon-btn scribe-muted';
     micBtn.title = on ? 'Listening (click to mute)' : 'Mic off (click to unmute)';
   }
   if (typeof window._micSetIcon === 'function') window._micSetIcon(on);
@@ -1369,23 +1369,28 @@ var AuroraOrb = (() => {
   function init() {
     var svg = document.getElementById('aurora-orb-waveform');
     if (!svg || _lines.length > 0) return;
+    var g = svg.querySelector('g[clip-path]');
+    var parent = g || svg;
     for (var i = 0; i < N; i++) {
       var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       line.setAttribute('stroke', 'url(#orb-bargrad)');
       line.setAttribute('stroke-width', '1.6');
       line.setAttribute('stroke-linecap', 'round');
-      svg.appendChild(line);
+      parent.appendChild(line);
       _lines.push(line);
     }
     _startAnimation();
     setState('idle');
   }
 
+  var _prevState = '';
   function setState(s) {
+    var changed = _prevState !== s;
+    _prevState = s;
     _state = s;
     var p = _palettes[s] || _palettes.idle;
 
-    // Gradient stops
+    // Gradient stops — smoothly interpolated by SVG
     var ga = document.getElementById('orb-grad-a');
     var gc = document.getElementById('orb-grad-c');
     if (ga) ga.setAttribute('stop-color', p.a);
@@ -1406,10 +1411,17 @@ var AuroraOrb = (() => {
     if (body) {
       body.style.boxShadow = '0 0 28px ' + p.a + '55, 0 0 0 1px rgba(255,255,255,.06)';
       body.style.filter = s === 'paused' ? 'saturate(.4)' : '';
-      if (s === 'thinking') body.style.animation = 'auroraThinkPulse 1.3s cubic-bezier(.16,1,.3,1) infinite';
-      else if (s === 'buffering') body.style.animation = 'auroraBreath 4.2s ease-in-out infinite';
-      else if (s === 'paused') body.style.animation = 'none';
-      else body.style.animation = 'auroraBreath 3s ease-in-out infinite';
+      // Swap animation with a brief cross-fade
+      var newAnim;
+      if (s === 'thinking') newAnim = 'auroraThinkPulse 1.3s cubic-bezier(.16,1,.3,1) infinite';
+      else if (s === 'buffering') newAnim = 'auroraBreath 4.2s ease-in-out infinite';
+      else if (s === 'paused') newAnim = 'none';
+      else newAnim = 'auroraBreath 3s ease-in-out infinite';
+      if (changed && body.style.animation !== newAnim) {
+        body.style.animation = 'none';
+        body.offsetHeight; // force reflow
+        body.style.animation = newAnim;
+      }
     }
 
     // Blob animations
@@ -1464,6 +1476,8 @@ var AuroraOrb = (() => {
   }
 
   var _lastUpdate = 0;
+  var _smooth = new Float32Array(N); // smoothed amplitudes per bar
+  var _lerp = 0.18; // smoothing factor (0=frozen, 1=instant)
   function _updateWaveform() {
     var now = Date.now();
     if (now - _lastUpdate < 70) return; // ~14fps, matches design spec
@@ -1471,24 +1485,28 @@ var AuroraOrb = (() => {
 
     var s = _state;
     for (var i = 0; i < N; i++) {
-      var v = 0;
+      var target = 0;
       if (s === 'idle' || s === 'listening' || s === 'paused') {
-        v = 0;
+        target = 0;
       } else if (s === 'thinking') {
         var phase = now / 140 + i * 0.7;
-        v = 0.18 + Math.abs(Math.sin(phase)) * 0.22 * (0.6 + Math.random() * 0.4);
+        target = 0.18 + Math.abs(Math.sin(phase)) * 0.22 * (0.6 + Math.random() * 0.4);
       } else if (s === 'buffering') {
         var phase = now / 900;
         var offset = (i / N) * Math.PI * 2;
-        v = 0.15 + (Math.sin(phase * 2 - offset * 1.2) * 0.5 + 0.5) * 0.18;
+        target = 0.15 + (Math.sin(phase * 2 - offset * 1.2) * 0.5 + 0.5) * 0.18;
       } else if (s === 'speaking') {
         var phase = now / 200 + i * 0.45;
         var base = Math.abs(Math.sin(phase)) * 0.45;
-        v = 0.3 + base + Math.random() * 0.15;
+        target = 0.3 + base + Math.random() * 0.15;
       } else if (s === 'drawing') {
         var phase = now / 280 + i * 0.22;
-        v = 0.2 + Math.abs(Math.sin(phase)) * 0.25;
+        target = 0.2 + Math.abs(Math.sin(phase)) * 0.25;
       }
+
+      // Smooth interpolation — bars ease toward target instead of snapping
+      _smooth[i] += (target - _smooth[i]) * _lerp;
+      var v = _smooth[i];
 
       var angle = (i / N) * Math.PI * 2 - Math.PI / 2;
       var r1 = 32;
@@ -1557,15 +1575,13 @@ var InlineMic = (() => {
     _listening = true;
     _committed = '';
     if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
+    // Capture any existing text in the field so we append to it
+    var field = document.getElementById('voice-bar-input');
+    _preExisting = field ? field.value.trim() : '';
 
     // Show mic pill, hide mic button
-    var micBtn = document.getElementById('voice-bar-mic-toggle');
-    var micPill = document.getElementById('vb-mic-pill');
-    if (micBtn) micBtn.classList.add('hidden');
-    if (micPill) micPill.classList.add('visible');
-
-    // Drive orb to listening state
-    AuroraOrb.setState('listening');
+    // Drive full voice bar to listening state (orb, chip, placeholder, mic pill)
+    setVoiceBarState('listening');
 
     _startAudioCapture(_micStream);
     _connectScribe();
@@ -1582,14 +1598,8 @@ var InlineMic = (() => {
 
     if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
 
-    // Restore mic button, hide pill
-    var micBtn = document.getElementById('voice-bar-mic-toggle');
-    var micPill = document.getElementById('vb-mic-pill');
-    if (micBtn) micBtn.classList.remove('hidden');
-    if (micPill) micPill.classList.remove('visible');
-
-    // Return orb to idle
-    AuroraOrb.setState('idle');
+    // Return full voice bar to idle state
+    setVoiceBarState('idle');
 
     if (_micStream) {
       _micStream.getTracks().forEach(function(t) { t.stop(); });
@@ -1610,6 +1620,24 @@ var InlineMic = (() => {
     _committed = '';
     _stopListening();
     console.log('[InlineMic] Dismissed — nothing sent');
+  }
+
+  // Stream transcription into textarea as user speaks
+  var _preExisting = ''; // text that was in the field before mic started
+  function _updateFieldLive(interim) {
+    var field = document.getElementById('voice-bar-input');
+    if (!field) return;
+    var parts = [];
+    if (_preExisting) parts.push(_preExisting);
+    if (_committed.trim()) parts.push(_committed.trim());
+    if (interim && interim.trim()) parts.push(interim.trim());
+    field.value = parts.join(' ');
+    // Auto-grow
+    field.style.height = 'auto';
+    field.style.height = Math.min(field.scrollHeight, 160) + 'px';
+    // Enable send button if there's text
+    var sendBtn = document.getElementById('voice-bar-send');
+    if (sendBtn) sendBtn.classList.toggle('disabled', !field.value.trim());
   }
 
   function _autoSubmit() {
@@ -1713,10 +1741,12 @@ var InlineMic = (() => {
         if (text.trim()) {
           _committed += (_committed ? ' ' : '') + text.trim();
         }
+        // Update textarea with committed text (replacing any interim partial)
+        _updateFieldLive();
         if (_submitTimer) clearTimeout(_submitTimer);
         _submitTimer = setTimeout(function() {
           _autoSubmit();
-        }, 500);
+        }, 1500);
         return;
       }
 
@@ -1725,6 +1755,8 @@ var InlineMic = (() => {
         if (state.isStreaming && partial.length > 5) {
           stopAll();
         }
+        // Stream interim text into textarea as user speaks
+        _updateFieldLive(partial);
         return;
       }
 
@@ -2505,6 +2537,10 @@ async function _wsRunExecutor(turn) {
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
         if (_vbState === 'thinking') setVoiceBarState('speaking');
+        // If we're in 'drawing' and the next beat has NO draw commands,
+        // that beat arriving means the render phase is over → switch to speaking.
+        // If the next beat ALSO has draws, stay in 'drawing' (executeDraw keeps it).
+        else if (_vbState === 'drawing' && !(beat.draw && beat.draw.length > 0)) setVoiceBarState('speaking');
         _hideBoardStreaming();
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
         if (beat.question) break;
@@ -2526,11 +2562,23 @@ async function _wsRunExecutor(turn) {
     removeStreamingIndicator();
     if (_wsTurn === turn || _wsTurn === null) {
       _eager.running = false;
+      // If we're still in 'drawing' when the executor exits (last beat had draws),
+      // transition drawing → speaking → idle. executeDraw no longer switches back,
+      // so this is the final cleanup for the draw state.
+      if (_vbState === 'drawing') {
+        setVoiceBarState('speaking');
+        setTimeout(() => {
+          if (_vbState === 'speaking' && !_eager.running && !state.isStreaming) {
+            setVoiceBarState('idle');
+          }
+        }, 2000);
+        return;
+      }
       if (turn._doneReceived || !state.isStreaming) {
         setVoiceBarState('idle');
       } else {
         setTimeout(() => {
-          if (!_eager.running && !(_wsTurn?.audioEl)) {
+          if (!_eager.running && !(_wsTurn?.audioEl) && _vbState !== 'drawing') {
             setVoiceBarState('idle');
           }
         }, 300);
@@ -18367,7 +18415,7 @@ function voiceShowSubtitle(text) {
   if (!display) return;
   el.innerHTML = display;
   var bar = document.getElementById('vb-caption-bar');
-  if (bar && (_vbState === 'speaking' || _vbState === 'drawing')) {
+  if (bar) {
     bar.classList.add('visible');
   }
 }
@@ -19211,12 +19259,16 @@ async function executeDraw(drawCmds) {
   // Show shimmer skeleton on the board while drawing
   _showBoardDrawingShimmer();
 
-  // Ensure board canvas exists
+  // Ensure board canvas exists — show buffering while we wait (only if not thinking)
   if (!state.boardDraw.canvas) {
+    if (_vbState !== 'thinking') setVoiceBarState('buffering');
     openBoardDrawSpotlight('Board', null, { clear: true });
     // Wait a tick for canvas initialization
     await new Promise(r => setTimeout(r, 100));
   }
+
+  // Drawing takes priority over speaking (user needs to know board is updating)
+  if (_vbState !== 'thinking') setVoiceBarState('drawing');
 
   // Queue commands via BoardEngine + accumulate JSONL for session persistence
   for (let origCmd of drawCmds) {
@@ -19242,9 +19294,26 @@ async function executeDraw(drawCmds) {
     state.boardDraw.rawContent = (state.boardDraw.rawContent || '') + jsonLine + '\n';
   }
 
-  // Wait for the queue to fully drain before next beat/scene
+  // Wait for the queue to fully drain before next beat/scene.
+  // For figure+code commands, this blocks for the full render duration (~30s).
+  // For simple commands (text, arrow), this resolves in ~100ms.
   if (state.boardDraw.canvas) {
     await bdWaitForQueueDrain();
+  }
+
+  // Only switch back to 'speaking' if this batch contained a code command (Three.js).
+  // Code arrival = drawing is complete. Simple draws (text, arrow) keep SKETCHING
+  // until the code beat arrives or the executor exits.
+  var hasCodeCmd = drawCmds.some(function(c) { return c && c.code; });
+  if (hasCodeCmd && _vbState === 'drawing') {
+    setVoiceBarState('speaking');
+    if (!_eager.running) {
+      setTimeout(function() {
+        if (_vbState === 'speaking' && !_eager.running && !state.isStreaming) {
+          setVoiceBarState('idle');
+        }
+      }, 2000);
+    }
   }
 
   // Hide shimmer + indicator
@@ -19838,7 +19907,7 @@ function setVoiceBarState(newState) {
 
   // Reset all buttons
   [stopBtn, pauseBtn, resumeBtn].forEach(function(b) { if (b) b.classList.add('hidden'); });
-  if (sendBtn) sendBtn.classList.remove('hidden');
+  if (sendBtn) sendBtn.classList.remove('disabled');
   if (micBtn) micBtn.classList.remove('hidden');
   if (micPill) micPill.classList.remove('visible');
   if (field) { field.disabled = false; field.style.opacity = ''; }
@@ -19858,9 +19927,9 @@ function setVoiceBarState(newState) {
   // Placeholder
   if (field) field.placeholder = _vbPlaceholders[newState] || 'Your answer...';
 
-  // Caption bar — visible only during speaking/drawing
+  // Caption bar — visible during speaking/drawing/thinking (thinking keeps "You: ..." for 2s)
   if (captionBar) {
-    captionBar.classList.toggle('visible', newState === 'speaking' || newState === 'drawing');
+    captionBar.classList.toggle('visible', newState === 'speaking' || newState === 'drawing' || newState === 'thinking');
   }
 
   switch (newState) {
@@ -19880,7 +19949,7 @@ function setVoiceBarState(newState) {
       break;
 
     case 'thinking':
-      if (sendBtn) sendBtn.classList.add('hidden');
+      if (sendBtn) sendBtn.classList.add('disabled');
       if (micBtn && !(_scribe && _scribe.active)) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (field) field.disabled = true;
@@ -19891,7 +19960,7 @@ function setVoiceBarState(newState) {
       break;
 
     case 'buffering':
-      if (sendBtn) sendBtn.classList.add('hidden');
+      if (sendBtn) sendBtn.classList.add('disabled');
       if (micBtn) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (field) field.disabled = true;
@@ -20042,7 +20111,7 @@ function _doSubmitVoiceBar(field) {
   }
 
   const sendBtn = $('#voice-bar-send');
-  if (sendBtn) sendBtn.classList.remove('visible');
+  if (sendBtn) sendBtn.classList.add('disabled');
 
   // Auto-attach board images if student drew on the board
   const bd = state.boardDraw;
@@ -20148,14 +20217,14 @@ function _vbRenderFilePreview() {
   if (!_vbPendingFiles.length) preview.style.display = 'none';
   // Show send button if files attached
   var sendBtn = document.getElementById('voice-bar-send');
-  if (sendBtn && _vbPendingFiles.length) sendBtn.classList.add('visible');
+  if (sendBtn && _vbPendingFiles.length) sendBtn.classList.remove('disabled');
 }
 
 // Show/hide send button based on input content
 document.addEventListener('input', (e) => {
   if (e.target.id === 'voice-bar-input') {
     const sendBtn = $('#voice-bar-send');
-    if (sendBtn) sendBtn.classList.toggle('visible', e.target.value.trim().length > 0);
+    if (sendBtn) sendBtn.classList.toggle('disabled', e.target.value.trim().length === 0);
     // Auto-grow textarea
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
