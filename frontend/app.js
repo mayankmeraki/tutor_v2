@@ -1669,7 +1669,6 @@ var InlineMic = (() => {
     _analyser.connect(_scriptNode);
     _scriptNode.connect(_audioCtx.destination);
 
-    _animateWaveform();
   }
 
   function _stopAudioCapture() {
@@ -1682,36 +1681,6 @@ var InlineMic = (() => {
       try { _analyser.disconnect(); } catch (e) {}
       _analyser = null;
     }
-    _resetWaveformBars();
-  }
-
-  // ── Waveform Animation ──
-
-  function _animateWaveform() {
-    if (!_analyser || !_listening) return;
-    var bars = document.querySelectorAll('#inline-waveform span');
-    if (!bars.length) return;
-
-    var dataArray = new Uint8Array(_analyser.frequencyBinCount);
-
-    function draw() {
-      if (!_listening || !_analyser) return;
-      _animFrameId = requestAnimationFrame(draw);
-      _analyser.getByteFrequencyData(dataArray);
-
-      var step = Math.floor(dataArray.length / bars.length);
-      for (var i = 0; i < bars.length; i++) {
-        var val = dataArray[i * step] || 0;
-        var h = Math.max(4, (val / 255) * 20);
-        bars[i].style.height = h + 'px';
-      }
-    }
-    draw();
-  }
-
-  function _resetWaveformBars() {
-    var bars = document.querySelectorAll('#inline-waveform span');
-    bars.forEach(function(b) { b.style.height = ''; });
   }
 
   // ── Scribe WebSocket ──
