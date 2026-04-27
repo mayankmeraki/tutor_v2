@@ -1331,6 +1331,181 @@ window.scribeStart = scribeStart;
 window.scribeStop = scribeStop;
 
 
+// ════════════════════════════════════════════════════════════════
+// AuroraOrb — animated orb with radial waveform and state chip
+// ════════════════════════════════════════════════════════════════
+
+var AuroraOrb = (() => {
+  var _state = 'idle';
+  var _animId = null;
+  var _lines = [];
+  var N = 36;
+
+  var _palettes = {
+    idle:      { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' },
+    listening: { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' },
+    thinking:  { a: '#7a7589', b: '#4d4a60', c: '#7a7589' },
+    buffering: { a: '#7a7589', b: '#4d4a60', c: '#7a7589' },
+    speaking:  { a: '#76d4b3', b: '#5a9fff', c: '#e8c66a' },
+    drawing:   { a: '#e8c66a', b: '#76d4b3', c: '#b5820a' },
+    paused:    { a: '#7a7589', b: '#4d4a60', c: '#7a7589' },
+  };
+
+  var _chipLabels = {
+    idle: '', listening: 'Listening', thinking: 'Thinking',
+    buffering: 'Loading', speaking: 'Speaking',
+    drawing: 'Sketching', paused: 'Paused',
+  };
+  var _chipColors = {
+    idle: '', listening: '#76d4b3', thinking: '#e8c66a',
+    buffering: '#7fb6ff', speaking: '#76d4b3',
+    drawing: '#e8c66a', paused: '#7a7589',
+  };
+  var _glyphs = {
+    idle: '', listening: '\u00b7', thinking: '\u221e',
+    buffering: '', speaking: '', drawing: '\u2207', paused: '\u2016',
+  };
+
+  function init() {
+    var svg = document.getElementById('aurora-orb-waveform');
+    if (!svg || _lines.length > 0) return;
+    for (var i = 0; i < N; i++) {
+      var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', 'url(#orb-bargrad)');
+      line.setAttribute('stroke-width', '1.6');
+      line.setAttribute('stroke-linecap', 'round');
+      svg.appendChild(line);
+      _lines.push(line);
+    }
+    _startAnimation();
+  }
+
+  function setState(s) {
+    _state = s;
+    var p = _palettes[s] || _palettes.idle;
+
+    // Gradient stops
+    var ga = document.getElementById('orb-grad-a');
+    var gc = document.getElementById('orb-grad-c');
+    if (ga) ga.setAttribute('stop-color', p.a);
+    if (gc) gc.setAttribute('stop-color', p.c);
+
+    // Orb body
+    var body = document.getElementById('aurora-orb-body');
+    var wash = document.getElementById('aurora-orb-wash');
+    var ba = document.getElementById('aurora-orb-blob-a');
+    var bb = document.getElementById('aurora-orb-blob-b');
+    var bc = document.getElementById('aurora-orb-blob-c');
+
+    if (wash) wash.style.background = 'radial-gradient(circle at 35% 30%, ' + p.a + 'cc, ' + p.b + ' 60%, ' + p.b + '55 100%)';
+    if (ba) { ba.style.background = p.a; ba.style.opacity = s === 'paused' ? '0.3' : '0.85'; }
+    if (bb) { bb.style.background = p.c; bb.style.opacity = s === 'paused' ? '0.2' : '0.7'; }
+    if (bc) { bc.style.background = p.b; bc.style.opacity = s === 'paused' ? '0.2' : '0.65'; }
+
+    if (body) {
+      body.style.boxShadow = '0 0 28px ' + p.a + '55, 0 0 0 1px rgba(255,255,255,.06)';
+      body.style.filter = s === 'paused' ? 'saturate(.4)' : '';
+      if (s === 'thinking') body.style.animation = 'auroraThinkPulse 1.3s cubic-bezier(.16,1,.3,1) infinite';
+      else if (s === 'buffering') body.style.animation = 'auroraBreath 4.2s ease-in-out infinite';
+      else if (s === 'paused') body.style.animation = 'none';
+      else body.style.animation = 'auroraBreath 3s ease-in-out infinite';
+    }
+
+    // Blob animations
+    [ba, bb, bc].forEach(function(b) {
+      if (!b) return;
+      if (s === 'paused') b.style.animationPlayState = 'paused';
+      else b.style.animationPlayState = 'running';
+    });
+
+    // Glyph
+    var glyph = document.getElementById('aurora-orb-glyph');
+    if (glyph) {
+      glyph.textContent = _glyphs[s] || '';
+      glyph.classList.toggle('visible', !!_glyphs[s]);
+    }
+
+    // Listening rings
+    ['aurora-ring-0', 'aurora-ring-1', 'aurora-ring-2'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.toggle('active', s === 'listening');
+    });
+
+    // Buffering arc
+    var bufArc = document.getElementById('aurora-buf-arc');
+    if (bufArc) bufArc.classList.toggle('active', s === 'buffering');
+
+    // State chip
+    var chip = document.getElementById('aurora-state-chip');
+    var chipDot = document.getElementById('aurora-chip-dot');
+    var chipLabel = document.getElementById('aurora-chip-label');
+    if (chip) {
+      if (s === 'idle') {
+        chip.classList.add('hidden');
+      } else {
+        chip.classList.remove('hidden');
+        chip.style.color = _chipColors[s];
+        if (chipDot) {
+          chipDot.style.background = _chipColors[s];
+          chipDot.style.animation = s === 'paused' ? 'none' : 'auroraBlink 1.6s ease-in-out infinite';
+        }
+        if (chipLabel) chipLabel.textContent = _chipLabels[s];
+      }
+    }
+  }
+
+  function _startAnimation() {
+    function frame() {
+      _updateWaveform();
+      _animId = requestAnimationFrame(frame);
+    }
+    _animId = requestAnimationFrame(frame);
+  }
+
+  var _lastUpdate = 0;
+  function _updateWaveform() {
+    var now = Date.now();
+    if (now - _lastUpdate < 70) return; // ~14fps, matches design spec
+    _lastUpdate = now;
+
+    var s = _state;
+    for (var i = 0; i < N; i++) {
+      var v = 0;
+      if (s === 'idle' || s === 'listening' || s === 'paused') {
+        v = 0;
+      } else if (s === 'thinking') {
+        var phase = now / 140 + i * 0.7;
+        v = 0.18 + Math.abs(Math.sin(phase)) * 0.22 * (0.6 + Math.random() * 0.4);
+      } else if (s === 'buffering') {
+        var phase = now / 900;
+        var offset = (i / N) * Math.PI * 2;
+        v = 0.15 + (Math.sin(phase * 2 - offset * 1.2) * 0.5 + 0.5) * 0.18;
+      } else if (s === 'speaking') {
+        var phase = now / 200 + i * 0.45;
+        var base = Math.abs(Math.sin(phase)) * 0.45;
+        v = 0.3 + base + Math.random() * 0.15;
+      } else if (s === 'drawing') {
+        var phase = now / 280 + i * 0.22;
+        v = 0.2 + Math.abs(Math.sin(phase)) * 0.25;
+      }
+
+      var angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+      var r1 = 32;
+      var r2 = 32 + v * 14;
+      var x1 = Math.cos(angle) * r1, y1 = Math.sin(angle) * r1;
+      var x2 = Math.cos(angle) * r2, y2 = Math.sin(angle) * r2;
+      var line = _lines[i];
+      if (line) {
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+        line.setAttribute('opacity', v > 0 ? (0.45 + v * 0.5) : '0');
+      }
+    }
+  }
+
+  return { init: init, setState: setState };
+})();
+
 // ═══════════════════════════════════════════════════════════
 // Module 4b: Inline Mic Input
 // ═══════════════════════════════════════════════════════════
