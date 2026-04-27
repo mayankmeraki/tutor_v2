@@ -19852,110 +19852,123 @@ function stopGeneration() { stopAll(); }
 window.stopAll = stopAll;
 window.stopGeneration = stopAll;
 
+var _vbPlaceholders = {
+  idle: 'Your answer...',
+  listening: 'Listening\u2026 or type instead',
+  thinking: 'Composing the answer\u2026',
+  buffering: 'Loading the visual\u2026',
+  speaking: 'Type to ask without interrupting\u2026',
+  drawing: 'Annotating board\u2026',
+  paused: 'Paused \u2014 type or resume',
+};
+
 /**
  * setVoiceBarState(newState) — Single function that controls ALL voice bar UI.
- * States: 'idle', 'thinking', 'speaking', 'paused'
+ * States: 'idle', 'listening', 'thinking', 'buffering', 'speaking', 'drawing', 'paused'
  */
 function setVoiceBarState(newState) {
   _vbState = newState;
-  // Hide the drawing skeleton as soon as the tutor starts speaking (or goes idle).
-  // The skeleton only makes sense during the 'thinking' window before audio plays.
+
+  // Hide board drawing skeleton when not thinking
   if (newState !== 'thinking') {
     try { _hideBoardDrawingSkeleton(); } catch (e) {}
   }
-  // Voice bar may not exist yet on first session start (teaching layout
-  // not rendered). Still process the state — especially 'thinking' which
-  // shows the board streaming indicator regardless of voice bar presence.
-  const field = document.getElementById('voice-bar-input');
-  const sendBtn = document.getElementById('voice-bar-send');
-  const micBtn = document.getElementById('voice-mic-btn');
-  const stopBtn = document.getElementById('voice-bar-stop');
-  const pauseBtn = document.getElementById('voice-bar-pause');
-  const resumeBtn = document.getElementById('voice-bar-resume');
-  const progress = document.getElementById('vb-progress');
-  const status = document.getElementById('vb-status');
-  const vmStop = document.getElementById('vm-stop-btn');
-  const vmSend = document.getElementById('vm-send-btn');
 
-  // Reset all
-  [stopBtn, pauseBtn, resumeBtn].forEach(b => { if (b) b.classList.add('hidden'); });
+  var field = document.getElementById('voice-bar-input');
+  var sendBtn = document.getElementById('voice-bar-send');
+  var micBtn = document.getElementById('voice-bar-mic-toggle');
+  var micPill = document.getElementById('vb-mic-pill');
+  var stopBtn = document.getElementById('voice-bar-stop');
+  var pauseBtn = document.getElementById('voice-bar-pause');
+  var resumeBtn = document.getElementById('voice-bar-resume');
+  var captionBar = document.getElementById('vb-caption-bar');
+  var vmStop = document.getElementById('vm-stop-btn');
+  var vmSend = document.getElementById('vm-send-btn');
+
+  // Reset all buttons
+  [stopBtn, pauseBtn, resumeBtn].forEach(function(b) { if (b) b.classList.add('hidden'); });
   if (sendBtn) sendBtn.classList.remove('hidden');
   if (micBtn) micBtn.classList.remove('hidden');
-  if (progress) { progress.className = 'vb-progress'; }
-  if (status) { status.className = 'vb-status'; status.textContent = ''; }
+  if (micPill) micPill.classList.remove('visible');
   if (field) { field.disabled = false; field.style.opacity = ''; }
 
-  // Remove old indicator + speaking aura
+  // Remove old indicators
   voiceBarSetThinking(false);
   removeStreamingIndicator();
   hideSessionPrep();
+
+  // Remove old euler-speaking class (no longer used, but clean up)
   var _wrapEl = document.getElementById('voice-mic-float');
   if (_wrapEl) _wrapEl.classList.remove('euler-speaking');
 
+  // Drive Aurora Orb
+  AuroraOrb.setState(newState);
+
+  // Placeholder
+  if (field) field.placeholder = _vbPlaceholders[newState] || 'Your answer...';
+
+  // Caption bar — visible only during speaking/drawing
+  if (captionBar) {
+    captionBar.classList.toggle('visible', newState === 'speaking' || newState === 'drawing');
+  }
+
   switch (newState) {
     case 'idle':
-      if (field) field.placeholder = 'Your answer...';
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       _hideBoardStreaming();
       _hideBoardDrawingSkeleton();
-      // Feedback form is triggered ONLY on back button click — not auto-shown
-      // (idle state fires too often: page load, cancels, errors, transitions)
+      break;
+
+    case 'listening':
+      // Mic button hidden, pill shown
+      if (micBtn) micBtn.classList.add('hidden');
+      if (micPill) micPill.classList.add('visible');
+      if (vmStop) vmStop.classList.add('hidden');
+      if (vmSend) vmSend.classList.remove('hidden');
       break;
 
     case 'thinking':
-      if (field) field.placeholder = 'Generating...';
       if (sendBtn) sendBtn.classList.add('hidden');
-      // Don't hide mic when Scribe is active — user needs to see mic state
       if (micBtn && !(_scribe && _scribe.active)) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
-      if (progress) { progress.className = 'vb-progress active thinking'; }
-      if (status) { status.className = 'vb-status active thinking'; status.textContent = ''; }
+      if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      // Delay subtitle hide so "You: ..." stays visible briefly after voice submit
       setTimeout(function() { if (_vbState === 'thinking') voiceHideSubtitle(); }, 2000);
-      // Show board streaming indicator
       _showBoardStreaming();
       break;
 
-    case 'speaking':
-      if (field) field.placeholder = 'Type to interrupt...';
+    case 'buffering':
+      if (sendBtn) sendBtn.classList.add('hidden');
+      if (micBtn) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
-      if (pauseBtn) pauseBtn.classList.remove('hidden');
-      // Aura glow behind voice bar
-      var _wrap = document.getElementById('voice-mic-float');
-      if (_wrap) _wrap.classList.add('euler-speaking');
-      if (progress) { progress.className = 'vb-progress active speaking'; }
-      if (status) { status.className = 'vb-status active speaking'; status.textContent = ''; }
+      if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      // Don't hide streaming indicator here — it stays until the animation
-      // actually renders. Text beats fire first (speaking starts) but the
-      // heavy animation beat might still be streaming. The indicator is
-      // hidden when createAnimation/renderScene3D calls _hideBoardStreaming.
+      break;
+
+    case 'speaking':
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (vmStop) vmStop.classList.remove('hidden');
+      if (vmSend) vmSend.classList.add('hidden');
+      break;
+
+    case 'drawing':
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (vmStop) vmStop.classList.remove('hidden');
+      if (vmSend) vmSend.classList.add('hidden');
       break;
 
     case 'paused':
-      if (field) { field.placeholder = 'Paused — type or resume'; field.focus(); }
+      if (field) field.focus();
       if (resumeBtn) resumeBtn.classList.remove('hidden');
-      if (progress) { progress.className = 'vb-progress active paused'; }
-      if (status) { status.className = 'vb-status active paused'; status.textContent = 'Paused'; }
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       break;
   }
-
-  _positionSubtitleBar();
-}
-
-function _positionSubtitleBar() {
-  var wrap = document.getElementById('voice-mic-float');
-  var bar = document.getElementById('voice-subtitle-bar');
-  if (!wrap || !bar) return;
-  var wrapRect = wrap.getBoundingClientRect();
-  var wrapBottom = window.innerHeight - wrapRect.top;
-  bar.style.bottom = (wrapBottom + 8) + 'px';
 }
 
 /**
