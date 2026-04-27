@@ -1383,6 +1383,49 @@ var AuroraOrb = (() => {
     setState('idle');
   }
 
+  // ── Color interpolation helpers for smooth transitions ──
+  function _hexToRgb(hex) {
+    hex = hex.replace('#', '');
+    if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+    return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
+  }
+  function _rgbToHex(r,g,b) {
+    return '#' + ((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1);
+  }
+  function _lerpColor(from, to, t) {
+    var f = _hexToRgb(from), tt = _hexToRgb(to);
+    return _rgbToHex(
+      Math.round(f[0] + (tt[0]-f[0]) * t),
+      Math.round(f[1] + (tt[1]-f[1]) * t),
+      Math.round(f[2] + (tt[2]-f[2]) * t)
+    );
+  }
+
+  // Current interpolated palette (what's actually rendered)
+  var _curPal = { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' };
+  var _tgtPal = { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' };
+  var _colorLerp = 0.08; // smooth color blend per frame (~12 frames to settle)
+
+  function _tickColors() {
+    var moved = false;
+    ['a','b','c'].forEach(function(k) {
+      if (_curPal[k] !== _tgtPal[k]) {
+        _curPal[k] = _lerpColor(_curPal[k], _tgtPal[k], _colorLerp);
+        moved = true;
+      }
+    });
+    if (!moved) return;
+    // Apply interpolated colors to SVG gradient + wash + blobs
+    var ga = document.getElementById('orb-grad-a');
+    var gc = document.getElementById('orb-grad-c');
+    if (ga) ga.setAttribute('stop-color', _curPal.a);
+    if (gc) gc.setAttribute('stop-color', _curPal.c);
+    var wash = document.getElementById('aurora-orb-wash');
+    if (wash) wash.style.background = 'radial-gradient(circle at 35% 30%, ' + _curPal.a + 'cc, ' + _curPal.b + ' 60%, ' + _curPal.b + '55 100%)';
+    var body = document.getElementById('aurora-orb-body');
+    if (body) body.style.boxShadow = '0 0 28px ' + _curPal.a + '55, 0 0 0 1px rgba(255,255,255,.06)';
+  }
+
   var _prevState = '';
   function setState(s) {
     var changed = _prevState !== s;
@@ -1390,36 +1433,28 @@ var AuroraOrb = (() => {
     _state = s;
     var p = _palettes[s] || _palettes.idle;
 
-    // Gradient stops — smoothly interpolated by SVG
-    var ga = document.getElementById('orb-grad-a');
-    var gc = document.getElementById('orb-grad-c');
-    if (ga) ga.setAttribute('stop-color', p.a);
-    if (gc) gc.setAttribute('stop-color', p.c);
+    // Set target palette — _tickColors() will interpolate toward it each frame
+    _tgtPal = { a: p.a, b: p.b, c: p.c };
 
     // Orb body
     var body = document.getElementById('aurora-orb-body');
-    var wash = document.getElementById('aurora-orb-wash');
     var ba = document.getElementById('aurora-orb-blob-a');
     var bb = document.getElementById('aurora-orb-blob-b');
     var bc = document.getElementById('aurora-orb-blob-c');
 
-    if (wash) wash.style.background = 'radial-gradient(circle at 35% 30%, ' + p.a + 'cc, ' + p.b + ' 60%, ' + p.b + '55 100%)';
     if (ba) { ba.style.background = p.a; ba.style.opacity = s === 'paused' ? '0.3' : '0.85'; }
     if (bb) { bb.style.background = p.c; bb.style.opacity = s === 'paused' ? '0.2' : '0.7'; }
     if (bc) { bc.style.background = p.b; bc.style.opacity = s === 'paused' ? '0.2' : '0.65'; }
 
     if (body) {
-      body.style.boxShadow = '0 0 28px ' + p.a + '55, 0 0 0 1px rgba(255,255,255,.06)';
       body.style.filter = s === 'paused' ? 'saturate(.4)' : '';
-      // Swap animation with a brief cross-fade
+      // Only restart animation if the type actually changes (not on every state)
       var newAnim;
       if (s === 'thinking') newAnim = 'auroraThinkPulse 1.3s cubic-bezier(.16,1,.3,1) infinite';
       else if (s === 'buffering') newAnim = 'auroraBreath 4.2s ease-in-out infinite';
       else if (s === 'paused') newAnim = 'none';
       else newAnim = 'auroraBreath 3s ease-in-out infinite';
       if (changed && body.style.animation !== newAnim) {
-        body.style.animation = 'none';
-        body.offsetHeight; // force reflow
         body.style.animation = newAnim;
       }
     }
@@ -1480,7 +1515,9 @@ var AuroraOrb = (() => {
   var _lerp = 0.18; // smoothing factor (0=frozen, 1=instant)
   function _updateWaveform() {
     var now = Date.now();
-    if (now - _lastUpdate < 70) return; // ~14fps, matches design spec
+    // Interpolate colors every frame for smooth transitions
+    _tickColors();
+    if (now - _lastUpdate < 70) return; // ~14fps for bars
     _lastUpdate = now;
 
     var s = _state;
@@ -1496,21 +1533,28 @@ var AuroraOrb = (() => {
         var offset = (i / N) * Math.PI * 2;
         target = 0.15 + (Math.sin(phase * 2 - offset * 1.2) * 0.5 + 0.5) * 0.18;
       } else if (s === 'speaking') {
-        var phase = now / 200 + i * 0.45;
-        var base = Math.abs(Math.sin(phase)) * 0.45;
-        target = 0.3 + base + Math.random() * 0.15;
+        // Each bar oscillates at its own unique speed for organic variation
+        var speed = 100 + ((i * 17) % 11) * 15; // 100-250ms per bar
+        var phase1 = now / speed + i * 1.8;
+        var phase2 = now / (speed * 0.6) + i * 3.1;
+        // Rotating spotlight — some bars are tall, others short
+        var spotlight = Math.sin(now / 400 + (i / N) * Math.PI * 2);
+        var lift = Math.max(0, spotlight) * 0.35;
+        target = 0.15 + Math.abs(Math.sin(phase1)) * 0.4 + Math.abs(Math.sin(phase2)) * 0.15 + lift;
       } else if (s === 'drawing') {
         var phase = now / 280 + i * 0.22;
         target = 0.2 + Math.abs(Math.sin(phase)) * 0.25;
       }
 
       // Smooth interpolation — bars ease toward target instead of snapping
-      _smooth[i] += (target - _smooth[i]) * _lerp;
+      // Speaking/drawing use faster lerp so bars visibly differ from each other
+      var lerpRate = (s === 'speaking' || s === 'drawing') ? 0.35 : _lerp;
+      _smooth[i] += (target - _smooth[i]) * lerpRate;
       var v = _smooth[i];
 
       var angle = (i / N) * Math.PI * 2 - Math.PI / 2;
-      var r1 = 32;
-      var r2 = 32 + v * 14;
+      var r1 = 26;
+      var r2 = 26 + v * 40;
       var x1 = Math.cos(angle) * r1, y1 = Math.sin(angle) * r1;
       var x2 = Math.cos(angle) * r2, y2 = Math.sin(angle) * r2;
       var line = _lines[i];
@@ -1649,15 +1693,10 @@ var InlineMic = (() => {
 
     if (!spokenText) return;
 
+    // _updateFieldLive() already wrote the full text into the field.
+    // Just focus it — don't re-append or we get duplication.
     var field = document.getElementById('voice-bar-input');
-    if (field) {
-      var existing = field.value.trim();
-      field.value = existing ? existing + ' ' + spokenText : spokenText;
-      // Trigger auto-grow
-      field.style.height = 'auto';
-      field.style.height = Math.min(field.scrollHeight, 160) + 'px';
-      field.focus();
-    }
+    if (field) field.focus();
 
     console.log('[InlineMic] Transcription populated (no auto-submit): "' + spokenText.slice(0, 40) + '"');
   }
@@ -1989,7 +2028,20 @@ function _hideBoardDrawingSkeleton() {
 // New rule: while we're in 'thinking' state AND any text has streamed in,
 // show the skeleton. The hide happens in setVoiceBarState() the moment we
 // transition to 'speaking' (right before the first beat plays).
+var _codeFieldDetected = false;
+
 function _checkDrawingInProgress() {
+  // Detect a "code" field being streamed inside a <vb draw='...'> tag.
+  // Pattern matches: "code" : "  (with optional whitespace around the colon)
+  // This fires only once per turn — once detected, we skip re-scanning.
+  if (!_codeFieldDetected && _ws.accumulatedText &&
+      (_vbState === 'thinking' || _vbState === 'speaking' || _vbState === 'buffering')) {
+    if (/"code"\s*:\s*"/.test(_ws.accumulatedText)) {
+      _codeFieldDetected = true;
+      setVoiceBarState('drawing');
+    }
+  }
+
   if (_vbState === 'speaking' || _vbState === 'idle') {
     _hideBoardDrawingSkeleton();
     return;
@@ -2111,6 +2163,7 @@ function wsReconnect() {
   // Full cleanup + fresh connection. Called at session start.
   _wsCleanupConnection();
   _ws.accumulatedText = '';
+  _codeFieldDetected = false;
   _ws.retryCount = 0;
   // generation is NEVER reset — monotonic across entire page lifecycle
   console.log('[WS] Reconnecting for new session...');
@@ -2128,6 +2181,7 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
   _wsKillTurn('new_message');
   _ws.generation++;
   _ws.accumulatedText = '';
+  _codeFieldDetected = false;
   _hideBoardDrawingSkeleton();
 
   // Track student activity for silence detection
@@ -19267,8 +19321,10 @@ async function executeDraw(drawCmds) {
     await new Promise(r => setTimeout(r, 100));
   }
 
-  // Drawing takes priority over speaking (user needs to know board is updating)
-  if (_vbState !== 'thinking') setVoiceBarState('drawing');
+  // Drawing state is now triggered from TEXT_DELTA when a "code" field is
+  // detected streaming in (see _checkDrawingInProgress). This avoids
+  // showing SKETCHING for simple draws (text, equation, etc.) that have
+  // no code and would otherwise stay stuck in drawing state.
 
   // Queue commands via BoardEngine + accumulate JSONL for session persistence
   for (let origCmd of drawCmds) {

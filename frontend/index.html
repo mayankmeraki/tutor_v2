@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Euler — AI tutor that teaches you live</title>
-  <link rel="stylesheet" href="/styles.css?v=20260427o">
+  <link rel="stylesheet" href="/styles.css?v=20260427s">
   <link rel="stylesheet" href="/board/styles.css?v=20260427c">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
@@ -1193,13 +1193,13 @@
             <div class="vb-orb-slot">
             <div class="aurora-orb" id="aurora-orb">
               <!-- Radial waveform SVG -->
-              <svg class="aurora-orb-waveform" id="aurora-orb-waveform" viewBox="-50 -50 100 100" width="64" height="64" overflow="hidden">
+              <svg class="aurora-orb-waveform" id="aurora-orb-waveform" viewBox="-50 -50 100 100" width="52" height="52" overflow="hidden">
                 <defs>
-                  <linearGradient id="orb-bargrad" x1="0" y1="0" x2="1" y2="0">
-                    <stop offset="0%" id="orb-grad-a" stop-color="#76d4b3" />
+                  <radialGradient id="orb-bargrad" cx="0" cy="0" r="50" gradientUnits="userSpaceOnUse">
+                    <stop offset="52%" id="orb-grad-a" stop-color="#76d4b3" />
                     <stop offset="100%" id="orb-grad-c" stop-color="#5a9fff" />
-                  </linearGradient>
-                  <clipPath id="orb-clip"><circle cx="0" cy="0" r="48"/></clipPath>
+                  </radialGradient>
+                  <clipPath id="orb-clip"><circle cx="0" cy="0" r="50"/></clipPath>
                 </defs>
                 <g clip-path="url(#orb-clip)"></g>
               </svg>
@@ -1372,7 +1372,7 @@
   <script src="/router.js"></script>
   <script src="/board/bundle.js"></script>
   <script src="/animation-helpers.js"></script>
-  <script src="/app.js?v=20260427z"></script>
+  <script src="/app.js?v=20260427ai"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->
 <div class="fb-overlay" id="fb-overlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
   <div class="fb-modal">

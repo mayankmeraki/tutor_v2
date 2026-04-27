@@ -6100,10 +6100,10 @@ body {
 }
 .vb-orb-column {
   display: flex; flex-direction: column; align-items: center;
-  padding-bottom: 8px; flex-shrink: 0; width: 80px;
+  padding-bottom: 8px; flex-shrink: 0; width: 68px;
 }
 .vb-orb-slot {
-  height: 64px; display: flex; align-items: center; justify-content: center;
+  height: 52px; display: flex; align-items: center; justify-content: center;
 }
 .vb-chip-slot {
   height: 22px; display: flex; align-items: center; justify-content: center;
@@ -6112,22 +6112,22 @@ body {
 
 /* ── Aurora Orb ── */
 .aurora-orb {
-  position: relative; width: 64px; height: 64px; flex-shrink: 0;
-  overflow: hidden;
+  position: relative; width: 52px; height: 52px; flex-shrink: 0;
+  overflow: visible;
 }
 .aurora-orb-waveform {
   position: absolute; inset: 0;
-  width: 64px; height: 64px;
+  width: 52px; height: 52px;
   overflow: hidden;
 }
 .aurora-orb-waveform line {
-  stroke-width: 1.6; stroke-linecap: round;
+  stroke-width: 2; stroke-linecap: round;
   transition: opacity .07s linear;
 }
 
 .aurora-orb-body {
   position: absolute; left: 50%; top: 50%;
-  width: 42px; height: 42px;
+  width: 34px; height: 34px;
   transform: translate(-50%,-50%);
   border-radius: 50%; overflow: hidden;
   background: transparent;
@@ -6144,15 +6144,15 @@ body {
   transition: background 0.8s ease, opacity 0.6s ease;
 }
 .aurora-orb-blob-a {
-  width: 30px; height: 30px; filter: blur(6px);
+  width: 24px; height: 24px; filter: blur(5px);
   animation: auroraBlob1 3.8s ease-in-out infinite;
 }
 .aurora-orb-blob-b {
-  width: 24px; height: 24px; filter: blur(7px);
+  width: 20px; height: 20px; filter: blur(6px);
   animation: auroraBlob2 4.6s ease-in-out infinite;
 }
 .aurora-orb-blob-c {
-  width: 18px; height: 18px; filter: blur(5px);
+  width: 14px; height: 14px; filter: blur(4px);
   animation: auroraBlob3 3.2s ease-in-out infinite;
 }
 .aurora-orb-highlight {
@@ -6254,7 +6254,7 @@ body {
 
 .voice-bar {
   flex: 1; min-width: 0;
-  background: rgba(12,16,22,0.95);
+  background: var(--bg-elevated);
   border: 1px solid rgba(52,211,153,0.1);
   border-radius: 22px;
   padding: 14px 16px 10px;
@@ -7680,11 +7680,11 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 /* ── Aurora Orb keyframes ── */
 @keyframes auroraBreath {
   0%,100% { transform: translate(-50%,-50%) scale(1); }
-  50% { transform: translate(-50%,-50%) scale(1.06); }
+  50% { transform: translate(-50%,-50%) scale(1.03); }
 }
 @keyframes auroraThinkPulse {
-  0%,100% { transform: translate(-50%,-50%) scale(.92); filter: brightness(.9); }
-  50% { transform: translate(-50%,-50%) scale(1.10); filter: brightness(1.15); }
+  0%,100% { transform: translate(-50%,-50%) scale(.97); filter: brightness(.95); }
+  50% { transform: translate(-50%,-50%) scale(1.03); filter: brightness(1.08); }
 }
 @keyframes auroraBlob1 {
   0%,100% { transform: translate(-50%,-50%) translate(-6px,-3px) scale(1); }
@@ -7711,13 +7711,13 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 @media (max-width: 1024px) {
   .voice-bar-wrap { max-width: 560px; padding: 0 12px; }
   .vb-caption-text { font-size: 14px; }
-  .vb-orb-column { width: 72px; }
-  .aurora-orb { width: 56px; height: 56px; }
-  .aurora-orb-waveform { width: 56px; height: 56px; }
-  .aurora-orb-body { width: 36px; height: 36px; }
-  .aurora-orb-blob-a { width: 24px; height: 24px; }
-  .aurora-orb-blob-b { width: 20px; height: 20px; }
-  .aurora-orb-blob-c { width: 14px; height: 14px; }
+  .vb-orb-column { width: 60px; }
+  .aurora-orb { width: 46px; height: 46px; }
+  .aurora-orb-waveform { width: 46px; height: 46px; }
+  .aurora-orb-body { width: 30px; height: 30px; }
+  .aurora-orb-blob-a { width: 20px; height: 20px; }
+  .aurora-orb-blob-b { width: 16px; height: 16px; }
+  .aurora-orb-blob-c { width: 12px; height: 12px; }
   .aurora-state-chip { font-size: 8px; padding: 2px 6px; }
   .voice-bar-input { font-size: 13px; padding: 12px 14px 4px; }
   .vb-bottom { padding: 6px 10px 8px; }
@@ -7727,13 +7727,13 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
   .vb-caption-text { font-size: 13px; }
   .vb-caption-bar { padding: 6px 12px; }
   .vb-row { gap: 8px; }
-  .vb-orb-column { width: 64px; }
-  .aurora-orb { width: 48px; height: 48px; }
-  .aurora-orb-waveform { width: 48px; height: 48px; }
-  .aurora-orb-body { width: 32px; height: 32px; }
-  .aurora-orb-blob-a { width: 20px; height: 20px; }
-  .aurora-orb-blob-b { width: 16px; height: 16px; }
-  .aurora-orb-blob-c { width: 12px; height: 12px; }
+  .vb-orb-column { width: 52px; }
+  .aurora-orb { width: 40px; height: 40px; }
+  .aurora-orb-waveform { width: 40px; height: 40px; }
+  .aurora-orb-body { width: 26px; height: 26px; }
+  .aurora-orb-blob-a { width: 16px; height: 16px; }
+  .aurora-orb-blob-b { width: 14px; height: 14px; }
+  .aurora-orb-blob-c { width: 10px; height: 10px; }
   .aurora-state-chip { font-size: 7px; padding: 2px 5px; gap: 3px; }
   .aurora-chip-dot { width: 3px; height: 3px; }
   .vb-icon-btn { width: 24px; height: 24px; }
