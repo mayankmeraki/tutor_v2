@@ -1297,7 +1297,7 @@ function scribeStart(inputId) {
 
 function _updateMicUI() {
   var on = _scribe.active && !_scribe.muted;
-  var micBtn = document.getElementById('voice-mic-btn');
+  var micBtn = document.getElementById('voice-bar-mic-toggle');
   if (micBtn) {
     micBtn.className = on ? 'vb-mic-btn scribe-active' : 'vb-mic-btn scribe-muted';
     micBtn.title = on ? 'Listening (click to mute)' : 'Mic off (click to unmute)';
@@ -18150,16 +18150,15 @@ const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 function applyTeachingMode() {
   state.teachingMode = 'voice';
   const mainLayout = $('#main-layout');
-  const subtitleBar = $('#voice-subtitle-bar');
   const voiceInd = $('#voice-indicator');
   const speedWrap = $('#speed-wrap');
   const micFloat = $('#voice-mic-float');
 
   mainLayout?.classList.add('voice-mode');
-  subtitleBar?.classList.remove('hidden');
   voiceInd?.classList.remove('hidden');
   speedWrap?.classList.remove('hidden');
   micFloat?.classList.remove('hidden');
+  AuroraOrb.init();
 
 }
 
@@ -19712,7 +19711,7 @@ function voiceBeatGap(pauseAttr) {
 function voiceBarSetThinking(isThinking) {
   const bar = $('#voice-bar-main');
   const input = $('#voice-bar-input');
-  const micBtn = $('#voice-mic-btn');
+  const micBtn = document.getElementById('voice-bar-mic-toggle');
   const sendBtn = $('#voice-bar-send');
   if (!bar) return;
 
@@ -22248,6 +22247,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  });
+});
+
+// Textarea auto-grow
+document.addEventListener('DOMContentLoaded', function() {
+  var ta = document.getElementById('voice-bar-input');
+  if (!ta) return;
+  ta.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 160) + 'px';
   });
 });
 window._switchTestTab = _switchTestTab;
