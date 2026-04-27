@@ -6241,6 +6241,7 @@ body {
 
 
 .voice-bar {
+  flex: 1; min-width: 0;
   background: rgba(12,16,22,0.95);
   border: 1px solid rgba(52,211,153,0.1);
   border-radius: 22px;

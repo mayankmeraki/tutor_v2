@@ -1378,6 +1378,7 @@ var AuroraOrb = (() => {
       _lines.push(line);
     }
     _startAnimation();
+    setState('idle');
   }
 
   function setState(s) {
@@ -19678,31 +19679,12 @@ function voiceBeatGap(pauseAttr) {
 // ── Thinking state & stop generation ────────────────────────
 
 function voiceBarSetThinking(isThinking) {
-  const bar = $('#voice-bar-main');
-  const input = $('#voice-bar-input');
-  const micBtn = document.getElementById('voice-bar-mic-toggle');
-  const sendBtn = $('#voice-bar-send');
+  var bar = document.getElementById('voice-bar-main');
   if (!bar) return;
-
   if (isThinking) {
     bar.classList.add('thinking');
-    if (input) { input.disabled = true; input.placeholder = ''; }
-    if (sendBtn) sendBtn.classList.remove('visible');
-    // Replace mic with stop button
-    if (micBtn) {
-      micBtn._origHTML = micBtn.innerHTML;
-      micBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-      micBtn.title = 'Stop generating';
-      micBtn.onclick = stopGeneration;
-    }
   } else {
     bar.classList.remove('thinking');
-    if (input) { input.disabled = false; input.placeholder = 'Type your response...'; }
-    if (micBtn) {
-      if (micBtn._origHTML) micBtn.innerHTML = micBtn._origHTML;
-      micBtn.title = 'Hold to talk';
-      micBtn.onclick = null;
-    }
   }
 }
 
