@@ -142,7 +142,7 @@ def get_sd_concepts():
     # Fallback: build concept list from teaching_plans if ui_config is empty
     if not sd_sections:
         db = _get_db()
-        if db:
+        if db is not None:
             try:
                 plans = list(db["teaching_plans"].find(
                     {"type": "sd"},
