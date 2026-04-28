@@ -12744,6 +12744,11 @@ async function _startOnDemandSession(intentText) {
   if (!user) return Router.navigate('/login');
   if (!intentText.trim()) return;
 
+  // Track where user came from (for back button)
+  if (!state._sessionOrigin) {
+    state._sessionOrigin = location.pathname || '/home';
+  }
+
   _unlockAudio();
 
   // Classify intent — determines if this needs DSA/SD mode with code editor/canvas
@@ -13287,6 +13292,8 @@ async function initSetup() {
     if (mode === 'mock_interview') return '/dsa?tab=mock';
     if (mode === 'sd') return '/dsa?tab=sd';
     if (mode === 'dsa') return '/dsa?tab=dsa';
+    // Use tracked origin from session start
+    if (state._sessionOrigin && state._sessionOrigin !== '/session') return state._sessionOrigin;
     if (state.courseId) return '/course/' + state.courseId;
     return '/home';
   }
@@ -13672,10 +13679,14 @@ window.continueSession = async function(sessionId) {
     }
 
     // ── Restore DSA/SD session state ──
+    // Track origin for back button — restored sessions go to /home
+    state._sessionOrigin = '/home';
     if (sessionData.dsaState) {
       var ds = sessionData.dsaState;
       state.dsaMode = ds.mode;
       state.dsaProblemSlug = ds.problemSlug;
+      // DSA/SD sessions go back to /dsa
+      if (ds.mode) state._sessionOrigin = '/dsa';
       state.dsaLanguage = ds.language || 'python';
       state.mockCompany = ds.mockCompany;
       state.mockType = ds.mockType;
@@ -22228,8 +22239,12 @@ function _startDSASession(slug, mode) {
   state.dsaMode = mode; // 'dsa' | 'sd' | 'mock_interview'
   state.dsaProblemSlug = slug;
   state.dsaLanguage = 'python';
+  // Track origin for back button
+  state._sessionOrigin = mode === 'mock_interview' ? '/dsa' : (mode === 'sd' ? '/dsa' : '/dsa');
 
-  const intent = mode === 'sd' ? `System design: ${slug.replace(/-/g, ' ')}` : `DSA problem: ${slug.replace(/-/g, ' ')}`;
+  const intent = mode === 'sd'
+    ? `System design: ${(slug || state.studentIntent || '').replace(/-/g, ' ')}`
+    : `DSA problem: ${(slug || state.studentIntent || '').replace(/-/g, ' ')}`;
   _startOnDemandSession(intent);
 }
 
