@@ -13288,12 +13288,12 @@ async function initSetup() {
   var _lastDsaMode = null;
 
   function _getSessionBackTarget() {
-    var mode = _lastDsaMode || state.dsaMode;
-    if (mode === 'mock_interview') return '/dsa?tab=mock';
-    if (mode === 'sd') return '/dsa?tab=sd';
-    if (mode === 'dsa') return '/dsa?tab=dsa';
-    // Use tracked origin from session start
+    // _sessionOrigin is set when session starts and survives cleanup
     if (state._sessionOrigin && state._sessionOrigin !== '/session') return state._sessionOrigin;
+    var mode = _lastDsaMode || state.dsaMode;
+    if (mode === 'mock_interview') return '/dsa';
+    if (mode === 'sd') return '/dsa';
+    if (mode === 'dsa') return '/dsa';
     if (state.courseId) return '/course/' + state.courseId;
     return '/home';
   }
@@ -13302,15 +13302,11 @@ async function initSetup() {
   var _origCleanup = typeof cleanupActiveSession === 'function' ? cleanupActiveSession : null;
 
   $('#btn-back')?.addEventListener('click', () => {
-    // Snapshot dsaMode BEFORE cleanup clears it
+    // Snapshot before cleanup clears state
     _lastDsaMode = state.dsaMode;
     const backTarget = _getSessionBackTarget();
-    console.log('[btn-back] dsaMode=' + state.dsaMode + ' _lastDsaMode=' + _lastDsaMode + ' target=' + backTarget);
-    if (typeof _backWithFeedback === 'function') {
-      _backWithFeedback(backTarget);
-    } else {
-      Router.navigate(backTarget);
-    }
+    console.log('[EndSession] dsaMode=' + state.dsaMode + ' origin=' + state._sessionOrigin + ' target=' + backTarget);
+    _backWithFeedback(backTarget);
   });
 
   // Plan heading bar toggle
