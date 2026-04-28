@@ -20281,7 +20281,9 @@ var _vbPlaceholders = {
  * States: 'idle', 'listening', 'thinking', 'buffering', 'speaking', 'drawing', 'paused'
  */
 function setVoiceBarState(newState) {
+  const prevState = state.voiceBarState;
   _vbState = newState;
+  state.voiceBarState = newState;
 
   // Hide board drawing skeleton when not thinking
   if (newState !== 'thinking') {
@@ -20387,6 +20389,21 @@ function setVoiceBarState(newState) {
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       break;
+  }
+
+  // Engagement transition for the session timer.
+  if (state.sessionStartTime) {
+    const wasPaused = prevState === 'paused';
+    const isPaused = newState === 'paused';
+    if (!wasPaused && isPaused) {
+      // entering paused -> flush segment, drop anchor
+      flushEngagedSegment();
+      state._lastEngagedAt = null;
+    } else if (wasPaused && !isPaused && document.visibilityState === 'visible') {
+      // leaving paused while visible -> start new segment
+      state._lastEngagedAt = Date.now();
+    }
+    if (typeof updateTimer === 'function') updateTimer();
   }
 }
 
