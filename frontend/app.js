@@ -8440,13 +8440,42 @@ setTimeout(() => {
 
 let timerInterval = null;
 
+const IDLE_CAP_SEC = 300; // 5 minutes max per engaged segment
+
+function isVoiceBarPaused() {
+  // Voice bar state is stored on `state.voiceBarState`. Treat 'paused' as not engaged.
+  return state.voiceBarState === 'paused';
+}
+
+function isEngaged() {
+  if (!state.sessionStartTime) return false;
+  if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return false;
+  if (isVoiceBarPaused()) return false;
+  return true;
+}
+
+function flushEngagedSegment() {
+  // Flush the in-progress engaged segment into _accumulatedDuration.
+  // Safe to call any time — no-op if not engaged or anchor missing.
+  if (!state._lastEngagedAt) return;
+  if (!isEngaged()) return;
+  const now = Date.now();
+  const deltaMs = now - state._lastEngagedAt;
+  // Guard against clock-backwards / huge resume gaps.
+  const safeMs = Math.max(0, Math.min(deltaMs, IDLE_CAP_SEC * 1000));
+  const safeSec = Math.floor(safeMs / 1000);
+  state._accumulatedDuration = (state._accumulatedDuration || 0) + safeSec;
+  state._lastEngagedAt = now;
+}
+
 function startTimer() {
   if (timerInterval) clearInterval(timerInterval);
   state.sessionStartTime = Date.now();
-  state._lastActivityAt = Date.now();
   // Don't reset _accumulatedDuration here — it may have been seeded
-  // from a restored session at line 11755.
+  // from a restored session (resume path).
   if (state._accumulatedDuration == null) state._accumulatedDuration = 0;
+  // Anchor for the first engaged segment, only if the tab is currently visible & not paused.
+  state._lastEngagedAt = isEngaged() ? Date.now() : null;
   timerInterval = setInterval(updateTimer, 1000);
   updateTimer();
 }
@@ -8517,6 +8546,21 @@ function updateCostDisplay(evt) {
 function updateStats() {
   const el = $('#stat-responses');
   if (el) el.textContent = `${state.responses} responses`;
+}
+
+if (typeof document !== 'undefined') {
+  document.addEventListener('visibilitychange', () => {
+    if (!state.sessionStartTime) return;
+    if (document.visibilityState === 'visible' && !isVoiceBarPaused()) {
+      // Becoming engaged: start a new segment from now.
+      state._lastEngagedAt = Date.now();
+    } else {
+      // Becoming disengaged: flush whatever's accumulated, then drop the anchor.
+      flushEngagedSegment();
+      state._lastEngagedAt = null;
+    }
+    updateTimer();
+  });
 }
 
 // ═══════════════════════════════════════════════════════════
