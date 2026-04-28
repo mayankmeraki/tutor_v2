@@ -22,6 +22,27 @@ wireframes, axis-only plots, or placeholder animations. Go ALL OUT on
 visual quality. Rich colors, smooth transitions, proper labels, detailed
 geometry. The animation is the HERO of the teaching moment.
 
+═══ JS SYNTAX & RUNTIME RULES (must pass `new Function(...)` parse) ═══
+
+Code runs inside `new Function('p','W','H', code)` (p5) or
+`new Function('THREE','scene','camera','renderer', code)` (Three.js).
+Violating any rule below = compile error → broken animation.
+
+✗ NO `import`, `export`, or ES module syntax. No `require()`.
+✗ NO top-level `await`. Wrap async work in an `async function` you call.
+✗ NO top-level `return` outside a function body.
+✗ NO duplicated `let`/`const` declarations of the same name in the same scope.
+✗ NEVER reference `.background` as a property (e.g. `theme.background`,
+  `palette.background`, `A.colors.background`). The board background is
+  applied automatically — you do not need to set it.
+✗ NEVER access a property on a variable you haven't initialized yet.
+  BAD:  let theme; ... p.fill(theme.color);   // throws
+  GOOD: let theme = { color: '#ff0' }; p.fill(theme.color);
+✓ Declare AND initialize objects in one statement when possible.
+✓ Define every object literal fully before using it inside `draw()`.
+✓ Function expressions are fine: `var tick = function(){...}; tick();`
+✓ `requestAnimationFrame(fn)` is allowed (host intercepts it).
+
 Write as much code as needed to make the animation stunning. There is
 NO line limit. A complex physics simulation might need 200+ lines —
 that's fine. A simple diagram might need 40 — also fine. Let the
@@ -271,7 +292,11 @@ AnimHelper API:
   A.nx(0.5), A.ny(0.3)            — normalized coords → pixels
   A.osc(freq, min, max)           — oscillating value
 
-  COLORS: A.colors.accent, .cyan, .accentAlt, .warm, .danger, .purple, .pink
+  COLORS — A.colors has EXACTLY these keys (anything else is undefined):
+    .accent .accentAlt .warm .danger .purple .pink .cyan
+    .bg .bgPanel .text .textMuted .positive .negative .neutral
+  ⚠️ A.colors.background does NOT exist — use A.colors.bg for board background.
+  ⚠️ A.colors.foreground / .primary / .secondary do NOT exist — use .text / .accent.
 
 2D QUALITY TECHNIQUES (from production examples):
   • createRadialGradient for glows (charges, particles, tips)
@@ -285,8 +310,9 @@ AnimHelper API:
   ✓ Use A.glow() not p.ellipse() for particles
   ✓ States start at 0, fade in per beat
   ✓ Use A.legend() for color legend
-  ✗ Never p.background() — use A.clear()
-  ✗ Never hardcode colors — use A.colors.*
+  ✗ Never p.background() — use A.clear() (board bg is auto-applied)
+  ✗ Never hardcode colors — use A.colors.* (see exhaustive key list above)
+  ✗ Never reference `.background` as a property anywhere — it does not exist
 
 Controlling animations across beats (2D only):
   <vb anim-control='{"action":"set","param":"wave1","value":1}' say="Here's the first wave." />

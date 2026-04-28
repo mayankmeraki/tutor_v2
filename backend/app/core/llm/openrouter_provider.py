@@ -183,6 +183,13 @@ def _convert_messages_openrouter(
                             })
                     elif (
                         isinstance(block, dict)
+                        and block.get("type") == "image_url"
+                    ):
+                        # Already in OpenAI/OpenRouter format (post-validation or
+                        # injected by attachment pipeline) — pass through as-is.
+                        image_parts.append(block)
+                    elif (
+                        isinstance(block, dict)
                         and block.get("type") in ("file", "input_audio", "video_url")
                     ):
                         # OpenRouter native formats — pass through as-is

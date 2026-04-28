@@ -37,7 +37,9 @@ export async function animateText(parentEl, text, options = {}) {
     text = text
       .replace(/\\n/g, '\n')
       .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t');
+      .replace(/\\t/g, '\t')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"');
   }
 
   // Determine delay — faster when queue is backed up

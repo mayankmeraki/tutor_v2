@@ -4,7 +4,6 @@ Browser mic → PCM16 base64 chunks → our WS → ElevenLabs Scribe WS (binary)
 """
 
 import asyncio
-import base64
 import json
 import logging
 
@@ -31,7 +30,12 @@ async def ws_scribe(ws: WebSocket):
     running = True
 
     try:
-        url = f"{SCRIBE_URL}?model_id=scribe_v2_realtime&language_code=en&sample_rate=16000"
+        url = (
+            f"{SCRIBE_URL}?model_id=scribe_v2_realtime"
+            f"&language_code=en"
+            f"&audio_format=pcm_16000"
+            f"&commit_strategy=vad"
+        )
         log.info("[Scribe] Connecting to ElevenLabs...")
 
         try:
@@ -122,11 +126,14 @@ async def ws_scribe(ws: WebSocket):
                 audio_b64 = raw.get("data", "")
                 if audio_b64 and scribe_ws:
                     try:
-                        audio_bytes = base64.b64decode(audio_b64)
-                        await scribe_ws.send(audio_bytes)  # Binary frame to ElevenLabs
+                        el_msg = json.dumps({
+                            "message_type": "input_audio_chunk",
+                            "audio_base_64": audio_b64,
+                        })
+                        await scribe_ws.send(el_msg)
                         _audio_count += 1
                         if _audio_count <= 3 or _audio_count % 50 == 0:
-                            log.info("[Scribe] Audio chunk #%d (%d bytes → EL)", _audio_count, len(audio_bytes))
+                            log.info("[Scribe] Audio chunk #%d → EL", _audio_count)
                     except websockets.ConnectionClosed as cc:
                         log.info("[Scribe] EL closed during audio send: %s", cc)
                         await ws.send_json({"type": "error", "message": "STT connection lost — click mic to restart"})
@@ -134,10 +141,10 @@ async def ws_scribe(ws: WebSocket):
                     except Exception as e:
                         log.warning("[Scribe] Audio send error: %s", e)
             elif msg_type == "commit":
-                # Trigger VAD flush
+                # Trigger manual commit
                 if scribe_ws:
                     try:
-                        await scribe_ws.send(json.dumps({"type": "flush"}))
+                        await scribe_ws.send(json.dumps({"message_type": "input_audio_chunk", "audio_base_64": "", "commit": True}))
                     except Exception:
                         pass
             elif msg_type == "stop":

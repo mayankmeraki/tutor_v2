@@ -1146,39 +1146,107 @@
       </main>
 
       <!-- Voice overlays -->
-      <div id="voice-subtitle-bar" class="voice-subtitle-bar hidden">
-        <div class="voice-subtitle-text" id="voice-subtitle-text"></div>
-      </div>
-      <div id="voice-indicator" class="voice-indicator hidden">
-        <div class="voice-indicator-bars"><div class="vbar"></div><div class="vbar"></div><div class="vbar"></div><div class="vbar"></div><div class="vbar"></div></div>
-        <span class="voice-indicator-label" id="voice-indicator-label">Euler is speaking</span>
-      </div>
       <div id="voice-mic-float" class="voice-bar-wrap hidden">
-        <div class="vb-progress" id="vb-progress"></div>
-        <div class="vb-status" id="vb-status"></div>
-        <div class="voice-bar" id="voice-bar-main">
-          <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
-          <div class="vb-bottom">
-            <div class="vb-bottom-left">
-              <button class="vb-icon-btn" id="voice-bar-attach" title="Attach file">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
-              </button>
-              <input type="file" id="voice-bar-file-input" multiple accept="image/*,.pdf,.txt,.md,.png,.jpg,.jpeg,.webp" style="display:none">
-              <div id="voice-bar-attach-preview" style="display:none;gap:4px;flex-shrink:1;overflow-x:auto"></div>
-              <button class="vb-icon-btn hidden" id="voice-bar-pause" onclick="togglePause()" title="Pause tutor">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
-              </button>
-              <button class="vb-icon-btn hidden" id="voice-bar-resume" onclick="togglePause()" title="Resume tutor">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
-              </button>
-              <button class="vb-icon-btn hidden" id="voice-bar-stop" onclick="stopAll()" title="Stop tutor">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-              </button>
+        <!-- Caption bar — above the orb+input row -->
+        <div class="vb-caption-bar" id="vb-caption-bar">
+          <div class="vb-caption-text" id="vb-caption-text"></div>
+        </div>
+
+        <!-- Orb + Input row -->
+        <div class="vb-row">
+          <!-- Orb column (fixed 80px) -->
+          <div class="vb-orb-column">
+            <div class="vb-orb-slot">
+            <div class="aurora-orb" id="aurora-orb">
+              <!-- Radial waveform SVG -->
+              <svg class="aurora-orb-waveform" id="aurora-orb-waveform" viewBox="-50 -50 100 100" width="52" height="52" overflow="hidden">
+                <defs>
+                  <radialGradient id="orb-bargrad" cx="0" cy="0" r="50" gradientUnits="userSpaceOnUse">
+                    <stop offset="52%" id="orb-grad-a" stop-color="#76d4b3" />
+                    <stop offset="100%" id="orb-grad-c" stop-color="#5a9fff" />
+                  </radialGradient>
+                  <clipPath id="orb-clip"><circle cx="0" cy="0" r="50"/></clipPath>
+                </defs>
+                <g clip-path="url(#orb-clip)"></g>
+              </svg>
+              <!-- Orb body -->
+              <div class="aurora-orb-body" id="aurora-orb-body">
+                <div class="aurora-orb-wash" id="aurora-orb-wash"></div>
+                <div class="aurora-orb-blob aurora-orb-blob-a" id="aurora-orb-blob-a"></div>
+                <div class="aurora-orb-blob aurora-orb-blob-b" id="aurora-orb-blob-b"></div>
+                <div class="aurora-orb-blob aurora-orb-blob-c" id="aurora-orb-blob-c"></div>
+                <div class="aurora-orb-highlight"></div>
+                <div class="aurora-orb-rim"></div>
+              </div>
+              <!-- Glyph -->
+              <div class="aurora-orb-glyph" id="aurora-orb-glyph"></div>
+              <!-- Listening pulse rings -->
+              <div class="aurora-listen-ring" id="aurora-ring-0"></div>
+              <div class="aurora-listen-ring" id="aurora-ring-1" style="animation-delay:0.8s"></div>
+              <div class="aurora-listen-ring" id="aurora-ring-2" style="animation-delay:1.6s"></div>
+              <!-- Buffering arc -->
+              <svg class="aurora-buf-arc" id="aurora-buf-arc" viewBox="0 0 64 64">
+                <defs>
+                  <linearGradient id="aurora-buf-grad" x1="0" y1="0" x2="1" y2="1">
+                    <stop offset="0%" stop-color="#7a7589" stop-opacity="0" />
+                    <stop offset="100%" stop-color="#7a7589" stop-opacity="1" />
+                  </linearGradient>
+                </defs>
+                <circle cx="32" cy="32" r="26" fill="none" stroke="url(#aurora-buf-grad)" stroke-width="1.6" stroke-linecap="round" stroke-dasharray="50 113" class="aurora-buf-circle" />
+                <circle cx="32" cy="6" r="2" fill="#76d4b3" class="aurora-buf-dot" />
+              </svg>
             </div>
-            <div class="vb-bottom-right">
-              <button class="vb-send-btn visible" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send (Enter)">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
-              </button>
+            </div>
+            <div class="vb-chip-slot">
+            <div class="aurora-state-chip hidden" id="aurora-state-chip">
+              <span class="aurora-chip-dot" id="aurora-chip-dot"></span>
+              <span id="aurora-chip-label"></span>
+            </div>
+            </div>
+          </div>
+
+          <!-- Input shell -->
+          <div class="voice-bar" id="voice-bar-main">
+            <div class="vb-type-content" id="vb-type-content">
+              <div class="vb-textarea-wrap">
+                <textarea class="voice-bar-input" id="voice-bar-input" rows="1" placeholder="Your answer..." autocomplete="off"></textarea>
+              </div>
+              <div class="vb-bottom">
+                <div class="vb-bottom-left">
+                  <button class="vb-icon-btn" id="voice-bar-attach" title="Attach file">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+                  </button>
+                  <input type="file" id="voice-bar-file-input" multiple accept="image/*,.pdf,.txt,.md,.png,.jpg,.jpeg,.webp" style="display:none">
+                  <div id="voice-bar-attach-preview" style="display:none;gap:4px;flex-shrink:1;overflow-x:auto"></div>
+                  <span class="vb-divider hidden" id="vb-divider-playback"></span>
+                  <button class="vb-icon-btn hidden" id="voice-bar-pause" onclick="togglePause()" title="Pause tutor">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
+                  </button>
+                  <button class="vb-icon-btn hidden" id="voice-bar-resume" onclick="togglePause()" title="Resume tutor">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+                  </button>
+                  <button class="vb-icon-btn hidden" id="voice-bar-stop" onclick="stopAll()" title="Stop tutor">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
+                  </button>
+                  <span class="vb-divider"></span>
+                  <button class="vb-cc-btn cc-on" id="vb-cc-toggle" onclick="toggleCaptions()" title="Toggle captions">CC</button>
+                </div>
+                <div class="vb-bottom-right">
+                  <!-- Mic pill (listening mode) -->
+                  <span class="vb-mic-pill" id="vb-mic-pill" onclick="InlineMic.toggle()" title="Tap to stop">
+                    <span class="vb-mic-pill-dot"></span>
+                    LISTENING
+                  </span>
+                  <!-- Mic button (default mode) -->
+                  <button class="vb-icon-btn" id="voice-bar-mic-toggle" onclick="InlineMic.toggle()" title="Voice input (Ctrl+M)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><rect x="9" y="2" width="6" height="11" rx="3"/><path d="M5 10a7 7 0 0014 0"/><line x1="12" y1="19" x2="12" y2="22"/></svg>
+                  </button>
+                  <!-- Send button (always visible, disabled when not applicable) -->
+                  <button class="vb-send-btn" id="voice-bar-send" onclick="submitVoiceBarInput()" title="Send (Enter)">
+                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="19" x2="12" y2="5"/><polyline points="5 12 12 5 19 12"/></svg>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>

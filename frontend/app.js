@@ -1261,25 +1261,7 @@ function scribeStart(inputId) {
     // Interrupt tutor if speaking
     if (state.isStreaming && (final.length > 3 || interim.length > 5)) stopAll();
 
-    // Auto-submit: when a final transcript chunk arrives, wait 1.5s of silence then send
-    if (final) {
-      if (_scribe._sendTimer) clearTimeout(_scribe._sendTimer);
-      _scribe._sendTimer = setTimeout(function() {
-        if (_scribe.targetInput && _scribe.targetInput.value.trim() && !state.isStreaming) {
-          var text = _scribe.targetInput.value.trim();
-          _scribe.targetInput.value = '';
-          _scribe.targetInput.style.height = '';
-          _scribe.committed = '';
-          _scribe.partial = '';
-          console.log('[Voice] Auto-send: "' + text.slice(0, 40) + '"');
-          voiceShowSubtitle('You: ' + (text.length > 60 ? text.slice(0, 60) + '...' : text));
-          streamADK(text);
-          if (_scribe.targetInput) _scribe.targetInput.placeholder = 'Listening...';
-        }
-      }, 1500);
-    }
-    // Cancel auto-send if user is still speaking (new interim)
-    if (interim && _scribe._sendTimer) { clearTimeout(_scribe._sendTimer); _scribe._sendTimer = null; }
+    // No auto-submit — mic stays on until user manually stops it
   };
 
   rec.onend = function() {
@@ -1297,9 +1279,9 @@ function scribeStart(inputId) {
 
 function _updateMicUI() {
   var on = _scribe.active && !_scribe.muted;
-  var micBtn = document.getElementById('voice-mic-btn');
+  var micBtn = document.getElementById('voice-bar-mic-toggle');
   if (micBtn) {
-    micBtn.className = on ? 'vb-mic-btn scribe-active' : 'vb-mic-btn scribe-muted';
+    micBtn.className = on ? 'vb-icon-btn scribe-active' : 'vb-icon-btn scribe-muted';
     micBtn.title = on ? 'Listening (click to mute)' : 'Mic off (click to unmute)';
   }
   if (typeof window._micSetIcon === 'function') window._micSetIcon(on);
@@ -1330,6 +1312,542 @@ window.startVoiceInput = function(id) { scribeStart(id); };
 window.scribeStart = scribeStart;
 window.scribeStop = scribeStop;
 
+
+// ════════════════════════════════════════════════════════════════
+// AuroraOrb — animated orb with radial waveform and state chip
+// ════════════════════════════════════════════════════════════════
+
+var AuroraOrb = (() => {
+  var _state = 'idle';
+  var _animId = null;
+  var _lines = [];
+  var N = 36;
+
+  var _palettes = {
+    idle:      { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' },
+    listening: { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' },
+    thinking:  { a: '#7a7589', b: '#4d4a60', c: '#7a7589' },
+    buffering: { a: '#7a7589', b: '#4d4a60', c: '#7a7589' },
+    speaking:  { a: '#76d4b3', b: '#5a9fff', c: '#e8c66a' },
+    drawing:   { a: '#e8c66a', b: '#76d4b3', c: '#b5820a' },
+    paused:    { a: '#7a7589', b: '#4d4a60', c: '#7a7589' },
+  };
+
+  var _chipLabels = {
+    idle: '', listening: 'Listening', thinking: 'Thinking',
+    buffering: 'Loading', speaking: 'Speaking',
+    drawing: 'Sketching', paused: 'Paused',
+  };
+  var _chipColors = {
+    idle: '', listening: '#76d4b3', thinking: '#e8c66a',
+    buffering: '#7fb6ff', speaking: '#76d4b3',
+    drawing: '#e8c66a', paused: '#7a7589',
+  };
+  var _glyphs = {
+    idle: '', listening: '\u00b7', thinking: '\u221e',
+    buffering: '', speaking: '', drawing: '\u2207', paused: '\u2016',
+  };
+
+  function init() {
+    var svg = document.getElementById('aurora-orb-waveform');
+    if (!svg || _lines.length > 0) return;
+    var g = svg.querySelector('g[clip-path]');
+    var parent = g || svg;
+    for (var i = 0; i < N; i++) {
+      var line = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      line.setAttribute('stroke', 'url(#orb-bargrad)');
+      line.setAttribute('stroke-width', '1.6');
+      line.setAttribute('stroke-linecap', 'round');
+      parent.appendChild(line);
+      _lines.push(line);
+    }
+    _startAnimation();
+    setState('idle');
+  }
+
+  // ── Color interpolation helpers for smooth transitions ──
+  function _hexToRgb(hex) {
+    hex = hex.replace('#', '');
+    if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+    return [parseInt(hex.slice(0,2),16), parseInt(hex.slice(2,4),16), parseInt(hex.slice(4,6),16)];
+  }
+  function _rgbToHex(r,g,b) {
+    return '#' + ((1<<24)|(r<<16)|(g<<8)|b).toString(16).slice(1);
+  }
+  function _lerpColor(from, to, t) {
+    var f = _hexToRgb(from), tt = _hexToRgb(to);
+    return _rgbToHex(
+      Math.round(f[0] + (tt[0]-f[0]) * t),
+      Math.round(f[1] + (tt[1]-f[1]) * t),
+      Math.round(f[2] + (tt[2]-f[2]) * t)
+    );
+  }
+
+  // Current interpolated palette (what's actually rendered)
+  var _curPal = { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' };
+  var _tgtPal = { a: '#76d4b3', b: '#4ea98a', c: '#5a9fff' };
+  var _colorLerp = 0.08; // smooth color blend per frame (~12 frames to settle)
+
+  function _tickColors() {
+    var moved = false;
+    ['a','b','c'].forEach(function(k) {
+      if (_curPal[k] !== _tgtPal[k]) {
+        _curPal[k] = _lerpColor(_curPal[k], _tgtPal[k], _colorLerp);
+        moved = true;
+      }
+    });
+    if (!moved) return;
+    // Apply interpolated colors to SVG gradient + wash + blobs
+    var ga = document.getElementById('orb-grad-a');
+    var gc = document.getElementById('orb-grad-c');
+    if (ga) ga.setAttribute('stop-color', _curPal.a);
+    if (gc) gc.setAttribute('stop-color', _curPal.c);
+    var wash = document.getElementById('aurora-orb-wash');
+    if (wash) wash.style.background = 'radial-gradient(circle at 35% 30%, ' + _curPal.a + 'cc, ' + _curPal.b + ' 60%, ' + _curPal.b + '55 100%)';
+    var body = document.getElementById('aurora-orb-body');
+    if (body) body.style.boxShadow = '0 0 28px ' + _curPal.a + '55, 0 0 0 1px rgba(255,255,255,.06)';
+  }
+
+  var _prevState = '';
+  function setState(s) {
+    var changed = _prevState !== s;
+    _prevState = s;
+    _state = s;
+    var p = _palettes[s] || _palettes.idle;
+
+    // Set target palette — _tickColors() will interpolate toward it each frame
+    _tgtPal = { a: p.a, b: p.b, c: p.c };
+
+    // Orb body
+    var body = document.getElementById('aurora-orb-body');
+    var ba = document.getElementById('aurora-orb-blob-a');
+    var bb = document.getElementById('aurora-orb-blob-b');
+    var bc = document.getElementById('aurora-orb-blob-c');
+
+    if (ba) { ba.style.background = p.a; ba.style.opacity = s === 'paused' ? '0.3' : '0.85'; }
+    if (bb) { bb.style.background = p.c; bb.style.opacity = s === 'paused' ? '0.2' : '0.7'; }
+    if (bc) { bc.style.background = p.b; bc.style.opacity = s === 'paused' ? '0.2' : '0.65'; }
+
+    if (body) {
+      body.style.filter = s === 'paused' ? 'saturate(.4)' : '';
+      // Only restart animation if the type actually changes (not on every state)
+      var newAnim;
+      if (s === 'thinking') newAnim = 'auroraThinkPulse 1.3s cubic-bezier(.16,1,.3,1) infinite';
+      else if (s === 'buffering') newAnim = 'auroraBreath 4.2s ease-in-out infinite';
+      else if (s === 'paused') newAnim = 'none';
+      else newAnim = 'auroraBreath 3s ease-in-out infinite';
+      if (changed && body.style.animation !== newAnim) {
+        body.style.animation = newAnim;
+      }
+    }
+
+    // Blob animations
+    [ba, bb, bc].forEach(function(b) {
+      if (!b) return;
+      if (s === 'paused') b.style.animationPlayState = 'paused';
+      else b.style.animationPlayState = 'running';
+    });
+
+    // Glyph
+    var glyph = document.getElementById('aurora-orb-glyph');
+    if (glyph) {
+      glyph.textContent = _glyphs[s] || '';
+      glyph.classList.toggle('visible', !!_glyphs[s]);
+    }
+
+    // Listening rings
+    ['aurora-ring-0', 'aurora-ring-1', 'aurora-ring-2'].forEach(function(id) {
+      var el = document.getElementById(id);
+      if (el) el.classList.toggle('active', s === 'listening');
+    });
+
+    // Buffering arc
+    var bufArc = document.getElementById('aurora-buf-arc');
+    if (bufArc) bufArc.classList.toggle('active', s === 'buffering');
+
+    // State chip
+    var chip = document.getElementById('aurora-state-chip');
+    var chipDot = document.getElementById('aurora-chip-dot');
+    var chipLabel = document.getElementById('aurora-chip-label');
+    if (chip) {
+      if (s === 'idle') {
+        chip.classList.add('hidden');
+      } else {
+        chip.classList.remove('hidden');
+        chip.style.color = _chipColors[s];
+        if (chipDot) {
+          chipDot.style.background = _chipColors[s];
+          chipDot.style.animation = s === 'paused' ? 'none' : 'auroraBlink 1.6s ease-in-out infinite';
+        }
+        if (chipLabel) chipLabel.textContent = _chipLabels[s];
+      }
+    }
+  }
+
+  function _startAnimation() {
+    function frame() {
+      _updateWaveform();
+      _animId = requestAnimationFrame(frame);
+    }
+    _animId = requestAnimationFrame(frame);
+  }
+
+  var _lastUpdate = 0;
+  var _smooth = new Float32Array(N); // smoothed amplitudes per bar
+  var _lerp = 0.18; // smoothing factor (0=frozen, 1=instant)
+  function _updateWaveform() {
+    var now = Date.now();
+    // Interpolate colors every frame for smooth transitions
+    _tickColors();
+    if (now - _lastUpdate < 70) return; // ~14fps for bars
+    _lastUpdate = now;
+
+    var s = _state;
+    for (var i = 0; i < N; i++) {
+      var target = 0;
+      if (s === 'idle' || s === 'listening' || s === 'paused') {
+        target = 0;
+      } else if (s === 'thinking') {
+        var phase = now / 140 + i * 0.7;
+        target = 0.18 + Math.abs(Math.sin(phase)) * 0.22 * (0.6 + Math.random() * 0.4);
+      } else if (s === 'buffering') {
+        var phase = now / 900;
+        var offset = (i / N) * Math.PI * 2;
+        target = 0.15 + (Math.sin(phase * 2 - offset * 1.2) * 0.5 + 0.5) * 0.18;
+      } else if (s === 'speaking') {
+        // Each bar oscillates at its own unique speed for organic variation
+        var speed = 100 + ((i * 17) % 11) * 15; // 100-250ms per bar
+        var phase1 = now / speed + i * 1.8;
+        var phase2 = now / (speed * 0.6) + i * 3.1;
+        // Rotating spotlight — some bars are tall, others short
+        var spotlight = Math.sin(now / 400 + (i / N) * Math.PI * 2);
+        var lift = Math.max(0, spotlight) * 0.35;
+        target = 0.15 + Math.abs(Math.sin(phase1)) * 0.4 + Math.abs(Math.sin(phase2)) * 0.15 + lift;
+      } else if (s === 'drawing') {
+        var phase = now / 280 + i * 0.22;
+        target = 0.2 + Math.abs(Math.sin(phase)) * 0.25;
+      }
+
+      // Smooth interpolation — bars ease toward target instead of snapping
+      // Speaking/drawing use faster lerp so bars visibly differ from each other
+      var lerpRate = (s === 'speaking' || s === 'drawing') ? 0.35 : _lerp;
+      _smooth[i] += (target - _smooth[i]) * lerpRate;
+      var v = _smooth[i];
+
+      var angle = (i / N) * Math.PI * 2 - Math.PI / 2;
+      var r1 = 26;
+      var r2 = 26 + v * 40;
+      var x1 = Math.cos(angle) * r1, y1 = Math.sin(angle) * r1;
+      var x2 = Math.cos(angle) * r2, y2 = Math.sin(angle) * r2;
+      var line = _lines[i];
+      if (line) {
+        line.setAttribute('x1', x1); line.setAttribute('y1', y1);
+        line.setAttribute('x2', x2); line.setAttribute('y2', y2);
+        line.setAttribute('opacity', v > 0 ? (0.45 + v * 0.5) : '0');
+      }
+    }
+  }
+
+  return { init: init, setState: setState };
+})();
+
+// ═══════════════════════════════════════════════════════════
+// Module 4b: Inline Mic Input
+// ═══════════════════════════════════════════════════════════
+
+var InlineMic = (() => {
+  var _listening = false;
+  var _scribeWs = null;
+  var _micStream = null;
+  var _audioCtx = null;
+  var _analyser = null;
+  var _scriptNode = null;
+  var _animFrameId = null;
+  var _committed = '';
+  var _submitTimer = null;
+  var _tapDebounce = 0;
+
+  function isListening() { return _listening; }
+
+  function toggle() {
+    if (_listening) {
+      _stopAndDiscard();
+    } else {
+      _startListening();
+    }
+  }
+
+  async function _startListening() {
+    var now = Date.now();
+    if (now - _tapDebounce < 300) return;
+    _tapDebounce = now;
+
+    if (state.isStreaming) {
+      stopAll();
+    }
+
+    if (!_micStream) {
+      try {
+        _micStream = await navigator.mediaDevices.getUserMedia({
+          audio: { sampleRate: 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+        });
+      } catch (err) {
+        console.warn('[InlineMic] Mic permission denied:', err);
+        _showToast('Microphone access required');
+        return;
+      }
+    }
+
+    _listening = true;
+    _committed = '';
+    if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
+    // Capture any existing text in the field so we append to it
+    var field = document.getElementById('voice-bar-input');
+    _preExisting = field ? field.value.trim() : '';
+
+    // Show mic pill, hide mic button
+    // Drive full voice bar to listening state (orb, chip, placeholder, mic pill)
+    setVoiceBarState('listening');
+
+    _startAudioCapture(_micStream);
+    _connectScribe();
+
+    console.log('[InlineMic] Started listening');
+  }
+
+  function _stopListening() {
+    if (!_listening) return;
+    _listening = false;
+
+    _stopAudioCapture();
+    _disconnectScribe();
+
+    if (_submitTimer) { clearTimeout(_submitTimer); _submitTimer = null; }
+
+    // Return full voice bar to idle state
+    setVoiceBarState('idle');
+
+    if (_micStream) {
+      _micStream.getTracks().forEach(function(t) { t.stop(); });
+      _micStream = null;
+    }
+
+    if (_audioCtx) {
+      try { _audioCtx.close(); } catch (e) {}
+      _audioCtx = null;
+      _analyser = null;
+      _scriptNode = null;
+    }
+
+    console.log('[InlineMic] Stopped listening');
+  }
+
+  function _stopAndDiscard() {
+    _committed = '';
+    _stopListening();
+    console.log('[InlineMic] Dismissed — nothing sent');
+  }
+
+  // Stream transcription into textarea as user speaks
+  var _preExisting = ''; // text that was in the field before mic started
+  function _updateFieldLive(interim) {
+    var field = document.getElementById('voice-bar-input');
+    if (!field) return;
+    var parts = [];
+    if (_preExisting) parts.push(_preExisting);
+    if (_committed.trim()) parts.push(_committed.trim());
+    if (interim && interim.trim()) parts.push(interim.trim());
+    field.value = parts.join(' ');
+    // Auto-grow
+    field.style.height = 'auto';
+    field.style.height = Math.min(field.scrollHeight, 160) + 'px';
+    // Enable send button if there's text
+    var sendBtn = document.getElementById('voice-bar-send');
+    if (sendBtn) sendBtn.classList.toggle('disabled', !field.value.trim());
+  }
+
+  function _autoSubmit() {
+    var spokenText = _committed.trim();
+    _committed = '';
+    _submitTimer = null;
+
+    _stopListening();
+
+    if (!spokenText) return;
+
+    // _updateFieldLive() already wrote the full text into the field.
+    // Just focus it — don't re-append or we get duplication.
+    var field = document.getElementById('voice-bar-input');
+    if (field) field.focus();
+
+    console.log('[InlineMic] Transcription populated (no auto-submit): "' + spokenText.slice(0, 40) + '"');
+  }
+
+  // ── Audio Capture ──
+
+  function _startAudioCapture(stream) {
+    if (!_audioCtx) {
+      _audioCtx = new (window.AudioContext || window.webkitAudioContext)({ sampleRate: 16000 });
+    }
+    var source = _audioCtx.createMediaStreamSource(stream);
+
+    _analyser = _audioCtx.createAnalyser();
+    _analyser.fftSize = 256;
+    _analyser.smoothingTimeConstant = 0.7;
+    source.connect(_analyser);
+
+    _scriptNode = _audioCtx.createScriptProcessor(4096, 1, 1);
+    _scriptNode.onaudioprocess = function(e) {
+      if (!_listening || !_scribeWs || _scribeWs.readyState !== WebSocket.OPEN) return;
+      var input = e.inputBuffer.getChannelData(0);
+      var pcm16 = new Int16Array(input.length);
+      for (var i = 0; i < input.length; i++) {
+        var s = Math.max(-1, Math.min(1, input[i]));
+        pcm16[i] = s < 0 ? s * 0x8000 : s * 0x7FFF;
+      }
+      var bytes = new Uint8Array(pcm16.buffer);
+      var binary = '';
+      for (var j = 0; j < bytes.length; j++) binary += String.fromCharCode(bytes[j]);
+      var b64 = btoa(binary);
+      try {
+        _scribeWs.send(JSON.stringify({ type: 'audio', data: b64 }));
+      } catch (err) {
+        console.warn('[InlineMic] Audio send error:', err);
+      }
+    };
+
+    _analyser.connect(_scriptNode);
+    _scriptNode.connect(_audioCtx.destination);
+
+  }
+
+  function _stopAudioCapture() {
+    if (_animFrameId) { cancelAnimationFrame(_animFrameId); _animFrameId = null; }
+    if (_scriptNode) {
+      try { _scriptNode.disconnect(); } catch (e) {}
+      _scriptNode = null;
+    }
+    if (_analyser) {
+      try { _analyser.disconnect(); } catch (e) {}
+      _analyser = null;
+    }
+  }
+
+  // ── Scribe WebSocket ──
+
+  function _connectScribe() {
+    if (_scribeWs) _disconnectScribe();
+
+    var proto = location.protocol === 'https:' ? 'wss' : 'ws';
+    var token = state.wsToken || '';
+    var url = proto + '://' + location.host + '/ws/scribe?token=' + encodeURIComponent(token);
+
+    _scribeWs = new WebSocket(url);
+
+    _scribeWs.onopen = function() {
+      console.log('[InlineMic] Scribe WS opened');
+    };
+
+    _scribeWs.onmessage = function(e) {
+      var msg;
+      try { msg = JSON.parse(e.data); } catch (err) { return; }
+
+      if (msg.type === 'ready') {
+        console.log('[InlineMic] Scribe ready');
+        return;
+      }
+
+      if (msg.type === 'committed') {
+        var text = msg.text || '';
+        if (text.trim()) {
+          _committed += (_committed ? ' ' : '') + text.trim();
+        }
+        // Update textarea with committed text (replacing any interim partial)
+        _updateFieldLive();
+        // No auto-submit — mic stays on until user manually stops it
+        return;
+      }
+
+      if (msg.type === 'partial') {
+        var partial = msg.text || '';
+        if (state.isStreaming && partial.length > 5) {
+          stopAll();
+        }
+        // Stream interim text into textarea as user speaks
+        _updateFieldLive(partial);
+        return;
+      }
+
+      if (msg.type === 'error') {
+        console.warn('[InlineMic] Scribe error:', msg.message);
+        _showToast(msg.message || 'Voice error');
+        _stopAndDiscard();
+        return;
+      }
+    };
+
+    _scribeWs.onclose = function() {
+      console.log('[InlineMic] Scribe WS closed');
+      _scribeWs = null;
+    };
+
+    _scribeWs.onerror = function(err) {
+      console.warn('[InlineMic] Scribe WS error:', err);
+      _scribeWs = null;
+      if (_listening) {
+        _showToast('Voice connection error');
+        _stopAndDiscard();
+      }
+    };
+  }
+
+  function _disconnectScribe() {
+    if (_scribeWs) {
+      try { _scribeWs.send(JSON.stringify({ type: 'stop' })); } catch (e) {}
+      try { _scribeWs.close(); } catch (e) {}
+      _scribeWs = null;
+    }
+  }
+
+  function _showToast(msg) {
+    if (typeof showToast === 'function') showToast(msg);
+    else console.warn('[InlineMic]', msg);
+  }
+
+  // ── Support Check ──
+
+  function checkSupport() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      var micToggle = document.getElementById('voice-bar-mic-toggle');
+      if (micToggle) micToggle.style.display = 'none';
+      return false;
+    }
+    return true;
+  }
+
+  // ── Visibility change: stop listening if tab loses focus ──
+  document.addEventListener('visibilitychange', function() {
+    if (document.hidden && _listening) {
+      console.log('[InlineMic] Tab hidden — stopping');
+      _stopAndDiscard();
+    }
+  });
+
+  // ── Ctrl+M keyboard shortcut ──
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'm') {
+      e.preventDefault();
+      toggle();
+    }
+  });
+
+  return {
+    isListening: isListening,
+    toggle: toggle,
+    checkSupport: checkSupport,
+  };
+})();
+window.InlineMic = InlineMic;
 
 // ═══════════════════════════════════════════════════════════
 // Module 5: Unified Block System (Infinity Canvas)
@@ -1489,7 +2007,20 @@ function _hideBoardDrawingSkeleton() {
 // New rule: while we're in 'thinking' state AND any text has streamed in,
 // show the skeleton. The hide happens in setVoiceBarState() the moment we
 // transition to 'speaking' (right before the first beat plays).
+var _codeFieldDetected = false;
+
 function _checkDrawingInProgress() {
+  // Detect a "code" field being streamed inside a <vb draw='...'> tag.
+  // Pattern matches: "code" : "  (with optional whitespace around the colon)
+  // This fires only once per turn — once detected, we skip re-scanning.
+  if (!_codeFieldDetected && _ws.accumulatedText &&
+      (_vbState === 'thinking' || _vbState === 'speaking' || _vbState === 'buffering')) {
+    if (/"code"\s*:\s*"/.test(_ws.accumulatedText)) {
+      _codeFieldDetected = true;
+      setVoiceBarState('drawing');
+    }
+  }
+
   if (_vbState === 'speaking' || _vbState === 'idle') {
     _hideBoardDrawingSkeleton();
     return;
@@ -1611,6 +2142,7 @@ function wsReconnect() {
   // Full cleanup + fresh connection. Called at session start.
   _wsCleanupConnection();
   _ws.accumulatedText = '';
+  _codeFieldDetected = false;
   _ws.retryCount = 0;
   // generation is NEVER reset — monotonic across entire page lifecycle
   console.log('[WS] Reconnecting for new session...');
@@ -1628,6 +2160,7 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
   _wsKillTurn('new_message');
   _ws.generation++;
   _ws.accumulatedText = '';
+  _codeFieldDetected = false;
   _hideBoardDrawingSkeleton();
 
   // Track student activity for silence detection
@@ -2037,6 +2570,10 @@ async function _wsRunExecutor(turn) {
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
         if (_vbState === 'thinking') setVoiceBarState('speaking');
+        // If we're in 'drawing' and the next beat has NO draw commands,
+        // that beat arriving means the render phase is over → switch to speaking.
+        // If the next beat ALSO has draws, stay in 'drawing' (executeDraw keeps it).
+        else if (_vbState === 'drawing' && !(beat.draw && beat.draw.length > 0)) setVoiceBarState('speaking');
         _hideBoardStreaming();
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
         if (beat.question) break;
@@ -2058,11 +2595,23 @@ async function _wsRunExecutor(turn) {
     removeStreamingIndicator();
     if (_wsTurn === turn || _wsTurn === null) {
       _eager.running = false;
+      // If we're still in 'drawing' when the executor exits (last beat had draws),
+      // transition drawing → speaking → idle. executeDraw no longer switches back,
+      // so this is the final cleanup for the draw state.
+      if (_vbState === 'drawing') {
+        setVoiceBarState('speaking');
+        setTimeout(() => {
+          if (_vbState === 'speaking' && !_eager.running && !state.isStreaming) {
+            setVoiceBarState('idle');
+          }
+        }, 2000);
+        return;
+      }
       if (turn._doneReceived || !state.isStreaming) {
         setVoiceBarState('idle');
       } else {
         setTimeout(() => {
-          if (!_eager.running && !(_wsTurn?.audioEl)) {
+          if (!_eager.running && !(_wsTurn?.audioEl) && _vbState !== 'drawing') {
             setVoiceBarState('idle');
           }
         }, 300);
@@ -2163,6 +2712,8 @@ async function _wsPlayAudio(beat, beatNum, turn) {
   await new Promise(resolve => {
     const done = (reason) => {
       console.log(`[WS Audio] Beat #${beatNum} ended (${reason || 'done'})`);
+      _stopCaptionHighlight();
+      _lastCaptionText = '';
       URL.revokeObjectURL(url);
       if (turn.audioEl === audio) turn.audioEl = null;
       if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null;
@@ -2171,13 +2722,13 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     audio.onended = () => done('ended');
     audio.onerror = (e) => { console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
     audio.play()
-      .then(() => console.log(`[WS Audio] Beat #${beatNum} playing`))
+      .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing`); _startCaptionHighlight(audio); })
       .catch((err) => {
         console.warn(`[WS Audio] Beat #${beatNum} play failed:`, err.message);
         // Retry once after short delay — autoplay may have been unlocked
         setTimeout(() => {
           audio.play()
-            .then(() => console.log(`[WS Audio] Beat #${beatNum} playing (retry)`))
+            .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing (retry)`); _startCaptionHighlight(audio); })
             .catch((err2) => {
               console.error(`[WS Audio] Beat #${beatNum} autoplay blocked — skipping:`, err2.message);
               done('autoplay-blocked');
@@ -17617,6 +18168,8 @@ document.addEventListener('DOMContentLoaded', () => {
   initSetup();
   Router.resolve(location.pathname);
 
+  if (typeof InlineMic !== 'undefined') InlineMic.checkSupport();
+
   // Clean up agent event SSE on page unload
   window.addEventListener('beforeunload', () => cleanupActiveSession());
 
@@ -17633,6 +18186,7 @@ document.addEventListener('DOMContentLoaded', () => {
       }
     }
   });
+
 });
 
 // ═══════════════════════════════════════════════════════════
@@ -17649,16 +18203,15 @@ const ELEVENLABS_MODEL_FALLBACK = 'eleven_turbo_v2_5'; // Fallback streaming TTS
 function applyTeachingMode() {
   state.teachingMode = 'voice';
   const mainLayout = $('#main-layout');
-  const subtitleBar = $('#voice-subtitle-bar');
   const voiceInd = $('#voice-indicator');
   const speedWrap = $('#speed-wrap');
   const micFloat = $('#voice-mic-float');
 
   mainLayout?.classList.add('voice-mode');
-  subtitleBar?.classList.remove('hidden');
   voiceInd?.classList.remove('hidden');
   speedWrap?.classList.remove('hidden');
   micFloat?.classList.remove('hidden');
+  AuroraOrb.init();
 
 }
 
@@ -17882,12 +18435,41 @@ function estimateVoiceDuration(text) {
 
 // ── Subtitle display ────────────────────────────────────────
 
+var _captionsEnabled = true;
+var _captionHighlightTimer = null;
+var _lastCaptionText = '';
+
+function toggleCaptions() {
+  _captionsEnabled = !_captionsEnabled;
+  var btn = document.getElementById('vb-cc-toggle');
+  var bar = document.getElementById('vb-caption-bar');
+  if (btn) btn.classList.toggle('cc-on', _captionsEnabled);
+  if (bar) bar.classList.toggle('cc-off', !_captionsEnabled);
+  if (!_captionsEnabled) {
+    // Stop the highlighter and clear the DOM, but preserve _lastCaptionText
+    // so we can restore on re-enable mid-beat.
+    _stopCaptionHighlight();
+    var el = document.getElementById('vb-caption-text');
+    if (el) el.innerHTML = '';
+  } else {
+    // Re-enabling mid-beat: rebuild spans for the current beat's text and
+    // restart the highlighter against the in-flight audio.
+    var currentAudio = (typeof state !== 'undefined') ? state.voiceCurrentAudio : null;
+    if (_lastCaptionText && currentAudio && !currentAudio.paused && !currentAudio.ended) {
+      voiceShowSubtitle(_lastCaptionText);
+      _startCaptionHighlight(currentAudio);
+    }
+  }
+}
+
 function voiceShowSubtitle(text) {
-  const el = $('#voice-subtitle-text');
+  _lastCaptionText = text || '';
+  if (!_captionsEnabled) return;
+  var el = document.getElementById('vb-caption-text');
   if (!el) return;
-  let display = text
-    .replace(/\{ref:[^}]+\}/g, '')  // strip {ref:elementId} markers
-    .replace(/\[[^\]]*\]\s*/g, '')  // strip emotion tags like [excited], [thoughtfully]
+  var display = text
+    .replace(/\{ref:[^}]+\}/g, '')
+    .replace(/\[[^\]]*\]\s*/g, '')
     .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
     .replace(/\*\*(.+?)\*\*/g, '<em>$1</em>')
     .replace(/\*(.+?)\*/g, '<em>$1</em>')
@@ -17895,15 +18477,58 @@ function voiceShowSubtitle(text) {
     .replace(/\$\$[\s\S]+?\$\$/g, '')
     .trim();
   if (!display) return;
-  el.innerHTML = display;
-  // Ensure subtitle bar is visible
-  const bar = $('#voice-subtitle-bar');
-  if (bar) bar.classList.remove('hidden');
+  // Wrap each word in a span for word-by-word highlighting
+  var words = display.split(/(\s+)/); // preserve whitespace
+  var html = '';
+  for (var i = 0; i < words.length; i++) {
+    if (/^\s+$/.test(words[i])) { html += words[i]; continue; }
+    html += '<span class="cap-w">' + words[i] + '</span>';
+  }
+  el.innerHTML = html;
+  // Trigger fade-in animation
+  el.classList.remove('cap-enter');
+  void el.offsetWidth;
+  el.classList.add('cap-enter');
+  var bar = document.getElementById('vb-caption-bar');
+  if (bar) bar.classList.add('visible');
 }
 
 function voiceHideSubtitle() {
-  const el = $('#voice-subtitle-text');
+  _stopCaptionHighlight();
+  var el = document.getElementById('vb-caption-text');
   if (el) el.innerHTML = '';
+  var bar = document.getElementById('vb-caption-bar');
+  if (bar) bar.classList.remove('visible');
+}
+
+function _startCaptionHighlight(audio) {
+  _stopCaptionHighlight();
+  var el = document.getElementById('vb-caption-text');
+  if (!el) return;
+  var spans = el.querySelectorAll('.cap-w');
+  if (spans.length === 0) return;
+  _captionHighlightTimer = setInterval(function() {
+    if (!audio || audio.paused || audio.ended || !audio.duration) return;
+    var progress = audio.currentTime / audio.duration;
+    var idx = Math.min(Math.floor(progress * spans.length), spans.length - 1);
+    for (var i = 0; i < spans.length; i++) {
+      spans[i].classList.toggle('cap-active', i === idx);
+      spans[i].classList.toggle('cap-past', i < idx);
+    }
+  }, 60);
+}
+
+function _stopCaptionHighlight() {
+  if (_captionHighlightTimer) { clearInterval(_captionHighlightTimer); _captionHighlightTimer = null; }
+  // Remove any lingering highlight classes
+  var el = document.getElementById('vb-caption-text');
+  if (el) {
+    var marked = el.querySelectorAll('.cap-active, .cap-past');
+    for (var i = 0; i < marked.length; i++) {
+      marked[i].classList.remove('cap-active');
+      marked[i].classList.remove('cap-past');
+    }
+  }
 }
 
 // ── Voice indicator ─────────────────────────────────────────
@@ -18738,12 +19363,18 @@ async function executeDraw(drawCmds) {
   // Show shimmer skeleton on the board while drawing
   _showBoardDrawingShimmer();
 
-  // Ensure board canvas exists
+  // Ensure board canvas exists — show buffering while we wait (only if not thinking)
   if (!state.boardDraw.canvas) {
+    if (_vbState !== 'thinking') setVoiceBarState('buffering');
     openBoardDrawSpotlight('Board', null, { clear: true });
     // Wait a tick for canvas initialization
     await new Promise(r => setTimeout(r, 100));
   }
+
+  // Drawing state is now triggered from TEXT_DELTA when a "code" field is
+  // detected streaming in (see _checkDrawingInProgress). This avoids
+  // showing SKETCHING for simple draws (text, equation, etc.) that have
+  // no code and would otherwise stay stuck in drawing state.
 
   // Queue commands via BoardEngine + accumulate JSONL for session persistence
   for (let origCmd of drawCmds) {
@@ -18769,9 +19400,26 @@ async function executeDraw(drawCmds) {
     state.boardDraw.rawContent = (state.boardDraw.rawContent || '') + jsonLine + '\n';
   }
 
-  // Wait for the queue to fully drain before next beat/scene
+  // Wait for the queue to fully drain before next beat/scene.
+  // For figure+code commands, this blocks for the full render duration (~30s).
+  // For simple commands (text, arrow), this resolves in ~100ms.
   if (state.boardDraw.canvas) {
     await bdWaitForQueueDrain();
+  }
+
+  // Only switch back to 'speaking' if this batch contained a code command (Three.js).
+  // Code arrival = drawing is complete. Simple draws (text, arrow) keep SKETCHING
+  // until the code beat arrives or the executor exits.
+  var hasCodeCmd = drawCmds.some(function(c) { return c && c.code; });
+  if (hasCodeCmd && _vbState === 'drawing') {
+    setVoiceBarState('speaking');
+    if (!_eager.running) {
+      setTimeout(function() {
+        if (_vbState === 'speaking' && !_eager.running && !state.isStreaming) {
+          setVoiceBarState('idle');
+        }
+      }, 2000);
+    }
   }
 
   // Hide shimmer + indicator
@@ -19206,31 +19854,12 @@ function voiceBeatGap(pauseAttr) {
 // ── Thinking state & stop generation ────────────────────────
 
 function voiceBarSetThinking(isThinking) {
-  const bar = $('#voice-bar-main');
-  const input = $('#voice-bar-input');
-  const micBtn = $('#voice-mic-btn');
-  const sendBtn = $('#voice-bar-send');
+  var bar = document.getElementById('voice-bar-main');
   if (!bar) return;
-
   if (isThinking) {
     bar.classList.add('thinking');
-    if (input) { input.disabled = true; input.placeholder = ''; }
-    if (sendBtn) sendBtn.classList.remove('visible');
-    // Replace mic with stop button
-    if (micBtn) {
-      micBtn._origHTML = micBtn.innerHTML;
-      micBtn.innerHTML = '<svg viewBox="0 0 24 24" fill="currentColor" stroke="none"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';
-      micBtn.title = 'Stop generating';
-      micBtn.onclick = stopGeneration;
-    }
   } else {
     bar.classList.remove('thinking');
-    if (input) { input.disabled = false; input.placeholder = 'Type your response...'; }
-    if (micBtn) {
-      if (micBtn._origHTML) micBtn.innerHTML = micBtn._origHTML;
-      micBtn.title = 'Hold to talk';
-      micBtn.onclick = null;
-    }
   }
 }
 
@@ -19349,94 +19978,124 @@ function stopGeneration() { stopAll(); }
 window.stopAll = stopAll;
 window.stopGeneration = stopAll;
 
+var _vbPlaceholders = {
+  idle: 'Your answer...',
+  listening: 'Listening\u2026 or type instead',
+  thinking: 'Composing the answer\u2026',
+  buffering: 'Loading the visual\u2026',
+  speaking: 'Type to ask without interrupting\u2026',
+  drawing: 'Annotating board\u2026',
+  paused: 'Paused \u2014 type or resume',
+};
+
 /**
  * setVoiceBarState(newState) — Single function that controls ALL voice bar UI.
- * States: 'idle', 'thinking', 'speaking', 'paused'
+ * States: 'idle', 'listening', 'thinking', 'buffering', 'speaking', 'drawing', 'paused'
  */
 function setVoiceBarState(newState) {
   _vbState = newState;
-  // Hide the drawing skeleton as soon as the tutor starts speaking (or goes idle).
-  // The skeleton only makes sense during the 'thinking' window before audio plays.
+
+  // Hide board drawing skeleton when not thinking
   if (newState !== 'thinking') {
     try { _hideBoardDrawingSkeleton(); } catch (e) {}
   }
-  // Voice bar may not exist yet on first session start (teaching layout
-  // not rendered). Still process the state — especially 'thinking' which
-  // shows the board streaming indicator regardless of voice bar presence.
-  const field = document.getElementById('voice-bar-input');
-  const sendBtn = document.getElementById('voice-bar-send');
-  const micBtn = document.getElementById('voice-mic-btn');
-  const stopBtn = document.getElementById('voice-bar-stop');
-  const pauseBtn = document.getElementById('voice-bar-pause');
-  const resumeBtn = document.getElementById('voice-bar-resume');
-  const progress = document.getElementById('vb-progress');
-  const status = document.getElementById('vb-status');
-  const vmStop = document.getElementById('vm-stop-btn');
-  const vmSend = document.getElementById('vm-send-btn');
 
-  // Reset all
-  [stopBtn, pauseBtn, resumeBtn].forEach(b => { if (b) b.classList.add('hidden'); });
-  if (sendBtn) sendBtn.classList.remove('hidden');
-  if (micBtn) micBtn.classList.remove('hidden');
-  if (progress) { progress.className = 'vb-progress'; }
-  if (status) { status.className = 'vb-status'; status.textContent = ''; }
+  var field = document.getElementById('voice-bar-input');
+  var sendBtn = document.getElementById('voice-bar-send');
+  var micBtn = document.getElementById('voice-bar-mic-toggle');
+  var micPill = document.getElementById('vb-mic-pill');
+  var stopBtn = document.getElementById('voice-bar-stop');
+  var pauseBtn = document.getElementById('voice-bar-pause');
+  var resumeBtn = document.getElementById('voice-bar-resume');
+  var playbackDivider = document.getElementById('vb-divider-playback');
+  var captionBar = document.getElementById('vb-caption-bar');
+  var vmStop = document.getElementById('vm-stop-btn');
+  var vmSend = document.getElementById('vm-send-btn');
+
+  // Reset all buttons (and the divider that groups them with the attach button)
+  [stopBtn, pauseBtn, resumeBtn, playbackDivider].forEach(function(b) { if (b) b.classList.add('hidden'); });
+  if (sendBtn) sendBtn.classList.remove('disabled');
+  if (micBtn) { micBtn.classList.remove('hidden'); micBtn.classList.remove('mic-recording'); }
+  if (micPill) micPill.classList.remove('visible');
   if (field) { field.disabled = false; field.style.opacity = ''; }
 
-  // Remove old indicator + speaking aura
+  // Remove old indicators
   voiceBarSetThinking(false);
   removeStreamingIndicator();
   hideSessionPrep();
+
+  // Remove old euler-speaking class (no longer used, but clean up)
   var _wrapEl = document.getElementById('voice-mic-float');
   if (_wrapEl) _wrapEl.classList.remove('euler-speaking');
 
+  // Drive Aurora Orb
+  AuroraOrb.setState(newState);
+
+  // Placeholder
+  if (field) field.placeholder = _vbPlaceholders[newState] || 'Your answer...';
+
+  // Caption bar — visible during speaking/drawing/thinking (thinking keeps "You: ..." for 2s)
+  if (captionBar) {
+    captionBar.classList.toggle('visible', newState === 'speaking' || newState === 'drawing' || newState === 'thinking');
+  }
+
   switch (newState) {
     case 'idle':
-      if (field) field.placeholder = 'Your answer...';
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       _hideBoardStreaming();
       _hideBoardDrawingSkeleton();
-      // Feedback form is triggered ONLY on back button click — not auto-shown
-      // (idle state fires too often: page load, cancels, errors, transitions)
+      break;
+
+    case 'listening':
+      // Mic button stays visible but turns red to indicate active recording
+      if (micBtn) { micBtn.classList.remove('hidden'); micBtn.classList.add('mic-recording'); }
+      if (vmStop) vmStop.classList.add('hidden');
+      if (vmSend) vmSend.classList.remove('hidden');
       break;
 
     case 'thinking':
-      if (field) field.placeholder = 'Generating...';
-      if (sendBtn) sendBtn.classList.add('hidden');
-      // Don't hide mic when Scribe is active — user needs to see mic state
+      if (sendBtn) sendBtn.classList.add('disabled');
       if (micBtn && !(_scribe && _scribe.active)) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
-      if (progress) { progress.className = 'vb-progress active thinking'; }
-      if (status) { status.className = 'vb-status active thinking'; status.textContent = ''; }
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
+      if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      voiceHideSubtitle();
-      // Show board streaming indicator
+      setTimeout(function() { if (_vbState === 'thinking') voiceHideSubtitle(); }, 2000);
       _showBoardStreaming();
       break;
 
-    case 'speaking':
-      if (field) field.placeholder = 'Type to interrupt...';
+    case 'buffering':
+      if (sendBtn) sendBtn.classList.add('disabled');
+      if (micBtn) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
-      if (pauseBtn) pauseBtn.classList.remove('hidden');
-      // Aura glow behind voice bar
-      var _wrap = document.getElementById('voice-mic-float');
-      if (_wrap) _wrap.classList.add('euler-speaking');
-      if (progress) { progress.className = 'vb-progress active speaking'; }
-      if (status) { status.className = 'vb-status active speaking'; status.textContent = ''; }
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
+      if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      // Don't hide streaming indicator here — it stays until the animation
-      // actually renders. Text beats fire first (speaking starts) but the
-      // heavy animation beat might still be streaming. The indicator is
-      // hidden when createAnimation/renderScene3D calls _hideBoardStreaming.
+      break;
+
+    case 'speaking':
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
+      if (vmStop) vmStop.classList.remove('hidden');
+      if (vmSend) vmSend.classList.add('hidden');
+      break;
+
+    case 'drawing':
+      if (stopBtn) stopBtn.classList.remove('hidden');
+      if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
+      if (vmStop) vmStop.classList.remove('hidden');
+      if (vmSend) vmSend.classList.add('hidden');
       break;
 
     case 'paused':
-      if (field) { field.placeholder = 'Paused — type or resume'; field.focus(); }
+      if (field) field.focus();
       if (resumeBtn) resumeBtn.classList.remove('hidden');
-      if (progress) { progress.className = 'vb-progress active paused'; }
-      if (status) { status.className = 'vb-status active paused'; status.textContent = 'Paused'; }
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       break;
@@ -19520,6 +20179,11 @@ function _showStopButton(show) {
 // ── Unified voice bar submit ────────────────────────────────
 
 function submitVoiceBarInput() {
+  // If mic is listening, stop it and discard spoken text — submit typed text only
+  if (typeof InlineMic !== 'undefined' && InlineMic.isListening()) {
+    InlineMic.toggle();
+  }
+
   const field = $('#voice-bar-input');
   if (!field || !field.value.trim()) return;
 
@@ -19558,7 +20222,7 @@ function _doSubmitVoiceBar(field) {
   }
 
   const sendBtn = $('#voice-bar-send');
-  if (sendBtn) sendBtn.classList.remove('visible');
+  if (sendBtn) sendBtn.classList.add('disabled');
 
   // Auto-attach board images if student drew on the board
   const bd = state.boardDraw;
@@ -19594,6 +20258,7 @@ function _doSubmitVoiceBar(field) {
 
 // ── Voice bar file attachments ──
 var _vbPendingFiles = [];
+var _vbPasteCounter = 0;
 
 function _vbClearFiles() {
   _vbPendingFiles = [];
@@ -19641,6 +20306,37 @@ function _vbClearFiles() {
       });
     });
   }
+
+  // Paste-to-attach: only images, only inside the textarea
+  var textarea = document.getElementById('voice-bar-input');
+  if (textarea) {
+    textarea.addEventListener('paste', function(e) {
+      var items = e.clipboardData && e.clipboardData.items;
+      if (!items || !items.length) return;
+      var captured = false;
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it.kind !== 'file' || !it.type || it.type.indexOf('image/') !== 0) continue;
+        var blob = it.getAsFile();
+        if (!blob) continue;
+        if (blob.size > 20 * 1024 * 1024) { console.warn('[Paste] Image too large'); continue; }
+        captured = true;
+        var ext = (it.type.split('/')[1] || 'png').toLowerCase();
+        var name = 'IMAGE-' + (++_vbPasteCounter) + '.' + ext;
+        var reader = new FileReader();
+        reader.onload = function(_name, _type) {
+          return function() {
+            _vbPendingFiles.push({ name: _name, type: _type, base64: reader.result.split(',')[1] });
+            _vbRenderFilePreview();
+          };
+        }(name, it.type);
+        reader.readAsDataURL(blob);
+      }
+      // If we captured at least one image, suppress the default paste so binary
+      // data doesn't land in the textarea. Plain text paste (no image) is unaffected.
+      if (captured) e.preventDefault();
+    });
+  }
 })();
 
 function _vbRenderFilePreview() {
@@ -19664,14 +20360,14 @@ function _vbRenderFilePreview() {
   if (!_vbPendingFiles.length) preview.style.display = 'none';
   // Show send button if files attached
   var sendBtn = document.getElementById('voice-bar-send');
-  if (sendBtn && _vbPendingFiles.length) sendBtn.classList.add('visible');
+  if (sendBtn && _vbPendingFiles.length) sendBtn.classList.remove('disabled');
 }
 
 // Show/hide send button based on input content
 document.addEventListener('input', (e) => {
   if (e.target.id === 'voice-bar-input') {
     const sendBtn = $('#voice-bar-send');
-    if (sendBtn) sendBtn.classList.toggle('visible', e.target.value.trim().length > 0);
+    if (sendBtn) sendBtn.classList.toggle('disabled', e.target.value.trim().length === 0);
     // Auto-grow textarea
     e.target.style.height = 'auto';
     e.target.style.height = Math.min(e.target.scrollHeight, 120) + 'px';
@@ -19685,7 +20381,7 @@ document.addEventListener('input', (e) => {
   if (!wrap) { setTimeout(_wireVoiceBarDrag, 500); return; }
   var dragging = false, startX = 0, startY = 0, origLeft = 0, origBottom = 0;
   wrap.addEventListener('mousedown', function(e) {
-    // Only drag from the wrap/bar background, not from inputs/buttons
+    // Only drag from the wrap/bar background, not from inputs/buttons/orb
     if (e.target.tagName === 'TEXTAREA' || e.target.tagName === 'BUTTON' || e.target.tagName === 'INPUT' || e.target.closest('button')) return;
     dragging = true;
     startX = e.clientX; startY = e.clientY;
@@ -21714,6 +22410,16 @@ document.addEventListener('DOMContentLoaded', function() {
     }
     document.addEventListener('mousemove', onMove);
     document.addEventListener('mouseup', onUp);
+  });
+});
+
+// Textarea auto-grow
+document.addEventListener('DOMContentLoaded', function() {
+  var ta = document.getElementById('voice-bar-input');
+  if (!ta) return;
+  ta.addEventListener('input', function() {
+    this.style.height = 'auto';
+    this.style.height = Math.min(this.scrollHeight, 160) + 'px';
   });
 });
 window._switchTestTab = _switchTestTab;
