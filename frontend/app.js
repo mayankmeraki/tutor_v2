@@ -13978,8 +13978,14 @@ window.continueSession = async function(sessionId) {
     }));
 
     // Carry forward accumulated duration from previous visits
-    state._accumulatedDuration = sessionData.durationSec || 0;
+    // Sanitize: clamp to non-negative integer seconds. If a stale doc had a
+    // garbage / negative value, do not let it leak into the displayed timer.
+    const restoredSec = Number(sessionData.durationSec);
+    state._accumulatedDuration = Number.isFinite(restoredSec) && restoredSec > 0
+      ? Math.floor(restoredSec)
+      : 0;
     state.sessionStartTime = Date.now();
+    // _lastEngagedAt will be set by startTimer() based on current engagement.
 
     // Fade out and remove the loading overlay
     const resumeOverlay = document.getElementById('session-resume-overlay');
