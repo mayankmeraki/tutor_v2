@@ -34,24 +34,31 @@ def _get_client():
 def _ensure_collection(client):
     from qdrant_client.models import Distance, VectorParams
     existing = [c.name for c in client.get_collections().collections]
-    if COLLECTION in existing:
-        return
-    client.create_collection(
-        collection_name=COLLECTION,
-        vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
-    )
-    for field in ("user_id", "collection_id", "resource_id", "modality", "chunk_id"):
-        client.create_payload_index(
+    if COLLECTION not in existing:
+        client.create_collection(
             collection_name=COLLECTION,
-            field_name=field,
-            field_schema="keyword",
+            vectors_config=VectorParams(size=VECTOR_DIM, distance=Distance.COSINE),
         )
-    client.create_payload_index(
-        collection_name=COLLECTION,
-        field_name="index",
-        field_schema="integer",
-    )
-    log.info("Qdrant collection '%s' created with indexes", COLLECTION)
+        log.info("Qdrant collection '%s' created", COLLECTION)
+
+    # Always ensure indexes exist (idempotent — Qdrant ignores if already present)
+    info = client.get_collection(COLLECTION)
+    existing_indexes = set(info.payload_schema.keys()) if info.payload_schema else set()
+    required = {"user_id": "keyword", "collection_id": "keyword", "resource_id": "keyword",
+                "modality": "keyword", "chunk_id": "keyword", "segment_id": "keyword"}
+    for field, schema in required.items():
+        if field not in existing_indexes:
+            try:
+                client.create_payload_index(COLLECTION, field, schema)
+                log.info("Qdrant index created: %s (%s)", field, schema)
+            except Exception:
+                pass
+    if "index" not in existing_indexes:
+        try:
+            client.create_payload_index(COLLECTION, "index", "integer")
+            log.info("Qdrant index created: index (integer)")
+        except Exception:
+            pass
 
 
 def _to_uuid(s: str) -> str:
@@ -76,6 +83,7 @@ def _hit_from_payload(payload: dict, score: float = 0.0) -> ContentHit:
         topics=payload.get("topics") or [],
         labels=payload.get("labels") or [],
         index=payload.get("index", 0),
+        title=payload.get("title", ""),
     )
 
 
@@ -143,6 +151,7 @@ class QdrantContentStore:
                 "questions": s.get("questions") or [],
                 "index": parent.get("index", s.get("index", 0)),
                 "tokens": parent.get("tokens", 0),
+                "title": parent.get("title", ""),
             }
 
             point_id = _to_uuid(s["segment_id"])
@@ -187,6 +196,7 @@ class QdrantContentStore:
         collection_id: str | None = None,
         resource_id: str | None = None,
         modality: list[str] | None = None,
+        topics: list[str] | None = None,
         k: int = 5,
         min_score: float = 0.35,
     ) -> list[ContentHit]:
@@ -203,6 +213,8 @@ class QdrantContentStore:
             must.append(FieldCondition(key="resource_id", match=MatchValue(value=resource_id)))
         if modality:
             must.append(FieldCondition(key="modality", match=MatchAny(any=modality)))
+        if topics:
+            must.append(FieldCondition(key="topics", match=MatchAny(any=topics)))
 
         hits = client.query_points(
             collection_name=COLLECTION,

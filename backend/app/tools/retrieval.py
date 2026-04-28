@@ -161,7 +161,10 @@ def _truncate(text: str, n: int = 500) -> str:
 
 def _fmt_byo_hit(h, *, snippet_chars: int = 500) -> str:
     ref = f"chunk:{h.chunk_id}"
-    preview = _truncate((h.content or "").replace("\n", " "), snippet_chars)
+    # Show segment match (what matched the query) + parent context
+    segment = getattr(h, "segment_content", "") or ""
+    parent = (h.content or "").replace("\n", " ")
+    title = getattr(h, "title", "") or ""
     labels = ", ".join(h.labels) if h.labels else ""
     tag = f"[{labels}] " if labels else ""
     cite_bits: list[str] = []
@@ -171,7 +174,14 @@ def _fmt_byo_hit(h, *, snippet_chars: int = 500) -> str:
     if anchor_str:
         cite_bits.append(anchor_str)
     cite = f" — {' · '.join(cite_bits)}" if cite_bits else ""
-    return f"  {ref}  {tag}{preview}{cite}"
+    # Title + matched segment + parent preview
+    lines = [f"  {ref}  {tag}{title}{cite}" if title else f"  {ref}  {tag}{cite}"]
+    if segment and segment != parent:
+        lines.append(f"    [match] {_truncate(segment.replace(chr(10), ' '), 200)}")
+        lines.append(f"    [context] {_truncate(parent, snippet_chars)}")
+    else:
+        lines.append(f"    {_truncate(parent, snippet_chars)}")
+    return "\n".join(lines)
 
 
 def _fmt_course_hit(r: dict) -> str:
@@ -370,7 +380,10 @@ async def fetch_tool(
         if anchor_str:
             cite_parts.append(anchor_str)
         citation = " — ".join(cite_parts) if cite_parts else hit.chunk_id
-        parts = [hit.content or ""]
+        parts = []
+        if hit.title:
+            parts.append(f"[{hit.title}]")
+        parts.append(hit.content or "")
         if hit.labels:
             parts.append(f"\nType: {', '.join(hit.labels)}")
         if hit.topics:
@@ -419,13 +432,29 @@ async def peek_tool(
         if not summary:
             return f"{ref} not found."
         lines: list[str] = []
-        if summary.title:
-            lines.append(f"[{summary.title}] {summary.snippet}")
+        # peek returns a dict for BYO, an object for course
+        if isinstance(summary, dict):
+            resource = summary.get("resource_name", "")
+            snippet = summary.get("snippet", "")
+            page = summary.get("page")
+            section = summary.get("section", "")
+            topics = summary.get("topics", [])
+            header = f"[{resource}]" if resource else ""
+            if page:
+                header += f" p.{page}"
+            if section:
+                header += f" {section}"
+            lines.append(f"{header} {snippet}" if header else snippet)
+            if topics:
+                lines.append(f"Topics: {', '.join(topics[:5])}")
         else:
-            lines.append(summary.snippet or "")
-        anchor_str = _fmt_anchor(summary.anchor)
-        if anchor_str:
-            lines.append(f"At: {anchor_str}")
+            if getattr(summary, "title", ""):
+                lines.append(f"[{summary.title}] {summary.snippet}")
+            else:
+                lines.append(getattr(summary, "snippet", "") or "")
+            anchor_str = _fmt_anchor(getattr(summary, "anchor", None))
+            if anchor_str:
+                lines.append(f"At: {anchor_str}")
         return "\n".join(lines)
 
     return (
@@ -561,7 +590,21 @@ async def list_contents_tool(
             return f"Collection {collection_id} is empty or has no extractable content."
         lines = [f"Contents of collection {collection_id}:"]
         for r in refs:
-            lines.append(f"  {r.ref}  {r.title} — {r.snippet}")
+            # list_contents returns dicts grouped by resource
+            if isinstance(r, dict):
+                resource = r.get("resource", "?")
+                chunks = r.get("chunks", [])
+                lines.append(f"\n  {resource} ({len(chunks)} sections)")
+                for c in chunks[:5]:
+                    ref = c.get("ref", "")
+                    page = c.get("page")
+                    snippet = (c.get("snippet") or "")[:80]
+                    page_str = f" p.{page}" if page else ""
+                    lines.append(f"    {ref}{page_str}  {snippet}")
+                if len(chunks) > 5:
+                    lines.append(f"    ... and {len(chunks) - 5} more")
+            else:
+                lines.append(f"  {getattr(r, 'ref', '?')}  {getattr(r, 'title', '?')} — {getattr(r, 'snippet', '')}")
         return "\n".join(lines)
 
     return f"Error: unknown scope '{scope}'. Use 'course', 'collection', or 'user_corpus'."

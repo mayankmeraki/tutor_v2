@@ -51,6 +51,7 @@ class ContentHit:
     topics: list[str] = field(default_factory=list)
     labels: list[str] = field(default_factory=list)
     index: int = 0         # position within resource (for sequential nav)
+    title: str = ""        # short title for TOC display
 
 
 # ── Protocol (the contract) ─────────────────────────────────────────────
@@ -91,6 +92,7 @@ class BYOContentStore(Protocol):
         collection_id: str | None = None,
         resource_id: str | None = None,
         modality: list[str] | None = None,
+        topics: list[str] | None = None,
         k: int = 5,
         min_score: float = 0.35,
     ) -> list[ContentHit]:

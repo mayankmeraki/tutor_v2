@@ -79,13 +79,15 @@ class PDFProcessor(BaseProcessor):
             return ProcessResult(markdown=markdown, meta=doc_meta, images=images)
 
         except ImportError:
-            # marker-pdf not installed — fall back to PyMuPDF
             log.warning("marker-pdf not available, falling back to PyMuPDF")
             try:
                 return self._extract_pymupdf(file_path, resource_id)
             except Exception as e2:
-                log.error("PyMuPDF fallback also failed: %s", e2)
-                return ProcessResult(markdown="", meta={"error": str(e2)})
+                log.error("PyMuPDF fallback failed: %s — trying pdfplumber", e2)
+                try:
+                    return self._extract_pdfplumber(file_path, resource_id)
+                except Exception as e3:
+                    return ProcessResult(markdown="", meta={"error": str(e3)})
 
         except Exception as e:
             log.error("PDF extraction failed for %s: %s", resource_id[:8], e)
@@ -93,7 +95,11 @@ class PDFProcessor(BaseProcessor):
             try:
                 return self._extract_pymupdf(file_path, resource_id)
             except Exception as e2:
-                return ProcessResult(markdown="", meta={"error": str(e2)})
+                log.error("PyMuPDF fallback failed: %s — trying pdfplumber", e2)
+                try:
+                    return self._extract_pdfplumber(file_path, resource_id)
+                except Exception as e3:
+                    return ProcessResult(markdown="", meta={"error": str(e3)})
 
     def _extract_pymupdf(self, file_path: str, resource_id: str) -> ProcessResult:
         """Fallback PDF extraction using PyMuPDF.
@@ -178,3 +184,25 @@ class PDFProcessor(BaseProcessor):
                 resource_id[:8], total_pages, len(images), len(low_text_pages))
 
         return ProcessResult(markdown=markdown, meta=doc_meta, images=images)
+
+    def _extract_pdfplumber(self, file_path: str, resource_id: str) -> ProcessResult:
+        """Fallback PDF extraction using pdfplumber (pdfminer-based, most robust)."""
+        import pdfplumber
+
+        pages = []
+        with pdfplumber.open(file_path) as pdf:
+            total_pages = len(pdf.pages)
+            for i, page in enumerate(pdf.pages):
+                text = page.extract_text() or ""
+                if text.strip():
+                    pages.append(f"<!-- page {i + 1} -->\n{text}")
+
+        markdown = "\n\n".join(pages)
+        doc_meta = {
+            "pages": total_pages,
+            "has_images": False,
+            "extractor": "pdfplumber",
+        }
+        log.info("PDF extracted (pdfplumber): %s — %d pages, %d chars",
+                resource_id[:8], total_pages, len(markdown))
+        return ProcessResult(markdown=markdown, meta=doc_meta, images=[])

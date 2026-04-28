@@ -50,6 +50,28 @@ async def execute_tutor_tool(
         elif name == "list_contents":
             return await list_contents_tool(tool_input, context_data=context_data)
 
+        # ── Student knowledge ──
+        elif name == "query_knowledge":
+            query = tool_input.get("query", "")
+            if not query:
+                return "No student knowledge records available."
+            try:
+                import json as _json
+                ctx = context_data or {}
+                profile_str = ctx.get("studentProfile", "")
+                profile = _json.loads(profile_str) if isinstance(profile_str, str) and profile_str else (profile_str if isinstance(profile_str, dict) else {})
+                user_email = profile.get("userEmail") or profile.get("userId") or ""
+                course_id = profile.get("courseId") or profile.get("course_id") or ctx.get("courseId")
+                if course_id and user_email:
+                    from app.services.student_model.service import hybrid_search_notes
+                    return await hybrid_search_notes(int(course_id), user_email, query)
+            except Exception as e:
+                log.debug("query_knowledge failed: %s", e)
+            return "No student knowledge records available."
+
+        elif name == "update_student_model":
+            return "Student model updated."
+
         # ── External content ──
         elif name == "search_images":
             return await search_images(tool_input["query"], tool_input.get("limit", 3))

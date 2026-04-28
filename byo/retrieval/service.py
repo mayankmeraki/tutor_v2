@@ -32,17 +32,20 @@ GroupBy = Literal["topic", "modality", "resource", "none"]
 
 
 def _hit_to_chunk(h: ContentHit) -> RetrievedChunk:
-    """Convert store ContentHit → RetrievedChunk for backward compat."""
-    from byo.shared.models import ChunkAnchor
+    """Convert store ContentHit → RetrievedChunk."""
+    from byo.shared.models import ChunkAnchor, RetrievalMode
     return RetrievedChunk(
         chunk_id=h.chunk_id,
         segment_id=h.segment_id,
         resource_id=h.resource_id,
         collection_id=h.collection_id,
         content=h.content,
+        segment_content=h.segment_content,
+        title=h.title,
         anchor=ChunkAnchor(page=h.anchor_page, section=h.anchor_section),
         score=h.score,
         modality=Modality(h.modality) if h.modality else None,
+        retrieval_mode=RetrievalMode(h.retrieval_mode) if h.retrieval_mode else None,
         topics=h.topics,
         labels=h.labels,
         source="byo",

@@ -173,10 +173,28 @@ async def index_chunks_and_segments(
                "parents": store_parents, "segments": store_segs},
     )
 
-    # Update resource metadata in MongoDB (just the count, not content)
+    # Aggregate topics + build TOC from parents → store on resource doc
+    all_topics = set()
+    toc = []
+    for p in parents:
+        all_topics.update(p.get("topics") or [])
+        toc.append({
+            "index": p.get("index", 0),
+            "title": p.get("title", f"Section {p.get('index', 0) + 1}"),
+            "section": (p.get("anchor") or {}).get("section", ""),
+            "page": (p.get("anchor") or {}).get("page"),
+            "tokens": p.get("tokens", 0),
+            "chunk_id": p.get("chunk_id", ""),
+        })
+
     await db.byo_resources.update_one(
         {"resource_id": resource_id},
-        {"$set": {"chunk_count": store_parents, "segment_count": store_segs}},
+        {"$set": {
+            "chunk_count": store_parents,
+            "segment_count": store_segs,
+            "topics": sorted(all_topics),
+            "toc": toc,
+        }},
     )
 
     total_ms = int((_time.time() - t0) * 1000)

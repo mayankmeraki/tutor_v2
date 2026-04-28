@@ -554,8 +554,8 @@ class AgentRuntime:
             "If no enrichment is needed, output: (no enrichment needed)"
         )
 
-        # Add course context
-        for key in ("courseMap", "concepts"):
+        # Add course + BYO context
+        for key in ("courseMap", "concepts", "sessionContext"):
             val = context.get(key)
             if val:
                 system_prompt += f"\n\n[{key}]\n{val[:2000]}"

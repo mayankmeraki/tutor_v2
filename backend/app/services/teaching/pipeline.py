@@ -702,6 +702,21 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                         if info:
                             result_text = f"peek({ref}): {json.dumps(info, default=str)[:400]}\n"
 
+                    elif tool == "nearby" and ref and _uid:
+                        from byo.retrieval.service import nearby as _svc_nearby
+                        direction = attrs.get("direction", "next")
+                        neighbors = await _svc_nearby(ref, user_id=_uid, window=k)
+                        if neighbors:
+                            # Filter to forward-only if direction="next"
+                            target_idx = next((n.index for n in neighbors if n.chunk_id == ref), -1)
+                            if direction == "next" and target_idx >= 0:
+                                neighbors = [n for n in neighbors if n.index > target_idx][:k]
+                            for n in neighbors:
+                                result_text += (
+                                    f"\n--- ref: chunk:{n.chunk_id} | {n.resource_name} p.{n.anchor_page} ---\n"
+                                    f"{n.content[:600]}\n"
+                                )
+
                     elif tool == "web_search" and query:
                         try:
                             from app.tools.web_search import web_search
@@ -2333,6 +2348,24 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             if inp.get("clear"): parts.append("canvas cleared")
             return "Canvas updated: " + ", ".join(parts) if parts else "Canvas operation complete."
 
+        elif name == "query_knowledge":
+            # Removed from active tools but model sometimes still calls it.
+            # Route through hybrid_search_notes if we have student info,
+            # otherwise return a graceful message.
+            course_id, _ = _extract_student_info(context_data)
+            user_email = _extract_user_email(context_data)
+            if course_id and user_email:
+                try:
+                    from app.services.student_model.service import hybrid_search_notes
+                    return await hybrid_search_notes(course_id, user_email, inp.get("query", ""))
+                except Exception as e:
+                    slog.debug("query_knowledge failed: %s", e)
+            return "No student knowledge records available. Teach from your current context."
+
+        elif name == "update_student_model":
+            # Terminal tool — model calls it but we handle notes via housekeeping tags.
+            return "Student model updated."
+
         else:
             slog.warning("Unknown tool: %s", name)
             return f"Tool '{name}' executed (no specific handler)"
@@ -2622,18 +2655,19 @@ async def _generate_for_turn(
                 "student_model": bool(session.student_model),
             })
 
-            # ── Auto-inject BYO collection context ──
-            # When a BYO collection is in scope, pre-fetch the collection
-            # overview + intent-relevant chunks so the tutor has grounded
-            # content from turn 1 — no tool calls needed for first response.
+            # ── Auto-inject BYO collection context (3-level preload) ──
+            # Level 1: Catalog — resource names + topics (~300 tokens)
+            # Level 2: TOC — ordered chunk titles per resource (~500 tokens)
+            # Level 3: Content — intent-matched chunks (~2,500 tokens)
+            # Total budget: ~3,300 tokens. Eliminates 6-8 tool calls on turn 1.
             _sc_str = context_data.get("sessionContext", "")
             if _sc_str and not context_data.get("_byoPreloaded"):
                 try:
                     _sc = json.loads(_sc_str) if isinstance(_sc_str, str) else _sc_str
                     _byo_cid = _sc.get("collection_id") if isinstance(_sc, dict) else None
+                    _byo_rids = _sc.get("resource_ids") if isinstance(_sc, dict) else None
+
                     if _byo_cid:
-                        from byo.shared.store import get_content_store
-                        _store = get_content_store()
                         _byo_uid = None
                         try:
                             _prof = json.loads(context_data.get("studentProfile", "{}"))
@@ -2642,56 +2676,98 @@ async def _generate_for_turn(
                             pass
 
                         if _byo_uid:
-                            import asyncio as _aio
-                            # Parallel: list overview + search by intent
-                            _intent = session.student_intent or ""
-                            _overview_task = _store.list_chunks(
-                                user_id=_byo_uid, collection_id=_byo_cid, limit=30,
-                            )
-                            if _intent:
-                                from app.services.content.embedding_service import generate_embedding
-                                _emb = await generate_embedding(_intent)
-                                _search_task = _store.search(
-                                    _emb, user_id=_byo_uid,
-                                    collection_id=_byo_cid, k=5, min_score=0.3,
-                                ) if _emb else _aio.sleep(0)
-                            else:
-                                _search_task = _aio.sleep(0)
+                            from app.core.mongodb import get_mongo_db
+                            _byo_db = get_mongo_db()
+                            _byo_parts = []
 
-                            _ov_result, _search_result = await _aio.gather(
-                                _overview_task, _search_task, return_exceptions=True,
-                            )
+                            # ── Level 1: Catalog from MongoDB resource docs ──
+                            _resources = []
+                            async for _r in _byo_db.byo_resources.find(
+                                {"collection_id": _byo_cid, "user_id": _byo_uid, "status": "ready"},
+                                {"resource_id": 1, "original_name": 1, "chunk_count": 1,
+                                 "topics": 1, "toc": 1, "meta": 1, "_id": 0},
+                            ):
+                                _resources.append(_r)
 
-                            # Build overview text
-                            _byo_ctx_parts = []
-                            if isinstance(_ov_result, list) and _ov_result:
-                                # Group by resource
-                                _by_res = {}
-                                for h in _ov_result:
-                                    _by_res.setdefault(h.resource_name or h.resource_id[:8], []).append(h)
-                                _ov_lines = [f"Collection contains {len(_ov_result)} chunks across {len(_by_res)} resources:"]
-                                for rname, chunks in _by_res.items():
-                                    pages = sorted(set(c.anchor_page for c in chunks if c.anchor_page))
-                                    _ov_lines.append(f"  • {rname} — {len(chunks)} chunks, pages {pages[:10]}")
-                                _byo_ctx_parts.append("\n".join(_ov_lines))
-
-                            # Build relevant content
-                            if isinstance(_search_result, list) and _search_result:
-                                _rel_lines = [f"Most relevant content for \"{_intent[:80]}\":"]
-                                for i, h in enumerate(_search_result[:5], 1):
-                                    pg = h.anchor_page or "?"
-                                    _rel_lines.append(
-                                        f"\n--- ref: chunk:{h.chunk_id} | {h.resource_name} p.{pg} ---\n"
-                                        f"{h.content[:600]}"
+                            if _resources:
+                                _cat_lines = [f"[COLLECTION CONTENT — {len(_resources)} resource(s)]"]
+                                for _ri, _r in enumerate(_resources, 1):
+                                    _name = _r.get("original_name", "untitled")
+                                    _pages = (_r.get("meta") or {}).get("pages", "?")
+                                    _topics = ", ".join((_r.get("topics") or [])[:8])
+                                    _chunks = _r.get("chunk_count", "?")
+                                    _cat_lines.append(
+                                        f"  {_ri}. {_name} — {_pages} pages, {_chunks} chunks"
+                                        + (f", topics: [{_topics}]" if _topics else "")
                                     )
-                                _byo_ctx_parts.append("\n".join(_rel_lines))
+                                _byo_parts.append("\n".join(_cat_lines))
 
-                            if _byo_ctx_parts:
-                                context_data["_byoPreloaded"] = "\n\n".join(_byo_ctx_parts)
+                                # ── Level 2: TOC from resource docs ──
+                                # Show TOC for specifically selected resources, or all if small collection
+                                _toc_resources = _resources
+                                if _byo_rids:
+                                    _toc_resources = [r for r in _resources if r.get("resource_id") in _byo_rids]
+                                if not _toc_resources:
+                                    _toc_resources = _resources[:3]  # cap at 3 for large collections
+
+                                for _r in _toc_resources:
+                                    _toc = _r.get("toc") or []
+                                    if _toc:
+                                        _toc_lines = [f"\n[TABLE OF CONTENTS — {_r.get('original_name', 'resource')}]"]
+                                        for _entry in _toc[:20]:  # cap at 20 entries
+                                            _pg = f"p.{_entry.get('page')}" if _entry.get("page") else ""
+                                            _sec = _entry.get("section") or ""
+                                            _title = _entry.get("title") or _sec or f"Section {_entry.get('index', 0) + 1}"
+                                            _cid = _entry.get("chunk_id", "")[:12]
+                                            _toc_lines.append(f"  [{_entry.get('index', 0)}] {_title} {_pg} (ref: chunk:{_cid})")
+                                        _byo_parts.append("\n".join(_toc_lines))
+
+                            # ── Level 3: Intent-matched content from Qdrant ──
+                            _intent = session.student_intent or ""
+                            if _intent and _resources:
+                                try:
+                                    from byo.shared.store import get_content_store
+                                    from app.services.content.embedding_service import generate_embedding
+                                    _emb = await generate_embedding(_intent)
+                                    if _emb:
+                                        _store = get_content_store()
+                                        _search_kwargs = dict(
+                                            user_id=_byo_uid,
+                                            collection_id=_byo_cid,
+                                            k=5, min_score=0.3,
+                                        )
+                                        if _byo_rids:
+                                            _search_kwargs["resource_id"] = _byo_rids[0]
+                                        _hits = await _store.search(_emb, **_search_kwargs)
+                                        if _hits:
+                                            _content_lines = [f"\n[CONTENT — most relevant for \"{_intent[:60]}\"]"]
+                                            _token_budget = 2500
+                                            _used = 0
+                                            for _h in _hits:
+                                                _text = _h.content or _h.segment_content or ""
+                                                _toks = len(_text) // 4
+                                                if _used + _toks > _token_budget:
+                                                    _text = _text[:(_token_budget - _used) * 4]
+                                                _pg = _h.anchor_page or "?"
+                                                _title = _h.title or ""
+                                                _header = f"--- ref: chunk:{_h.chunk_id[:12]} | {_h.resource_name} p.{_pg}"
+                                                if _title:
+                                                    _header += f" | {_title[:80]}"
+                                                _header += " ---"
+                                                _content_lines.append(f"\n{_header}\n{_text}")
+                                                _used += len(_text) // 4
+                                                if _used >= _token_budget:
+                                                    break
+                                            _byo_parts.append("\n".join(_content_lines))
+                                except Exception as _search_err:
+                                    slog.debug("BYO content search failed: %s", _search_err)
+
+                            if _byo_parts:
+                                _preloaded = "\n\n".join(_byo_parts)
+                                context_data["_byoPreloaded"] = _preloaded
                                 slog.info(
-                                    "BYO context pre-loaded: %d overview chunks, %d search hits",
-                                    len(_ov_result) if isinstance(_ov_result, list) else 0,
-                                    len(_search_result) if isinstance(_search_result, list) else 0,
+                                    "BYO preloaded: %d resources, %d chars",
+                                    len(_resources), len(_preloaded),
                                 )
                 except Exception as _byo_err:
                     log.debug("BYO context pre-load failed: %s", _byo_err)

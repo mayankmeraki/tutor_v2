@@ -75,7 +75,11 @@ Supports ANY tool: search, fetch, peek, web_search.
 EXAMPLES:
   <prefetch_context tool="search" query="integration by parts formula" scope="collection" k="3" />
   <prefetch_context tool="fetch" ref="chunk:abc123" />
+  <prefetch_context tool="nearby" ref="chunk:abc123" direction="next" k="3" />
   <prefetch_context tool="web_search" query="Bernoulli equation derivation" />
+
+The "nearby" tool fetches the next N chunks after a given ref — like turning
+the page. Use it when you're teaching sequentially through a document.
 
 Place these inside your <teaching-housekeeping> block (at the end of your
 message, as usual). The system starts fetching as soon as it parses them —
@@ -85,6 +89,7 @@ WHEN TO USE:
   - You know what topic is next → prefetch its content NOW
   - Student will likely ask a follow-up → prefetch the answer
   - You need a web source for the next explanation → prefetch it
+  - You're teaching through a document → prefetch next sections with "nearby"
   - You're moving to a new section → prefetch its content
 
 RULES:

@@ -24,8 +24,10 @@ class RetrievedChunk:
     collection_id: str
 
     content: str  # parent content (~800 tokens)
-    anchor: ChunkAnchor
-    score: float
+    segment_content: str = ""  # child content (~200 tok) — what matched the query
+    title: str = ""  # chunk title for citation
+    anchor: ChunkAnchor = field(default_factory=ChunkAnchor)
+    score: float = 0.0
 
     modality: Modality | None = None
     retrieval_mode: RetrievalMode | None = None

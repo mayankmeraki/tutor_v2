@@ -766,46 +766,12 @@
         <div style="max-width:1100px;margin:0 auto;padding:20px 28px 80px">
           <!-- Hero + Search -->
           <div style="max-width:620px;margin:0 auto 28px;text-align:center">
-            <h2 style="font-size:20px;font-weight:700;color:rgba(255,255,255,.85);margin-bottom:4px">What do you want to work on?</h2>
-            <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px">Paste a LeetCode problem, ask Euler to teach a topic, or pick one below</p>
-            <input type="text" id="dsa-search-input" placeholder='e.g. "solve Two Sum", "teach me DP", or paste a problem URL...'
+            <h2 style="font-size:22px;font-weight:700;color:rgba(255,255,255,.9);margin-bottom:6px;letter-spacing:-.3px">DSA & Interview Prep</h2>
+            <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px;line-height:1.5">Learn patterns, solve problems, and prep for FAANG — Euler adapts to your level</p>
+            <input type="text" id="dsa-search-input" placeholder='Ask anything: "teach me DP", "solve Two Sum", paste a LeetCode URL...'
                    style="width:100%;padding:14px 18px;border-radius:12px;border:1px solid rgba(52,211,153,.12);background:rgba(11,16,24,1);color:#fff;font-size:13px;outline:none;transition:border-color .15s" onfocus="this.style.borderColor='rgba(52,211,153,.3)'" onblur="this.style.borderColor='rgba(52,211,153,.12)'" autocomplete="off">
           </div>
 
-          <!-- Quick actions -->
-          <div style="max-width:620px;margin:0 auto 28px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Teach me dynamic programming from scratch';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(52,211,153,.08);background:rgba(52,211,153,.03);color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(52,211,153,.2)';this.style.background='rgba(52,211,153,.06)'" onmouseleave="this.style.borderColor='rgba(52,211,153,.08)';this.style.background='rgba(52,211,153,.03)'">
-              Teach me DP from scratch
-            </button>
-            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Give me a random medium problem';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(96,165,250,.08);background:rgba(96,165,250,.03);color:rgba(96,165,250,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(96,165,250,.2)';this.style.background='rgba(96,165,250,.06)'" onmouseleave="this.style.borderColor='rgba(96,165,250,.08)';this.style.background='rgba(96,165,250,.03)'">
-              Random medium problem
-            </button>
-            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Explain sliding window pattern with examples';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(167,139,250,.08);background:rgba(167,139,250,.03);color:rgba(167,139,250,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(167,139,250,.2)';this.style.background='rgba(167,139,250,.06)'" onmouseleave="this.style.borderColor='rgba(167,139,250,.08)';this.style.background='rgba(167,139,250,.03)'">
-              Explain sliding window
-            </button>
-            <button class="dsa-quick-action" onclick="document.getElementById('dsa-search-input').value='Help me with this problem I am stuck on';document.getElementById('dsa-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(251,191,36,.08);background:rgba(251,191,36,.03);color:rgba(251,191,36,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(251,191,36,.2)';this.style.background='rgba(251,191,36,.06)'" onmouseleave="this.style.borderColor='rgba(251,191,36,.08)';this.style.background='rgba(251,191,36,.03)'">
-              I'm stuck on a problem
-            </button>
-          </div>
-
-          <!-- How it works -->
-          <div style="max-width:620px;margin:0 auto 28px;display:flex;gap:12px">
-            <div style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
-              <div style="font-size:16px;margin-bottom:4px">1</div>
-              <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.5);margin-bottom:2px">Pick a topic</div>
-              <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.4">Click any topic below to see problems. Choose Study to learn or Practice to solve.</div>
-            </div>
-            <div style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
-              <div style="font-size:16px;margin-bottom:4px">2</div>
-              <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.5);margin-bottom:2px">Learn with Euler</div>
-              <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.4">Euler teaches step-by-step with live animations, code walkthroughs, and visual explanations.</div>
-            </div>
-            <div style="flex:1;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.01)">
-              <div style="font-size:16px;margin-bottom:4px">3</div>
-              <div style="font-size:10px;font-weight:600;color:rgba(255,255,255,.5);margin-bottom:2px">Run & Submit</div>
-              <div style="font-size:8px;color:rgba(255,255,255,.2);line-height:1.4">Write code in the editor, run against test cases, and get instant feedback — just like LeetCode.</div>
-            </div>
-          </div>
 
           <!-- Stats -->
           <div id="dsa-stats" style="display:flex;gap:10px;margin-bottom:20px"></div>

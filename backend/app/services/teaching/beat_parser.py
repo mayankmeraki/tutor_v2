@@ -172,6 +172,17 @@ def parse_beat_attrs(attr_str: str) -> dict[str, Any]:
     # say — text to speak
     say = _attr(attr_str, 'say')
     if say is not None:
+        # Decode Unicode escapes the LLM may emit (e.g. \u2032 → ′)
+        if r'\u' in say:
+            try:
+                say = say.encode('utf-8').decode('unicode_escape')
+            except (UnicodeDecodeError, UnicodeEncodeError):
+                # If decode fails (e.g. mixed content), do targeted replacement
+                say = re.sub(
+                    r'\\u([0-9a-fA-F]{4})',
+                    lambda m: chr(int(m.group(1), 16)),
+                    say,
+                )
         beat['say'] = say
 
     # draw — board drawing commands (JSON)

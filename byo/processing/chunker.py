@@ -105,6 +105,20 @@ def _detect_retrieval_mode(modality: Modality) -> RetrievalMode:
     return RetrievalMode.EXACT_PLUS_SEMANTIC
 
 
+def _extract_title(content: str, heading: str | None = None, index: int = 0) -> str:
+    """Extract a short title from chunk content for TOC display."""
+    if heading:
+        return heading.strip()[:120]
+    lines = [l.strip() for l in content.split("\n") if l.strip() and not l.strip().startswith("<!--")]
+    if not lines:
+        return f"Section {index + 1}"
+    first = lines[0].lstrip("#").strip()
+    # Skip image descriptions and metadata lines
+    if first.startswith("[Image:") or first.startswith("[Decorative"):
+        first = lines[1].lstrip("#").strip() if len(lines) > 1 else first
+    return first[:120] if first else f"Section {index + 1}"
+
+
 # ── Public API ─────────────────────────────────────────────────────────
 
 async def chunk_markdown(
@@ -205,6 +219,7 @@ async def chunk_markdown(
             "user_id": user_id,
             "index": p_index,
             "level": ChunkLevel.PARENT.value,
+            "title": _extract_title(content, pack.get("heading"), p_index),
             "content": content,
             "tokens": _tok(content),
             "anchor": anchor,
@@ -330,6 +345,7 @@ async def _chunk_by_llm_boundaries(
             "user_id": user_id,
             "index": p_index,
             "level": ChunkLevel.PARENT.value,
+            "title": _extract_title(content, None, p_index),
             "content": content,
             "tokens": _tok(content),
             "anchor": anchor,
