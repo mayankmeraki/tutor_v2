@@ -2692,10 +2692,24 @@ async function _wsExecBeat(beat, beatNum, turn) {
     console.warn('[WS Exec] ⚠️ Beat #' + beatNum + ' has draw (' + drawCmds + ') but NO say — voice will be silent for this beat');
   }
 
+  // Wait for any previously playing audio to finish before starting this beat
+  // (prevents overlap when a no-say beat executes instantly between two say beats)
+  if (!hasSay && turn.audioEl && !turn.audioEl.paused) {
+    await new Promise(r => {
+      turn.audioEl.addEventListener('ended', r, { once: true });
+      setTimeout(r, 8000); // safety timeout
+    });
+  }
+
   await Promise.race([
     Promise.all([ executeDraw(beat.draw), hasSay ? _wsPlayAudio(beat, beatNum, turn) : Promise.resolve() ]),
     new Promise(r => setTimeout(r, 15000)),
   ]);
+
+  // For draw-only beats, add a small pause so the student sees the drawing
+  if (!hasSay && hasDraw) {
+    await new Promise(r => setTimeout(r, 400));
+  }
 
   if (!beat.question) await voiceBeatGap(beat.pause);
   if (beat.question) { voiceHideHand(); voiceShowBoardQuestion(typeof renderLatex === 'function' ? renderLatex(beat.say || 'What do you think?') : (beat.say || 'What do you think?')); }
