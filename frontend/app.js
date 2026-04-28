@@ -8458,7 +8458,6 @@ function flushEngagedSegment() {
   // Flush the in-progress engaged segment into _accumulatedDuration.
   // Safe to call any time — no-op if not engaged or anchor missing.
   if (!state._lastEngagedAt) return;
-  if (!isEngaged()) return;
   const now = Date.now();
   const deltaMs = now - state._lastEngagedAt;
   // Guard against clock-backwards / huge resume gaps.
