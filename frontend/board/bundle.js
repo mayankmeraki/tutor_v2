@@ -765,6 +765,7 @@ function buildControlBridge(scale, isWebGL) {
     '      pmouseX=p.pmouseX; pmouseY=p.pmouseY;\n' +
     '      W=p.width; H=p.height; width=p.width; height=p.height;\n' +
     '      mouseIsPressed=p.mouseIsPressed; key=p.key; keyCode=p.keyCode;\n' +
+    '      drawingContext=p.drawingContext;\n' +
     '    };\n' +
     '    var PI=Math.PI,TWO_PI=Math.PI*2,HALF_PI=Math.PI/2,QUARTER_PI=Math.PI/4;\n' +
     '    var CENTER=p.CENTER,LEFT=p.LEFT,RIGHT=p.RIGHT,TOP=p.TOP,BOTTOM=p.BOTTOM,BASELINE=p.BASELINE;\n' +
@@ -789,8 +790,8 @@ function buildControlBridge(scale, isWebGL) {
     '    var RGB=p.RGB,HSB=p.HSB,HSL=p.HSL;\n' +
     '    var DEGREES=p.DEGREES,RADIANS=p.RADIANS;\n' +
     '    var CORNER=p.CORNER;\n' +
-    '    // Canvas2D context methods — LLMs call these bare (without p. or drawingContext.)\n' +
-    '    var drawingContext=p.drawingContext;\n' +
+    '    // Canvas2D context — starts null, synced every frame via _syncLocals after createCanvas()\n' +
+    '    var drawingContext=null;\n' +
     '    var setLineDash=function(){if(p.drawingContext)return p.drawingContext.setLineDash.apply(p.drawingContext,arguments)};\n' +
     '    var getLineDash=function(){if(p.drawingContext)return p.drawingContext.getLineDash()};\n' +
     '    var createLinearGradient=function(){if(p.drawingContext)return p.drawingContext.createLinearGradient.apply(p.drawingContext,arguments)};\n' +
