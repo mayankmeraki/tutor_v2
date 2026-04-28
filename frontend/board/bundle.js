@@ -598,6 +598,25 @@ function scrollToElement(elementId) {
 // 7. ANIMATION
 // ═══════════════════════════════════════════════════════════════
 
+function _extractBalancedBlock(code, startIdx) {
+  // Extract a balanced {...} block starting at startIdx (which should be '{')
+  if (code[startIdx] !== '{') return null;
+  var depth = 0, inStr = false, strCh = '', esc = false;
+  for (var i = startIdx; i < code.length; i++) {
+    var ch = code[i];
+    if (esc) { esc = false; continue; }
+    if (ch === '\\') { esc = true; continue; }
+    if (inStr) { if (ch === strCh) inStr = false; continue; }
+    if (ch === '"' || ch === "'" || ch === '`') { inStr = true; strCh = ch; continue; }
+    if (ch === '{') depth++;
+    if (ch === '}') { depth--; if (depth === 0) return code.substring(startIdx, i + 1); }
+  }
+  // Unbalanced — close remaining braces
+  var block = code.substring(startIdx);
+  while (depth > 0) { block += '}'; depth--; }
+  return block;
+}
+
 function sanitizeCode(code) {
   code = code.replace(/[\u2018\u2019\u201A\u2032]/g, "'");
   code = code.replace(/[\u201C\u201D\u201E\u2033]/g, '"');
@@ -677,9 +696,9 @@ function sanitizeCode(code) {
   // ── Common LLM syntax errors that cause "Unexpected token 'if'" ──
 
   // 1. Missing semicolons after closing brace before a statement keyword.
-  //    LLM outputs: `} if (x) {` which can fail ASI in some contexts.
-  //    Fix: ensure `}` before `if|for|while|let|const|var` has `;` between.
-  code = code.replace(/\}(\s*)(if|for|while|let |const |var |return )/g, '};\n$1$2');
+  //    LLM outputs: `} if (x) {` or `} function helper()` which can fail ASI.
+  //    Fix: ensure `}` before keywords has `;` between.
+  code = code.replace(/\}(\s*)(if|for|while|let |const |var |return |function )/g, '};\n$1$2');
 
   // 2. Python-style inline conditionals: `var x = if (cond) val else other`
   //    JavaScript uses ternary: `var x = cond ? val : other`
@@ -1047,11 +1066,61 @@ async function createAnimation(cmd) {
   try {
     sketchFn = new Function('p', 'W', 'H', fullCode);
   } catch (e) {
+    // ── Repair pass 1: strip non-ASCII ──
     try {
       sketchFn = new Function('p', 'W', 'H', fullCode.replace(/[^\x00-\x7F]/g, ''));
-    } catch (e2) {
-      console.warn('[Animation] Compile error — calling syntax fix:', e.message);
-      console.warn('[Animation] Broken code (first 500 chars):', fullCode.substring(0, 500));
+    } catch (e2) {}
+
+    if (!sketchFn) {
+      // ── Repair pass 2: fix common LLM syntax issues ──
+      var repaired = fullCode;
+      // Fix: `} function` → `}; function` (missing semicolon before function decl)
+      repaired = repaired.replace(/\}(\s*)(function\s)/g, '};\n$1$2');
+      // Fix: `= function(...){}function` → add semicolon
+      repaired = repaired.replace(/\}(\s*function\s+\w)/g, '};\n$1');
+      // Fix: truncated code — close any open braces/parens
+      var opens = 0, closes = 0;
+      for (var ri = 0; ri < repaired.length; ri++) {
+        if (repaired[ri] === '{') opens++;
+        if (repaired[ri] === '}') closes++;
+      }
+      while (closes < opens) { repaired += '\n}'; closes++; }
+      // Fix: truncated string literal — close it
+      repaired = repaired.replace(/(['"`])(?:[^'"`\\]|\\.)*$/, '$&$1');
+      try {
+        sketchFn = new Function('p', 'W', 'H', repaired);
+        console.info('[Animation] Repair pass 2 succeeded');
+      } catch (e3) {}
+    }
+
+    if (!sketchFn) {
+      // ── Repair pass 3: extract just setup+draw, discard everything else ──
+      var setupMatch = fullCode.match(/p\.setup\s*=\s*function\s*\([^)]*\)\s*\{/);
+      var drawMatch = fullCode.match(/p\.draw\s*=\s*function\s*\([^)]*\)\s*\{/);
+      if (setupMatch || drawMatch) {
+        // Re-extract the bridge (before user code) + just the function bodies
+        var bridge = buildControlBridge(scale, isWebGL);
+        var minimal = bridge + '\n';
+        if (setupMatch) {
+          var sIdx = fullCode.indexOf(setupMatch[0]);
+          var sBody = _extractBalancedBlock(fullCode, sIdx + setupMatch[0].length - 1);
+          if (sBody) minimal += 'p.setup = function() ' + sBody + ';\n';
+        }
+        if (drawMatch) {
+          var dIdx = fullCode.indexOf(drawMatch[0]);
+          var dBody = _extractBalancedBlock(fullCode, dIdx + drawMatch[0].length - 1);
+          if (dBody) minimal += 'p.draw = function() ' + dBody + ';\n';
+        }
+        try {
+          sketchFn = new Function('p', 'W', 'H', minimal);
+          console.info('[Animation] Repair pass 3 (extract setup+draw) succeeded');
+        } catch (e4) {}
+      }
+    }
+
+    if (!sketchFn) {
+      console.warn('[Animation] Compile error — all repairs failed:', e.message);
+      console.warn('[Animation] Broken code (first 800 chars):', fullCode.substring(0, 800));
       showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
       return;
     }
