@@ -511,22 +511,45 @@
             </div>
           </div>
 
-          <!-- ═══ My Collections ═══ -->
+          <!-- ═══ My Materials ═══ -->
           <div id="byo-list-view">
-            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:4px">
+            <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px">
               <div style="display:flex;align-items:center;gap:8px">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="var(--accent)" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
-                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8);margin:0">My Collections</h2>
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,.6)" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+                <h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8);margin:0">My Materials</h2>
               </div>
               <button class="sc-btn sc-btn-accent" id="btn-new-collection" style="font-size:11px;padding:6px 12px;border-radius:7px;font-weight:600;white-space:nowrap">
                 <span style="display:inline-flex;align-items:center;gap:5px">
                   <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M12 5v14"/><path d="M5 12h14"/></svg>
-                  New
+                  New Collection
                 </span>
               </button>
             </div>
-            <p style="font-size:11px;color:var(--text-dim);line-height:1.5;margin:0 0 12px">Upload PDFs, notes, or exam papers. Euler teaches, explains, solves, and tests you from your own content.</p>
-            <div id="collections-list" class="hscroll" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory"></div>
+
+            <!-- Collections -->
+            <div id="collections-list" class="hscroll" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:8px;scroll-snap-type:x mandatory;margin-bottom:20px"></div>
+
+            <!-- How it works -->
+            <div style="padding:20px;border-radius:12px;border:1px solid rgba(255,255,255,.03);background:rgba(255,255,255,.012)">
+              <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.3);margin-bottom:14px">How it works</div>
+              <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+                <div>
+                  <div style="font-size:18px;margin-bottom:5px;color:rgba(167,139,250,.4)">1.</div>
+                  <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.6);margin-bottom:3px">Upload</div>
+                  <div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.5">Drop a PDF, paste a YouTube link, or type notes. Euler reads and understands it.</div>
+                </div>
+                <div>
+                  <div style="font-size:18px;margin-bottom:5px;color:rgba(167,139,250,.4)">2.</div>
+                  <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.6);margin-bottom:3px">Ask anything</div>
+                  <div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.5">Start a session with your collection scoped. "Teach me chapter 3" or "explain this formula."</div>
+                </div>
+                <div>
+                  <div style="font-size:18px;margin-bottom:5px;color:rgba(167,139,250,.4)">3.</div>
+                  <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.6);margin-bottom:3px">Learn deeply</div>
+                  <div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.5">Animated explanations, practice problems, and Q&A — all grounded in your specific content.</div>
+                </div>
+              </div>
+            </div>
           </div>
 
         </div>
@@ -768,15 +791,22 @@
           <div style="max-width:620px;margin:0 auto 28px;text-align:center">
             <h2 style="font-size:22px;font-weight:700;color:rgba(255,255,255,.9);margin-bottom:6px;letter-spacing:-.3px">DSA & Interview Prep</h2>
             <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px;line-height:1.5">Learn patterns, solve problems, and prep for FAANG — Euler adapts to your level</p>
-            <input type="text" id="dsa-search-input" placeholder='Ask anything: "teach me DP", "solve Two Sum", paste a LeetCode URL...'
+            <input type="text" id="dsa-search-input" placeholder='Try: "teach me DP", "solve Two Sum", "random medium", or paste a LeetCode URL...'
                    style="width:100%;padding:14px 18px;border-radius:12px;border:1px solid rgba(52,211,153,.12);background:rgba(11,16,24,1);color:#fff;font-size:13px;outline:none;transition:border-color .15s" onfocus="this.style.borderColor='rgba(52,211,153,.3)'" onblur="this.style.borderColor='rgba(52,211,153,.12)'" autocomplete="off">
           </div>
 
+          <!-- Topics with Progress -->
+          <div style="margin-bottom:24px">
+            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.35);margin-bottom:10px">Topics — click to learn</div>
+            <div id="dsa-topic-chips" style="display:flex;flex-wrap:wrap;gap:8px"></div>
+          </div>
 
-          <!-- Stats -->
-          <div id="dsa-stats" style="display:flex;gap:10px;margin-bottom:20px"></div>
-          <!-- Topics accordion list -->
-          <div id="dsa-topics-list"></div>
+          <!-- Problems Table -->
+          <div>
+            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.35);margin-bottom:10px">Problems</div>
+            <div id="dsa-filter-pills" style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap"></div>
+            <div id="dsa-problems-table" style="width:100%"></div>
+          </div>
         </div>
       </div>
 
@@ -1338,7 +1368,7 @@
 
   <script src="/dash-bg.js"></script>
   <script src="/router.js"></script>
-  <script src="/board/bundle.js"></script>
+  <script src="/board/bundle.js?v=20260428b"></script>
   <script src="/animation-helpers.js"></script>
   <script src="/app.js?v=20260424j"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->

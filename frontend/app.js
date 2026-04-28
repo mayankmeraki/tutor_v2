@@ -21694,7 +21694,8 @@ async function _loadDSAScreen() {
   // Store problems for topic drill-down
   window._dsaAllProblems = problems;
 
-  _renderDSATopicAccordions(topics, problems);
+  _renderDSATopicChips(topics, problems);
+  _renderDSAProblemsTable(problems);
   _renderSDPage(hldProblems, sdConcepts);
   _renderLLDPage(lldProblems, lldConcepts);
 
@@ -21714,6 +21715,131 @@ async function _loadDSAScreen() {
 
   // Load mock setup
   _loadMockSetup();
+}
+
+// ── DSA Topic Chips (new design) ──
+function _renderDSATopicChips(topics, problems) {
+  var el = document.getElementById('dsa-topic-chips');
+  if (!el) return;
+
+  var topicLabels = {
+    arrays:'Arrays & Hashing', arrays_hashing:'Arrays & Hashing', hash_map:'Hash Map',
+    two_pointers:'Two Pointers', sliding_window:'Sliding Window', stack:'Stack',
+    binary_search:'Binary Search', linked_list:'Linked List', trees:'Trees',
+    graphs:'Graphs', dynamic_programming:'Dynamic Programming', backtracking:'Backtracking',
+    heap:'Heap', greedy:'Greedy', intervals:'Intervals', sorting:'Sorting',
+    recursion:'Recursion', bfs:'BFS', dfs:'DFS', string:'Strings', matrix:'Matrix',
+    math:'Math', bit_manipulation:'Bit Manipulation', trie:'Trie',
+    union_find:'Union Find', topological_sort:'Topological Sort',
+  };
+
+  // Count problems per topic
+  var topicCounts = {};
+  (problems || []).forEach(function(p) {
+    (p.topics || []).forEach(function(t) {
+      topicCounts[t] = (topicCounts[t] || 0) + 1;
+    });
+  });
+
+  el.innerHTML = '';
+  (topics || []).forEach(function(t) {
+    var slug = t.topic;
+    var name = topicLabels[slug] || slug.replace(/_/g, ' ');
+    var count = t.count || topicCounts[slug] || 0;
+    // TODO: get solved count from progress API
+    var solved = 0;
+    var dotClass = solved >= 3 ? 'solid' : solved > 0 ? 'started' : 'new';
+    var dotColor = dotClass === 'solid' ? '#34d399' : dotClass === 'started' ? '#fbbf24' : 'rgba(255,255,255,.1)';
+
+    var chip = document.createElement('button');
+    chip.style.cssText = 'padding:8px 14px;border-radius:9px;border:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02);font-size:12px;color:rgba(255,255,255,.5);cursor:pointer;font-family:inherit;transition:all .12s;display:flex;align-items:center;gap:6px';
+    chip.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';flex-shrink:0"></span>' +
+      name + (solved > 0 ? ' <span style="font-size:9px;color:rgba(52,211,153,.5);margin-left:2px">' + solved + ' solved</span>' : '');
+    chip.onmouseenter = function() { chip.style.borderColor = 'rgba(52,211,153,.2)'; chip.style.color = 'rgba(255,255,255,.8)'; chip.style.background = 'rgba(52,211,153,.04)'; };
+    chip.onmouseleave = function() { chip.style.borderColor = 'rgba(255,255,255,.05)'; chip.style.color = 'rgba(255,255,255,.5)'; chip.style.background = 'rgba(255,255,255,.02)'; };
+    chip.onclick = function() {
+      state.dsaMode = 'dsa';
+      state.dsaProblemSlug = null;
+      state.dsaProblemData = null;
+      state.studentIntent = 'Teach me ' + name;
+      _startDSASession(null, 'dsa');
+    };
+    el.appendChild(chip);
+  });
+}
+
+// ── DSA Problems Table (new design) ──
+function _renderDSAProblemsTable(problems) {
+  var tableEl = document.getElementById('dsa-problems-table');
+  var filterEl = document.getElementById('dsa-filter-pills');
+  if (!tableEl) return;
+
+  var filters = ['All', 'Easy', 'Medium', 'Hard'];
+  var activeFilter = 'All';
+
+  function renderFilters() {
+    if (!filterEl) return;
+    filterEl.innerHTML = '';
+    filters.forEach(function(f) {
+      var btn = document.createElement('button');
+      btn.textContent = f;
+      btn.style.cssText = 'padding:5px 12px;border-radius:7px;border:1px solid ' +
+        (f === activeFilter ? 'rgba(52,211,153,.2)' : 'rgba(255,255,255,.05)') +
+        ';background:' + (f === activeFilter ? 'rgba(52,211,153,.08)' : 'none') +
+        ';color:' + (f === activeFilter ? 'rgba(52,211,153,.8)' : 'rgba(255,255,255,.3)') +
+        ';font-size:10px;cursor:pointer;font-family:inherit;transition:all .1s';
+      btn.onclick = function() { activeFilter = f; renderFilters(); renderTable(); };
+      filterEl.appendChild(btn);
+    });
+  }
+
+  function renderTable() {
+    var filtered = problems;
+    if (activeFilter !== 'All') {
+      filtered = problems.filter(function(p) { return p.difficulty === activeFilter.toLowerCase(); });
+    }
+
+    var diffColors = { easy: { bg: 'rgba(52,211,153,.1)', color: '#34d399' }, medium: { bg: 'rgba(251,191,36,.1)', color: '#fbbf24' }, hard: { bg: 'rgba(239,68,68,.1)', color: '#ef4444' } };
+
+    var html = '<table style="width:100%;border-collapse:collapse">' +
+      '<thead><tr>' +
+      '<th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)">Problem</th>' +
+      '<th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)">Difficulty</th>' +
+      '<th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)">Topic</th>' +
+      '<th style="text-align:right;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)"></th>' +
+      '</tr></thead><tbody>';
+
+    filtered.slice(0, 50).forEach(function(p) {
+      var diff = p.difficulty || 'medium';
+      var dc = diffColors[diff] || diffColors.medium;
+      var topicStr = (p.topics || []).slice(0, 2).map(function(t) { return t.replace(/_/g, ' '); }).join(', ');
+      var name = p.name || p.title || p.slug;
+
+      html += '<tr style="cursor:pointer" onmouseenter="this.style.background=\'rgba(255,255,255,.015)\'" onmouseleave="this.style.background=\'\'">' +
+        '<td style="padding:10px 12px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.02);color:rgba(255,255,255,.8);font-weight:500">' + (name || '') + '</td>' +
+        '<td style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.02)"><span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + dc.bg + ';color:' + dc.color + '">' + diff.charAt(0).toUpperCase() + diff.slice(1) + '</span></td>' +
+        '<td style="padding:10px 12px;font-size:10px;color:rgba(255,255,255,.25);border-bottom:1px solid rgba(255,255,255,.02)">' + topicStr + '</td>' +
+        '<td style="padding:10px 12px;text-align:right;border-bottom:1px solid rgba(255,255,255,.02)"><button onclick="event.stopPropagation();_dsaStartProblem(\'' + (p.slug || '') + '\')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(52,211,153,.15);background:none;color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit">Solve</button></td>' +
+        '</tr>';
+    });
+
+    html += '</tbody></table>';
+    if (filtered.length === 0) {
+      html = '<div style="text-align:center;padding:20px;font-size:12px;color:rgba(255,255,255,.2)">No problems found</div>';
+    }
+    tableEl.innerHTML = html;
+  }
+
+  renderFilters();
+  renderTable();
+}
+
+// Helper: start problem session from table
+function _dsaStartProblem(slug) {
+  state.dsaMode = 'dsa';
+  state.dsaProblemSlug = slug;
+  state.studentIntent = 'solve ' + slug;
+  _startDSASession(slug, 'dsa');
 }
 
 function _renderDSATopicAccordions(topics, problems) {
