@@ -8469,9 +8469,14 @@ function startTimer() {
 
 function updateTimer() {
   if (!state.sessionStartTime) return;
-  // Use accumulated (capped) duration so the displayed time never inflates
-  // due to idle/AFK gaps. _accumulatedDuration is updated by saveSession().
-  const elapsed = state._accumulatedDuration || 0;
+  // Base = persisted accumulator. Add the in-progress engaged segment if any
+  // (capped, guarded against negative deltas).
+  let elapsed = state._accumulatedDuration || 0;
+  if (state._lastEngagedAt && isEngaged()) {
+    const deltaMs = Date.now() - state._lastEngagedAt;
+    const safeMs = Math.max(0, Math.min(deltaMs, IDLE_CAP_SEC * 1000));
+    elapsed += Math.floor(safeMs / 1000);
+  }
   const min = Math.floor(elapsed / 60);
   const sec = elapsed % 60;
   const timeStr = `${min}:${sec.toString().padStart(2, '0')}`;
