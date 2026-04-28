@@ -43,3 +43,7 @@ wireframe-*.html
 *.tgz
 
 .graphify/
+
+# Local planning / spec docs (superpowers workflow)
+docs/superpowers/
+.playwright-mcp/

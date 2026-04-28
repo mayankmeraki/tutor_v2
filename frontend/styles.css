@@ -6122,9 +6122,10 @@ body {
   color: rgba(255,255,255,0.25); cursor: pointer;
   display: flex; align-items: center; justify-content: center;
   font-size: 9px; font-weight: 800; letter-spacing: 0.5px;
-  font-family: var(--font-sans); transition: color 0.15s;
+  font-family: var(--font-sans); transition: color 0.15s, background 0.12s;
 }
-.vb-cc-btn:hover { color: rgba(255,255,255,0.5); }
+.vb-cc-btn:hover { background: rgba(255,255,255,0.04); color: rgba(255,255,255,0.5); }
+.vb-cc-btn.cc-on:hover { color: var(--accent); }
 .vb-cc-btn.cc-on { color: var(--accent); }
 
 /* ── Voice bar row: orb + input ── */
@@ -6262,11 +6263,13 @@ body {
 .vb-mic-pill.visible { display: none; }
 .vb-mic-pill-dot { display: none; }
 
-/* Mic recording state — red icon with pulse */
-.vb-icon-btn.mic-recording {
+/* Mic recording state — red icon with pulse.
+   ID-scoped so it beats the green default at #voice-bar-mic-toggle. */
+#voice-bar-mic-toggle.mic-recording {
   color: #ef4444;
   animation: micRecordPulse 1.4s ease-in-out infinite;
 }
+#voice-bar-mic-toggle.mic-recording svg { stroke: currentColor; }
 @keyframes micRecordPulse {
   0%, 100% { color: #ef4444; }
   50% { color: #f87171; }
