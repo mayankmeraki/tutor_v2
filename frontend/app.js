@@ -2258,8 +2258,8 @@ function _wsOnMessage(msg) {
   let evt;
   try { evt = JSON.parse(msg.data); } catch { return; }
 
-  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE'
-      && evt.type !== 'CODE_PUSH' && evt.type !== 'TEST_CASES_PUSH' && evt.type !== 'TEST_RESULT' && evt.type !== 'CANVAS_DRAW' && evt.type !== 'DONE') {
+  // Only control events skip gen validation
+  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE') {
     if (!turn) {
       console.warn(`[WS] Event ${evt.type} dropped — no active turn (gen=${evt.gen} wsGen=${_ws.generation})`);
       return;
@@ -2767,6 +2767,13 @@ async function _wsPlayAudio(beat, beatNum, turn) {
   const audio = new Audio(url);
   audio.playbackRate = state.voiceSpeed || 1;
   audio._blobUrl = url;
+  // Final check: if turn was killed between blob creation and play, abort
+  if (turn.executorExited || _wsTurn !== turn) {
+    URL.revokeObjectURL(url);
+    if (typeof voiceHideIndicator === 'function') voiceHideIndicator();
+    return;
+  }
+
   turn.audioEl = audio;
   state.voiceCurrentAudio = audio;
 
@@ -2782,6 +2789,8 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     };
     audio.onended = () => done('ended');
     audio.onerror = (e) => { console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
+    // Double-check turn is still active right before play
+    if (turn.executorExited || _wsTurn !== turn) { done('killed'); return; }
     audio.play()
       .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing`); _startCaptionHighlight(audio); })
       .catch((err) => {
