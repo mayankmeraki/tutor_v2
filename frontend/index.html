@@ -893,6 +893,23 @@
       <p id="dash-subline"></p>
     </div>
 
+    <!-- ═══ Session Onboarding Overlay ═══ -->
+    <div id="session-onboard-overlay" style="display:none;position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,.75);backdrop-filter:blur(6px);align-items:center;justify-content:center">
+      <div style="background:#111827;border:1px solid rgba(255,255,255,.06);border-radius:18px;padding:32px 36px 28px;max-width:520px;width:90%;box-shadow:0 25px 60px rgba(0,0,0,.5)">
+        <div id="onboard-mode-label" style="font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:1.5px;margin-bottom:6px"></div>
+        <div style="font-size:20px;font-weight:800;color:rgba(255,255,255,.9);margin-bottom:6px;letter-spacing:-.3px">Here's how this works</div>
+        <div id="onboard-subtitle" style="font-size:12px;color:rgba(255,255,255,.3);margin-bottom:24px;line-height:1.5"></div>
+        <div id="onboard-features" style="display:flex;flex-direction:column;gap:10px;margin-bottom:24px"></div>
+        <div style="display:flex;align-items:center;justify-content:space-between">
+          <label style="display:flex;align-items:center;gap:6px;cursor:pointer">
+            <input type="checkbox" id="onboard-dismiss-check" style="accent-color:#34d399;width:14px;height:14px;cursor:pointer">
+            <span style="font-size:10px;color:rgba(255,255,255,.25)">Don't show this again</span>
+          </label>
+          <button id="onboard-start-btn" onclick="_closeSessionOnboard()" style="padding:10px 24px;border-radius:10px;border:none;background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;font-size:13px;font-weight:700;cursor:pointer;font-family:inherit">Got it, let's go</button>
+        </div>
+      </div>
+    </div>
+
     <!-- ═══ Teaching Layout — Split View ═══ -->
     <div id="teaching-layout" class="hidden">
 

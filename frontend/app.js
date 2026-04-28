@@ -14278,6 +14278,112 @@ function hideSessionPrep() {
   if (_prepMsgTimer) { clearInterval(_prepMsgTimer); _prepMsgTimer = null; }
 }
 
+// ── Session Onboarding Overlay ──
+function _showSessionOnboard() {
+  var mode = state.dsaMode;
+  if (!mode || (mode !== 'dsa' && mode !== 'sd' && mode !== 'mock_interview')) return;
+
+  var key = 'euler_onboard_dismissed_' + mode;
+  if (localStorage.getItem(key) === 'true') return;
+
+  var overlay = document.getElementById('session-onboard-overlay');
+  if (!overlay) return;
+
+  var label = document.getElementById('onboard-mode-label');
+  var subtitle = document.getElementById('onboard-subtitle');
+  var features = document.getElementById('onboard-features');
+  var btn = document.getElementById('onboard-start-btn');
+
+  var configs = {
+    dsa: {
+      label: 'DSA Session', labelColor: 'rgba(52,211,153,.6)',
+      subtitle: 'Euler teaches you with voice, visuals, and a code editor. Here\'s what you have:',
+      btn: 'Got it, let\'s go',
+      features: [
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>',
+          iconBg: 'rgba(52,211,153,.06)', iconColor: 'rgba(52,211,153,.7)',
+          title: 'Teaching Board', desc: 'Euler draws diagrams, animations, and step-by-step visuals here. Watch as Euler speaks — it\'s like a real chalkboard.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+          iconBg: 'rgba(96,165,250,.06)', iconColor: 'rgba(96,165,250,.7)',
+          title: 'Code Editor — yours to use', desc: 'The editor on the right is <strong>yours</strong>. Write code, edit starter code, or code along. Click <strong>Run</strong> to execute, <strong>Submit</strong> to check test cases. Ask Euler to push code for you.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>',
+          iconBg: 'rgba(251,191,36,.06)', iconColor: 'rgba(251,191,36,.7)',
+          title: 'Voice + Text', desc: 'Euler speaks — you type below. Ask questions, say "I\'m stuck", paste a LeetCode URL, or tell Euler "show me the code" or "let me try first."' },
+      ]
+    },
+    sd: {
+      label: 'System Design Session', labelColor: 'rgba(96,165,250,.6)',
+      subtitle: 'Euler teaches system design with architecture diagrams on a canvas you can interact with.',
+      btn: 'Got it, let\'s go',
+      features: [
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8"/><path d="M12 17v4"/></svg>',
+          iconBg: 'rgba(52,211,153,.06)', iconColor: 'rgba(52,211,153,.7)',
+          title: 'Teaching Board', desc: 'Euler draws architecture diagrams, explains concepts with animations, and writes key ideas here.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>',
+          iconBg: 'rgba(167,139,250,.06)', iconColor: 'rgba(167,139,250,.7)',
+          title: 'Architecture Canvas — draw your design', desc: 'Both you and Euler draw here. <strong>Drag nodes</strong> to rearrange, add your own components. Tell Euler "add a cache here" or "I want to draw my own architecture" — it\'s collaborative.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>',
+          iconBg: 'rgba(251,191,36,.06)', iconColor: 'rgba(251,191,36,.7)',
+          title: 'Voice + Text', desc: 'Euler speaks — you type below. Discuss trade-offs, ask "why not Redis?", say "go deeper on caching", or describe your design and Euler draws it.' },
+      ]
+    },
+    mock_interview: {
+      label: 'Mock Interview', labelColor: 'rgba(251,191,36,.6)',
+      subtitle: 'Euler acts as your interviewer — not a tutor. You drive the conversation. Here\'s what to expect:',
+      btn: 'Start Interview',
+      features: [
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>',
+          iconBg: 'rgba(248,113,113,.06)', iconColor: 'rgba(248,113,113,.7)',
+          title: 'Timed — 45 minutes', desc: 'Timer runs in the top corner. 40 minutes to solve, 5 minutes for feedback. Euler nudges on time management — just like a real interviewer.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 3a2.85 2.83 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z"/></svg>',
+          iconBg: 'rgba(52,211,153,.06)', iconColor: 'rgba(52,211,153,.7)',
+          title: 'No help during the interview', desc: 'Euler will NOT teach or guide you. Ask clarifying questions about the problem — but the approach is yours. Up to 3 hints if truly stuck.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>',
+          iconBg: 'rgba(96,165,250,.06)', iconColor: 'rgba(96,165,250,.7)',
+          title: 'Write code + think out loud', desc: 'Write your solution in the editor. Type your thought process in chat — explain approach BEFORE coding, state brute force first. Communication is 25% of the score.' },
+        { icon: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>',
+          iconBg: 'rgba(251,191,36,.06)', iconColor: 'rgba(251,191,36,.7)',
+          title: 'Full debrief at the end', desc: 'After time\'s up, Euler gives FAANG-style feedback: scores on 4 dimensions, strengths, improvements, and optimal solution walkthrough.' },
+      ]
+    }
+  };
+
+  var cfg = configs[mode];
+  if (!cfg) return;
+
+  label.textContent = cfg.label;
+  label.style.color = cfg.labelColor;
+  subtitle.textContent = cfg.subtitle;
+  btn.textContent = cfg.btn;
+
+  features.innerHTML = '';
+  cfg.features.forEach(function(f) {
+    var el = document.createElement('div');
+    el.style.cssText = 'display:flex;align-items:flex-start;gap:12px;padding:12px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.015)';
+    el.innerHTML =
+      '<div style="width:34px;height:34px;border-radius:8px;display:grid;place-items:center;flex-shrink:0;background:' + f.iconBg + ';color:' + f.iconColor + '">' + f.icon + '</div>' +
+      '<div style="flex:1"><div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:2px">' + f.title + '</div>' +
+      '<div style="font-size:10px;color:rgba(255,255,255,.25);line-height:1.5">' + f.desc + '</div></div>';
+    features.appendChild(el);
+  });
+
+  overlay.style.display = 'flex';
+}
+
+function _closeSessionOnboard() {
+  var overlay = document.getElementById('session-onboard-overlay');
+  if (!overlay) return;
+  var checkbox = document.getElementById('onboard-dismiss-check');
+  if (checkbox && checkbox.checked) {
+    var mode = state.dsaMode || 'general';
+    localStorage.setItem('euler_onboard_dismissed_' + mode, 'true');
+  }
+  overlay.style.opacity = '0';
+  overlay.style.transition = 'opacity .3s';
+  setTimeout(function() { overlay.style.display = 'none'; overlay.style.opacity = ''; }, 300);
+}
+window._closeSessionOnboard = _closeSessionOnboard;
+
 function showTeachingLayout(courseMap, opts) {
   _unlockAudio(); // Ensure audio is unlocked before first beat plays
   const skipBoardInit = opts?.skipBoardInit || false;
@@ -14292,6 +14398,11 @@ function showTeachingLayout(courseMap, opts) {
   _hideAllScreens();
   $('#teaching-layout').classList.remove('hidden');
   if (typeof DashBg !== 'undefined') DashBg.stop();
+
+  // Show onboarding overlay for DSA/SD/Mock sessions (unless dismissed)
+  if (!opts?.skipOnboard) {
+    setTimeout(_showSessionOnboard, 300);
+  }
 
   // Show plan sidebar with placeholder — auto-collapses after 5s if no plan yet
   if (state.plan.length > 0) {
