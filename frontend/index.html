@@ -813,48 +813,30 @@
       <!-- ── System Design Tab Content ── -->
       <div class="dsa-tab-content" id="dsa-tab-sd" style="overflow-y:auto;flex:1;display:none">
         <div style="max-width:1100px;margin:0 auto;padding:20px 28px 80px">
+          <!-- Hero + Search -->
           <div style="max-width:620px;margin:0 auto 28px;text-align:center">
-            <h2 style="font-size:20px;font-weight:700;color:rgba(255,255,255,.85);margin-bottom:4px">System Design</h2>
-            <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px">Learn concepts, design architectures on the canvas, or practice interview problems</p>
-            <input type="text" id="sd-search-input" placeholder='e.g. "design Uber", "explain caching", "teach me sharding"'
+            <h2 style="font-size:22px;font-weight:700;color:rgba(255,255,255,.9);margin-bottom:6px;letter-spacing:-.3px">System Design</h2>
+            <p style="font-size:11px;color:rgba(255,255,255,.25);margin-bottom:16px">Learn concepts, design architectures, and practice interview problems</p>
+            <input type="text" id="sd-search-input" placeholder='Try: "design Uber", "explain caching", "teach me sharding"...'
                    style="width:100%;padding:14px 18px;border-radius:12px;border:1px solid rgba(96,165,250,.12);background:rgba(11,16,24,1);color:#fff;font-size:13px;outline:none;transition:border-color .15s" onfocus="this.style.borderColor='rgba(96,165,250,.3)'" onblur="this.style.borderColor='rgba(96,165,250,.12)'" autocomplete="off">
           </div>
-          <div style="max-width:620px;margin:0 auto 24px;display:flex;gap:8px;flex-wrap:wrap;justify-content:center">
-            <button onclick="document.getElementById('sd-search-input').value='Explain how Redis works and when to use it';document.getElementById('sd-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(52,211,153,.08);background:rgba(52,211,153,.03);color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(52,211,153,.2)';this.style.background='rgba(52,211,153,.06)'" onmouseleave="this.style.borderColor='rgba(52,211,153,.08)';this.style.background='rgba(52,211,153,.03)'">
-              How does Redis work?
-            </button>
-            <button onclick="document.getElementById('sd-search-input').value='Walk me through designing a URL shortener';document.getElementById('sd-search-input').dispatchEvent(new KeyboardEvent('keydown',{key:'Enter'}))" style="padding:8px 14px;border-radius:8px;border:1px solid rgba(167,139,250,.08);background:rgba(167,139,250,.03);color:rgba(167,139,250,.6);font-size:10px;cursor:pointer;font-family:inherit;transition:all .12s" onmouseenter="this.style.borderColor='rgba(167,139,250,.2)';this.style.background='rgba(167,139,250,.06)'" onmouseleave="this.style.borderColor='rgba(167,139,250,.08)';this.style.background='rgba(167,139,250,.03)'">
-              Design a URL shortener
-            </button>
-          </div>
-          <!-- ═══ HLD Section ═══ -->
+
+          <!-- Concepts — building blocks -->
           <div style="margin-bottom:28px">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-              <div style="width:32px;height:32px;border-radius:8px;background:rgba(96,165,250,.08);display:grid;place-items:center;flex-shrink:0">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(96,165,250,.7)" stroke-width="2" stroke-linecap="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18"/><path d="M9 21V9"/></svg>
-              </div>
-              <div>
-                <div style="font-size:15px;font-weight:700;color:rgba(255,255,255,.85)">High-Level Design</div>
-                <div style="font-size:9px;color:rgba(96,165,250,.4)">Distributed Systems · Architecture · Scalability · Design on Canvas</div>
-              </div>
-            </div>
-            <div id="sd-concepts" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px;scroll-snap-type:x mandatory"></div>
-            <div id="sd-problems"></div>
+            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.35);margin-bottom:10px">Concepts — learn the building blocks</div>
+            <div id="sd-concept-chips" style="display:flex;flex-wrap:wrap;gap:8px"></div>
           </div>
 
-          <!-- ═══ LLD Section ═══ -->
+          <!-- ═══ HLD Problems ═══ -->
+          <div style="margin-bottom:28px">
+            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.35);margin-bottom:12px">High-Level Design Problems</div>
+            <div id="sd-problems" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
+          </div>
+
+          <!-- ═══ LLD Problems ═══ -->
           <div style="padding-top:20px;border-top:1px solid rgba(255,255,255,.04)">
-            <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-              <div style="width:32px;height:32px;border-radius:8px;background:rgba(167,139,250,.08);display:grid;place-items:center;flex-shrink:0">
-                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="rgba(167,139,250,.7)" stroke-width="2" stroke-linecap="round"><path d="M16 18l2-2-2-2"/><path d="M8 6L6 8l2 2"/><path d="M14.5 4l-5 16"/></svg>
-              </div>
-              <div>
-                <div style="font-size:15px;font-weight:700;color:rgba(255,255,255,.85)">Low-Level Design</div>
-                <div style="font-size:9px;color:rgba(167,139,250,.4)">OOP · SOLID · Design Patterns · Class Design</div>
-              </div>
-            </div>
-            <div id="lld-concepts" style="display:flex;gap:8px;overflow-x:auto;padding-bottom:8px;margin-bottom:14px;scroll-snap-type:x mandatory"></div>
-            <div id="lld-problems"></div>
+            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.35);margin-bottom:12px">Low-Level Design Problems</div>
+            <div id="lld-problems" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px"></div>
           </div>
         </div>
       </div>

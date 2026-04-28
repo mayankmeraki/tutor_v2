@@ -21722,18 +21722,27 @@ function _renderDSATopicChips(topics, problems) {
   var el = document.getElementById('dsa-topic-chips');
   if (!el) return;
 
+  // Canonical ordered topic list (NeetCode roadmap order)
+  var orderedTopics = [
+    'arrays_hashing', 'two_pointers', 'sliding_window', 'stack', 'binary_search',
+    'linked_list', 'trees', 'heap', 'backtracking', 'graphs',
+    'dynamic_programming', 'greedy', 'intervals', 'bit_manipulation',
+    'math', 'trie', 'union_find', 'topological_sort', 'dfs', 'bfs',
+    'sorting', 'string', 'matrix', 'recursion',
+  ];
+
   var topicLabels = {
-    arrays:'Arrays & Hashing', arrays_hashing:'Arrays & Hashing', hash_map:'Hash Map',
+    arrays_hashing:'Arrays & Hashing', arrays:'Arrays & Hashing', hash_map:'Hash Map',
     two_pointers:'Two Pointers', sliding_window:'Sliding Window', stack:'Stack',
     binary_search:'Binary Search', linked_list:'Linked List', trees:'Trees',
-    graphs:'Graphs', dynamic_programming:'Dynamic Programming', backtracking:'Backtracking',
+    graphs:'Graphs', dynamic_programming:'DP', dp:'DP', backtracking:'Backtracking',
     heap:'Heap', greedy:'Greedy', intervals:'Intervals', sorting:'Sorting',
     recursion:'Recursion', bfs:'BFS', dfs:'DFS', string:'Strings', matrix:'Matrix',
     math:'Math', bit_manipulation:'Bit Manipulation', trie:'Trie',
-    union_find:'Union Find', topological_sort:'Topological Sort',
+    union_find:'Union Find', topological_sort:'Topo Sort',
   };
 
-  // Count problems per topic
+  // Count problems per topic from actual data
   var topicCounts = {};
   (problems || []).forEach(function(p) {
     (p.topics || []).forEach(function(t) {
@@ -21741,22 +21750,27 @@ function _renderDSATopicChips(topics, problems) {
     });
   });
 
-  el.innerHTML = '';
+  // Merge API topics into ordered list (dedup)
+  var seen = {};
+  var finalTopics = [];
+  orderedTopics.forEach(function(slug) {
+    if (!seen[slug]) { seen[slug] = true; finalTopics.push(slug); }
+  });
   (topics || []).forEach(function(t) {
     var slug = t.topic;
+    if (!seen[slug] && topicLabels[slug]) { seen[slug] = true; finalTopics.push(slug); }
+  });
+
+  el.innerHTML = '';
+  finalTopics.forEach(function(slug) {
     var name = topicLabels[slug] || slug.replace(/_/g, ' ');
-    var count = t.count || topicCounts[slug] || 0;
-    // TODO: get solved count from progress API
-    var solved = 0;
-    var dotClass = solved >= 3 ? 'solid' : solved > 0 ? 'started' : 'new';
-    var dotColor = dotClass === 'solid' ? '#34d399' : dotClass === 'started' ? '#fbbf24' : 'rgba(255,255,255,.1)';
+    var count = topicCounts[slug] || 0;
 
     var chip = document.createElement('button');
-    chip.style.cssText = 'padding:8px 14px;border-radius:9px;border:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02);font-size:12px;color:rgba(255,255,255,.5);cursor:pointer;font-family:inherit;transition:all .12s;display:flex;align-items:center;gap:6px';
-    chip.innerHTML = '<span style="width:6px;height:6px;border-radius:50%;background:' + dotColor + ';flex-shrink:0"></span>' +
-      name + (solved > 0 ? ' <span style="font-size:9px;color:rgba(52,211,153,.5);margin-left:2px">' + solved + ' solved</span>' : '');
+    chip.style.cssText = 'padding:7px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.05);background:rgba(255,255,255,.02);font-size:11px;color:rgba(255,255,255,.45);cursor:pointer;font-family:inherit;transition:all .12s;display:inline-flex;align-items:center;gap:5px;white-space:nowrap';
+    chip.innerHTML = name;
     chip.onmouseenter = function() { chip.style.borderColor = 'rgba(52,211,153,.2)'; chip.style.color = 'rgba(255,255,255,.8)'; chip.style.background = 'rgba(52,211,153,.04)'; };
-    chip.onmouseleave = function() { chip.style.borderColor = 'rgba(255,255,255,.05)'; chip.style.color = 'rgba(255,255,255,.5)'; chip.style.background = 'rgba(255,255,255,.02)'; };
+    chip.onmouseleave = function() { chip.style.borderColor = 'rgba(255,255,255,.05)'; chip.style.color = 'rgba(255,255,255,.45)'; chip.style.background = 'rgba(255,255,255,.02)'; };
     chip.onclick = function() {
       state.dsaMode = 'dsa';
       state.dsaProblemSlug = null;
@@ -21774,19 +21788,21 @@ function _renderDSAProblemsTable(problems) {
   var filterEl = document.getElementById('dsa-filter-pills');
   if (!tableEl) return;
 
-  var filters = ['All', 'Easy', 'Medium', 'Hard'];
+  var filters = ['All', 'Easy', 'Medium', 'Hard', 'NeetCode 150', 'Blind 75'];
   var activeFilter = 'All';
 
   function renderFilters() {
     if (!filterEl) return;
     filterEl.innerHTML = '';
     filters.forEach(function(f) {
+      var isActive = f === activeFilter;
       var btn = document.createElement('button');
       btn.textContent = f;
+      var accent = isActive ? 'rgba(52,211,153,' : 'rgba(255,255,255,';
       btn.style.cssText = 'padding:5px 12px;border-radius:7px;border:1px solid ' +
-        (f === activeFilter ? 'rgba(52,211,153,.2)' : 'rgba(255,255,255,.05)') +
-        ';background:' + (f === activeFilter ? 'rgba(52,211,153,.08)' : 'none') +
-        ';color:' + (f === activeFilter ? 'rgba(52,211,153,.8)' : 'rgba(255,255,255,.3)') +
+        (isActive ? accent + '.2)' : accent + '.05)') +
+        ';background:' + (isActive ? accent + '.08)' : 'none') +
+        ';color:' + (isActive ? accent + '.8)' : accent + '.3)') +
         ';font-size:10px;cursor:pointer;font-family:inherit;transition:all .1s';
       btn.onclick = function() { activeFilter = f; renderFilters(); renderTable(); };
       filterEl.appendChild(btn);
@@ -21795,18 +21811,24 @@ function _renderDSAProblemsTable(problems) {
 
   function renderTable() {
     var filtered = problems;
-    if (activeFilter !== 'All') {
+    if (activeFilter === 'Easy' || activeFilter === 'Medium' || activeFilter === 'Hard') {
       filtered = problems.filter(function(p) { return p.difficulty === activeFilter.toLowerCase(); });
+    } else if (activeFilter === 'NeetCode 150') {
+      filtered = problems.filter(function(p) { return (p.lists || []).some(function(l) { return l.toLowerCase().indexOf('neetcode') >= 0; }); });
+    } else if (activeFilter === 'Blind 75') {
+      filtered = problems.filter(function(p) { return (p.lists || []).some(function(l) { return l.toLowerCase().indexOf('blind') >= 0; }); });
     }
 
     var diffColors = { easy: { bg: 'rgba(52,211,153,.1)', color: '#34d399' }, medium: { bg: 'rgba(251,191,36,.1)', color: '#fbbf24' }, hard: { bg: 'rgba(239,68,68,.1)', color: '#ef4444' } };
+    var thStyle = 'text-align:left;padding:8px 12px;font-size:9px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)';
 
     var html = '<table style="width:100%;border-collapse:collapse">' +
       '<thead><tr>' +
-      '<th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)">Problem</th>' +
-      '<th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)">Difficulty</th>' +
-      '<th style="text-align:left;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)">Topic</th>' +
-      '<th style="text-align:right;padding:8px 12px;font-size:10px;font-weight:600;color:rgba(255,255,255,.2);text-transform:uppercase;letter-spacing:.5px;border-bottom:1px solid rgba(255,255,255,.04)"></th>' +
+      '<th style="' + thStyle + '">Problem</th>' +
+      '<th style="' + thStyle + '">Difficulty</th>' +
+      '<th style="' + thStyle + '">Topic</th>' +
+      '<th style="' + thStyle + '">Status</th>' +
+      '<th style="' + thStyle + ';text-align:right"></th>' +
       '</tr></thead><tbody>';
 
     filtered.slice(0, 50).forEach(function(p) {
@@ -21814,18 +21836,22 @@ function _renderDSAProblemsTable(problems) {
       var dc = diffColors[diff] || diffColors.medium;
       var topicStr = (p.topics || []).slice(0, 2).map(function(t) { return t.replace(/_/g, ' '); }).join(', ');
       var name = p.name || p.title || p.slug;
+      var statusColor = 'rgba(255,255,255,.12)';
+      var statusText = 'New';
+      var btnText = 'Solve';
 
-      html += '<tr style="cursor:pointer" onmouseenter="this.style.background=\'rgba(255,255,255,.015)\'" onmouseleave="this.style.background=\'\'">' +
+      html += '<tr style="cursor:pointer" onclick="_dsaStartProblem(\'' + (p.slug || '') + '\')" onmouseenter="this.style.background=\'rgba(255,255,255,.015)\'" onmouseleave="this.style.background=\'\'">' +
         '<td style="padding:10px 12px;font-size:12px;border-bottom:1px solid rgba(255,255,255,.02);color:rgba(255,255,255,.8);font-weight:500">' + (name || '') + '</td>' +
         '<td style="padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.02)"><span style="font-size:10px;font-weight:600;padding:2px 8px;border-radius:4px;background:' + dc.bg + ';color:' + dc.color + '">' + diff.charAt(0).toUpperCase() + diff.slice(1) + '</span></td>' +
-        '<td style="padding:10px 12px;font-size:10px;color:rgba(255,255,255,.25);border-bottom:1px solid rgba(255,255,255,.02)">' + topicStr + '</td>' +
-        '<td style="padding:10px 12px;text-align:right;border-bottom:1px solid rgba(255,255,255,.02)"><button onclick="event.stopPropagation();_dsaStartProblem(\'' + (p.slug || '') + '\')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(52,211,153,.15);background:none;color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit">Solve</button></td>' +
+        '<td style="padding:10px 12px;font-size:10px;color:rgba(255,255,255,.2);border-bottom:1px solid rgba(255,255,255,.02)">' + topicStr + '</td>' +
+        '<td style="padding:10px 12px;font-size:10px;color:' + statusColor + ';border-bottom:1px solid rgba(255,255,255,.02)">' + statusText + '</td>' +
+        '<td style="padding:10px 12px;text-align:right;border-bottom:1px solid rgba(255,255,255,.02)"><button onclick="event.stopPropagation();_dsaStartProblem(\'' + (p.slug || '') + '\')" style="padding:4px 10px;border-radius:6px;border:1px solid rgba(52,211,153,.15);background:none;color:rgba(52,211,153,.6);font-size:10px;cursor:pointer;font-family:inherit">' + btnText + '</button></td>' +
         '</tr>';
     });
 
     html += '</tbody></table>';
     if (filtered.length === 0) {
-      html = '<div style="text-align:center;padding:20px;font-size:12px;color:rgba(255,255,255,.2)">No problems found</div>';
+      html = '<div style="text-align:center;padding:20px;font-size:12px;color:rgba(255,255,255,.2)">No problems match this filter</div>';
     }
     tableEl.innerHTML = html;
   }
@@ -22031,89 +22057,75 @@ window._closeDSATopicProblems = _closeDSATopicProblems;
 // _renderDSAProblems removed — problems now shown per-topic via _openDSATopicProblems
 
 function _renderSDPage(problems, sdConcepts) {
-  // Render concept cards (horizontal scroll)
-  var conceptsEl = document.getElementById('sd-concepts');
-  if (conceptsEl && sdConcepts && sdConcepts.length) {
-    conceptsEl.innerHTML = '';
-    sdConcepts.forEach(function(section) {
-      (section.items || []).forEach(function(item) {
-        var card = document.createElement('div');
-        card.style.cssText = 'min-width:150px;max-width:180px;padding:10px 12px;border-radius:9px;background:rgba(96,165,250,.02);border:1px solid rgba(96,165,250,.05);cursor:pointer;flex-shrink:0;scroll-snap-align:start;transition:all .12s';
-        card.onmouseenter = function() { card.style.borderColor = 'rgba(96,165,250,.15)'; card.style.transform = 'translateY(-1px)'; };
-        card.onmouseleave = function() { card.style.borderColor = 'rgba(96,165,250,.05)'; card.style.transform = ''; };
-        card.innerHTML = '<div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + item.icon + ' ' + item.name + '</div>' +
-          '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:3px;line-height:1.35">' + item.desc + '</div>';
-        card.onclick = function() { state.studentIntent = 'teach me ' + item.name; _startDSASession(item.slug, 'sd'); };
-        conceptsEl.appendChild(card);
-      });
+  // Render concept chips
+  var chipsEl = document.getElementById('sd-concept-chips');
+  if (chipsEl) {
+    chipsEl.innerHTML = '';
+    // Flatten concept sections into chips
+    var allConcepts = [];
+    (sdConcepts || []).forEach(function(section) {
+      (section.items || []).forEach(function(item) { allConcepts.push(item); });
+    });
+    allConcepts.forEach(function(item) {
+      var chip = document.createElement('button');
+      chip.style.cssText = 'padding:7px 13px;border-radius:8px;border:1px solid rgba(96,165,250,.06);background:rgba(96,165,250,.02);font-size:11px;color:rgba(255,255,255,.45);cursor:pointer;font-family:inherit;transition:all .12s;white-space:nowrap';
+      chip.textContent = item.name;
+      chip.onmouseenter = function() { chip.style.borderColor = 'rgba(96,165,250,.2)'; chip.style.color = 'rgba(255,255,255,.8)'; chip.style.background = 'rgba(96,165,250,.05)'; };
+      chip.onmouseleave = function() { chip.style.borderColor = 'rgba(96,165,250,.06)'; chip.style.color = 'rgba(255,255,255,.45)'; chip.style.background = 'rgba(96,165,250,.02)'; };
+      chip.onclick = function() { state.studentIntent = 'teach me ' + item.name; _startDSASession(item.slug, 'sd'); };
+      chipsEl.appendChild(chip);
     });
   }
 
-  // Render practice problems as list
+  // Render HLD problem cards (grid)
   var probEl = document.getElementById('sd-problems');
   if (!probEl) return;
   probEl.innerHTML = '';
-  var diffColors = {easy:'#34d399',medium:'#fbbf24',hard:'#f87171'};
-  var diffBg = {easy:'rgba(52,211,153,.05)',medium:'rgba(251,191,36,.05)',hard:'rgba(248,113,113,.05)'};
-  var sdIcons = {'url-shortener':'🔗','dropbox':'📦','chat-system':'💬','news-feed':'📰','tinder':'💕','rate-limiter':'⏱️','uber':'🚗','instagram':'📷','google-docs':'📄','leetcode':'💻'};
 
   problems.forEach(function(p) {
-    var row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border:1px solid rgba(255,255,255,.04);border-radius:8px;margin-bottom:4px;cursor:pointer;transition:all .1s';
-    row.onmouseenter = function() { row.style.borderColor = 'rgba(255,255,255,.08)'; };
-    row.onmouseleave = function() { row.style.borderColor = 'rgba(255,255,255,.04)'; };
-    row.innerHTML = '<span style="font-size:14px">' + (sdIcons[p.slug]||'🏗️') + '</span>' +
-      '<div style="flex:1"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + p.name + '</div>' +
-      '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:1px">' + (p.description||'') + '</div></div>' +
-      '<span style="font-size:7px;font-weight:600;padding:1px 5px;border-radius:2px;background:' + (diffBg[p.difficulty]||'') + ';color:' + (diffColors[p.difficulty]||'') + '">' + (p.difficulty||'') + '</span>';
-    row.onclick = function(e) { e.stopPropagation(); _showModePicker(p.slug, 'sd', p.name, row); };
-    probEl.appendChild(row);
+    var concepts = (p.concepts || p.topics || []).slice(0, 3);
+    var tags = concepts.map(function(c) {
+      return '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(96,165,250,.06);color:rgba(96,165,250,.5)">' + c.replace(/_/g, ' ') + '</span>';
+    }).join('');
+
+    var card = document.createElement('div');
+    card.style.cssText = 'padding:16px;border-radius:12px;border:1px solid rgba(96,165,250,.06);background:rgba(96,165,250,.02);cursor:pointer;transition:all .12s';
+    card.onmouseenter = function() { card.style.borderColor = 'rgba(96,165,250,.2)'; card.style.background = 'rgba(96,165,250,.04)'; };
+    card.onmouseleave = function() { card.style.borderColor = 'rgba(96,165,250,.06)'; card.style.background = 'rgba(96,165,250,.02)'; };
+    card.innerHTML =
+      '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:3px">' + (p.name || '') + '</div>' +
+      '<div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.4;margin-bottom:8px">' + (p.description || '').slice(0, 80) + '</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap">' + tags + '</div>';
+    card.onclick = function() { _showModePicker(p.slug, 'sd', p.name, card); };
+    probEl.appendChild(card);
   });
 }
 
 
 function _renderLLDPage(problems, lldConcepts) {
-  // Render LLD concept cards
-  var conceptsEl = document.getElementById('lld-concepts');
-  if (conceptsEl && lldConcepts && lldConcepts.length) {
-    conceptsEl.innerHTML = '';
-    lldConcepts.forEach(function(section) {
-      (section.items || []).forEach(function(item) {
-        var card = document.createElement('div');
-        card.style.cssText = 'min-width:150px;max-width:180px;padding:10px 12px;border-radius:9px;background:rgba(167,139,250,.02);border:1px solid rgba(167,139,250,.05);cursor:pointer;flex-shrink:0;scroll-snap-align:start;transition:all .12s';
-        card.onmouseenter = function() { card.style.borderColor = 'rgba(167,139,250,.15)'; card.style.transform = 'translateY(-1px)'; };
-        card.onmouseleave = function() { card.style.borderColor = 'rgba(167,139,250,.05)'; card.style.transform = ''; };
-        card.innerHTML = '<div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + item.icon + ' ' + item.name + '</div>' +
-          '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:3px;line-height:1.35">' + item.desc + '</div>';
-        card.onclick = function() { state.studentIntent = 'teach me ' + item.name; _startDSASession(item.slug, 'sd'); };
-        conceptsEl.appendChild(card);
-      });
-    });
-  }
+  // LLD concepts rendered as chips (same as HLD but purple)
+  // Not needed if no separate LLD concepts container in HTML
 
-  // Render LLD problem rows
   var probEl = document.getElementById('lld-problems');
   if (!probEl) return;
   probEl.innerHTML = '';
-  var diffColors = {easy:'#34d399',medium:'#fbbf24',hard:'#f87171'};
-  var diffBg = {easy:'rgba(52,211,153,.06)',medium:'rgba(251,191,36,.06)',hard:'rgba(248,113,113,.06)'};
-  var lldIcons = {'parking-lot-system':'🅿️','library-management-system':'📚','elevator-system':'🛗','vending-machine':'🥤','atm-system':'🏧','hotel-booking-system':'🏨','movie-ticket-booking-system':'🎬','chess-game':'♟️','snake-and-ladder-game':'🎲','tic-tac-toe':'⭕','in-memory-file-system':'📁','splitwise-expense-sharing':'💰','online-shopping-cart':'🛒','stack-overflow-qa-platform':'💬','rate-limiter-lld':'⏱️'};
 
   problems.forEach(function(p) {
-    var row = document.createElement('div');
-    row.style.cssText = 'display:flex;align-items:center;gap:10px;padding:10px 16px;border:1px solid rgba(167,139,250,.04);border-radius:8px;margin-bottom:4px;cursor:pointer;transition:all .1s';
-    row.onmouseenter = function() { row.style.borderColor = 'rgba(167,139,250,.1)'; };
-    row.onmouseleave = function() { row.style.borderColor = 'rgba(167,139,250,.04)'; };
-    var patterns = (p.design_patterns || []).slice(0, 3).map(function(dp) {
-      return '<span style="font-size:7px;padding:1px 4px;border-radius:2px;background:rgba(167,139,250,.05);color:rgba(167,139,250,.4)">' + dp + '</span>';
+    var patterns = (p.design_patterns || []).slice(0, 3);
+    var tags = patterns.map(function(dp) {
+      return '<span style="font-size:9px;padding:2px 6px;border-radius:4px;background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">' + dp + '</span>';
     }).join('');
-    row.innerHTML = '<span style="font-size:14px">' + (lldIcons[p.slug] || '🏗️') + '</span>' +
-      '<div style="flex:1"><div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.7)">' + p.name + '</div>' +
-      '<div style="font-size:8px;color:rgba(255,255,255,.15);margin-top:1px">' + (p.description || '') + '</div></div>' +
-      '<div style="display:flex;gap:2px">' + patterns + '</div>' +
-      '<span style="font-size:7px;font-weight:600;padding:1px 5px;border-radius:2px;background:' + (diffBg[p.difficulty] || '') + ';color:' + (diffColors[p.difficulty] || '') + '">' + (p.difficulty || '') + '</span>';
-    row.onclick = function(e) { e.stopPropagation(); _showModePicker(p.slug, 'sd', p.name, row); };
-    probEl.appendChild(row);
+
+    var card = document.createElement('div');
+    card.style.cssText = 'padding:16px;border-radius:12px;border:1px solid rgba(167,139,250,.06);background:rgba(167,139,250,.02);cursor:pointer;transition:all .12s';
+    card.onmouseenter = function() { card.style.borderColor = 'rgba(167,139,250,.2)'; card.style.background = 'rgba(167,139,250,.04)'; };
+    card.onmouseleave = function() { card.style.borderColor = 'rgba(167,139,250,.06)'; card.style.background = 'rgba(167,139,250,.02)'; };
+    card.innerHTML =
+      '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:3px">' + (p.name || '') + '</div>' +
+      '<div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.4;margin-bottom:8px">' + (p.description || '').slice(0, 80) + '</div>' +
+      '<div style="display:flex;gap:4px;flex-wrap:wrap">' + tags + '</div>';
+    card.onclick = function() { _showModePicker(p.slug, 'sd', p.name, card); };
+    probEl.appendChild(card);
   });
 }
 
