@@ -14231,12 +14231,13 @@ function hideSessionPrep() {
 function showTeachingLayout(courseMap, opts) {
   _unlockAudio(); // Ensure audio is unlocked before first beat plays
   const skipBoardInit = opts?.skipBoardInit || false;
-  document.title = courseMap.title + ' — Capacity';
-  $('#course-title').textContent = courseMap.title;
+  const layoutTitle = courseMap?.title || state.studentIntent || state.dsaProblemSlug || 'Euler';
+  document.title = layoutTitle + ' — Euler';
+  $('#course-title').textContent = layoutTitle;
   const sidebarLabel = $('#sidebar-section-label');
   if (sidebarLabel) sidebarLabel.textContent = 'SESSION';
   const sidebarStatus = $('#sidebar-status');
-  if (sidebarStatus) sidebarStatus.textContent = state.studentName;
+  if (sidebarStatus) sidebarStatus.textContent = state.studentName || '';
 
   _hideAllScreens();
   $('#teaching-layout').classList.remove('hidden');
@@ -14260,9 +14261,9 @@ function showTeachingLayout(courseMap, opts) {
   const stream = $('#canvas-stream');
   stream.innerHTML = '';
   appendBlock('system', `
-    <h2 style="font-size:18px;font-weight:700;margin-bottom:8px;">${escapeHtml(courseMap.title)}</h2>
+    <h2 style="font-size:18px;font-weight:700;margin-bottom:8px;">${escapeHtml(layoutTitle)}</h2>
     <div style="font-size:14px;color:var(--text-muted);line-height:1.7;">
-      Starting teaching session for ${escapeHtml(state.studentName)}...
+      Starting session${state.studentName ? ' for ' + escapeHtml(state.studentName) : ''}...
     </div>
   `);
 
