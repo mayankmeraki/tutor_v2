@@ -22127,7 +22127,13 @@ function _renderSDPage(problems, sdConcepts) {
       chip.textContent = item.name;
       chip.onmouseenter = function() { chip.style.borderColor = 'rgba(96,165,250,.2)'; chip.style.color = 'rgba(255,255,255,.8)'; chip.style.background = 'rgba(96,165,250,.05)'; };
       chip.onmouseleave = function() { chip.style.borderColor = 'rgba(96,165,250,.06)'; chip.style.color = 'rgba(255,255,255,.45)'; chip.style.background = 'rgba(96,165,250,.02)'; };
-      chip.onclick = function() { state.studentIntent = 'teach me ' + item.name; _startDSASession(item.slug, 'sd'); };
+      chip.onclick = function() {
+        state.dsaMode = 'sd';
+        state.dsaProblemSlug = null;
+        state.dsaProblemData = null;
+        state.studentIntent = 'teach me ' + item.name;
+        _startDSASession(null, 'sd');
+      };
       chipsEl.appendChild(chip);
     });
   }
