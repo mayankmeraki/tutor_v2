@@ -2977,7 +2977,7 @@ async def _generate_for_turn(
                 "prompt_sections": session.blueprint.get("prompt_sections") if session.blueprint else None,
                 "interaction": session.blueprint.get("interaction", "study") if session.blueprint else "study",
                 "studentModel": json.dumps(session.student_model, indent=2) if session.student_model else None,
-                "teachingPlan": json.dumps(session.current_plan, indent=2) if session.current_plan else None,
+                "teachingPlan": json.dumps(session.current_plan, indent=2, default=str) if session.current_plan else None,
                 "currentTopic": (
                     json.dumps(session.current_topics[session.current_topic_index], indent=2)
                     if session.current_topics and 0 <= session.current_topic_index < len(session.current_topics)
