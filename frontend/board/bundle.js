@@ -146,7 +146,9 @@ async function animateText(parentEl, text, options) {
     text = text
       .replace(/\\n/g, '\n')
       .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t');
+      .replace(/\\t/g, '\t')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"');
   }
 
   var queueLen = board.commandQueue.length;
@@ -1785,7 +1787,9 @@ async function renderCode(cmd) {
     text = text
       .replace(/\\n/g, '\n')
       .replace(/\\r/g, '\r')
-      .replace(/\\t/g, '\t');
+      .replace(/\\t/g, '\t')
+      .replace(/\\'/g, "'")
+      .replace(/\\"/g, '"');
   }
 
   // Body — always a <pre>, even for editable variants. Using <div> causes
@@ -3581,7 +3585,7 @@ async function renderText(cmd) {
 function _splitMarkdownFences(text) {
   // Normalize literal escape sequences (model often double-escapes \n)
   if (text.indexOf('\\') !== -1) {
-    text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+    text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t').replace(/\\'/g, "'").replace(/\\"/g, '"');
   }
   var segments = [];
   var fenceRe = /```([a-zA-Z0-9_+-]*)\s*\n([\s\S]*?)```/g;
@@ -4024,7 +4028,7 @@ async function renderUpdate(cmd) {
   // Normalize literal escape sequences (model often double-escapes \n)
   var text = cmd.text || '';
   if (typeof text === 'string' && text.indexOf('\\') !== -1) {
-    text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t');
+    text = text.replace(/\\n/g, '\n').replace(/\\r/g, '\r').replace(/\\t/g, '\t').replace(/\\'/g, "'").replace(/\\"/g, '"');
   }
 
   // ── Split special case ──

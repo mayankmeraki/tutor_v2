@@ -4,7 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Euler — AI tutor that teaches you live</title>
-  <link rel="stylesheet" href="/styles.css?v=20260427v">
+  <link rel="stylesheet" href="/styles.css?v=20260427x">
   <link rel="stylesheet" href="/board/styles.css?v=20260427c">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css">
   <link rel="stylesheet" href="https://cdn.plyr.io/3.7.8/plyr.css">
@@ -1252,7 +1252,7 @@
                   </button>
                   <input type="file" id="voice-bar-file-input" multiple accept="image/*,.pdf,.txt,.md,.png,.jpg,.jpeg,.webp" style="display:none">
                   <div id="voice-bar-attach-preview" style="display:none;gap:4px;flex-shrink:1;overflow-x:auto"></div>
-                  <span class="vb-divider"></span>
+                  <span class="vb-divider hidden" id="vb-divider-playback"></span>
                   <button class="vb-icon-btn hidden" id="voice-bar-pause" onclick="togglePause()" title="Pause tutor">
                     <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="4" width="4" height="16" rx="1"/><rect x="14" y="4" width="4" height="16" rx="1"/></svg>
                   </button>
@@ -1372,9 +1372,9 @@
 
   <script src="/dash-bg.js"></script>
   <script src="/router.js"></script>
-  <script src="/board/bundle.js"></script>
+  <script src="/board/bundle.js?v=20260427b"></script>
   <script src="/animation-helpers.js"></script>
-  <script src="/app.js?v=20260427al"></script>
+  <script src="/app.js?v=20260427ap"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->
 <div class="fb-overlay" id="fb-overlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
   <div class="fb-modal">

@@ -2713,6 +2713,7 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     const done = (reason) => {
       console.log(`[WS Audio] Beat #${beatNum} ended (${reason || 'done'})`);
       _stopCaptionHighlight();
+      _lastCaptionText = '';
       URL.revokeObjectURL(url);
       if (turn.audioEl === audio) turn.audioEl = null;
       if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null;
@@ -18436,6 +18437,7 @@ function estimateVoiceDuration(text) {
 
 var _captionsEnabled = true;
 var _captionHighlightTimer = null;
+var _lastCaptionText = '';
 
 function toggleCaptions() {
   _captionsEnabled = !_captionsEnabled;
@@ -18443,10 +18445,25 @@ function toggleCaptions() {
   var bar = document.getElementById('vb-caption-bar');
   if (btn) btn.classList.toggle('cc-on', _captionsEnabled);
   if (bar) bar.classList.toggle('cc-off', !_captionsEnabled);
-  if (!_captionsEnabled) voiceHideSubtitle();
+  if (!_captionsEnabled) {
+    // Stop the highlighter and clear the DOM, but preserve _lastCaptionText
+    // so we can restore on re-enable mid-beat.
+    _stopCaptionHighlight();
+    var el = document.getElementById('vb-caption-text');
+    if (el) el.innerHTML = '';
+  } else {
+    // Re-enabling mid-beat: rebuild spans for the current beat's text and
+    // restart the highlighter against the in-flight audio.
+    var currentAudio = (typeof state !== 'undefined') ? state.voiceCurrentAudio : null;
+    if (_lastCaptionText && currentAudio && !currentAudio.paused && !currentAudio.ended) {
+      voiceShowSubtitle(_lastCaptionText);
+      _startCaptionHighlight(currentAudio);
+    }
+  }
 }
 
 function voiceShowSubtitle(text) {
+  _lastCaptionText = text || '';
   if (!_captionsEnabled) return;
   var el = document.getElementById('vb-caption-text');
   if (!el) return;
@@ -18496,17 +18513,21 @@ function _startCaptionHighlight(audio) {
     var idx = Math.min(Math.floor(progress * spans.length), spans.length - 1);
     for (var i = 0; i < spans.length; i++) {
       spans[i].classList.toggle('cap-active', i === idx);
+      spans[i].classList.toggle('cap-past', i < idx);
     }
   }, 60);
 }
 
 function _stopCaptionHighlight() {
   if (_captionHighlightTimer) { clearInterval(_captionHighlightTimer); _captionHighlightTimer = null; }
-  // Remove any lingering active class
+  // Remove any lingering highlight classes
   var el = document.getElementById('vb-caption-text');
   if (el) {
-    var active = el.querySelectorAll('.cap-active');
-    for (var i = 0; i < active.length; i++) active[i].classList.remove('cap-active');
+    var marked = el.querySelectorAll('.cap-active, .cap-past');
+    for (var i = 0; i < marked.length; i++) {
+      marked[i].classList.remove('cap-active');
+      marked[i].classList.remove('cap-past');
+    }
   }
 }
 
@@ -19986,12 +20007,13 @@ function setVoiceBarState(newState) {
   var stopBtn = document.getElementById('voice-bar-stop');
   var pauseBtn = document.getElementById('voice-bar-pause');
   var resumeBtn = document.getElementById('voice-bar-resume');
+  var playbackDivider = document.getElementById('vb-divider-playback');
   var captionBar = document.getElementById('vb-caption-bar');
   var vmStop = document.getElementById('vm-stop-btn');
   var vmSend = document.getElementById('vm-send-btn');
 
-  // Reset all buttons
-  [stopBtn, pauseBtn, resumeBtn].forEach(function(b) { if (b) b.classList.add('hidden'); });
+  // Reset all buttons (and the divider that groups them with the attach button)
+  [stopBtn, pauseBtn, resumeBtn, playbackDivider].forEach(function(b) { if (b) b.classList.add('hidden'); });
   if (sendBtn) sendBtn.classList.remove('disabled');
   if (micBtn) { micBtn.classList.remove('hidden'); micBtn.classList.remove('mic-recording'); }
   if (micPill) micPill.classList.remove('visible');
@@ -20036,6 +20058,7 @@ function setVoiceBarState(newState) {
       if (sendBtn) sendBtn.classList.add('disabled');
       if (micBtn && !(_scribe && _scribe.active)) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
       if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
@@ -20047,6 +20070,7 @@ function setVoiceBarState(newState) {
       if (sendBtn) sendBtn.classList.add('disabled');
       if (micBtn) micBtn.classList.add('hidden');
       if (stopBtn) stopBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
       if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
@@ -20055,6 +20079,7 @@ function setVoiceBarState(newState) {
     case 'speaking':
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
       break;
@@ -20062,6 +20087,7 @@ function setVoiceBarState(newState) {
     case 'drawing':
       if (stopBtn) stopBtn.classList.remove('hidden');
       if (pauseBtn) pauseBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
       break;
@@ -20069,6 +20095,7 @@ function setVoiceBarState(newState) {
     case 'paused':
       if (field) field.focus();
       if (resumeBtn) resumeBtn.classList.remove('hidden');
+      if (playbackDivider) playbackDivider.classList.remove('hidden');
       if (vmStop) vmStop.classList.add('hidden');
       if (vmSend) vmSend.classList.remove('hidden');
       break;
@@ -20231,6 +20258,7 @@ function _doSubmitVoiceBar(field) {
 
 // ── Voice bar file attachments ──
 var _vbPendingFiles = [];
+var _vbPasteCounter = 0;
 
 function _vbClearFiles() {
   _vbPendingFiles = [];
@@ -20276,6 +20304,37 @@ function _vbClearFiles() {
         };
         reader.readAsDataURL(f);
       });
+    });
+  }
+
+  // Paste-to-attach: only images, only inside the textarea
+  var textarea = document.getElementById('voice-bar-input');
+  if (textarea) {
+    textarea.addEventListener('paste', function(e) {
+      var items = e.clipboardData && e.clipboardData.items;
+      if (!items || !items.length) return;
+      var captured = false;
+      for (var i = 0; i < items.length; i++) {
+        var it = items[i];
+        if (it.kind !== 'file' || !it.type || it.type.indexOf('image/') !== 0) continue;
+        var blob = it.getAsFile();
+        if (!blob) continue;
+        if (blob.size > 20 * 1024 * 1024) { console.warn('[Paste] Image too large'); continue; }
+        captured = true;
+        var ext = (it.type.split('/')[1] || 'png').toLowerCase();
+        var name = 'IMAGE-' + (++_vbPasteCounter) + '.' + ext;
+        var reader = new FileReader();
+        reader.onload = function(_name, _type) {
+          return function() {
+            _vbPendingFiles.push({ name: _name, type: _type, base64: reader.result.split(',')[1] });
+            _vbRenderFilePreview();
+          };
+        }(name, it.type);
+        reader.readAsDataURL(blob);
+      }
+      // If we captured at least one image, suppress the default paste so binary
+      // data doesn't land in the textarea. Plain text paste (no image) is unaffected.
+      if (captured) e.preventDefault();
     });
   }
 })();

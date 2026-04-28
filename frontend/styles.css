@@ -6097,8 +6097,14 @@ body {
 .vb-caption-text:empty { display: none; }
 
 /* Word-by-word highlight */
-.cap-w { transition: color 0.12s ease, font-weight 0.12s ease; }
-.cap-w.cap-active { color: #fff; font-weight: 700; }
+/* Karaoke-style caption highlight — three tiers (future / past / current)
+   with smooth color transitions. No font-weight change to avoid layout pops. */
+.cap-w {
+  color: rgba(232,213,183,0.35);
+  transition: color 280ms ease-out;
+}
+.cap-w.cap-past { color: rgba(232,213,183,0.78); }
+.cap-w.cap-active { color: #fff; }
 
 /* Caption fade-in animation */
 .vb-caption-text.cap-enter {
@@ -6306,8 +6312,20 @@ body {
   display: flex; align-items: center; justify-content: space-between;
   padding: 2px 0 4px; border-top: 1px solid rgba(255,255,255,0.04);
 }
-.vb-bottom-left { display: flex; align-items: center; gap: 2px; }
-.vb-bottom-right { display: flex; align-items: center; gap: 6px; }
+.vb-bottom-left { display: flex; align-items: center; gap: 2px; min-width: 0; flex: 1 1 auto; }
+.vb-bottom-right { display: flex; align-items: center; gap: 6px; flex-shrink: 0; }
+
+/* Attachment preview row — scrolls horizontally when many chips are added */
+#voice-bar-attach-preview {
+  max-width: 360px;
+  flex-wrap: nowrap;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(52,211,153,0.25) transparent;
+}
+#voice-bar-attach-preview > * { flex-shrink: 0; }
+#voice-bar-attach-preview::-webkit-scrollbar { height: 4px; }
+#voice-bar-attach-preview::-webkit-scrollbar-track { background: transparent; }
+#voice-bar-attach-preview::-webkit-scrollbar-thumb { background: rgba(52,211,153,0.25); border-radius: 4px; }
 
 .vb-icon-btn {
   width: 26px; height: 26px; border-radius: 6px;
