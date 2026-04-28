@@ -9870,13 +9870,22 @@ async function _autoUploadToByo(files) {
 
     // Upload each file
     for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) {
+        _toast(`${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 50 MB.`, 'error');
+        continue;
+      }
       const formData = new FormData();
       formData.append('file', file);
-      await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
+      const uploadRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
         method: 'POST',
         headers: AuthManager.authHeaders(),
         body: formData,
       });
+      if (!uploadRes.ok) {
+        const errBody = await uploadRes.json().catch(() => ({}));
+        const msg = errBody.detail || `Upload failed (${uploadRes.status})`;
+        _toast(`${file.name}: ${msg}`, 'error');
+      }
     }
 
     // Auto-scope to this collection
@@ -11481,7 +11490,12 @@ async function _handleByoUpload(e) {
     }
 
     const dupes = [];
+    const errors = [];
     for (const file of files) {
+      if (file.size > 50 * 1024 * 1024) {
+        errors.push(`${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 50 MB.`);
+        continue;
+      }
       const formData = new FormData();
       formData.append('file', file);
       const r = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
@@ -11492,7 +11506,13 @@ async function _handleByoUpload(e) {
       if (r.ok) {
         const body = await r.json().catch(() => ({}));
         if (body.status === 'duplicate') dupes.push(body.message || `${file.name} — already in this collection`);
+      } else {
+        const errBody = await r.json().catch(() => ({}));
+        errors.push(`${file.name}: ${errBody.detail || `Upload failed (${r.status})`}`);
       }
+    }
+    if (errors.length) {
+      _toast(errors.join('\n'), 'error');
     }
     if (dupes.length) {
       _toast(dupes.length === 1 ? dupes[0] : `${dupes.length} files were already in this collection`);

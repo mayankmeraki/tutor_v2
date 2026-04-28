@@ -143,6 +143,15 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(lifespan=lifespan)
 
+# ─── Error Handlers ───────────────────────────────────────────────
+
+@app.exception_handler(413)
+async def content_too_large_handler(request: Request, exc):
+    return JSONResponse(
+        status_code=413,
+        content={"detail": "File too large. Maximum upload size is 50 MB."},
+    )
+
 # ─── CORS ──────────────────────────────────────────────────────────
 
 _cors_env = os.environ.get("CORS_ORIGINS", "")
