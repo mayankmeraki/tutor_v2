@@ -22057,15 +22057,39 @@ window._closeDSATopicProblems = _closeDSATopicProblems;
 // _renderDSAProblems removed — problems now shown per-topic via _openDSATopicProblems
 
 function _renderSDPage(problems, sdConcepts) {
-  // Render concept chips
+  // Render concept chips — from ui_config OR from teaching plans
   var chipsEl = document.getElementById('sd-concept-chips');
   if (chipsEl) {
     chipsEl.innerHTML = '';
-    // Flatten concept sections into chips
     var allConcepts = [];
+
+    // Try ui_config concepts first
     (sdConcepts || []).forEach(function(section) {
       (section.items || []).forEach(function(item) { allConcepts.push(item); });
     });
+
+    // If empty, build from teaching plans (SD type) via API
+    if (!allConcepts.length) {
+      // Fetch SD teaching plans and use them as concepts
+      var hdrs = typeof AuthManager !== 'undefined' && AuthManager.authHeaders ? AuthManager.authHeaders() : {};
+      var apiUrl = ($('#api-url')?.value?.trim()) || window.location.origin;
+      fetch(apiUrl + '/api/v1/dsa/problems?limit=0', { headers: hdrs }).catch(function(){});
+      // Use known SD concepts as fallback (from teaching_plans collection)
+      var sdConceptList = [
+        {slug:'caching',name:'Caching'},{slug:'load-balancing',name:'Load Balancing'},
+        {slug:'sharding',name:'Database Sharding'},{slug:'message_queues',name:'Message Queues'},
+        {slug:'cap_theorem',name:'CAP Theorem'},{slug:'consistent_hashing',name:'Consistent Hashing'},
+        {slug:'api_design',name:'API Design'},{slug:'sql_vs_nosql',name:'SQL vs NoSQL'},
+        {slug:'database_indexing',name:'Database Indexing'},{slug:'networking',name:'Networking'},
+        {slug:'redis',name:'Redis'},{slug:'kafka',name:'Kafka'},
+        {slug:'elasticsearch',name:'Elasticsearch'},{slug:'data_modeling',name:'Data Modeling'},
+        {slug:'realtime-updates',name:'Realtime Updates'},{slug:'contention',name:'Concurrency'},
+        {slug:'sagas',name:'Distributed Transactions'},{slug:'scaling-reads',name:'Scaling Reads'},
+        {slug:'scaling-writes',name:'Scaling Writes'},{slug:'replication',name:'Replication'},
+      ];
+      allConcepts = sdConceptList;
+    }
+
     allConcepts.forEach(function(item) {
       var chip = document.createElement('button');
       chip.style.cssText = 'padding:7px 13px;border-radius:8px;border:1px solid rgba(96,165,250,.06);background:rgba(96,165,250,.02);font-size:11px;color:rgba(255,255,255,.45);cursor:pointer;font-family:inherit;transition:all .12s;white-space:nowrap';

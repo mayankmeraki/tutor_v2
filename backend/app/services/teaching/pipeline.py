@@ -1282,8 +1282,9 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
         from pymongo import MongoClient as _MC
         import certifi as _cert
         from app.core.config import settings as _s
+        import os as _os
         _db = _MC(_s.MONGODB_URI, tlsCAFile=_cert.where(),
-                  serverSelectionTimeoutMS=2000)["tutor_v2"]
+                  serverSelectionTimeoutMS=2000)[_os.environ.get("MONGODB_DB", "myprofessor")]
 
         from app.services.teaching.content_search import find_teaching_plan
         _intent = session.student_intent or context_data.get("studentIntent", "")
