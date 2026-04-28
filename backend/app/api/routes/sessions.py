@@ -145,39 +145,44 @@ async def search_all(q: str = "", user: dict = Depends(get_optional_user)):
 
 
 @router.get("/me/{course_id}")
-async def my_sessions(course_id: int, user: dict = Depends(get_optional_user)):
-    """Get all sessions for the authenticated user + course."""
-    docs = await get_sessions_for_user(course_id, user["email"])
+async def my_sessions(course_id: str, user: dict = Depends(get_optional_user)):
+    """Get all sessions for the authenticated user. course_id is optional (legacy)."""
+    cid = int(course_id) if course_id and course_id != "null" else None
+    docs = await get_sessions_for_user(cid, user["email"])
     return docs
 
 
 @router.get("/me/{course_id}/with-headlines")
-async def my_sessions_with_headlines(course_id: int, user: dict = Depends(get_optional_user)):
-    """Get all sessions for the authenticated user + course with AI headlines."""
-    docs = await get_sessions_with_headlines_by_email(course_id, user["email"])
+async def my_sessions_with_headlines(course_id: str, user: dict = Depends(get_optional_user)):
+    """Get all sessions for the authenticated user with AI headlines."""
+    cid = int(course_id) if course_id and course_id != "null" else None
+    docs = await get_sessions_with_headlines_by_email(cid, user["email"])
     return docs
 
 
 @router.get("/student/{course_id}/{student_name}")
-async def student_sessions(course_id: int, student_name: str, user: dict = Depends(get_optional_user)):
-    """Get all sessions for a student+course, newest first."""
-    docs = await get_sessions_for_student(course_id, student_name)
+async def student_sessions(course_id: str, student_name: str, user: dict = Depends(get_optional_user)):
+    """Get all sessions for a student, newest first."""
+    cid = int(course_id) if course_id and course_id != "null" else None
+    docs = await get_sessions_for_student(cid, student_name)
     return docs
 
 
 @router.get("/student/{course_id}/{student_name}/with-headlines")
-async def student_sessions_with_headlines(course_id: int, student_name: str, user: dict = Depends(get_optional_user)):
-    """Get all sessions for a student+course with AI-generated headlines."""
-    docs = await get_sessions_with_headlines(course_id, student_name)
+async def student_sessions_with_headlines(course_id: str, student_name: str, user: dict = Depends(get_optional_user)):
+    """Get all sessions for a student with AI-generated headlines."""
+    cid = int(course_id) if course_id and course_id != "null" else None
+    docs = await get_sessions_with_headlines(cid, student_name)
     return docs
 
 
 @router.get("/search/{course_id}")
-async def search(course_id: int, q: str = "", user: dict = Depends(get_optional_user)):
-    """Semantic search across sessions — text + vector matching."""
+async def search(course_id: str, q: str = "", user: dict = Depends(get_optional_user)):
+    """Semantic search across sessions."""
     if not q or len(q.strip()) < 2:
         return []
-    results = await search_sessions_semantic(course_id, user["email"], q.strip())
+    cid = int(course_id) if course_id and course_id != "null" else None
+    results = await search_sessions_semantic(cid, user["email"], q.strip())
     return results
 
 

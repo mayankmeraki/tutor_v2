@@ -28,7 +28,8 @@ def _get_db():
             connectTimeoutMS=3000,
         )
         client.admin.command("ping")
-        _db_cache = client["tutor_v2"]
+        db_name = os.environ.get("MONGODB_DB", "myprofessor")
+        _db_cache = client[db_name]
         return _db_cache
     except Exception as e:
         log.warning("MongoDB unavailable for DSA API: %s", e)
@@ -241,7 +242,7 @@ def get_dsa_progress(user_id: str = Query(...)):
             settings.MONGODB_URI,
             tlsCAFile=certifi.where(),
             serverSelectionTimeoutMS=3000,
-        )["tutor_v2"]
+        )[os.environ.get("MONGODB_DB", "myprofessor")]
         notes = list(tutor_db.knowledge_notes.find(
             {"user_id": user_id, "tags": {"$in": [
                 "mock_interview", "arrays", "trees", "graphs", "dynamic_programming",

@@ -85,12 +85,12 @@ _SESSION_CARD_FIELDS = {
 }
 
 
-async def get_sessions_for_student(course_id: int, student_name: str) -> list[dict]:
+async def get_sessions_for_student(course_id: int | None, student_name: str) -> list[dict]:
     """Return lightweight session cards for landing page — no heavy data."""
-    cursor = _sessions().find(
-        {"courseId": course_id, "studentName": student_name},
-        _SESSION_CARD_FIELDS,
-    ).sort("startedAt", -1).limit(50)
+    query = {"studentName": student_name}
+    if course_id is not None:
+        query["courseId"] = course_id
+    cursor = _sessions().find(query, _SESSION_CARD_FIELDS).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
@@ -98,12 +98,12 @@ async def get_sessions_for_student(course_id: int, student_name: str) -> list[di
     return docs
 
 
-async def get_sessions_for_user(course_id: int, user_email: str) -> list[dict]:
+async def get_sessions_for_user(course_id: int | None, user_email: str) -> list[dict]:
     """Return lightweight session cards for landing page — no heavy data."""
-    cursor = _sessions().find(
-        {"courseId": course_id, "userEmail": user_email},
-        _SESSION_CARD_FIELDS,
-    ).sort("startedAt", -1).limit(50)
+    query = {"userEmail": user_email}
+    if course_id is not None:
+        query["courseId"] = course_id
+    cursor = _sessions().find(query, _SESSION_CARD_FIELDS).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
@@ -351,14 +351,14 @@ async def _enrich_sessions_with_headlines(sessions: list[dict]) -> list[dict]:
     return sessions
 
 
-async def get_sessions_with_headlines(course_id: int, student_name: str) -> list[dict]:
-    """Return all sessions for a student+course with AI-generated headlines."""
+async def get_sessions_with_headlines(course_id: int | None, student_name: str) -> list[dict]:
+    """Return all sessions for a student with AI-generated headlines."""
     sessions = await get_sessions_for_student(course_id, student_name)
     return await _enrich_sessions_with_headlines(sessions)
 
 
-async def get_sessions_with_headlines_by_email(course_id: int, user_email: str) -> list[dict]:
-    """Return all sessions for a user (by email) + course with AI-generated headlines."""
+async def get_sessions_with_headlines_by_email(course_id: int | None, user_email: str) -> list[dict]:
+    """Return all sessions for a user (by email) with AI-generated headlines."""
     sessions = await get_sessions_for_user(course_id, user_email)
     return await _enrich_sessions_with_headlines(sessions)
 
@@ -366,7 +366,7 @@ async def get_sessions_with_headlines_by_email(course_id: int, user_email: str) 
 # ─── Semantic Session Search ──────────────────────────────────
 
 async def search_sessions_semantic(
-    course_id: int,
+    course_id: int | None,
     user_email: str,
     query: str,
     limit: int = 10,

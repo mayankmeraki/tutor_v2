@@ -625,6 +625,18 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
             )
             slog.info("Agent spawned via tag", extra={"type": agent_type, "task": task_desc[:80]})
 
+    # Parse <ui-panel> tags — tutor controls workspace panels
+    _UI_PANEL_RE = re.compile(r'<ui-panel\s+id="([^"]+)"\s+action="(show|hide)"(?:\s+language="([^"]*)")?\s*/>')
+    ui_panels = _UI_PANEL_RE.findall(hk_content)
+    if ui_panels:
+        _pending = context_data.setdefault("_pending_ws_events", [])
+        for panel_id, action, language in ui_panels:
+            _pending.append({
+                "type": "UI_PANEL",
+                "data": {"id": panel_id, "action": action, "language": language or None},
+            })
+            slog.info("UI panel: %s %s", action, panel_id)
+
     # Parse <prefetch_context> tags — tutor requests tool calls to be
     # executed in the BACKGROUND. Results are injected into the next
     # turn's prompt as [PREFETCHED CONTENT]. This avoids tool call

@@ -2451,6 +2451,53 @@ function _wsOnMessage(msg) {
       break;
     }
 
+    case 'UI_PANEL': {
+      const pd = evt.data || {};
+      console.log('[UI] Panel control:', pd.id, pd.action);
+      const panel = document.getElementById('workspace-panel');
+      const mainLayout = document.getElementById('main-layout');
+      const resizeHandle = document.getElementById('ws-resize-handle');
+      if (pd.action === 'show') {
+        if (panel) panel.classList.remove('hidden');
+        if (resizeHandle) resizeHandle.classList.remove('hidden');
+        if (mainLayout) mainLayout.classList.add('dsa-mode');
+        // Show the right pane
+        document.getElementById('ws-code-pane').style.display = 'none';
+        document.getElementById('ws-canvas-pane').style.display = 'none';
+        document.getElementById('ws-mock-pane').style.display = 'none';
+        var lldP = document.getElementById('ws-lld-pane');
+        if (lldP) lldP.style.display = 'none';
+        if (pd.id === 'code-editor') {
+          document.getElementById('ws-code-pane').style.display = 'flex';
+          _initAceEditor('ws-code-editor');
+          if (pd.language) state.dsaLanguage = pd.language;
+        } else if (pd.id === 'sd-canvas') {
+          document.getElementById('ws-canvas-pane').style.display = 'flex';
+          window._sdCanvasState = window._sdCanvasState || { elements: [] };
+        } else if (pd.id === 'lld-split' && lldP) {
+          lldP.style.display = 'flex';
+          _initAceEditor('ws-lld-editor');
+          if (typeof _initLLDCanvas === 'function') _initLLDCanvas();
+          if (pd.language) state.dsaLanguage = pd.language;
+        }
+      } else if (pd.action === 'hide') {
+        if (pd.id === 'code-editor') document.getElementById('ws-code-pane').style.display = 'none';
+        else if (pd.id === 'sd-canvas') document.getElementById('ws-canvas-pane').style.display = 'none';
+        else if (pd.id === 'lld-split' && lldP) lldP.style.display = 'none';
+        // Hide workspace panel if nothing visible
+        var anyVisible = ['ws-code-pane','ws-canvas-pane','ws-mock-pane','ws-lld-pane'].some(function(id) {
+          var el = document.getElementById(id);
+          return el && el.style.display !== 'none';
+        });
+        if (!anyVisible && panel) {
+          panel.classList.add('hidden');
+          if (resizeHandle) resizeHandle.classList.add('hidden');
+          if (mainLayout) mainLayout.classList.remove('dsa-mode');
+        }
+      }
+      break;
+    }
+
     case 'DONE':
       // Validate generation — stale DONE from old turn must not kill current turn
       if (evt.gen !== undefined && turn && evt.gen !== turn.gen) {
@@ -13283,17 +13330,20 @@ async function startNewSession(name, courseId, intent, scenario) {
   showSessionPrep();
 
   try {
-    updateSessionPrep('Loading course materials...');
-    const courseMap = await loadCourseMap(state.courseId);
-    updateSessionPrep('Fetching simulations & concepts...');
-    await Promise.all([
-      fetchSimulations(state.courseId),
-      fetchConcepts(state.courseId),
-    ]);
+    let courseMap = null;
+    if (state.courseId) {
+      updateSessionPrep('Loading course materials...');
+      courseMap = await loadCourseMap(state.courseId);
+      updateSessionPrep('Fetching simulations & concepts...');
+      await Promise.all([
+        fetchSimulations(state.courseId),
+        fetchConcepts(state.courseId),
+      ]);
+    }
 
     updateSessionPrep('Checking your progress...');
     // Fetch previous sessions — find the one with most actual progress
-    const prevSessions = await SessionManager.loadPreviousSessions(state.courseId, state.studentName) || [];
+    const prevSessions = state.courseId ? (await SessionManager.loadPreviousSessions(state.courseId, state.studentName) || []) : [];
 
     // Pick the session with the most completed sections (not just newest)
     const bestSession = prevSessions.reduce((best, s) => {
@@ -13479,11 +13529,14 @@ window.continueSession = async function(sessionId) {
     // Connect persistent SSE for agent events
     connectAgentEvents();
 
-    const courseMap = await loadCourseMap(state.courseId);
-    await Promise.all([
-      fetchSimulations(state.courseId),
-      fetchConcepts(state.courseId),
-    ]);
+    let courseMap = null;
+    if (state.courseId) {
+      courseMap = await loadCourseMap(state.courseId);
+      await Promise.all([
+        fetchSimulations(state.courseId),
+        fetchConcepts(state.courseId),
+      ]);
+    }
 
     // Derive checkpoint from session's course position
     state.checkpoint = deriveCheckpointFromSession(sessionData);

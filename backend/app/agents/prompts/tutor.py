@@ -25,6 +25,7 @@ from .sections import (
     SECTION_SYSTEM_DESIGN_MODE,
     SECTION_MOCK_INTERVIEW_MODE,
 )
+from .sections.ui_controls import SECTION_UI_CONTROLS
 
 # Registry: section name → prompt text
 # Core sections are in fixed order; domain sections are appended by the blueprint.
@@ -39,6 +40,7 @@ _SECTION_REGISTRY: dict[str, str] = {
     "DSA_MODE": SECTION_DSA_MODE,
     "SYSTEM_DESIGN_MODE": SECTION_SYSTEM_DESIGN_MODE,
     "MOCK_INTERVIEW_MODE": SECTION_MOCK_INTERVIEW_MODE,
+    "UI_CONTROLS": SECTION_UI_CONTROLS,
 }
 
 # Lazy-load mock company prompts into registry on first use
@@ -123,6 +125,9 @@ def build_tutor_system_prompt(
         SECTION_CONCEPT_TEACHING,
         SECTION_EXECUTION,
     ])
+
+    # UI Controls — always available (tutor can show/hide panels dynamically)
+    parts.append(SECTION_UI_CONTROLS)
 
     if session_mode == "dsa":
         parts.append(SECTION_DSA_MODE)
