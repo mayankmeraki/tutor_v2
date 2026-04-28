@@ -43,4 +43,30 @@ test.describe('Session timer — engagement gating', () => {
 
     await other.close();
   });
+
+  test('does not advance while voice bar is paused', async ({ page }) => {
+    await startOnDemandSession(page);
+
+    await page.locator(SEL.teaching.barInput).fill('hello');
+    await page.locator(SEL.teaching.barSend).click();
+
+    await page.waitForFunction(
+      () => window.state && window.state.voiceBarState === 'speaking',
+      { timeout: 20_000 }
+    );
+
+    const timer = page.locator(SEL.teaching.timer);
+    const before = await timer.textContent();
+
+    await page.locator(SEL.teaching.barPause).click();
+
+    await page.waitForTimeout(5000);
+    const after = await timer.textContent();
+
+    const toSec = (s) => {
+      const [m, ss] = s.split(':').map(Number);
+      return m * 60 + ss;
+    };
+    expect(toSec(after) - toSec(before)).toBeLessThan(3);
+  });
 });
