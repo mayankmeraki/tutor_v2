@@ -530,13 +530,126 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
             import json as _tpj
             _tp = _tpj.loads(teaching_plan) if isinstance(teaching_plan, str) else teaching_plan
             _deep = _tp.pop("deep_content", None)
-            parts.append("[TEACHING PLAN — Outline]\n")
-            parts.append(_tpj.dumps(_tp, indent=2))
+
+            # Format enriched DSA/SD plans as structured readable sections
+            _core = _tp.pop("core_insight", None)
+            _framework = _tp.pop("framework", None)
+            _patterns = _tp.pop("patterns", None)
+            _hard = _tp.pop("what_makes_it_hard", None)
+            _faang = _tp.pop("faang_expectations", None)
+            _visuals = _tp.pop("visual_ideas", None)
+            _probs = _tp.pop("problems_by_purpose", None)
+            _cp = _tp.pop("competitive_programming", None)
+            _connects = _tp.pop("connects_to", None)
+
+            parts.append(f"[TEACHING PLAN — {_tp.get('title', 'Topic')}]\n")
+
+            if _core:
+                parts.append("\n## CORE INSIGHT — the one thing the student must understand\n")
+                parts.append(f"{_core if isinstance(_core, str) else _tpj.dumps(_core, indent=2)}\n")
+
+            if _framework:
+                parts.append("\n## FRAMEWORK — reusable code templates (use these to teach)\n")
+                if isinstance(_framework, str):
+                    parts.append(f"{_framework}\n")
+                elif isinstance(_framework, dict):
+                    # Some batches stored framework as {description, code_templates}
+                    if _framework.get('description'):
+                        parts.append(f"{_framework['description']}\n")
+                    for tmpl in (_framework.get('code_templates') or []):
+                        if isinstance(tmpl, dict):
+                            parts.append(f"\n### {tmpl.get('name', 'Template')}\n{tmpl.get('code', '')}\n")
+                        elif isinstance(tmpl, str):
+                            parts.append(f"\n{tmpl}\n")
+
+            if _patterns:
+                parts.append("\n## PATTERNS — sub-patterns the student must learn to recognize\n")
+                for i, p in enumerate(_patterns, 1):
+                    if isinstance(p, dict):
+                        parts.append(f"\n### Pattern {i}: {p.get('name', '?')}")
+                        _recog = p.get('recognition') or p.get('description') or p.get('when', '')
+                        if _recog:
+                            parts.append(f"\nWhen to use: {_recog}")
+                        _hint = p.get('template_hint') or ''
+                        if _hint:
+                            parts.append(f"\nApproach: {_hint}")
+                        probs = p.get('classic_problems') or p.get('examples') or []
+                        if probs:
+                            prob_strs = []
+                            for pr in probs[:4]:
+                                if isinstance(pr, dict):
+                                    lc = pr.get('leetcode') or pr.get('leetcode_number') or '?'
+                                    prob_strs.append(f"LC {lc} {pr.get('name', '')} ({pr.get('difficulty', '?')})")
+                                elif isinstance(pr, str):
+                                    prob_strs.append(pr)
+                            parts.append(f"\nProblems: {', '.join(prob_strs)}")
+                        _diff = p.get('difficulty_range', '')
+                        if _diff:
+                            parts.append(f"\nDifficulty: {_diff}\n")
+
+            if _hard:
+                parts.append("\n## WHAT MAKES IT HARD — failure modes to watch for\n")
+                if isinstance(_hard, str):
+                    parts.append(f"{_hard}\n")
+                elif isinstance(_hard, list):
+                    for item in _hard:
+                        if isinstance(item, str):
+                            parts.append(f"  - {item}\n")
+                        elif isinstance(item, dict):
+                            parts.append(f"  - {item.get('issue', item.get('name', ''))}: {item.get('description', item.get('detail', ''))}\n")
+                else:
+                    parts.append(f"{_tpj.dumps(_hard, indent=2)}\n")
+
+            if _faang:
+                parts.append("\n## FAANG EXPECTATIONS — calibrate to student level\n")
+                if isinstance(_faang, dict):
+                    for level, desc in _faang.items():
+                        parts.append(f"  {level}: {desc if isinstance(desc, str) else _tpj.dumps(desc)}\n")
+                elif isinstance(_faang, str):
+                    parts.append(f"{_faang}\n")
+
+            if _probs:
+                parts.append("\n## PROBLEMS BY PURPOSE — use these to structure the session\n")
+                if isinstance(_probs, dict):
+                    for purpose, prob_list in _probs.items():
+                        if isinstance(prob_list, list) and prob_list:
+                            parts.append(f"\n  {purpose}:")
+                            for pr in prob_list[:4]:
+                                if isinstance(pr, dict):
+                                    lc = pr.get('leetcode') or pr.get('leetcode_number') or '?'
+                                    parts.append(f"    - LC {lc} {pr.get('name', '')} — {pr.get('why', '')}")
+                                elif isinstance(pr, str):
+                                    parts.append(f"    - {pr}")
+
+            if _visuals:
+                parts.append("\n## VISUAL IDEAS — animation/board suggestions\n")
+                for v in (_visuals if isinstance(_visuals, list) else [_visuals]):
+                    parts.append(f"  - {v}\n")
+
+            if _connects:
+                parts.append(f"\n## CONNECTS TO: {', '.join(_connects) if isinstance(_connects, list) else _connects}\n")
+
+            if _cp:
+                parts.append("\n## COMPETITIVE PROGRAMMING (advanced students only)\n")
+                if isinstance(_cp, dict):
+                    techs = _cp.get('key_techniques', [])
+                    if techs:
+                        parts.append(f"  Techniques: {', '.join(techs[:5])}\n")
+                    gotchas = _cp.get('gotchas', [])
+                    if gotchas:
+                        parts.append(f"  Gotchas: {'; '.join(gotchas[:3])}\n")
+
+            # Remaining fields (legacy) as compact JSON
+            for k in ['canonical_problems', 'visual_examples', 'key_ideas', 'introduction']:
+                _tp.pop(k, None)
+            _remaining = {k: v for k, v in _tp.items() if v and k not in ('slug', 'type', 'title', 'category', 'updated_at')}
+            if _remaining:
+                parts.append(f"\n[PLAN DETAILS]\n{_tpj.dumps(_remaining, indent=2)}\n")
+
             if _deep and isinstance(_deep, str):
                 _max = 8000
                 _trunc = _deep[:_max] + ("\n...[truncated]" if len(_deep) > _max else "")
-                parts.append("\n[TEACHING CONTENT — Reference material]\n")
-                parts.append(_trunc)
+                parts.append(f"\n[TEACHING CONTENT — Reference material]\n{_trunc}")
         except Exception:
             parts.append("[TEACHING PLAN]\n")
             parts.append(teaching_plan if isinstance(teaching_plan, str) else str(teaching_plan))
