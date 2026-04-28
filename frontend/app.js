@@ -2196,6 +2196,11 @@ function _wsKillTurn(reason) {
   if (!turn) return;
   console.log(`[WS] Kill turn gen=${turn.gen} reason=${reason}`);
 
+  // Mark dead FIRST — all checks in async paths use this
+  turn.executorExited = true;
+  turn._killed = true;
+  _wsTurn = null;
+
   // Stop ALL audio — the turn's tracked element + any orphaned Audio objects
   if (turn.audioEl) {
     if (turn.audioEl._blobUrl) try { URL.revokeObjectURL(turn.audioEl._blobUrl); } catch (e) {}
@@ -2204,7 +2209,6 @@ function _wsKillTurn(reason) {
   }
   state.voiceCurrentAudio = null;
   // Nuclear: pause every audio element on the page to kill orphans
-  // (race condition: TTS bytes arrive AFTER kill, audio starts playing)
   document.querySelectorAll('audio').forEach(a => {
     try { a.pause(); a.src = ''; } catch (e) {}
   });
@@ -2215,9 +2219,17 @@ function _wsKillTurn(reason) {
     delete b.audio;
   }
   turn.beats = {};
-  turn.executorExited = true;
-  _wsTurn = null;
+
+  // Clear the eager queue — prevents old beats from leaking into next turn
+  _eager.queue = [];
   _eager.running = false;
+
+  // Clear BoardEngine command queue to prevent old draws executing
+  if (typeof BoardEngine !== 'undefined' && BoardEngine.state) {
+    BoardEngine.state.commandQueue = [];
+    BoardEngine.state.isProcessing = false;
+  }
+
   _hideBoardDrawingSkeleton();
   _hideBoardStreaming();
 }
@@ -2603,33 +2615,31 @@ async function _wsRunExecutor(turn) {
 
   try {
     while (true) {
-      if (state._stopRequested || _wsTurn !== turn) break;
+      // Check turn alive at TOP of every iteration
+      if (turn._killed || state._stopRequested || _wsTurn !== turn) break;
       if (Date.now() - t0 > TIMEOUT) {
         console.warn(`[WS Exec] Timeout after ${TIMEOUT}ms — exiting`);
         break;
       }
 
-      while (state.paused && !state._stopRequested) {
+      while (state.paused && !state._stopRequested && !turn._killed) {
         await new Promise(r => setTimeout(r, 100));
       }
-      if (state._stopRequested) break;
+      if (turn._killed || state._stopRequested || _wsTurn !== turn) break;
 
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
         if (_vbState === 'thinking') setVoiceBarState('speaking');
-        // If we're in 'drawing' and the next beat has NO draw commands,
-        // that beat arriving means the render phase is over → switch to speaking.
-        // If the next beat ALSO has draws, stay in 'drawing' (executeDraw keeps it).
         else if (_vbState === 'drawing' && !(beat.draw && beat.draw.length > 0)) setVoiceBarState('speaking');
         _hideBoardStreaming();
         try { await _wsExecBeat(beat, beat._beatNum, turn); } catch (e) { console.warn('[WS Exec] Beat err:', e.message); }
+        // Re-check after beat execution (beat may have taken seconds)
+        if (turn._killed || _wsTurn !== turn) break;
         if (beat.question) break;
       } else if (state.isStreaming || _eager.queue.length > 0) {
-        // Queue empty but still streaming — show indicator while waiting for more beats
         _showBoardStreaming();
         await new Promise(r => setTimeout(r, 80));
       } else {
-        // Streaming done AND queue empty — exit
         break;
       }
     }
@@ -2670,7 +2680,7 @@ async function _wsRunExecutor(turn) {
 // ── Beat execution ──────────────────────────────────────────
 
 async function _wsExecBeat(beat, beatNum, turn) {
-  if (turn.executorExited) return;
+  if (turn._killed || turn.executorExited || _wsTurn !== turn) return;
   if (beat.scrollTo) { BoardEngine.scrollToElement(beat.scrollTo.replace(/^id:/, '')); await new Promise(r => setTimeout(r, 300)); }
   if (typeof executeCursor === 'function') executeCursor(beat.cursor, beat.draw);
   if (beat.animControl && typeof bdControlAnimation === 'function') bdControlAnimation(beat.animControl);
@@ -2702,7 +2712,7 @@ async function _wsExecBeat(beat, beatNum, turn) {
   }
 
   await Promise.race([
-    Promise.all([ executeDraw(beat.draw), hasSay ? _wsPlayAudio(beat, beatNum, turn) : Promise.resolve() ]),
+    Promise.all([ executeDraw(beat.draw, turn), hasSay ? _wsPlayAudio(beat, beatNum, turn) : Promise.resolve() ]),
     new Promise(r => setTimeout(r, 15000)),
   ]);
 
@@ -2789,16 +2799,26 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     };
     audio.onended = () => done('ended');
     audio.onerror = (e) => { console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
-    // Double-check turn is still active right before play
-    if (turn.executorExited || _wsTurn !== turn) { done('killed'); return; }
+    // Check turn is still active right before play
+    if (turn._killed || _wsTurn !== turn) { done('killed'); return; }
     audio.play()
-      .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing`); _startCaptionHighlight(audio); })
+      .then(() => {
+        // Re-check after play starts — if killed between .play() and .then(), stop
+        if (turn._killed || _wsTurn !== turn) { try { audio.pause(); } catch(e){} done('killed-after-play'); return; }
+        console.log(`[WS Audio] Beat #${beatNum} playing`);
+        _startCaptionHighlight(audio);
+      })
       .catch((err) => {
         console.warn(`[WS Audio] Beat #${beatNum} play failed:`, err.message);
-        // Retry once after short delay — autoplay may have been unlocked
+        // Retry once — but check turn is still alive first
         setTimeout(() => {
+          if (turn._killed || _wsTurn !== turn) { done('killed-in-retry'); return; }
           audio.play()
-            .then(() => { console.log(`[WS Audio] Beat #${beatNum} playing (retry)`); _startCaptionHighlight(audio); })
+            .then(() => {
+              if (turn._killed || _wsTurn !== turn) { try { audio.pause(); } catch(e){} done('killed-after-retry'); return; }
+              console.log(`[WS Audio] Beat #${beatNum} playing (retry)`);
+              _startCaptionHighlight(audio);
+            })
             .catch((err2) => {
               console.error(`[WS Audio] Beat #${beatNum} autoplay blocked — skipping:`, err2.message);
               done('autoplay-blocked');
@@ -19456,10 +19476,12 @@ async function executeVoiceScene(sceneTag) {
 }
 
 // Execute draw commands from a beat
-async function executeDraw(drawCmds) {
+async function executeDraw(drawCmds, turn) {
   if (!drawCmds || drawCmds.length === 0) {
     return;
   }
+  // If turn was killed, don't queue any board commands
+  if (turn && (turn._killed || _wsTurn !== turn)) return;
   console.log(`[VoiceScene] Drawing ${drawCmds.length} commands:`, drawCmds.map(c => c.cmd).join(', '));
 
   // Show "Drawing on board..." indicator so students know the tutor is working
