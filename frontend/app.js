@@ -22157,7 +22157,12 @@ function _renderSDPage(problems, sdConcepts) {
       '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:3px">' + (p.name || '') + '</div>' +
       '<div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.4;margin-bottom:8px">' + (p.description || '').slice(0, 80) + '</div>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap">' + tags + '</div>';
-    card.onclick = function() { _showModePicker(p.slug, 'sd', p.name, card); };
+    card.onclick = function() {
+      state.dsaMode = 'sd';
+      state.dsaProblemSlug = p.slug;
+      state.studentIntent = 'design ' + p.name;
+      _startDSASession(p.slug, 'sd');
+    };
     probEl.appendChild(card);
   });
 }
@@ -22185,7 +22190,12 @@ function _renderLLDPage(problems, lldConcepts) {
       '<div style="font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin-bottom:3px">' + (p.name || '') + '</div>' +
       '<div style="font-size:10px;color:rgba(255,255,255,.2);line-height:1.4;margin-bottom:8px">' + (p.description || '').slice(0, 80) + '</div>' +
       '<div style="display:flex;gap:4px;flex-wrap:wrap">' + tags + '</div>';
-    card.onclick = function() { _showModePicker(p.slug, 'sd', p.name, card); };
+    card.onclick = function() {
+      state.dsaMode = 'sd';
+      state.dsaProblemSlug = p.slug;
+      state.studentIntent = 'design ' + p.name;
+      _startDSASession(p.slug, 'sd');
+    };
     probEl.appendChild(card);
   });
 }
