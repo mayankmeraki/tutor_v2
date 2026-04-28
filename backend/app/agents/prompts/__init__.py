@@ -312,6 +312,144 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
                 f"═══════════════════════════════════════════\n"
             )
 
+    # ── SESSION-STABLE content (cacheable within a session) ──
+    # Teaching plan, BYO preloaded content — same for every turn in this session.
+    # Appended to static_parts BEFORE joining so they're inside the cached block.
+
+    teaching_plan = context_data.get("teachingPlan")
+    if teaching_plan:
+        try:
+            import json as _tpj
+            _tp = _tpj.loads(teaching_plan) if isinstance(teaching_plan, str) else teaching_plan
+            _deep = _tp.pop("deep_content", None)
+
+            _core = _tp.pop("core_insight", None)
+            _framework = _tp.pop("framework", None)
+            _patterns = _tp.pop("patterns", None)
+            _hard = _tp.pop("what_makes_it_hard", None)
+            _faang = _tp.pop("faang_expectations", None)
+            _visuals = _tp.pop("visual_ideas", None)
+            _probs = _tp.pop("problems_by_purpose", None)
+            _cp = _tp.pop("competitive_programming", None)
+            _connects = _tp.pop("connects_to", None)
+
+            _plan_parts = [f"\n═══ TEACHING PLAN — {_tp.get('title', 'Topic')} ═══\n"]
+
+            if _core:
+                _plan_parts.append("\n## CORE INSIGHT — the one thing the student must understand\n")
+                _plan_parts.append(f"{_core if isinstance(_core, str) else _tpj.dumps(_core, indent=2)}\n")
+
+            if _framework:
+                _plan_parts.append("\n## FRAMEWORK — reusable code templates (use these to teach)\n")
+                if isinstance(_framework, str):
+                    _plan_parts.append(f"{_framework}\n")
+                elif isinstance(_framework, dict):
+                    if _framework.get('description'):
+                        _plan_parts.append(f"{_framework['description']}\n")
+                    for tmpl in (_framework.get('code_templates') or []):
+                        if isinstance(tmpl, dict):
+                            _plan_parts.append(f"\n### {tmpl.get('name', 'Template')}\n{tmpl.get('code', '')}\n")
+                        elif isinstance(tmpl, str):
+                            _plan_parts.append(f"\n{tmpl}\n")
+
+            if _patterns:
+                _plan_parts.append("\n## PATTERNS — sub-patterns the student must learn to recognize\n")
+                for i, p in enumerate(_patterns, 1):
+                    if isinstance(p, dict):
+                        _plan_parts.append(f"\n### Pattern {i}: {p.get('name', '?')}")
+                        _recog = p.get('recognition') or p.get('description') or p.get('when', '')
+                        if _recog:
+                            _plan_parts.append(f"\nWhen to use: {_recog}")
+                        _hint = p.get('template_hint') or ''
+                        if _hint:
+                            _plan_parts.append(f"\nApproach: {_hint}")
+                        probs = p.get('classic_problems') or p.get('examples') or []
+                        if probs:
+                            prob_strs = []
+                            for pr in probs[:4]:
+                                if isinstance(pr, dict):
+                                    lc = pr.get('leetcode') or pr.get('leetcode_number') or '?'
+                                    prob_strs.append(f"LC {lc} {pr.get('name', '')} ({pr.get('difficulty', '?')})")
+                                elif isinstance(pr, str):
+                                    prob_strs.append(pr)
+                            _plan_parts.append(f"\nProblems: {', '.join(prob_strs)}")
+                        _diff = p.get('difficulty_range', '')
+                        if _diff:
+                            _plan_parts.append(f"\nDifficulty: {_diff}\n")
+
+            if _hard:
+                _plan_parts.append("\n## WHAT MAKES IT HARD — failure modes to watch for\n")
+                if isinstance(_hard, str):
+                    _plan_parts.append(f"{_hard}\n")
+                elif isinstance(_hard, list):
+                    for item in _hard:
+                        if isinstance(item, str):
+                            _plan_parts.append(f"  - {item}\n")
+                        elif isinstance(item, dict):
+                            _plan_parts.append(f"  - {item.get('issue', item.get('name', ''))}: {item.get('description', item.get('detail', ''))}\n")
+                else:
+                    _plan_parts.append(f"{_tpj.dumps(_hard, indent=2)}\n")
+
+            if _faang:
+                _plan_parts.append("\n## FAANG EXPECTATIONS — calibrate to student level\n")
+                if isinstance(_faang, dict):
+                    for level, desc in _faang.items():
+                        _plan_parts.append(f"  {level}: {desc if isinstance(desc, str) else _tpj.dumps(desc)}\n")
+                elif isinstance(_faang, str):
+                    _plan_parts.append(f"{_faang}\n")
+
+            if _probs:
+                _plan_parts.append("\n## PROBLEMS BY PURPOSE — use these to structure the session\n")
+                if isinstance(_probs, dict):
+                    for purpose, prob_list in _probs.items():
+                        if isinstance(prob_list, list) and prob_list:
+                            _plan_parts.append(f"\n  {purpose}:")
+                            for pr in prob_list[:4]:
+                                if isinstance(pr, dict):
+                                    lc = pr.get('leetcode') or pr.get('leetcode_number') or '?'
+                                    _plan_parts.append(f"    - LC {lc} {pr.get('name', '')} — {pr.get('why', '')}")
+                                elif isinstance(pr, str):
+                                    _plan_parts.append(f"    - {pr}")
+
+            if _visuals:
+                _plan_parts.append("\n## VISUAL IDEAS — animation/board suggestions\n")
+                for v in (_visuals if isinstance(_visuals, list) else [_visuals]):
+                    _plan_parts.append(f"  - {v}\n")
+
+            if _connects:
+                _plan_parts.append(f"\n## CONNECTS TO: {', '.join(_connects) if isinstance(_connects, list) else _connects}\n")
+
+            if _cp:
+                _plan_parts.append("\n## COMPETITIVE PROGRAMMING (advanced students only)\n")
+                if isinstance(_cp, dict):
+                    techs = _cp.get('key_techniques', [])
+                    if techs:
+                        _plan_parts.append(f"  Techniques: {', '.join(techs[:5])}\n")
+                    gotchas = _cp.get('gotchas', [])
+                    if gotchas:
+                        _plan_parts.append(f"  Gotchas: {'; '.join(gotchas[:3])}\n")
+
+            # Legacy fields as compact JSON
+            for k in ['canonical_problems', 'visual_examples', 'key_ideas', 'introduction']:
+                _tp.pop(k, None)
+            _remaining = {k: v for k, v in _tp.items() if v and k not in ('slug', 'type', 'title', 'category', 'updated_at')}
+            if _remaining:
+                _plan_parts.append(f"\n[PLAN DETAILS]\n{_tpj.dumps(_remaining, indent=2)}\n")
+
+            if _deep and isinstance(_deep, str):
+                _max = 8000
+                _trunc = _deep[:_max] + ("\n...[truncated]" if len(_deep) > _max else "")
+                _plan_parts.append(f"\n[TEACHING CONTENT — Reference material]\n{_trunc}")
+
+            static_parts.append("\n".join(_plan_parts))
+        except Exception:
+            static_parts.append(f"\n[TEACHING PLAN]\n{teaching_plan if isinstance(teaching_plan, str) else str(teaching_plan)}")
+
+    # BYO preloaded content (same for entire session)
+    _byo_preloaded = context_data.get("_byoPreloaded")
+    if _byo_preloaded:
+        static_parts.append(f"\n═══ BYO CONTENT — Student's uploaded materials ═══\n{_byo_preloaded}\n")
+
     static_prompt = "\n".join(static_parts)
 
     # DYNAMIC: context that changes per turn (not cacheable)
@@ -530,135 +668,7 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     if previous_boards:
         parts.append(f"[PREVIOUS BOARDS — completed board-draws this session]\n{previous_boards}\n")
 
-    teaching_plan = context_data.get("teachingPlan")
-    if teaching_plan:
-        try:
-            import json as _tpj
-            _tp = _tpj.loads(teaching_plan) if isinstance(teaching_plan, str) else teaching_plan
-            _deep = _tp.pop("deep_content", None)
-
-            # Format enriched DSA/SD plans as structured readable sections
-            _core = _tp.pop("core_insight", None)
-            _framework = _tp.pop("framework", None)
-            _patterns = _tp.pop("patterns", None)
-            _hard = _tp.pop("what_makes_it_hard", None)
-            _faang = _tp.pop("faang_expectations", None)
-            _visuals = _tp.pop("visual_ideas", None)
-            _probs = _tp.pop("problems_by_purpose", None)
-            _cp = _tp.pop("competitive_programming", None)
-            _connects = _tp.pop("connects_to", None)
-
-            parts.append(f"[TEACHING PLAN — {_tp.get('title', 'Topic')}]\n")
-
-            if _core:
-                parts.append("\n## CORE INSIGHT — the one thing the student must understand\n")
-                parts.append(f"{_core if isinstance(_core, str) else _tpj.dumps(_core, indent=2)}\n")
-
-            if _framework:
-                parts.append("\n## FRAMEWORK — reusable code templates (use these to teach)\n")
-                if isinstance(_framework, str):
-                    parts.append(f"{_framework}\n")
-                elif isinstance(_framework, dict):
-                    # Some batches stored framework as {description, code_templates}
-                    if _framework.get('description'):
-                        parts.append(f"{_framework['description']}\n")
-                    for tmpl in (_framework.get('code_templates') or []):
-                        if isinstance(tmpl, dict):
-                            parts.append(f"\n### {tmpl.get('name', 'Template')}\n{tmpl.get('code', '')}\n")
-                        elif isinstance(tmpl, str):
-                            parts.append(f"\n{tmpl}\n")
-
-            if _patterns:
-                parts.append("\n## PATTERNS — sub-patterns the student must learn to recognize\n")
-                for i, p in enumerate(_patterns, 1):
-                    if isinstance(p, dict):
-                        parts.append(f"\n### Pattern {i}: {p.get('name', '?')}")
-                        _recog = p.get('recognition') or p.get('description') or p.get('when', '')
-                        if _recog:
-                            parts.append(f"\nWhen to use: {_recog}")
-                        _hint = p.get('template_hint') or ''
-                        if _hint:
-                            parts.append(f"\nApproach: {_hint}")
-                        probs = p.get('classic_problems') or p.get('examples') or []
-                        if probs:
-                            prob_strs = []
-                            for pr in probs[:4]:
-                                if isinstance(pr, dict):
-                                    lc = pr.get('leetcode') or pr.get('leetcode_number') or '?'
-                                    prob_strs.append(f"LC {lc} {pr.get('name', '')} ({pr.get('difficulty', '?')})")
-                                elif isinstance(pr, str):
-                                    prob_strs.append(pr)
-                            parts.append(f"\nProblems: {', '.join(prob_strs)}")
-                        _diff = p.get('difficulty_range', '')
-                        if _diff:
-                            parts.append(f"\nDifficulty: {_diff}\n")
-
-            if _hard:
-                parts.append("\n## WHAT MAKES IT HARD — failure modes to watch for\n")
-                if isinstance(_hard, str):
-                    parts.append(f"{_hard}\n")
-                elif isinstance(_hard, list):
-                    for item in _hard:
-                        if isinstance(item, str):
-                            parts.append(f"  - {item}\n")
-                        elif isinstance(item, dict):
-                            parts.append(f"  - {item.get('issue', item.get('name', ''))}: {item.get('description', item.get('detail', ''))}\n")
-                else:
-                    parts.append(f"{_tpj.dumps(_hard, indent=2)}\n")
-
-            if _faang:
-                parts.append("\n## FAANG EXPECTATIONS — calibrate to student level\n")
-                if isinstance(_faang, dict):
-                    for level, desc in _faang.items():
-                        parts.append(f"  {level}: {desc if isinstance(desc, str) else _tpj.dumps(desc)}\n")
-                elif isinstance(_faang, str):
-                    parts.append(f"{_faang}\n")
-
-            if _probs:
-                parts.append("\n## PROBLEMS BY PURPOSE — use these to structure the session\n")
-                if isinstance(_probs, dict):
-                    for purpose, prob_list in _probs.items():
-                        if isinstance(prob_list, list) and prob_list:
-                            parts.append(f"\n  {purpose}:")
-                            for pr in prob_list[:4]:
-                                if isinstance(pr, dict):
-                                    lc = pr.get('leetcode') or pr.get('leetcode_number') or '?'
-                                    parts.append(f"    - LC {lc} {pr.get('name', '')} — {pr.get('why', '')}")
-                                elif isinstance(pr, str):
-                                    parts.append(f"    - {pr}")
-
-            if _visuals:
-                parts.append("\n## VISUAL IDEAS — animation/board suggestions\n")
-                for v in (_visuals if isinstance(_visuals, list) else [_visuals]):
-                    parts.append(f"  - {v}\n")
-
-            if _connects:
-                parts.append(f"\n## CONNECTS TO: {', '.join(_connects) if isinstance(_connects, list) else _connects}\n")
-
-            if _cp:
-                parts.append("\n## COMPETITIVE PROGRAMMING (advanced students only)\n")
-                if isinstance(_cp, dict):
-                    techs = _cp.get('key_techniques', [])
-                    if techs:
-                        parts.append(f"  Techniques: {', '.join(techs[:5])}\n")
-                    gotchas = _cp.get('gotchas', [])
-                    if gotchas:
-                        parts.append(f"  Gotchas: {'; '.join(gotchas[:3])}\n")
-
-            # Remaining fields (legacy) as compact JSON
-            for k in ['canonical_problems', 'visual_examples', 'key_ideas', 'introduction']:
-                _tp.pop(k, None)
-            _remaining = {k: v for k, v in _tp.items() if v and k not in ('slug', 'type', 'title', 'category', 'updated_at')}
-            if _remaining:
-                parts.append(f"\n[PLAN DETAILS]\n{_tpj.dumps(_remaining, indent=2)}\n")
-
-            if _deep and isinstance(_deep, str):
-                _max = 8000
-                _trunc = _deep[:_max] + ("\n...[truncated]" if len(_deep) > _max else "")
-                parts.append(f"\n[TEACHING CONTENT — Reference material]\n{_trunc}")
-        except Exception:
-            parts.append("[TEACHING PLAN]\n")
-            parts.append(teaching_plan if isinstance(teaching_plan, str) else str(teaching_plan))
+    # Teaching plan is now in the STATIC (cached) block above.
 
     current_topic = context_data.get("currentTopic")
     if current_topic:
@@ -715,16 +725,7 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
                 ])
                 parts.append("\n" + "\n".join(byo_lines) + "\n")
 
-                # Inject pre-loaded collection content (fetched in pipeline.py)
-                byo_preloaded = context_data.get("_byoPreloaded")
-                if byo_preloaded:
-                    parts.append(
-                        "\n[COLLECTION CONTENT — pre-loaded, ready to teach from]\n"
-                        "The content below was fetched from the student's collection based on their intent.\n"
-                        "USE THIS DIRECTLY — no need to call search() or list_contents() unless you need more.\n"
-                        "Cite using the ref: and page info provided.\n\n"
-                        f"{byo_preloaded}\n"
-                    )
+                # BYO preloaded content is now in the STATIC (cached) block.
 
         except (ValueError, TypeError, AttributeError):
             pass
