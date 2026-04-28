@@ -300,20 +300,12 @@ const SessionManager = (() => {
     // If a save is already in flight, mark pending and return immediately
     if (_saveInFlight) { _savePending = true; return; }
 
-    // ── Time tracking with idle cap ──
-    // Cap each "since last activity" segment at IDLE_CAP_SEC.
-    // Activity = any tutor/student turn or save tick (last visible state).
-    // This prevents idle/AFK time from inflating the duration.
-    const IDLE_CAP_SEC = 300; // 5 minutes max without activity counts
+    // ── Time tracking: flush the in-progress engaged segment ──
+    // _lastEngagedAt is set on engagement transitions (visibility, pause).
+    // flushEngagedSegment() is a no-op if not engaged or anchor missing.
+    flushEngagedSegment();
     if (state.sessionStartTime) {
-      const now = Date.now();
-      const lastTick = state._lastActivityAt || state.sessionStartTime;
-      const sinceLast = Math.floor((now - lastTick) / 1000);
-      // Only count up to IDLE_CAP_SEC of "since last tick" — caps idle drift
-      const counted = Math.min(sinceLast, IDLE_CAP_SEC);
-      state._accumulatedDuration = (state._accumulatedDuration || 0) + counted;
-      state._lastActivityAt = now;
-      session.durationSec = state._accumulatedDuration;
+      session.durationSec = state._accumulatedDuration || 0;
     }
     session.metrics.totalTurns = session.transcript.length;
     session.metrics.studentResponses = session.transcript.filter(m => m.role === 'user').length;
@@ -423,14 +415,10 @@ const SessionManager = (() => {
     if (!session) return;
     session.status = 'complete';
     session.endedAt = now();
-    // Final duration: include only capped activity time (idle excluded)
-    const IDLE_CAP_SEC = 300;
+    // Final duration: flush any in-progress engaged segment, then read accumulator.
+    flushEngagedSegment();
     if (state.sessionStartTime) {
-      const lastTick = state._lastActivityAt || state.sessionStartTime;
-      const sinceLast = Math.floor((Date.now() - lastTick) / 1000);
-      const counted = Math.min(sinceLast, IDLE_CAP_SEC);
-      state._accumulatedDuration = (state._accumulatedDuration || 0) + counted;
-      session.durationSec = state._accumulatedDuration;
+      session.durationSec = state._accumulatedDuration || 0;
     }
     // Fire-and-forget — don't block UI on archive
     apiPatch(`/${session.sessionId}`, {
