@@ -128,12 +128,37 @@ def list_curated_lists():
 
 @router.get("/sd/concepts")
 def get_sd_concepts():
-    """Return SD and LLD concept lists from ui_config collection."""
+    """Return SD and LLD concept lists.
+
+    Primary: ui_config collection (curated sections with icons/descriptions).
+    Fallback: teaching_plans collection (type='sd') — always up to date.
+    """
     sd_doc = _safe_find_one("ui_config", {"key": "sd_concepts"})
     lld_doc = _safe_find_one("ui_config", {"key": "lld_concepts"})
+
+    sd_sections = sd_doc.get("sections", []) if sd_doc else []
+    lld_sections = lld_doc.get("sections", []) if lld_doc else []
+
+    # Fallback: build concept list from teaching_plans if ui_config is empty
+    if not sd_sections:
+        db = _get_db()
+        if db:
+            try:
+                plans = list(db["teaching_plans"].find(
+                    {"type": "sd"},
+                    {"_id": 0, "slug": 1, "title": 1},
+                ).sort("title", 1))
+                if plans:
+                    sd_sections = [{"items": [
+                        {"slug": p["slug"], "name": p.get("title", p["slug"].replace("_", " ").replace("-", " ").title()), "desc": "", "icon": ""}
+                        for p in plans
+                    ]}]
+            except Exception:
+                pass
+
     return {
-        "sd": sd_doc.get("sections", []) if sd_doc else [],
-        "lld": lld_doc.get("sections", []) if lld_doc else [],
+        "sd": sd_sections,
+        "lld": lld_sections,
     }
 
 
