@@ -456,7 +456,9 @@ const SessionManager = (() => {
   function handleBeforeUnload() {
     if (!session) return;
     try {
-      session.durationSec = state.sessionStartTime ? Math.floor((Date.now() - state.sessionStartTime) / 1000) : 0;
+      // Flush the in-progress engaged segment so durationSec is current.
+      flushEngagedSegment();
+      session.durationSec = state.sessionStartTime ? (state._accumulatedDuration || 0) : 0;
       fetch(`${state.apiUrl}/api/v1/sessions/${session.sessionId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...AuthManager.authHeaders() },
@@ -8465,6 +8467,10 @@ function startTimer() {
   state._lastEngagedAt = isEngaged() ? Date.now() : null;
   timerInterval = setInterval(updateTimer, 1000);
   updateTimer();
+  // Persist immediately so sub-30s sessions don't show 0:00 in cards.
+  if (typeof SessionManager !== 'undefined' && SessionManager.saveSession) {
+    try { SessionManager.saveSession(); } catch (e) {}
+  }
 }
 
 function updateTimer() {
