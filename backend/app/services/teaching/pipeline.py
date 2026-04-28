@@ -626,7 +626,7 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
             slog.info("Agent spawned via tag", extra={"type": agent_type, "task": task_desc[:80]})
 
     # Parse <ui-panel> tags — tutor controls workspace panels
-    _UI_PANEL_RE = re.compile(r'<ui-panel\s+id="([^"]+)"\s+action="(show|hide)"(?:\s+language="([^"]*)")?\s*/>')
+    _UI_PANEL_RE = _re.compile(r'<ui-panel\s+id="([^"]+)"\s+action="(show|hide)"(?:\s+language="([^"]*)")?\s*/>')
     ui_panels = _UI_PANEL_RE.findall(hk_content)
     if ui_panels:
         _pending = context_data.setdefault("_pending_ws_events", [])

@@ -1493,6 +1493,13 @@ async function runCommand(cmd) {
     case 'run':      _runStudentCode(cmd.target); break;
     case 'scene3d':  await renderScene3D(cmd); break;
     case 'ds':       await renderDS(cmd); break;
+    // DS type aliases — LLMs sometimes send {"cmd":"tree"} instead of {"cmd":"ds","type":"tree"}
+    case 'tree': case 'array': case 'hash-map': case 'linked-list':
+    case 'stack': case 'queue': case 'grid': case 'graph':
+      cmd.type = cmd.type || cmd.cmd;
+      cmd.cmd = 'ds';
+      await renderDS(cmd);
+      break;
     default:
       console.warn('[Board] Unknown command:', cmd.cmd);
   }
