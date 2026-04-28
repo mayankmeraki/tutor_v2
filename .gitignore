@@ -47,3 +47,6 @@ wireframe-*.html
 # Local planning / spec docs (superpowers workflow)
 docs/superpowers/
 .playwright-mcp/
+
+# Git worktrees (isolated workspaces)
+.worktrees/
