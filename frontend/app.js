@@ -3325,6 +3325,14 @@ function buildContext() {
     }
   }
 
+  // Active UI panels — so Euler knows what's visible
+  var _openPanels = [];
+  if (document.getElementById('ws-code-pane')?.style.display === 'flex') _openPanels.push('code-editor');
+  if (document.getElementById('ws-canvas-pane')?.style.display === 'flex') _openPanels.push('sd-canvas');
+  var _lldEl = document.getElementById('ws-lld-pane');
+  if (_lldEl && _lldEl.style.display === 'flex') _openPanels.push('lld-split');
+  if (_openPanels.length) _scObj.activePanels = _openPanels;
+
   if (Object.keys(_scObj).length) {
     items.push({
       description: 'Session context',

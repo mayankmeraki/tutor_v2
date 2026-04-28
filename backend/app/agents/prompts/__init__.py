@@ -398,6 +398,12 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         if _problem_data:
             parts.append(f"[Problem Metadata]\n{_problem_data}\n")
 
+        _active_panels = context_data.get("activePanels")
+        if _active_panels:
+            parts.append(f"[ACTIVE UI PANELS: {', '.join(_active_panels)}]\n")
+        else:
+            parts.append("[ACTIVE UI PANELS: none — use <ui-panel> tags in housekeeping to show code-editor, sd-canvas, or lld-split]\n")
+
         _code_state = context_data.get("codeState")
         if _code_state:
             import json as _cj

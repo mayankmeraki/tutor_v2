@@ -2911,6 +2911,10 @@ async def _generate_for_turn(
             if _test_results:
                 context_data["testResults"] = _test_results
 
+            _active_panels = _sc_obj.get("activePanels")
+            if _active_panels:
+                context_data["activePanels"] = _active_panels
+
             if session.session_mode in ("dsa", "mock_interview"):
                 _code_state = _sc_obj.get("codeState")
                 if _code_state:
