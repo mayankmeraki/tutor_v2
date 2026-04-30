@@ -436,11 +436,14 @@ app.add_api_websocket_route("/ws/scribe", ws_scribe)
 # BYO — Student materials upload
 try:
     import sys
-    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
+    _byo_root = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+    if _byo_root not in sys.path:
+        sys.path.insert(0, _byo_root)
     from byo.api.collections import router as byo_router
     app.include_router(byo_router)
+    log.info("BYO routes loaded: %d endpoints", len(byo_router.routes))
 except Exception as e:
-    log.warning("BYO routes not loaded: %s", e)
+    log.error("BYO routes FAILED to load: %s (byo_root=%s, sys.path[0]=%s)", e, _byo_root, sys.path[0], exc_info=True)
 
 
 # ─── Feedback / Contact / Bug Report ──────────────────────────────
