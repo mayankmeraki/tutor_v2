@@ -20357,7 +20357,7 @@ function setVoiceBarState(newState) {
       if (field) field.disabled = true;
       if (vmStop) vmStop.classList.remove('hidden');
       if (vmSend) vmSend.classList.add('hidden');
-      setTimeout(function() { if (_vbState === 'thinking') voiceHideSubtitle(); }, 2000);
+      setTimeout(function() { if (_vbState === 'thinking') voiceHideSubtitle(); }, 5000);
       _showBoardStreaming();
       break;
 
@@ -20715,6 +20715,36 @@ document.addEventListener('input', (e) => {
     wrap.classList.remove('dragging');
     wrap.style.transition = '';
   });
+})();
+
+// ── Voice bar board-centered positioning ──
+// Track the board container's center X and write it to --vb-center-x on
+// :root so the voice bar follows the board area when the right pane opens
+// or closes. CSS: .voice-bar-wrap { left: var(--vb-center-x, 50%); }
+// User-dragged inline `left` styles still override this (drag wins).
+(function _wireVoiceBarCentering() {
+  var board = document.getElementById('board-panel');
+  var wrap = document.getElementById('voice-mic-float');
+  if (!board || !wrap) { setTimeout(_wireVoiceBarCentering, 500); return; }
+  var _raf = 0;
+  function _update() {
+    _raf = 0;
+    var rect = board.getBoundingClientRect();
+    if (rect.width === 0) return; // hidden / not laid out yet
+    var centerX = rect.left + rect.width / 2;
+    document.documentElement.style.setProperty('--vb-center-x', centerX + 'px');
+  }
+  function update() {
+    if (_raf) return;
+    _raf = requestAnimationFrame(_update);
+  }
+  update();
+  if (typeof ResizeObserver !== 'undefined') {
+    new ResizeObserver(update).observe(board);
+  }
+  // ResizeObserver fires on size changes; window resize covers translation
+  // (board.left can shift even when board.width doesn't, e.g. sidebar collapse).
+  window.addEventListener('resize', update);
 })();
 
 // ── Enter or Right-Arrow sends ──

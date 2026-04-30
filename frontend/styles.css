@@ -6063,12 +6063,17 @@ body {
 @keyframes vtap-ring { 0%{opacity:.9;transform:translate(-50%,-50%) scale(.4)} 100%{opacity:0;transform:translate(-50%,-50%) scale(2)} }
 
 /* ─── Voice Input Bar (unified pill) ──────────────────────── */
+/* `left` is driven by --vb-center-x (set in JS to the board container's
+   center X in viewport pixels). Falls back to viewport-center if JS hasn't
+   run yet. The transform: translateX(-50%) keeps the bar's own center
+   anchored to that X. Inline `left` (set by the drag handler) overrides. */
 .voice-bar-wrap {
-  position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%);
+  position: fixed; bottom: 20px; left: var(--vb-center-x, 50%); transform: translateX(-50%);
   z-index: 55; width: 100%; min-width: 400px; max-width: 620px; padding: 0 16px;
   cursor: grab; user-select: none;
+  transition: left 0.2s ease;
 }
-.voice-bar-wrap.dragging { cursor: grabbing; }
+.voice-bar-wrap.dragging { transition: none; cursor: grabbing; }
 .voice-bar-wrap.hidden { display: none; }
 
 /* ── Caption bar ── */
@@ -6354,6 +6359,9 @@ body {
 /* Mic icon — green like send button */
 #voice-bar-mic-toggle { color: var(--accent); }
 #voice-bar-mic-toggle svg { stroke: var(--accent); }
+/* Attach (paperclip) icon — green like the mic + send buttons */
+#voice-bar-attach { color: var(--accent); }
+#voice-bar-attach svg { stroke: var(--accent); }
 /* Mic scribe states */
 .vb-icon-btn.scribe-active {
   color: var(--accent);

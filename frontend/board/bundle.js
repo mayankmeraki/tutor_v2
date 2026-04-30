@@ -845,7 +845,8 @@ function buildControlBridge(scale, isWebGL) {
     '        }\n' +
     '      };\n' +
     '    });\n' +
-    (isWebGL ? '\n    p.text = function() {};\n    p.textFont = function() {};\n    p.textSize = function() {};\n    p.textAlign = function() {};\n' : '') +
+    '\n    p._origTextFont = p.textFont;\n    p.textFont = function() {};\n' +
+    (isWebGL ? '\n    p.text = function() {};\n    p.textSize = function() {};\n    p.textAlign = function() {};\n' : '') +
     '  ';
 }
 
@@ -1137,6 +1138,19 @@ async function createAnimation(cmd) {
         // Store p5 instance on wrapper so LLM closures always find it
         canvasWrap._p5 = p;
 
+        // Lock the text font: LLM-generated code likes to call
+        // p.textFont('Caveat') / 'Comic Sans' / etc. inside draw(), which
+        // overrides our setup-time font on every frame. Replace textFont
+        // with a no-op that always uses Lexend so the board stays
+        // consistent. The real method is preserved on p._origTextFont so
+        // our setup wrapper can still apply the font once.
+        try {
+          if (typeof p.textFont === 'function') {
+            p._origTextFont = p.textFont.bind(p);
+            p.textFont = function() { try { return p._origTextFont('Lexend'); } catch (e) {} };
+          }
+        } catch (e) {}
+
         try { sketchFn(p, pw, ph); } catch (err) {
           console.warn('[Animation] Sketch runtime error:', err.message);
           canvasWrap.innerHTML = '<div style="padding:12px;color:rgba(248,113,113,0.4);font-size:12px;font-family:monospace">Animation error: ' + escapeHtml(err.message) + '</div>';
@@ -1180,7 +1194,7 @@ async function createAnimation(cmd) {
           // ALWAYS create canvas at container size FIRST.
           try { p.createCanvas(pw, ph); } catch (e) {}
           if (userSetup) userSetup.call(p);
-          try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+          try { if (!p._renderer.isP3D) (p._origTextFont || p.textFont).call(p, 'Lexend'); } catch (e) {}
           // Auto-inject AnimHelper AFTER createCanvas (p.width/height valid)
           if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
             try {
@@ -1319,7 +1333,7 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
           try { p.pixelDensity(Math.min(window.devicePixelRatio || 1, 2)); } catch (e) {}
           try { p.createCanvas(Math.round(rect.width) || 300, Math.round(rect.height) || 200); } catch (e) {}
           if (userSetup) userSetup.call(p);
-          try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+          try { if (!p._renderer.isP3D) (p._origTextFont || p.textFont).call(p, 'Lexend'); } catch (e) {}
           if (!p._animHelper && typeof AnimHelper !== 'undefined' && !(p._renderer && p._renderer.isP3D)) {
             try { p._animHelper = new AnimHelper(p, p.width, p.height); } catch (e) {}
           }

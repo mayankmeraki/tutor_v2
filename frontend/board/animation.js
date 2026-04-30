@@ -105,9 +105,10 @@ function buildControlBridge(scale, isWebGL) {
         p[m] = function() { return p.drawingContext[m].apply(p.drawingContext, arguments); };
       }
     });
+    p._origTextFont = p.textFont;
+    p.textFont = function() {};
     ${isWebGL ? `
     p.text = function() {};
-    p.textFont = function() {};
     p.textSize = function() {};
     p.textAlign = function() {};
     ` : ''}
@@ -194,7 +195,7 @@ export async function createAnimation(cmd) {
       const userSetup = p.setup;
       p.setup = function () {
         if (userSetup) userSetup.call(p);
-        try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+        try { if (!p._renderer.isP3D) (p._origTextFont || p.textFont).call(p, 'Lexend'); } catch (e) {}
         // Auto-inject AnimHelper if LLM didn't create one
         if (!p._animHelper && typeof AnimHelper !== 'undefined' && !p._renderer?.isP3D) {
           try {
@@ -301,7 +302,7 @@ function showSkeleton(el, canvasWrap, cmd, errorMsg, scale, isWebGL) {
         const userSetup = p.setup;
         p.setup = function () {
           if (userSetup) userSetup.call(p);
-          try { if (!p._renderer.isP3D) p.textFont('sans-serif'); } catch (e) {}
+          try { if (!p._renderer.isP3D) (p._origTextFont || p.textFont).call(p, 'Lexend'); } catch (e) {}
           if (!p._animHelper && typeof AnimHelper !== 'undefined' && !p._renderer?.isP3D) {
             try { p._animHelper = new AnimHelper(p, p.width, p.height); } catch (e) {}
           }

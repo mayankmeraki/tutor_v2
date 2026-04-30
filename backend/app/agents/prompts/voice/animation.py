@@ -313,6 +313,11 @@ AnimHelper API:
   ✗ Never p.background() — use A.clear() (board bg is auto-applied)
   ✗ Never hardcode colors — use A.colors.* (see exhaustive key list above)
   ✗ Never reference `.background` as a property anywhere — it does not exist
+  ✗ NEVER call p.textFont() with ANY argument. The board uses a single
+    fixed sans-serif (Lexend) for visual consistency across animations.
+    Do NOT pass 'Caveat', 'Comic Sans', 'Helvetica', 'serif', etc. The
+    runtime ignores font args, but emitting them clutters the code and
+    is misleading. Just rely on the default font.
 
 Controlling animations across beats (2D only):
   <vb anim-control='{"action":"set","param":"wave1","value":1}' say="Here's the first wave." />
