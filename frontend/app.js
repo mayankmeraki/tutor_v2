@@ -3410,15 +3410,18 @@ function buildContext() {
   if (document.getElementById('ws-canvas-pane')?.style.display === 'flex') _openPanels.push('sd-canvas');
   var _lldEl = document.getElementById('ws-lld-pane');
   if (_lldEl && _lldEl.style.display === 'flex') _openPanels.push('lld-split');
-  var _mediaEl = document.getElementById('media-viewer-panel');
-  if (_mediaEl) {
-    var _mediaState = { id: 'media-viewer' };
-    if (_mediaEl._src) _mediaState.src = _mediaEl._src;
-    if (_mediaEl._type) _mediaState.type = _mediaEl._type;
-    if (_mediaEl._title) _mediaState.title = _mediaEl._title;
-    // Get current video time/speed if playing
-    var _vid = _mediaEl.querySelector('video');
-    if (_vid) { _mediaState.currentTime = Math.round(_vid.currentTime); _mediaState.speed = _vid.playbackRate; }
+  if (state._mediaViewer) {
+    var _mv = state._mediaViewer;
+    var _mediaState = { id: 'media-viewer', src: _mv.src || '', type: _mv.type || '', title: _mv.title || '' };
+    // Get Plyr player state (paused, currentTime, speed)
+    if (_mv._player) {
+      try {
+        _mediaState.currentTime = Math.round(_mv._player.currentTime || 0);
+        _mediaState.speed = _mv._player.speed || 1;
+        _mediaState.paused = _mv._player.paused;
+        _mediaState.duration = Math.round(_mv._player.duration || 0);
+      } catch(e) {}
+    }
     _openPanels.push(_mediaState);
   }
   if (_openPanels.length) _scObj.activePanels = _openPanels;
@@ -14574,160 +14577,149 @@ function _hideTransitionLoader() {
 window._showTransitionLoader = _showTransitionLoader;
 window._hideTransitionLoader = _hideTransitionLoader;
 
-// ── Media Viewer — floating panel for video/image/pdf/file ──
-function _showMediaViewer(opts) {
-  _hideMediaViewer(); // close any existing
-  var panel = document.createElement('div');
-  panel.id = 'media-viewer-panel';
-  panel.style.cssText = 'position:fixed;top:60px;right:16px;width:440px;max-height:calc(100vh - 80px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);z-index:900;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .2s ease;resize:both';
+// ── Media Viewer — workspace panel for video/image/pdf/file ──
+async function _showMediaViewer(opts) {
+  _hideMediaViewer();
 
-  // Store metadata for state reporting
-  panel._src = opts.src || '';
-  panel._type = (opts.type || '').toLowerCase();
-  panel._title = opts.title || '';
-
-  var type = panel._type;
-  var src = panel._src;
+  var src = opts.src || '';
+  var type = (opts.type || '').toLowerCase();
 
   // Resolve BYO refs to actual URLs
   if (src.startsWith('chunk:') || src.startsWith('resource:')) {
     var rid = src.split(':')[1];
-    src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file';
+    try {
+      var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/info', { headers: AuthManager.authHeaders() });
+      if (infoRes.ok) {
+        var info = await infoRes.json();
+        if (info.source_url && (info.source_url.includes('youtube') || info.source_url.includes('youtu.be'))) {
+          src = info.source_url;
+          type = 'video';
+        } else if (info.storage_path) {
+          src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file';
+        }
+      } else { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file'; }
+    } catch(e) { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file'; }
   }
 
-  // Header with title + close
-  var header = document.createElement('div');
-  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0;cursor:move;user-select:none';
-  header.innerHTML = '<div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + (opts.title || 'Media') + '</div>' +
-    '<button onclick="_hideMediaViewer()" style="width:24px;height:24px;border-radius:6px;border:none;background:rgba(255,255,255,.05);color:rgba(255,255,255,.4);cursor:pointer;display:grid;place-items:center;font-size:14px;flex-shrink:0">&times;</button>';
-  panel.appendChild(header);
+  // Show workspace panel if hidden
+  var wsPanel = document.getElementById('workspace-panel');
+  var mainLayout = document.getElementById('main-layout');
+  var resizeHandle = document.getElementById('ws-resize-handle');
+  if (wsPanel) wsPanel.classList.remove('hidden');
+  if (resizeHandle) resizeHandle.classList.remove('hidden');
+  if (mainLayout) mainLayout.classList.add('dsa-mode');
 
-  // Content area
-  var content = document.createElement('div');
-  content.style.cssText = 'flex:1;overflow:auto;padding:8px';
+  // Hide other panes, show media pane
+  ['ws-code-pane', 'ws-canvas-pane', 'ws-mock-pane', 'ws-lld-pane'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.style.display = 'none';
+  });
+  var mediaPane = document.getElementById('ws-media-pane');
+  if (!mediaPane) return;
+  mediaPane.style.display = 'flex';
+
+  // Set title
+  var titleEl = document.getElementById('ws-media-title');
+  if (titleEl) titleEl.textContent = opts.title || 'Media';
+
+  // Content
+  var content = document.getElementById('ws-media-content');
+  content.innerHTML = '';
+
+  // Store state for reporting
+  state._mediaViewer = { src: src, type: type, title: opts.title || '' };
 
   if (type === 'video' || /\.(mp4|webm|ogg)/.test(src) || /youtube|youtu\.be/.test(src)) {
     if (/youtube|youtu\.be/.test(src)) {
-      // YouTube — use YouTube IFrame API for native controls
-      var vid = src.match(/(?:v=|youtu\.be\/)([^&?#]+)/);
-      var ytId = vid ? vid[1] : '';
-      var ytDiv = document.createElement('div');
-      ytDiv.id = 'media-yt-player';
-      ytDiv.style.cssText = 'width:100%;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#000';
-      content.appendChild(ytDiv);
-      // Load YT API if not loaded
-      if (!window.YT) {
-        var tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
-        window.onYouTubeIframeAPIReady = function() { _createYTPlayer(ytId, opts); };
-      } else {
-        setTimeout(function() { _createYTPlayer(ytId, opts); }, 100);
-      }
+      // YouTube — use Plyr YouTube provider
+      var ytMatch = src.match(/(?:v=|youtu\.be\/)([^&?#]+)/);
+      var ytId = ytMatch ? ytMatch[1] : '';
+      var wrapper = document.createElement('div');
+      wrapper.style.cssText = 'width:100%';
+      wrapper.innerHTML = '<div id="media-plyr-yt" data-plyr-provider="youtube" data-plyr-embed-id="' + ytId + '"></div>';
+      content.appendChild(wrapper);
+      setTimeout(function() {
+        try {
+          var player = new Plyr('#media-plyr-yt', {
+            controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+            settings: ['speed'],
+            speed: { selected: parseFloat(opts.speed || 1), options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+            youtube: { noCookie: true },
+          });
+          state._mediaViewer._player = player;
+          player.on('ready', function() {
+            if (opts.timestamp) player.currentTime = parseFloat(opts.timestamp);
+            if (opts.speed) player.speed = parseFloat(opts.speed);
+          });
+        } catch(e) { console.warn('[Media] Plyr YouTube failed:', e); }
+      }, 200);
     } else {
-      // Native HTML5 video — full controls
+      // Native video with Plyr
       var video = document.createElement('video');
+      video.id = 'media-plyr-video';
       video.src = src;
-      video.controls = true;
-      video.autoplay = true;
-      video.style.cssText = 'width:100%;border-radius:8px;max-height:calc(100vh - 200px)';
-      if (opts.timestamp) video.currentTime = parseFloat(opts.timestamp);
-      if (opts.speed) video.playbackRate = parseFloat(opts.speed);
+      video.style.cssText = 'width:100%;border-radius:8px';
       content.appendChild(video);
-      // Speed controls
-      var speedBar = document.createElement('div');
-      speedBar.style.cssText = 'display:flex;gap:4px;padding:6px 0;justify-content:center';
-      [0.5, 0.75, 1, 1.25, 1.5, 2].forEach(function(s) {
-        var btn = document.createElement('button');
-        btn.textContent = s + 'x';
-        btn.style.cssText = 'padding:3px 8px;border-radius:5px;border:1px solid rgba(255,255,255,.06);background:' + (s === 1 ? 'rgba(52,211,153,.1)' : 'none') + ';color:rgba(255,255,255,.4);font-size:10px;cursor:pointer;font-family:inherit';
-        btn.onclick = function() {
-          video.playbackRate = s;
-          speedBar.querySelectorAll('button').forEach(function(b) { b.style.background = 'none'; });
-          btn.style.background = 'rgba(52,211,153,.1)';
-        };
-        speedBar.appendChild(btn);
-      });
-      content.appendChild(speedBar);
+      setTimeout(function() {
+        try {
+          var player = new Plyr('#media-plyr-video', {
+            controls: ['play-large', 'play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
+            settings: ['speed'],
+            speed: { selected: parseFloat(opts.speed || 1), options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
+          });
+          state._mediaViewer._player = player;
+          player.on('ready', function() {
+            if (opts.timestamp) player.currentTime = parseFloat(opts.timestamp);
+            player.play();
+          });
+        } catch(e) { console.warn('[Media] Plyr video failed:', e); }
+      }, 100);
     }
   } else if (type === 'image' || /\.(png|jpg|jpeg|gif|svg|webp)/.test(src)) {
     var img = document.createElement('img');
     img.src = src;
-    img.style.cssText = 'width:100%;border-radius:8px;cursor:zoom-in;transition:transform .2s';
     img.alt = opts.title || 'Image';
+    img.style.cssText = 'width:100%;border-radius:8px;cursor:zoom-in;transition:transform .2s';
     var zoomed = false;
-    img.onclick = function() {
-      zoomed = !zoomed;
-      img.style.transform = zoomed ? 'scale(2)' : '';
-      img.style.cursor = zoomed ? 'zoom-out' : 'zoom-in';
-    };
+    img.onclick = function() { zoomed = !zoomed; img.style.transform = zoomed ? 'scale(1.5)' : ''; img.style.cursor = zoomed ? 'zoom-out' : 'zoom-in'; };
     content.appendChild(img);
   } else if (type === 'pdf' || /\.pdf/.test(src)) {
-    // PDF — native embed (not iframe)
     var embed = document.createElement('embed');
-    embed.src = src;
-    embed.type = 'application/pdf';
-    embed.style.cssText = 'width:100%;height:500px;border-radius:8px';
+    embed.src = src; embed.type = 'application/pdf';
+    embed.style.cssText = 'width:100%;flex:1;min-height:400px;border-radius:8px';
     content.appendChild(embed);
-    // Fallback link
-    var link = document.createElement('a');
-    link.href = src;
-    link.target = '_blank';
-    link.textContent = 'Open PDF in new tab';
-    link.style.cssText = 'display:block;text-align:center;margin-top:6px;font-size:10px;color:rgba(52,211,153,.5)';
-    content.appendChild(link);
   } else {
-    // Generic file — download link
-    var dl = document.createElement('div');
-    dl.style.cssText = 'text-align:center;padding:30px 10px';
-    dl.innerHTML = '<div style="font-size:32px;margin-bottom:10px">📄</div>' +
-      '<div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:12px">' + (opts.title || 'File') + '</div>' +
-      '<a href="' + src + '" target="_blank" download style="padding:8px 16px;border-radius:8px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:rgba(52,211,153,.8);font-size:12px;text-decoration:none;font-family:inherit">Download</a>';
-    content.appendChild(dl);
+    content.innerHTML = '<div style="text-align:center;padding:40px"><div style="font-size:32px;margin-bottom:10px">📄</div><a href="' + src + '" target="_blank" style="color:rgba(52,211,153,.7);font-size:12px">Open file</a></div>';
   }
-
-  panel.appendChild(content);
-  document.body.appendChild(panel);
-
-  // Draggable header
-  var isDragging = false, startX, startY, startLeft, startTop;
-  header.addEventListener('mousedown', function(e) {
-    if (e.target.tagName === 'BUTTON') return;
-    isDragging = true;
-    startX = e.clientX; startY = e.clientY;
-    var rect = panel.getBoundingClientRect();
-    startLeft = rect.left; startTop = rect.top;
-    e.preventDefault();
-  });
-  document.addEventListener('mousemove', function(e) {
-    if (!isDragging) return;
-    panel.style.right = 'auto';
-    panel.style.left = (startLeft + e.clientX - startX) + 'px';
-    panel.style.top = (startTop + e.clientY - startY) + 'px';
-  });
-  document.addEventListener('mouseup', function() { isDragging = false; });
-}
-
-function _createYTPlayer(ytId, opts) {
-  try {
-    new YT.Player('media-yt-player', {
-      videoId: ytId,
-      playerVars: { autoplay: 1, start: parseInt(opts.timestamp || 0), modestbranding: 1, rel: 0 },
-      events: {
-        onReady: function(e) { if (opts.speed) e.target.setPlaybackRate(parseFloat(opts.speed)); }
-      }
-    });
-  } catch(e) { console.warn('[MediaViewer] YT player failed:', e); }
 }
 
 function _hideMediaViewer() {
-  var el = document.getElementById('media-viewer-panel');
-  if (el) {
-    // Pause any playing media
-    var vid = el.querySelector('video');
-    if (vid) try { vid.pause(); } catch(e) {}
-    el.remove();
+  // Destroy Plyr
+  if (state._mediaViewer && state._mediaViewer._player) {
+    try { state._mediaViewer._player.destroy(); } catch(e) {}
   }
+  state._mediaViewer = null;
+
+  var pane = document.getElementById('ws-media-pane');
+  if (pane) pane.style.display = 'none';
+
+  // If no other pane visible, hide workspace panel
+  var anyVisible = ['ws-code-pane', 'ws-canvas-pane', 'ws-mock-pane', 'ws-lld-pane'].some(function(id) {
+    var el = document.getElementById(id);
+    return el && el.style.display !== 'none';
+  });
+  if (!anyVisible) {
+    var wsPanel = document.getElementById('workspace-panel');
+    var resizeHandle = document.getElementById('ws-resize-handle');
+    var mainLayout = document.getElementById('main-layout');
+    if (wsPanel) wsPanel.classList.add('hidden');
+    if (resizeHandle) resizeHandle.classList.add('hidden');
+    if (mainLayout) mainLayout.classList.remove('dsa-mode');
+  }
+
+  // Remove floating panel if it exists (legacy)
+  var floater = document.getElementById('media-viewer-panel');
+  if (floater) floater.remove();
 }
 window._showMediaViewer = _showMediaViewer;
 window._hideMediaViewer = _hideMediaViewer;

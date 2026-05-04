@@ -1142,6 +1142,17 @@
               <button class="ws-btn" id="ws-mock-hint-btn" onclick="_wsMockHint()" style="margin-left:auto;background:rgba(245,216,154,.04);color:#f5d89a;border-color:rgba(245,216,154,.12)">💡 Hint <span id="ws-mock-hint-count">0</span>/3</button>
             </div>
           </div>
+
+          <!-- Media Viewer Pane -->
+          <div id="ws-media-pane" style="display:none;flex:1;flex-direction:column;min-height:0">
+            <div class="ws-pane-head">
+              <span class="ws-pane-fname" id="ws-media-title">Media</span>
+              <div style="margin-left:auto;display:flex;gap:4px;align-items:center">
+                <button class="ws-btn" onclick="_hideMediaViewer()" style="font-size:10px;padding:3px 8px">Close</button>
+              </div>
+            </div>
+            <div id="ws-media-content" style="flex:1;min-height:0;overflow:auto;padding:8px;display:flex;flex-direction:column;gap:8px"></div>
+          </div>
         </div>
 
         <!-- Video playlist sidebar (video follow-along mode only) -->
