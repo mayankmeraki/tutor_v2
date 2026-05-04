@@ -77,6 +77,8 @@ def _hit_from_payload(payload: dict, score: float = 0.0) -> ContentHit:
         segment_content=payload.get("segment_content", "") or payload.get("content", "") or payload.get("text", ""),
         anchor_page=payload.get("anchor_page"),
         anchor_section=payload.get("anchor_section", ""),
+        anchor_start_time=payload.get("anchor_start_time"),
+        anchor_end_time=payload.get("anchor_end_time"),
         score=score,
         modality=payload.get("modality", ""),
         retrieval_mode=payload.get("retrieval_mode", ""),
@@ -145,6 +147,9 @@ class QdrantContentStore:
                 "anchor_page_end": (parent.get("anchor") or {}).get("page_end"),
                 "anchor_section": (s.get("anchor") or {}).get("section", "")
                     or (parent.get("anchor") or {}).get("section", ""),
+                "anchor_start_time": (s.get("anchor") or {}).get("start_time")
+                    or (parent.get("anchor") or {}).get("start_time"),
+                "anchor_end_time": (parent.get("anchor") or {}).get("end_time"),
                 "modality": s.get("modality", ""),
                 "retrieval_mode": s.get("retrieval_mode", ""),
                 "topics": s.get("topics") or parent.get("topics") or [],

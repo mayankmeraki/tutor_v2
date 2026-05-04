@@ -42,7 +42,7 @@ def _hit_to_chunk(h: ContentHit) -> RetrievedChunk:
         content=h.content,
         segment_content=h.segment_content,
         title=h.title,
-        anchor=ChunkAnchor(page=h.anchor_page, section=h.anchor_section),
+        anchor=ChunkAnchor(page=h.anchor_page, section=h.anchor_section, start_time=h.anchor_start_time, end_time=h.anchor_end_time),
         score=h.score,
         modality=Modality(h.modality) if h.modality else None,
         retrieval_mode=RetrievalMode(h.retrieval_mode) if h.retrieval_mode else None,

@@ -44,6 +44,8 @@ class ContentHit:
 
     anchor_page: int | None = None
     anchor_section: str = ""
+    anchor_start_time: float | None = None  # video timestamp (seconds)
+    anchor_end_time: float | None = None
     score: float = 0.0
 
     modality: str = ""
