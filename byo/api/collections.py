@@ -271,15 +271,37 @@ async def delete_collection(collection_id: str, request: Request, user: dict = D
     if not col:
         raise HTTPException(status_code=404, detail="Collection not found")
 
-    # Delete chunks, resources, jobs, collection
+    # Get resource IDs before deleting (need them for Qdrant + storage cleanup)
+    resources = []
+    async for res in db.byo_resources.find(
+        {"collection_id": collection_id},
+        {"resource_id": 1, "storage_path": 1},
+    ):
+        resources.append(res)
+
+    # Delete from MongoDB
     await db.byo_chunks.delete_many({"collection_id": collection_id})
+    await db.byo_segments.delete_many({"collection_id": collection_id})
     await db.byo_resources.delete_many({"collection_id": collection_id})
     await db.byo_jobs.delete_many({"collection_id": collection_id})
     await db.collections.delete_one({"collection_id": collection_id})
 
-    # TODO: delete files from storage
+    # Delete vectors from Qdrant + files from storage
+    for res in resources:
+        try:
+            from byo.shared.store import get_content_store
+            store = get_content_store()
+            await store.delete_resource(res["resource_id"])
+        except Exception as e:
+            log.warning("Failed to delete Qdrant vectors: %s", e)
+        if res.get("storage_path"):
+            try:
+                storage = _get_storage()
+                await storage.delete(res["storage_path"])
+            except Exception as e:
+                log.warning("Failed to delete file: %s", e)
 
-    log.info("Collection deleted: %s", collection_id)
+    log.info("Collection deleted: %s (%d resources cleaned)", collection_id, len(resources))
     return {"ok": True}
 
 
@@ -539,6 +561,15 @@ async def delete_resource(collection_id: str, resource_id: str, request: Request
     await db.byo_segments.delete_many({"resource_id": resource_id})
     await db.byo_resources.delete_one({"resource_id": resource_id, "user_id": user["email"]})
 
+    # Delete vectors from Qdrant
+    try:
+        from byo.shared.store import get_content_store
+        store = get_content_store()
+        await store.delete_resource(resource_id)
+    except Exception as e:
+        log.warning("Failed to delete Qdrant vectors for %s: %s", resource_id[:8], e)
+
+    # Delete file from storage
     if resource and resource.get("storage_path"):
         try:
             storage = _get_storage()
