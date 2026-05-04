@@ -423,6 +423,16 @@ async def add_resource(
         _url_lower = url.lower()
         if "youtube" in _url_lower or "youtu.be" in _url_lower:
             mime = "application/x-youtube"
+            # Auto-fetch YouTube title if user didn't provide one
+            if not title or title == url[:60]:
+                try:
+                    import yt_dlp
+                    with yt_dlp.YoutubeDL({"quiet": True, "no_warnings": True, "skip_download": True}) as ydl:
+                        info = ydl.extract_info(url, download=False)
+                        if info and info.get("title"):
+                            title = info["title"]
+                except Exception:
+                    pass  # keep URL as fallback
         elif any(_url_lower.endswith(ext) for ext in ('.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv')):
             mime = "video/mp4"
         elif any(_url_lower.endswith(ext) for ext in ('.mp3', '.wav', '.m4a', '.flac', '.ogg')):

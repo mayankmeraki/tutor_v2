@@ -11710,13 +11710,13 @@ async function _handleByoLinkAdd() {
       if (!createRes.ok) { alert('Failed to create collection'); return; }
       const col = await createRes.json();
       colId = col.collection_id;
-    } else {
-      title = (state.byoDetailCollection?.title) || 'Collection';
     }
-
+    // Don't send collection title as resource title — let backend auto-detect
     const formData = new FormData();
     formData.append('url', url);
-    formData.append('title', title);
+    if (title && title !== (state.byoDetailCollection?.title)) {
+      formData.append('title', title);
+    }
     const r = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
       method: 'POST',
       headers: AuthManager.authHeaders(),
