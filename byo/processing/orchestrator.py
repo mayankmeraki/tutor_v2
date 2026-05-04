@@ -889,6 +889,37 @@ async def _update_collection_stats(db, collection_id: str):
         }},
     )
 
+    # Check if all resources are ready → trigger synthesis
+    ready_count = sum(1 for s in statuses if s == "ready")
+    total_count = len(statuses)
+    all_ready = ready_count == total_count and total_count > 0
+    if all_ready:
+        existing = await db.collections.find_one(
+            {"collection_id": collection_id}, {"synthesis": 1}
+        )
+        if not (existing or {}).get("synthesis"):
+            # Find user_id from any resource in the collection
+            sample_res = await db.byo_resources.find_one(
+                {"collection_id": collection_id}, {"user_id": 1}
+            )
+            _synth_uid = (sample_res or {}).get("user_id", "")
+            if _synth_uid:
+                asyncio.create_task(_run_synthesis(collection_id, _synth_uid))
+
+
+async def _run_synthesis(collection_id: str, user_id: str):
+    """Run collection synthesis in the background. Errors are logged, never raised."""
+    try:
+        from byo.processing.synthesis import synthesize_collection
+        result = await synthesize_collection(collection_id, user_id)
+        if result:
+            log.info("[BYO] synthesis completed for collection %s", collection_id[:8])
+        else:
+            log.warning("[BYO] synthesis returned empty for collection %s", collection_id[:8])
+    except Exception as e:
+        log.error("[BYO] synthesis background task failed for %s: %s",
+                  collection_id[:8], repr(e), exc_info=True)
+
 
 # ── Worker loop ─────────────────────────────────────────────────────────
 

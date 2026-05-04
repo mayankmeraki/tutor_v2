@@ -446,9 +446,18 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
             static_parts.append(f"\n[TEACHING PLAN]\n{teaching_plan if isinstance(teaching_plan, str) else str(teaching_plan)}")
 
     # BYO preloaded content (same for entire session)
+    # If synthesis is present (starts with "[COLLECTION --"), use a richer header
     _byo_preloaded = context_data.get("_byoPreloaded")
     if _byo_preloaded:
-        static_parts.append(f"\n═══ BYO CONTENT — Student's uploaded materials ═══\n{_byo_preloaded}\n")
+        if _byo_preloaded.startswith("[COLLECTION --"):
+            static_parts.append(
+                "\n═══ BYO KNOWLEDGE MAP — Synthesized from student's uploads ═══\n"
+                "Use this map to navigate content: topics, resources, practice questions, and suggested path.\n"
+                "Cite sources by resource name + page/timestamp when teaching.\n\n"
+                f"{_byo_preloaded}\n"
+            )
+        else:
+            static_parts.append(f"\n═══ BYO CONTENT — Student's uploaded materials ═══\n{_byo_preloaded}\n")
 
     static_prompt = "\n".join(static_parts)
 

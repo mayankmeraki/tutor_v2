@@ -14528,7 +14528,7 @@ function _showSessionOnboard() {
 // ── File Upload Limits ──
 function _getMaxFileSizeMB(file) {
   var type = (file.type || '').toLowerCase();
-  if (type.startsWith('video/')) return 200;
+  if (type.startsWith('video/')) return 500;
   if (type.startsWith('audio/')) return 100;
   if (type.startsWith('image/')) return 10;
   return 50; // PDF, DOCX, text, etc.

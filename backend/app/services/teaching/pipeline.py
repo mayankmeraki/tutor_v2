@@ -2693,11 +2693,10 @@ async def _generate_for_turn(
                 "student_model": bool(session.student_model),
             })
 
-            # ── Auto-inject BYO collection context (3-level preload) ──
-            # Level 1: Catalog — resource names + topics (~300 tokens)
-            # Level 2: TOC — ordered chunk titles per resource (~500 tokens)
-            # Level 3: Content — intent-matched chunks (~2,500 tokens)
-            # Total budget: ~3,300 tokens. Eliminates 6-8 tool calls on turn 1.
+            # ── Auto-inject BYO collection context ──
+            # If synthesis exists: use it (replaces Level 1+2, strictly better)
+            # Otherwise: fall back to 3-level preload (Level 1+2+3)
+            # Level 3 (intent-matched chunks) always runs as supplement
             _sc_str = context_data.get("sessionContext", "")
             if _sc_str and not context_data.get("_byoPreloaded"):
                 try:
@@ -2717,50 +2716,79 @@ async def _generate_for_turn(
                             from app.core.mongodb import get_mongo_db
                             _byo_db = get_mongo_db()
                             _byo_parts = []
+                            _used_synthesis = False
 
-                            # ── Level 1: Catalog from MongoDB resource docs ──
+                            # ── Check for synthesis (replaces Level 1+2) ──
+                            try:
+                                _col_doc = await _byo_db.collections.find_one(
+                                    {"collection_id": _byo_cid},
+                                    {"synthesis": 1, "title": 1},
+                                )
+                                _synthesis = (_col_doc or {}).get("synthesis")
+                                if _synthesis and _synthesis.get("overview"):
+                                    from byo.processing.synthesis import format_synthesis_for_prompt
+                                    _col_title = (_col_doc or {}).get("title", "")
+                                    _synth_text = format_synthesis_for_prompt(_synthesis, _col_title)
+                                    if _synth_text:
+                                        _byo_parts.append(_synth_text)
+                                        _used_synthesis = True
+                                        slog.info("BYO using synthesis for collection %s", _byo_cid[:8])
+                            except Exception as _synth_err:
+                                slog.debug("BYO synthesis lookup failed: %s", _synth_err)
+
+                            # ── Fallback: Level 1+2 if no synthesis ──
                             _resources = []
-                            async for _r in _byo_db.byo_resources.find(
-                                {"collection_id": _byo_cid, "user_id": _byo_uid, "status": "ready"},
-                                {"resource_id": 1, "original_name": 1, "chunk_count": 1,
-                                 "topics": 1, "toc": 1, "meta": 1, "_id": 0},
-                            ):
-                                _resources.append(_r)
+                            if not _used_synthesis:
+                                # Level 1: Catalog — resource names + topics (~300 tokens)
+                                # Level 2: TOC — ordered chunk titles per resource (~500 tokens)
+                                async for _r in _byo_db.byo_resources.find(
+                                    {"collection_id": _byo_cid, "user_id": _byo_uid, "status": "ready"},
+                                    {"resource_id": 1, "original_name": 1, "chunk_count": 1,
+                                     "topics": 1, "toc": 1, "meta": 1, "_id": 0},
+                                ):
+                                    _resources.append(_r)
 
-                            if _resources:
-                                _cat_lines = [f"[COLLECTION CONTENT — {len(_resources)} resource(s)]"]
-                                for _ri, _r in enumerate(_resources, 1):
-                                    _name = _r.get("original_name", "untitled")
-                                    _pages = (_r.get("meta") or {}).get("pages", "?")
-                                    _topics = ", ".join((_r.get("topics") or [])[:8])
-                                    _chunks = _r.get("chunk_count", "?")
-                                    _cat_lines.append(
-                                        f"  {_ri}. {_name} — {_pages} pages, {_chunks} chunks"
-                                        + (f", topics: [{_topics}]" if _topics else "")
-                                    )
-                                _byo_parts.append("\n".join(_cat_lines))
+                                if _resources:
+                                    _cat_lines = [f"[COLLECTION CONTENT — {len(_resources)} resource(s)]"]
+                                    for _ri, _r in enumerate(_resources, 1):
+                                        _name = _r.get("original_name", "untitled")
+                                        _pages = (_r.get("meta") or {}).get("pages", "?")
+                                        _topics = ", ".join((_r.get("topics") or [])[:8])
+                                        _chunks = _r.get("chunk_count", "?")
+                                        _cat_lines.append(
+                                            f"  {_ri}. {_name} — {_pages} pages, {_chunks} chunks"
+                                            + (f", topics: [{_topics}]" if _topics else "")
+                                        )
+                                    _byo_parts.append("\n".join(_cat_lines))
 
-                                # ── Level 2: TOC from resource docs ──
-                                # Show TOC for specifically selected resources, or all if small collection
-                                _toc_resources = _resources
-                                if _byo_rids:
-                                    _toc_resources = [r for r in _resources if r.get("resource_id") in _byo_rids]
-                                if not _toc_resources:
-                                    _toc_resources = _resources[:3]  # cap at 3 for large collections
+                                    # Level 2: TOC from resource docs
+                                    _toc_resources = _resources
+                                    if _byo_rids:
+                                        _toc_resources = [r for r in _resources if r.get("resource_id") in _byo_rids]
+                                    if not _toc_resources:
+                                        _toc_resources = _resources[:3]  # cap at 3 for large collections
 
-                                for _r in _toc_resources:
-                                    _toc = _r.get("toc") or []
-                                    if _toc:
-                                        _toc_lines = [f"\n[TABLE OF CONTENTS — {_r.get('original_name', 'resource')}]"]
-                                        for _entry in _toc[:20]:  # cap at 20 entries
-                                            _pg = f"p.{_entry.get('page')}" if _entry.get("page") else ""
-                                            _sec = _entry.get("section") or ""
-                                            _title = _entry.get("title") or _sec or f"Section {_entry.get('index', 0) + 1}"
-                                            _cid = _entry.get("chunk_id", "")[:12]
-                                            _toc_lines.append(f"  [{_entry.get('index', 0)}] {_title} {_pg} (ref: chunk:{_cid})")
-                                        _byo_parts.append("\n".join(_toc_lines))
+                                    for _r in _toc_resources:
+                                        _toc = _r.get("toc") or []
+                                        if _toc:
+                                            _toc_lines = [f"\n[TABLE OF CONTENTS — {_r.get('original_name', 'resource')}]"]
+                                            for _entry in _toc[:20]:  # cap at 20 entries
+                                                _pg = f"p.{_entry.get('page')}" if _entry.get("page") else ""
+                                                _sec = _entry.get("section") or ""
+                                                _title = _entry.get("title") or _sec or f"Section {_entry.get('index', 0) + 1}"
+                                                _cid = _entry.get("chunk_id", "")[:12]
+                                                _toc_lines.append(f"  [{_entry.get('index', 0)}] {_title} {_pg} (ref: chunk:{_cid})")
+                                            _byo_parts.append("\n".join(_toc_lines))
+                            else:
+                                # Still need resource list for Level 3 search
+                                async for _r in _byo_db.byo_resources.find(
+                                    {"collection_id": _byo_cid, "user_id": _byo_uid, "status": "ready"},
+                                    {"resource_id": 1, "_id": 0},
+                                ):
+                                    _resources.append(_r)
 
                             # ── Level 3: Intent-matched content from Qdrant ──
+                            # Always runs as supplement (even with synthesis)
                             _intent = session.student_intent or ""
                             if _intent and _resources:
                                 try:
@@ -2804,8 +2832,8 @@ async def _generate_for_turn(
                                 _preloaded = "\n\n".join(_byo_parts)
                                 context_data["_byoPreloaded"] = _preloaded
                                 slog.info(
-                                    "BYO preloaded: %d resources, %d chars",
-                                    len(_resources), len(_preloaded),
+                                    "BYO preloaded: %d resources, %d chars, synthesis=%s",
+                                    len(_resources), len(_preloaded), _used_synthesis,
                                 )
                 except Exception as _byo_err:
                     log.debug("BYO context pre-load failed: %s", _byo_err)

@@ -347,7 +347,7 @@ async def add_resource(
         _size_mb = len(contents) / (1024 * 1024)
         _mime_lower = (mime or "").lower()
         if "video" in _mime_lower:
-            _max_mb = 200
+            _max_mb = 500  # 1.5 hr lecture at decent quality
         elif "audio" in _mime_lower:
             _max_mb = 100
         elif "image" in _mime_lower:
