@@ -6989,10 +6989,11 @@ function handleToolCallStart(event) {
   disablePreviousInteractive();
 
   if (toolName) {
-    // For visible tools, show a user-friendly indicator (like Claude Code's
-    // "Searching codebase..." / "Reading file..." status messages).
+    // For visible tools, show a user-friendly indicator
     removeStreamingIndicator();
     const label = _toolFriendlyLabel(toolName, state.activeToolCalls[toolId]?.args || '');
+    // Show in title bar (always visible regardless of scroll)
+    _showToolStatus(label);
     appendBlock('system', `
       <div class="tool-indicator active" id="tool-${toolId}">
         <span class="loading-spinner"></span>
@@ -7019,6 +7020,23 @@ function handleToolCallArgs(event) {
   if (textNode && textNode.nodeType === 3 && textNode.textContent.trim() !== updated) {
     textNode.textContent = ' ' + updated;
   }
+}
+
+function _showToolStatus(label) {
+  var el = document.getElementById('tool-status-bar');
+  if (!el) {
+    el = document.createElement('div');
+    el.id = 'tool-status-bar';
+    el.style.cssText = 'position:absolute;right:16px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(52,211,153,.6);font-weight:500;animation:fadeIn .2s ease';
+    var topBar = document.getElementById('top-bar');
+    if (topBar) { topBar.style.position = 'relative'; topBar.appendChild(el); }
+  }
+  el.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>' + label;
+  el.style.display = 'flex';
+}
+function _hideToolStatus() {
+  var el = document.getElementById('tool-status-bar');
+  if (el) el.style.display = 'none';
 }
 
 function _toolFriendlyLabel(name, argsStr) {
@@ -7067,6 +7085,9 @@ function handleToolCallEnd(event) {
   const toolId = event.toolCallId || event.tool_call_id;
   const call = state.activeToolCalls[toolId];
   if (!call) return;
+
+  // Clear title bar status
+  _hideToolStatus();
 
   const indicator = $(`#tool-${toolId}`);
   if (indicator) {
@@ -11299,7 +11320,8 @@ function _confirmResourcePicker() {
     state.homeResourceIds = entry.rids.length < (state._collectionsCache || []).find(c => c.collection_id === state.homeCollectionId)?.stats?.resources
       ? entry.rids : null; // only filter if subset selected
   } else {
-    state.homeCollectionId = [...byCol.keys()][0]; // primary collection
+    // Multiple collections — don't scope to one. Backend searches user_corpus.
+    state.homeCollectionId = null;
     state.homeResourceIds = [..._rpSelected.keys()];
   }
 
