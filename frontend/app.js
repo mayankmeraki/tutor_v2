@@ -14657,6 +14657,8 @@ async function _showMediaViewer(opts) {
       // Native video with Plyr
       var video = document.createElement('video');
       video.id = 'media-plyr-video';
+      video.crossOrigin = 'anonymous';
+      video.playsInline = true;
       video.src = src;
       content.appendChild(video);
       setTimeout(function() {

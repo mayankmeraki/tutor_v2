@@ -2728,7 +2728,11 @@ async def _generate_for_turn(
                                 if _synthesis and _synthesis.get("overview"):
                                     from byo.processing.synthesis import format_synthesis_for_prompt
                                     _col_title = (_col_doc or {}).get("title", "")
-                                    _synth_text = format_synthesis_for_prompt(_synthesis, _col_title)
+                                    # Pass resource docs for direct URL mapping
+                                    _synth_text = format_synthesis_for_prompt(
+                                        _synthesis, _col_title,
+                                        resource_docs=_resources,
+                                    )
                                     if _synth_text:
                                         _byo_parts.append(_synth_text)
                                         _used_synthesis = True

@@ -411,14 +411,25 @@ async def _call_llm(prompt: str) -> dict[str, Any]:
         return {}
 
 
-def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "") -> str:
+def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
+                               resource_docs: list[dict] | None = None) -> str:
     """Format a synthesis dict into a text block for the tutor system prompt.
 
-    This is used in pipeline.py to inject synthesis content instead of
-    the Level 1+2 preload when synthesis is available.
+    resource_docs: list of MongoDB resource documents (with resource_id, source_url, etc.)
+    Used to build direct media URLs so the tutor never needs to construct them from IDs.
     """
     if not synthesis or not synthesis.get("overview"):
         return ""
+
+    # Build resource_id → direct URL map
+    _url_map = {}
+    for rd in (resource_docs or []):
+        rid = rd.get("resource_id", "")
+        source_url = rd.get("source_url", "")
+        if source_url and ("youtube" in source_url or "youtu.be" in source_url):
+            _url_map[rid] = source_url  # YouTube → direct URL
+        else:
+            _url_map[rid] = f"/api/v1/byo/resources/{rid}/file"  # uploads → file endpoint
 
     parts = []
 
@@ -435,11 +446,15 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "") -> 
             name = r.get("name", "untitled")
             ctype = r.get("content_type", "other")
             role = r.get("role", "learning")
-            rid = r.get("resource_id", "")[:12]
-            line = f"  [{rid}] {name} ({ctype}, {role})"
+            rid = r.get("resource_id", "")
+            media_url = _url_map.get(rid, "")
+            line = f"  {name} ({ctype}, {role})"
+            if media_url:
+                line += f"\n    media: {media_url}"
             linked = r.get("linked_to")
             if linked:
-                line += f" -> linked to {linked[:12]}"
+                linked_name = next((rr.get("name", linked[:12]) for rr in resources if rr.get("resource_id") == linked), linked[:12])
+                line += f"\n    linked to: {linked_name}"
             parts.append(line)
 
             # Smart TOC

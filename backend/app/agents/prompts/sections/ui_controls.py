@@ -121,6 +121,20 @@ HOW IMAGES ARE STORED IN BYO:
     <euler-ui panel="media-viewer" action="show"
       src="IMAGE_URL" type="image" title="Figure 3.2 — Circuit Diagram" />
 
+USING MEDIA URLs:
+  In [COLLECTION] context, each resource has a "media:" line with its
+  direct URL. Use that EXACT URL in the src attribute — don't construct
+  URLs from resource IDs. For YouTube, the URL is the YouTube link
+  directly. For uploaded files, it's the /api/v1/byo/resources/.../file
+  endpoint.
+
+  Example from collection context:
+    Lecture 1 (video, learning)
+      media: https://www.youtube.com/watch?v=abc123
+  → Use: <euler-ui panel="media-viewer" action="show"
+           src="https://www.youtube.com/watch?v=abc123"
+           type="video" title="Lecture 1" timestamp="120" />
+
 WHEN TO USE MEDIA VIEWER:
   - Student uploaded a lecture video and asks about a specific topic →
     search their content, find the timestamped chunk, open the video
