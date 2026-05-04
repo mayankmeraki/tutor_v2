@@ -13552,39 +13552,44 @@ async function startNewSession(name, courseId, intent, scenario) {
       ]);
     }
 
-    updateSessionPrep('Checking your progress...');
-    // Fetch previous sessions — find the one with most actual progress
-    const prevSessions = state.courseId ? (await SessionManager.loadPreviousSessions(state.courseId, state.studentName) || []) : [];
+    // Course progress (only if course-based session)
+    state.checkpoint = {
+      currentLessonId: null,
+      currentSectionIndex: 0,
+      completedSections: [],
+      lastVideoTimestamp: 0,
+      sessionCount: 1,
+      lastPlanJSON: null,
+    };
 
-    // Pick the session with the most completed sections (not just newest)
-    const bestSession = prevSessions.reduce((best, s) => {
-      const completed = (s.coursePosition?.completedCourseSections || []).length;
-      const bestCompleted = (best?.coursePosition?.completedCourseSections || []).length;
-      return completed > bestCompleted ? s : best;
-    }, null);
+    if (state.courseId && courseMap) {
+      updateSessionPrep('Checking your progress...');
+      const prevSessions = await SessionManager.loadPreviousSessions(state.courseId, state.studentName) || [];
 
-    const highestNumber = prevSessions.length > 0
-      ? Math.max(...prevSessions.map(s => s.number || 0))
-      : 0;
+      const bestSession = prevSessions.reduce((best, s) => {
+        const completed = (s.coursePosition?.completedCourseSections || []).length;
+        const bestCompleted = (best?.coursePosition?.completedCourseSections || []).length;
+        return completed > bestCompleted ? s : best;
+      }, null);
 
-    if (bestSession && bestSession.coursePosition &&
-        (bestSession.coursePosition.completedCourseSections || []).length > 0) {
-      const cp = deriveCheckpointFromSession(bestSession);
-      cp.sessionCount = highestNumber + 1;
-      state.checkpoint = cp;
-    } else {
-      const firstLesson = courseMap.modules[0]?.lessons[0];
-      state.checkpoint = {
-        currentLessonId: firstLesson?.lesson_id || null,
-        currentSectionIndex: 0,
-        completedSections: [],
-        lastVideoTimestamp: 0,
-        sessionCount: highestNumber + 1,
-        lastPlanJSON: null,
-      };
+      const highestNumber = prevSessions.length > 0
+        ? Math.max(...prevSessions.map(s => s.number || 0))
+        : 0;
+
+      if (bestSession && bestSession.coursePosition &&
+          (bestSession.coursePosition.completedCourseSections || []).length > 0) {
+        const cp = deriveCheckpointFromSession(bestSession);
+        cp.sessionCount = highestNumber + 1;
+        state.checkpoint = cp;
+      } else {
+        const firstLesson = courseMap.modules?.[0]?.lessons?.[0];
+        state.checkpoint.currentLessonId = firstLesson?.lesson_id || null;
+        state.checkpoint.sessionCount = highestNumber + 1;
+      }
     }
 
     updateSessionPrep('Organizing your lesson plan...');
+    console.log('[StartSession] showTeachingLayout with courseMap:', courseMap ? 'present' : 'null');
     showTeachingLayout(courseMap);
 
     // Session state already fully reset by cleanupActiveSession() above.
@@ -13615,9 +13620,10 @@ async function startNewSession(name, courseId, intent, scenario) {
         state.courseId, state.studentName, state.studentIntent,
         coursePosition, state.checkpoint.sessionCount, scenario,
       );
-      // Attach previous session summaries for AI context
-      if (prevSessions.length > 0) {
-        SessionManager.session.previousSessions = prevSessions
+      // Attach previous session summaries for AI context (course mode only)
+      var _prevSessions = SessionManager.session?.previousSessions || [];
+      if (_prevSessions.length > 0) {
+        SessionManager.session.previousSessions = _prevSessions
           .filter(s => s.status === 'complete')
           .slice(0, 5)
           .map(ps => ({
@@ -13675,8 +13681,12 @@ OPENING INSTRUCTIONS:
     }
 
     updateSessionPrep('Starting your session...');
+    console.log('[StartSession] Calling streamADK, trigger length:', trigger.length);
     await streamADK(trigger, true, true);
+    console.log('[StartSession] streamADK returned');
   } catch (err) {
+    console.error('[StartSession] FAILED:', err);
+    _hideTransitionLoader();
     hideSessionPrep();
     setStatus(`Failed: ${err.message}`, 'error');
     // Reset loading state so user can retry
