@@ -707,17 +707,21 @@ async def get_resource_info(resource_id: str, request: Request = None, user: dic
     """
     db = _get_db()
     # Try exact match first
+    _fields = {"_id": 0, "resource_id": 1, "collection_id": 1, "original_name": 1,
+               "source_url": 1, "mime_type": 1, "meta": 1, "status": 1, "storage_path": 1}
     resource = await db.byo_resources.find_one(
-        {"resource_id": resource_id, "user_id": user["email"]},
-        {"_id": 0, "resource_id": 1, "collection_id": 1, "original_name": 1,
-         "source_url": 1, "mime_type": 1, "meta": 1, "status": 1, "storage_path": 1},
+        {"resource_id": resource_id, "user_id": user["email"]}, _fields,
     )
-    # Fallback: prefix match (LLM may truncate UUIDs)
+    # Fallback: prefix match (LLM truncates UUIDs)
     if not resource and len(resource_id) >= 8:
         resource = await db.byo_resources.find_one(
-            {"resource_id": {"$regex": f"^{resource_id}"}, "user_id": user["email"]},
-            {"_id": 0, "resource_id": 1, "collection_id": 1, "original_name": 1,
-             "source_url": 1, "mime_type": 1, "meta": 1, "status": 1, "storage_path": 1},
+            {"resource_id": {"$regex": f"^{resource_id}"}, "user_id": user["email"]}, _fields,
+        )
+    # Fallback: name match (LLM uses resource name instead of ID)
+    if not resource:
+        import re as _re
+        resource = await db.byo_resources.find_one(
+            {"original_name": {"$regex": _re.escape(resource_id), "$options": "i"}, "user_id": user["email"]}, _fields,
         )
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
