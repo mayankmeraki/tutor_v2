@@ -3410,6 +3410,17 @@ function buildContext() {
   if (document.getElementById('ws-canvas-pane')?.style.display === 'flex') _openPanels.push('sd-canvas');
   var _lldEl = document.getElementById('ws-lld-pane');
   if (_lldEl && _lldEl.style.display === 'flex') _openPanels.push('lld-split');
+  var _mediaEl = document.getElementById('media-viewer-panel');
+  if (_mediaEl) {
+    var _mediaState = { id: 'media-viewer' };
+    if (_mediaEl._src) _mediaState.src = _mediaEl._src;
+    if (_mediaEl._type) _mediaState.type = _mediaEl._type;
+    if (_mediaEl._title) _mediaState.title = _mediaEl._title;
+    // Get current video time/speed if playing
+    var _vid = _mediaEl.querySelector('video');
+    if (_vid) { _mediaState.currentTime = Math.round(_vid.currentTime); _mediaState.speed = _vid.playbackRate; }
+    _openPanels.push(_mediaState);
+  }
   if (_openPanels.length) _scObj.activePanels = _openPanels;
 
   if (Object.keys(_scObj).length) {
@@ -14489,83 +14500,157 @@ function _showSessionOnboard() {
 // ── Media Viewer — floating panel for video/image/pdf/file ──
 function _showMediaViewer(opts) {
   _hideMediaViewer(); // close any existing
-  var overlay = document.createElement('div');
-  overlay.id = 'media-viewer-panel';
-  overlay.style.cssText = 'position:fixed;top:60px;right:16px;width:420px;max-height:calc(100vh - 80px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);z-index:900;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .2s ease';
+  var panel = document.createElement('div');
+  panel.id = 'media-viewer-panel';
+  panel.style.cssText = 'position:fixed;top:60px;right:16px;width:440px;max-height:calc(100vh - 80px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);z-index:900;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .2s ease;resize:both';
 
-  // Header
-  var header = document.createElement('div');
-  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0';
-  header.innerHTML = '<div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + (opts.title || 'Media') + '</div>' +
-    '<button onclick="_hideMediaViewer()" style="width:24px;height:24px;border-radius:6px;border:none;background:rgba(255,255,255,.05);color:rgba(255,255,255,.4);cursor:pointer;display:grid;place-items:center;font-size:14px;flex-shrink:0">&times;</button>';
-  overlay.appendChild(header);
+  // Store metadata for state reporting
+  panel._src = opts.src || '';
+  panel._type = (opts.type || '').toLowerCase();
+  panel._title = opts.title || '';
 
-  // Content
-  var content = document.createElement('div');
-  content.style.cssText = 'flex:1;overflow:auto;padding:8px';
-  var type = (opts.type || '').toLowerCase();
-  var src = opts.src || '';
+  var type = panel._type;
+  var src = panel._src;
 
   // Resolve BYO refs to actual URLs
   if (src.startsWith('chunk:') || src.startsWith('resource:')) {
-    // Use the BYO file serving endpoint
     var rid = src.split(':')[1];
     src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file';
   }
 
+  // Header with title + close
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0;cursor:move;user-select:none';
+  header.innerHTML = '<div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + (opts.title || 'Media') + '</div>' +
+    '<button onclick="_hideMediaViewer()" style="width:24px;height:24px;border-radius:6px;border:none;background:rgba(255,255,255,.05);color:rgba(255,255,255,.4);cursor:pointer;display:grid;place-items:center;font-size:14px;flex-shrink:0">&times;</button>';
+  panel.appendChild(header);
+
+  // Content area
+  var content = document.createElement('div');
+  content.style.cssText = 'flex:1;overflow:auto;padding:8px';
+
   if (type === 'video' || /\.(mp4|webm|ogg)/.test(src) || /youtube|youtu\.be/.test(src)) {
     if (/youtube|youtu\.be/.test(src)) {
-      // YouTube embed
+      // YouTube — use YouTube IFrame API for native controls
       var vid = src.match(/(?:v=|youtu\.be\/)([^&?#]+)/);
       var ytId = vid ? vid[1] : '';
-      var start = opts.timestamp ? '&start=' + opts.timestamp : '';
-      content.innerHTML = '<iframe src="https://www.youtube.com/embed/' + ytId + '?autoplay=1' + start + '" style="width:100%;aspect-ratio:16/9;border:none;border-radius:8px" allowfullscreen></iframe>';
+      var ytDiv = document.createElement('div');
+      ytDiv.id = 'media-yt-player';
+      ytDiv.style.cssText = 'width:100%;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:#000';
+      content.appendChild(ytDiv);
+      // Load YT API if not loaded
+      if (!window.YT) {
+        var tag = document.createElement('script');
+        tag.src = 'https://www.youtube.com/iframe_api';
+        document.head.appendChild(tag);
+        window.onYouTubeIframeAPIReady = function() { _createYTPlayer(ytId, opts); };
+      } else {
+        setTimeout(function() { _createYTPlayer(ytId, opts); }, 100);
+      }
     } else {
+      // Native HTML5 video — full controls
       var video = document.createElement('video');
       video.src = src;
       video.controls = true;
       video.autoplay = true;
-      video.style.cssText = 'width:100%;border-radius:8px';
+      video.style.cssText = 'width:100%;border-radius:8px;max-height:calc(100vh - 200px)';
       if (opts.timestamp) video.currentTime = parseFloat(opts.timestamp);
       if (opts.speed) video.playbackRate = parseFloat(opts.speed);
       content.appendChild(video);
+      // Speed controls
+      var speedBar = document.createElement('div');
+      speedBar.style.cssText = 'display:flex;gap:4px;padding:6px 0;justify-content:center';
+      [0.5, 0.75, 1, 1.25, 1.5, 2].forEach(function(s) {
+        var btn = document.createElement('button');
+        btn.textContent = s + 'x';
+        btn.style.cssText = 'padding:3px 8px;border-radius:5px;border:1px solid rgba(255,255,255,.06);background:' + (s === 1 ? 'rgba(52,211,153,.1)' : 'none') + ';color:rgba(255,255,255,.4);font-size:10px;cursor:pointer;font-family:inherit';
+        btn.onclick = function() {
+          video.playbackRate = s;
+          speedBar.querySelectorAll('button').forEach(function(b) { b.style.background = 'none'; });
+          btn.style.background = 'rgba(52,211,153,.1)';
+        };
+        speedBar.appendChild(btn);
+      });
+      content.appendChild(speedBar);
     }
   } else if (type === 'image' || /\.(png|jpg|jpeg|gif|svg|webp)/.test(src)) {
-    content.innerHTML = '<img src="' + src + '" style="width:100%;border-radius:8px;cursor:zoom-in" onclick="this.style.maxWidth=this.style.maxWidth?\'\':\' none\'" />';
+    var img = document.createElement('img');
+    img.src = src;
+    img.style.cssText = 'width:100%;border-radius:8px;cursor:zoom-in;transition:transform .2s';
+    img.alt = opts.title || 'Image';
+    var zoomed = false;
+    img.onclick = function() {
+      zoomed = !zoomed;
+      img.style.transform = zoomed ? 'scale(2)' : '';
+      img.style.cursor = zoomed ? 'zoom-out' : 'zoom-in';
+    };
+    content.appendChild(img);
   } else if (type === 'pdf' || /\.pdf/.test(src)) {
-    content.innerHTML = '<iframe src="' + src + '" style="width:100%;height:500px;border:none;border-radius:8px"></iframe>';
+    // PDF — native embed (not iframe)
+    var embed = document.createElement('embed');
+    embed.src = src;
+    embed.type = 'application/pdf';
+    embed.style.cssText = 'width:100%;height:500px;border-radius:8px';
+    content.appendChild(embed);
+    // Fallback link
+    var link = document.createElement('a');
+    link.href = src;
+    link.target = '_blank';
+    link.textContent = 'Open PDF in new tab';
+    link.style.cssText = 'display:block;text-align:center;margin-top:6px;font-size:10px;color:rgba(52,211,153,.5)';
+    content.appendChild(link);
   } else {
-    // Generic file — try iframe, fallback to download link
-    content.innerHTML = '<iframe src="' + src + '" style="width:100%;height:400px;border:none;border-radius:8px"></iframe>' +
-      '<a href="' + src + '" target="_blank" style="display:block;text-align:center;margin-top:8px;font-size:11px;color:rgba(52,211,153,.6)">Open in new tab</a>';
+    // Generic file — download link
+    var dl = document.createElement('div');
+    dl.style.cssText = 'text-align:center;padding:30px 10px';
+    dl.innerHTML = '<div style="font-size:32px;margin-bottom:10px">📄</div>' +
+      '<div style="font-size:12px;color:rgba(255,255,255,.5);margin-bottom:12px">' + (opts.title || 'File') + '</div>' +
+      '<a href="' + src + '" target="_blank" download style="padding:8px 16px;border-radius:8px;background:rgba(52,211,153,.08);border:1px solid rgba(52,211,153,.2);color:rgba(52,211,153,.8);font-size:12px;text-decoration:none;font-family:inherit">Download</a>';
+    content.appendChild(dl);
   }
 
-  overlay.appendChild(content);
-  document.body.appendChild(overlay);
+  panel.appendChild(content);
+  document.body.appendChild(panel);
 
-  // Make draggable by header
+  // Draggable header
   var isDragging = false, startX, startY, startLeft, startTop;
-  header.style.cursor = 'move';
   header.addEventListener('mousedown', function(e) {
     if (e.target.tagName === 'BUTTON') return;
     isDragging = true;
     startX = e.clientX; startY = e.clientY;
-    var rect = overlay.getBoundingClientRect();
+    var rect = panel.getBoundingClientRect();
     startLeft = rect.left; startTop = rect.top;
     e.preventDefault();
   });
   document.addEventListener('mousemove', function(e) {
     if (!isDragging) return;
-    overlay.style.right = 'auto';
-    overlay.style.left = (startLeft + e.clientX - startX) + 'px';
-    overlay.style.top = (startTop + e.clientY - startY) + 'px';
+    panel.style.right = 'auto';
+    panel.style.left = (startLeft + e.clientX - startX) + 'px';
+    panel.style.top = (startTop + e.clientY - startY) + 'px';
   });
   document.addEventListener('mouseup', function() { isDragging = false; });
 }
 
+function _createYTPlayer(ytId, opts) {
+  try {
+    new YT.Player('media-yt-player', {
+      videoId: ytId,
+      playerVars: { autoplay: 1, start: parseInt(opts.timestamp || 0), modestbranding: 1, rel: 0 },
+      events: {
+        onReady: function(e) { if (opts.speed) e.target.setPlaybackRate(parseFloat(opts.speed)); }
+      }
+    });
+  } catch(e) { console.warn('[MediaViewer] YT player failed:', e); }
+}
+
 function _hideMediaViewer() {
   var el = document.getElementById('media-viewer-panel');
-  if (el) el.remove();
+  if (el) {
+    // Pause any playing media
+    var vid = el.querySelector('video');
+    if (vid) try { vid.pause(); } catch(e) {}
+    el.remove();
+  }
 }
 window._showMediaViewer = _showMediaViewer;
 window._hideMediaViewer = _hideMediaViewer;
