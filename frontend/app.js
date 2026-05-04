@@ -13506,7 +13506,7 @@ async function initSetup() {
 }
 
 async function startNewSession(name, courseId, intent, scenario) {
-  if (!name || !courseId) return;
+  if (!name) return;
   scenario = scenario || 'course';
 
   // Block multiple clicks
