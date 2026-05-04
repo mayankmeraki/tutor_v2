@@ -10645,6 +10645,9 @@ async function _loadCollections() {
   const list = document.getElementById('collections-list');
   if (!list) return;
 
+  // Show skeleton while loading
+  list.innerHTML = Array(3).fill('<div style="min-width:180px;height:80px;border-radius:10px;background:rgba(255,255,255,.02);animation:skPulse 1.5s ease-in-out infinite;flex-shrink:0"></div>').join('');
+
   try {
     const res = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections`, {
       headers: AuthManager.authHeaders(),
@@ -10829,7 +10832,7 @@ async function _loadDetailResources(collectionId) {
   if (!container) return;
   // First call paints the loading state; subsequent polls re-render in place.
   if (!container.dataset.loaded) {
-    container.innerHTML = '<div style="color:var(--text-dim);font-size:11px;padding:6px">Loading materials…</div>';
+    container.innerHTML = Array(2).fill('<div style="height:50px;border-radius:6px;background:rgba(255,255,255,.02);margin-bottom:6px;animation:skPulse 1.5s ease-in-out infinite"></div>').join('');
   }
 
   try {
@@ -22247,6 +22250,16 @@ async function _loadDSAScreen() {
   let sdProblems = [];
   let sdConcepts = [];
   let lldConcepts = [];
+
+  // Show loading skeletons immediately
+  var _topicChips = document.getElementById('dsa-topic-chips');
+  var _probTable = document.getElementById('dsa-problems-table');
+  var _sdProbs = document.getElementById('sd-problems');
+  var _sdChips = document.getElementById('sd-concept-chips');
+  if (_topicChips) _topicChips.innerHTML = Array(12).fill('<span style="display:inline-block;width:80px;height:32px;border-radius:8px;background:rgba(255,255,255,.03);animation:skPulse 1.5s ease-in-out infinite"></span>').join('');
+  if (_probTable) _probTable.innerHTML = Array(6).fill('<div style="height:40px;border-radius:8px;background:rgba(255,255,255,.02);margin-bottom:4px;animation:skPulse 1.5s ease-in-out infinite"></div>').join('');
+  if (_sdProbs) _sdProbs.innerHTML = Array(6).fill('<div style="height:100px;border-radius:12px;background:rgba(255,255,255,.02);animation:skPulse 1.5s ease-in-out infinite"></div>').join('');
+  if (_sdChips) _sdChips.innerHTML = Array(8).fill('<span style="display:inline-block;width:90px;height:32px;border-radius:8px;background:rgba(255,255,255,.03);animation:skPulse 1.5s ease-in-out infinite"></span>').join('');
 
   try {
     const hdrs = typeof AuthManager !== 'undefined' && AuthManager.authHeaders ? AuthManager.authHeaders() : {};
