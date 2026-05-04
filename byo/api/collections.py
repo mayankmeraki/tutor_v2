@@ -343,8 +343,23 @@ async def add_resource(
     if file:
         # File upload
         contents = await file.read()
-        if len(contents) > 50 * 1024 * 1024:  # 50MB limit
-            raise HTTPException(status_code=413, detail="File too large (max 50MB)")
+        # File size limits by type
+        _size_mb = len(contents) / (1024 * 1024)
+        _mime_lower = (mime or "").lower()
+        if "video" in _mime_lower:
+            _max_mb = 200
+        elif "audio" in _mime_lower:
+            _max_mb = 100
+        elif "image" in _mime_lower:
+            _max_mb = 10
+        else:
+            _max_mb = 50  # PDF, DOCX, text, etc.
+
+        if _size_mb > _max_mb:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large ({_size_mb:.1f} MB). Maximum for this file type is {_max_mb} MB."
+            )
 
         # Deduplicate: hash file content, skip if same file already in collection
         import hashlib

@@ -10039,7 +10039,7 @@ function _handleEulerAttachFiles(files, previewId) {
     if (_eulerAttachments.length >= MAX_ATTACHMENTS) {
       alert(`Maximum ${MAX_ATTACHMENTS} attachments allowed`); break;
     }
-    if (file.size > 50 * 1024 * 1024) { alert('File too large (max 50MB)'); continue; }
+    if (!_checkFileSize(file)) continue;
 
     if (imageTypes.includes(file.type)) {
       // Images → inline to LLM via base64
@@ -10088,10 +10088,7 @@ async function _autoUploadToByo(files) {
 
     // Upload each file
     for (const file of files) {
-      if (file.size > 50 * 1024 * 1024) {
-        _toast(`${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 50 MB.`, 'error');
-        continue;
-      }
+      if (!_checkFileSize(file)) continue;
       const formData = new FormData();
       formData.append('file', file);
       const uploadRes = await fetch(`${state.apiUrl || ''}/api/v1/byo/collections/${colId}/resources`, {
@@ -11739,8 +11736,8 @@ async function _handleByoUpload(e) {
     const dupes = [];
     const errors = [];
     for (const file of files) {
-      if (file.size > 50 * 1024 * 1024) {
-        errors.push(`${file.name} is too large (${(file.size / 1024 / 1024).toFixed(1)} MB). Max 50 MB.`);
+      if (!_checkFileSize(file)) {
+        errors.push(file.name + ': too large');
         continue;
       }
       const formData = new FormData();
@@ -14526,6 +14523,24 @@ function _showSessionOnboard() {
   });
 
   overlay.style.display = 'flex';
+}
+
+// ── File Upload Limits ──
+function _getMaxFileSizeMB(file) {
+  var type = (file.type || '').toLowerCase();
+  if (type.startsWith('video/')) return 200;
+  if (type.startsWith('audio/')) return 100;
+  if (type.startsWith('image/')) return 10;
+  return 50; // PDF, DOCX, text, etc.
+}
+function _checkFileSize(file) {
+  var maxMB = _getMaxFileSizeMB(file);
+  var sizeMB = file.size / (1024 * 1024);
+  if (sizeMB > maxMB) {
+    _toast(file.name + ' is too large (' + sizeMB.toFixed(1) + ' MB). Max for this type: ' + maxMB + ' MB.', 'error');
+    return false;
+  }
+  return true;
 }
 
 // ── Transition Loader — shown between screens ──
