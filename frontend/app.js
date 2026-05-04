@@ -10749,6 +10749,34 @@ function _stopDetailPoll() {
   if (_byoDetailPollTimer) { clearTimeout(_byoDetailPollTimer); _byoDetailPollTimer = null; }
 }
 
+async function _deleteCurrentCollection() {
+  var colId = state.byoDetailCollectionId;
+  if (!colId) return;
+  var title = document.getElementById('byo-detail-title')?.textContent || 'this collection';
+  if (!confirm('Delete "' + title + '" and all its files? This cannot be undone.')) return;
+
+  try {
+    var res = await fetch(state.apiUrl + '/api/v1/byo/collections/' + colId, {
+      method: 'DELETE',
+      headers: AuthManager.authHeaders(),
+    });
+    if (res.ok) {
+      _toast('Collection deleted', 'success');
+      state.byoDetailCollectionId = null;
+      // Go back to collections list
+      document.getElementById('tab-stuff').style.display = 'none';
+      document.getElementById('tab-learn').style.display = '';
+      _loadCollections();
+    } else {
+      var err = await res.json().catch(function() { return {}; });
+      _toast(err.detail || 'Failed to delete', 'error');
+    }
+  } catch (e) {
+    _toast('Failed to delete collection', 'error');
+  }
+}
+window._deleteCurrentCollection = _deleteCurrentCollection;
+
 async function _loadDetailResources(collectionId) {
   const container = document.getElementById('byo-detail-resources');
   if (!container) return;
@@ -12870,6 +12898,9 @@ async function _startOnDemandSession(intentText) {
     state._sessionOrigin = location.pathname || '/home';
   }
 
+  // Show loading overlay immediately
+  _showTransitionLoader('Starting session...');
+
   _unlockAudio();
 
   // Classify intent — determines if this needs DSA/SD mode with code editor/canvas
@@ -14497,6 +14528,23 @@ function _showSessionOnboard() {
   overlay.style.display = 'flex';
 }
 
+// ── Transition Loader — shown between screens ──
+function _showTransitionLoader(msg) {
+  _hideTransitionLoader();
+  var el = document.createElement('div');
+  el.id = 'transition-loader';
+  el.style.cssText = 'position:fixed;inset:0;z-index:9998;background:rgba(6,11,20,.95);display:flex;flex-direction:column;align-items:center;justify-content:center;animation:fadeIn .15s ease';
+  el.innerHTML = '<div class="loading-spinner" style="width:28px;height:28px;border-width:2.5px;margin-bottom:14px"></div>' +
+    '<div style="font-size:13px;color:rgba(255,255,255,.5);font-weight:500">' + (msg || 'Loading...') + '</div>';
+  document.body.appendChild(el);
+}
+function _hideTransitionLoader() {
+  var el = document.getElementById('transition-loader');
+  if (el) { el.style.opacity = '0'; el.style.transition = 'opacity .25s'; setTimeout(function() { if (el.parentNode) el.remove(); }, 300); }
+}
+window._showTransitionLoader = _showTransitionLoader;
+window._hideTransitionLoader = _hideTransitionLoader;
+
 // ── Media Viewer — floating panel for video/image/pdf/file ──
 function _showMediaViewer(opts) {
   _hideMediaViewer(); // close any existing
@@ -14681,6 +14729,7 @@ function showTeachingLayout(courseMap, opts) {
   if (sidebarStatus) sidebarStatus.textContent = state.studentName || '';
 
   _hideAllScreens();
+  _hideTransitionLoader();
   $('#teaching-layout').classList.remove('hidden');
   if (typeof DashBg !== 'undefined') DashBg.stop();
 
