@@ -1121,7 +1121,11 @@ async function createAnimation(cmd) {
 
     if (!sketchFn) {
       console.warn('[Animation] Compile error — all repairs failed:', e.message);
-      console.warn('[Animation] Broken code (first 800 chars):', fullCode.substring(0, 800));
+      // Log the user code part (after bridge), not the bridge itself
+      var _bridgeLen = buildControlBridge(scale, isWebGL).length;
+      var _userCode = fullCode.substring(_bridgeLen);
+      console.warn('[Animation] User code (first 500 chars):', _userCode.substring(0, 500));
+      console.warn('[Animation] User code (last 300 chars):', _userCode.substring(Math.max(0, _userCode.length - 300)));
       showSkeleton(el, canvasWrap, cmd, e.message, scale, isWebGL);
       return;
     }
