@@ -1923,21 +1923,31 @@ body {
   display: flex; flex-direction: column; align-items: center; justify-content: center;
   flex: 1; color: var(--text-dim); gap: 12px;
 }
-.board-empty-anim { display:flex; align-items:center; gap:12px; margin-bottom:4px }
-.board-empty-pencil { font-size:28px; opacity:.4;
-  animation:boardPencilWrite 2s ease-in-out infinite }
-@keyframes boardPencilWrite {
-  0%,100% { transform:translate(0,0) rotate(0deg); opacity:.3 }
-  25% { transform:translate(6px,2px) rotate(8deg); opacity:.6 }
-  50% { transform:translate(12px,0) rotate(-4deg); opacity:.5 }
-  75% { transform:translate(6px,-2px) rotate(4deg); opacity:.4 }
+.board-empty-orb {
+  position: relative;
+  width: 80px; height: 80px;
 }
-.board-empty-dots { display:flex; gap:4px }
-.board-empty-dots span { width:5px; height:5px; border-radius:50%; background:var(--accent); opacity:.3;
-  animation:boardDotPulse .8s ease-in-out infinite alternate }
-.board-empty-dots span:nth-child(2) { animation-delay:.2s }
-.board-empty-dots span:nth-child(3) { animation-delay:.4s }
-@keyframes boardDotPulse { from{opacity:.15;transform:scale(.8)} to{opacity:.6;transform:scale(1.1)} }
+.board-orb-glow {
+  position: absolute; inset: -20px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(52,211,153,.15) 0%, transparent 70%);
+  animation: boardOrbPulse 2s ease-in-out infinite;
+}
+.board-orb-core {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 35%, rgba(52,211,153,.3), rgba(52,211,153,.08) 60%, transparent);
+  border: 1.5px solid rgba(52,211,153,.15);
+  animation: boardOrbSpin 3s linear infinite;
+}
+@keyframes boardOrbPulse {
+  0%, 100% { transform: scale(1); opacity: .6; }
+  50% { transform: scale(1.2); opacity: 1; }
+}
+@keyframes boardOrbSpin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
 .board-empty-text { font-size:14px; color:var(--text-muted) }
 .board-empty-hint { font-size:12px; opacity:.5 }
 
