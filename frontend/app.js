@@ -7043,16 +7043,23 @@ function _showToolStatus(label) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'tool-status-bar';
-    el.style.cssText = 'position:absolute;right:16px;top:50%;transform:translateY(-50%);display:flex;align-items:center;gap:6px;font-size:11px;color:rgba(52,211,153,.6);font-weight:500;animation:fadeIn .2s ease';
-    var topBar = document.getElementById('top-bar');
-    if (topBar) { topBar.style.position = 'relative'; topBar.appendChild(el); }
+    el.style.cssText = 'position:fixed;top:8px;right:20px;z-index:800;display:flex;align-items:center;gap:7px;font-size:11px;color:rgba(52,211,153,.7);font-weight:500;padding:6px 14px;border-radius:8px;background:rgba(17,24,39,.9);border:1px solid rgba(52,211,153,.15);box-shadow:0 4px 12px rgba(0,0,0,.3);backdrop-filter:blur(8px)';
+    document.body.appendChild(el);
   }
   el.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>' + label;
   el.style.display = 'flex';
+  // Auto-hide after 15s (safety — in case TOOL_CALL_END never fires)
+  clearTimeout(el._autoHide);
+  el._autoHide = setTimeout(function() { _hideToolStatus(); }, 15000);
 }
 function _hideToolStatus() {
   var el = document.getElementById('tool-status-bar');
-  if (el) el.style.display = 'none';
+  if (el) {
+    clearTimeout(el._autoHide);
+    el.style.opacity = '0';
+    el.style.transition = 'opacity .3s';
+    setTimeout(function() { if (el) { el.style.display = 'none'; el.style.opacity = ''; } }, 300);
+  }
 }
 
 function _toolFriendlyLabel(name, argsStr) {
@@ -9016,7 +9023,13 @@ const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-s
 function _hideAllScreens() {
   ALL_SCREENS.forEach(id => {
     const el = document.getElementById(id);
-    if (el) el.style.display = 'none';
+    if (el) {
+      el.style.display = 'none';
+      // Reset animation so fade-in replays on next show
+      el.style.animation = 'none';
+      el.offsetHeight; // force reflow
+      el.style.animation = '';
+    }
   });
   document.getElementById('teaching-layout')?.classList.add('hidden');
   // Stop BYO materials polling when switching screens
