@@ -10849,10 +10849,11 @@ async function _loadDetailResources(collectionId) {
       // Action buttons — Retry + Delete for errored resources, Delete for
       // ready ones (students may want to remove a file from a collection).
       const isError = r.status === 'error';
-      const actions = isError ? `
-        <button class="byo-res-retry" data-rid="${r.resource_id}" style="font-size:9px;padding:3px 9px;border-radius:5px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08);color:#fbbf24;cursor:pointer;font-weight:600;white-space:nowrap">Retry</button>
-        <button class="byo-res-delete" data-rid="${r.resource_id}" title="Remove this file" style="font-size:11px;width:22px;height:22px;border-radius:50%;border:1px solid var(--border);background:rgba(255,255,255,.04);color:var(--text-dim);cursor:pointer;display:grid;place-items:center">&times;</button>
-      ` : '';
+      const retryBtn = isError ? `
+        <button class="byo-res-retry" data-rid="${r.resource_id}" style="font-size:9px;padding:3px 9px;border-radius:5px;border:1px solid rgba(251,191,36,.3);background:rgba(251,191,36,.08);color:#fbbf24;cursor:pointer;font-weight:600;white-space:nowrap">Retry</button>` : '';
+      // Delete button always visible (not just for errors)
+      const deleteBtn = `<button class="byo-res-delete" data-rid="${r.resource_id}" title="Remove this file" style="font-size:11px;width:22px;height:22px;border-radius:50%;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);color:rgba(255,255,255,.25);cursor:pointer;display:grid;place-items:center;transition:all .12s" onmouseenter="this.style.color='rgba(239,68,68,.7)';this.style.borderColor='rgba(239,68,68,.2)'" onmouseleave="this.style.color='rgba(255,255,255,.25)';this.style.borderColor='rgba(255,255,255,.06)'">&times;</button>`;
+      const actions = retryBtn + deleteBtn;
 
       const row = document.createElement('div');
       row.style.cssText = 'display:flex;flex-direction:column;gap:6px;padding:9px 10px;border-radius:6px;font-size:12px;border:1px solid var(--border);margin-bottom:6px';
