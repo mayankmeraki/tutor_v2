@@ -547,9 +547,26 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
         _active_panels = context_data.get("activePanels")
         if _active_panels:
-            parts.append(f"[ACTIVE UI PANELS: {', '.join(_active_panels)}]\n")
+            _panel_strs = []
+            for _p in _active_panels:
+                if isinstance(_p, str):
+                    _panel_strs.append(_p)
+                elif isinstance(_p, dict) and _p.get("id") == "media-viewer":
+                    _t = _p.get("currentTime", 0)
+                    _min = int(_t // 60)
+                    _sec = int(_t % 60)
+                    _dur = _p.get("duration", 0)
+                    _dur_min = int(_dur // 60) if _dur else "?"
+                    _paused = " PAUSED" if _p.get("paused") else " playing"
+                    _spd = _p.get("speed", 1)
+                    _panel_strs.append(
+                        f"media-viewer ({_p.get('title','')}{_paused} at {_min}:{_sec:02d}/{_dur_min}min, speed={_spd}x)"
+                    )
+                elif isinstance(_p, dict):
+                    _panel_strs.append(str(_p.get("id", _p)))
+            parts.append(f"[ACTIVE UI PANELS: {', '.join(_panel_strs)}]\n")
         else:
-            parts.append("[ACTIVE UI PANELS: none — use <ui-panel> tags in housekeeping to show code-editor, sd-canvas, or lld-split]\n")
+            parts.append("[ACTIVE UI PANELS: none — use <euler-ui> tags to show code-editor, sd-canvas, or media-viewer]\n")
 
         _code_state = context_data.get("codeState")
         if _code_state:
