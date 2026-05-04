@@ -14615,33 +14615,24 @@ async function _showMediaViewer(opts) {
   var type = (opts.type || '').toLowerCase();
 
   // ── Resolve src to playable URL ──
-  // 1. Direct URLs pass through
+  // Direct URLs pass through
   if (src.includes('youtube.com') || src.includes('youtu.be')) {
     type = 'video';
   } else if (/^https?:\/\//.test(src)) {
     if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(src)) type = 'video';
   } else {
-    // 2. Check alias map first (r1, r2, r3... — deterministic, never mangled)
-    var aliasKey = src.replace(/^(chunk|resource):/, '').trim();
-    var aliasInfo = (state._byoAliasMap || {})[aliasKey];
-    if (aliasInfo) {
-      src = aliasInfo.url.startsWith('/') ? (state.apiUrl || '') + aliasInfo.url : aliasInfo.url;
-      type = aliasInfo.type || type;
-      console.log('[Media] Resolved alias', aliasKey, '→', src);
-    } else {
-      // 3. Fallback: try /info API (handles ID, prefix, and name matching)
-      try {
-        var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(aliasKey) + '/info', { headers: AuthManager.authHeaders() });
-        if (infoRes.ok) {
-          var info = await infoRes.json();
-          if (info.source_url && (info.source_url.includes('youtube') || info.source_url.includes('youtu.be'))) {
-            src = info.source_url; type = 'video';
-          } else {
-            src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(info.resource_id) + '/file';
-          }
-        }
-      } catch(e) {}
-    }
+    // Everything else (alias, resource ID, name) → backend resolves it
+    var ref = src.replace(/^(chunk|resource):/, '').trim();
+    try {
+      var mediaRes = await fetch((state.apiUrl || '') + '/api/v1/byo/media/' + encodeURIComponent(ref), { headers: AuthManager.authHeaders() });
+      if (mediaRes.ok) {
+        var media = await mediaRes.json();
+        src = media.url.startsWith('/') ? (state.apiUrl || '') + media.url : media.url;
+        type = media.type || type;
+        if (!opts.title && media.name) opts.title = media.name;
+        console.log('[Media] Resolved', ref, '→', src, '(' + type + ')');
+      }
+    } catch(e) { console.warn('[Media] Resolution failed:', e); }
   }
 
   // Show workspace panel if hidden

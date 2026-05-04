@@ -708,6 +708,92 @@ async def get_resource_transcript(
     }
 
 
+@router.get("/media/{alias}")
+async def resolve_media(alias: str, request: Request, user: dict = Depends(_get_user)):
+    """Resolve a resource alias (r1, r2...) or ID to a playable media response.
+
+    Returns JSON with url, type, name — everything the frontend needs to
+    play the media. No map needed on frontend, just call this endpoint.
+
+    Lookup order: alias from synthesis → resource_id → prefix → name match.
+    """
+    db = _get_db()
+    _fields = {"_id": 0, "resource_id": 1, "original_name": 1, "source_url": 1,
+               "mime_type": 1, "storage_path": 1, "meta": 1}
+
+    resource = None
+
+    # 1. Try alias from collection synthesis (r1, r2...)
+    if alias.startswith("r") and alias[1:].isdigit():
+        idx = int(alias[1:]) - 1  # r1 → index 0
+        # Find collections with synthesis for this user
+        async for col in db.collections.find(
+            {"user_id": user["email"], "synthesis": {"$exists": True}},
+            {"collection_id": 1, "synthesis": 1},
+        ):
+            synth_resources = (col.get("synthesis") or {}).get("resources", [])
+            if 0 <= idx < len(synth_resources):
+                synth_rid = synth_resources[idx].get("resource_id", "")
+                # Find the actual resource by prefix match
+                resource = await db.byo_resources.find_one(
+                    {"resource_id": {"$regex": f"^{synth_rid[:8]}"}, "user_id": user["email"]}, _fields,
+                )
+                if resource:
+                    break
+
+    # 2. Try exact resource_id
+    if not resource:
+        resource = await db.byo_resources.find_one(
+            {"resource_id": alias, "user_id": user["email"]}, _fields,
+        )
+
+    # 3. Try prefix match
+    if not resource and len(alias) >= 8:
+        resource = await db.byo_resources.find_one(
+            {"resource_id": {"$regex": f"^{alias}"}, "user_id": user["email"]}, _fields,
+        )
+
+    # 4. Try name match
+    if not resource:
+        import re as _re
+        resource = await db.byo_resources.find_one(
+            {"original_name": {"$regex": _re.escape(alias), "$options": "i"}, "user_id": user["email"]}, _fields,
+        )
+
+    if not resource:
+        raise HTTPException(status_code=404, detail=f"Resource '{alias}' not found")
+
+    # Build playable response
+    rid = resource.get("resource_id", "")
+    source_url = resource.get("source_url", "")
+    mime = resource.get("mime_type", "")
+    name = resource.get("original_name", alias)
+
+    if source_url and ("youtube" in source_url or "youtu.be" in source_url):
+        url = source_url
+        mtype = "video"
+    elif source_url and any(source_url.lower().endswith(ext) for ext in ('.mp4', '.webm', '.ogg', '.mov')):
+        url = source_url
+        mtype = "video"
+    elif "video" in mime:
+        url = f"/api/v1/byo/resources/{rid}/file"
+        mtype = "video"
+    elif "audio" in mime:
+        url = f"/api/v1/byo/resources/{rid}/file"
+        mtype = "audio"
+    elif "pdf" in mime:
+        url = f"/api/v1/byo/resources/{rid}/file"
+        mtype = "pdf"
+    elif "image" in mime:
+        url = f"/api/v1/byo/resources/{rid}/file"
+        mtype = "image"
+    else:
+        url = f"/api/v1/byo/resources/{rid}/file"
+        mtype = "file"
+
+    return {"url": url, "type": mtype, "name": name, "resource_id": rid}
+
+
 @router.get("/resources/{resource_id}/info")
 async def get_resource_info(resource_id: str, request: Request = None, user: dict = Depends(_get_user)):
     """Get resource metadata — used to set up video player.
