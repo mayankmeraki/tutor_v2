@@ -121,19 +121,23 @@ HOW IMAGES ARE STORED IN BYO:
     <euler-ui panel="media-viewer" action="show"
       src="IMAGE_URL" type="image" title="Figure 3.2 — Circuit Diagram" />
 
-USING MEDIA URLs:
-  In [COLLECTION] context, each resource has a "media:" line with its
-  direct URL. Use that EXACT URL in the src attribute — don't construct
-  URLs from resource IDs. For YouTube, the URL is the YouTube link
-  directly. For uploaded files, it's the /api/v1/byo/resources/.../file
-  endpoint.
+USING RESOURCE ALIASES:
+  In [COLLECTION] context, each resource has a short alias: r1, r2, r3.
+  Use these aliases in the src attribute. The frontend resolves them
+  to the actual URL automatically.
 
   Example from collection context:
-    Lecture 1 (video, learning)
-      media: https://www.youtube.com/watch?v=abc123
+    RESOURCE ALIASES:
+      r1 = Go Lecture (video)
+      r2 = Textbook Ch.4 (pdf)
   → Use: <euler-ui panel="media-viewer" action="show"
-           src="https://www.youtube.com/watch?v=abc123"
-           type="video" title="Lecture 1" timestamp="120" />
+           src="r1" type="video" title="Go Lecture" timestamp="120" />
+  → Use: <euler-ui panel="media-viewer" action="show"
+           src="r2" type="pdf" title="Textbook Ch.4" />
+
+  ALWAYS use the alias (r1, r2...) — never construct URLs or use
+  resource IDs. The alias is short, deterministic, and guaranteed
+  to resolve correctly.
 
 WHEN TO USE MEDIA VIEWER — THIS IS YOUR DECISION, NOT THE STUDENT'S:
 

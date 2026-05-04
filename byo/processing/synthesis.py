@@ -412,35 +412,55 @@ async def _call_llm(prompt: str) -> dict[str, Any]:
 
 
 def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
-                               resource_docs: list[dict] | None = None) -> str:
+                               resource_docs: list[dict] | None = None) -> tuple[str, dict]:
     """Format a synthesis dict into a text block for the tutor system prompt.
 
-    resource_docs: list of MongoDB resource documents (with resource_id, source_url, etc.)
-    Used to build direct media URLs so the tutor never needs to construct them from IDs.
+    Returns (prompt_text, alias_map) where alias_map is {alias: resource_info}
+    that the frontend uses to resolve media references.
     """
     if not synthesis or not synthesis.get("overview"):
-        return ""
+        return "", {}
 
-    # Build resource_id → direct URL map (keyed by BOTH full ID and prefix)
-    _url_map = {}
-    _name_map = {}  # resource name → URL (fallback for when IDs are mangled)
-    for rd in (resource_docs or []):
+    # Build deterministic alias → resource mapping
+    # Aliases are r1, r2, r3... — short, deterministic, impossible to mangle
+    alias_map = {}  # alias → {resource_id, url, name, type}
+    _synth_rid_to_alias = {}  # synthesis resource_id (may be truncated) → alias
+
+    for i, rd in enumerate(resource_docs or []):
+        alias = f"r{i + 1}"
         rid = rd.get("resource_id", "")
         name = rd.get("original_name", "")
         source_url = rd.get("source_url", "")
+        mime = rd.get("mime_type", "")
+
         if source_url and ("youtube" in source_url or "youtu.be" in source_url):
-            url = source_url  # YouTube → direct URL
+            url = source_url
+            mtype = "video"
         elif source_url and any(source_url.lower().endswith(ext) for ext in ('.mp4', '.webm', '.ogg', '.mov')):
-            url = source_url  # Public video URL → direct
+            url = source_url
+            mtype = "video"
+        elif "video" in mime:
+            url = f"/api/v1/byo/resources/{rid}/file"
+            mtype = "video"
+        elif "audio" in mime:
+            url = f"/api/v1/byo/resources/{rid}/file"
+            mtype = "audio"
+        elif "pdf" in mime:
+            url = f"/api/v1/byo/resources/{rid}/file"
+            mtype = "pdf"
+        elif "image" in mime:
+            url = f"/api/v1/byo/resources/{rid}/file"
+            mtype = "image"
         else:
-            url = f"/api/v1/byo/resources/{rid}/file"  # Uploaded → file endpoint
-        _url_map[rid] = url
-        # Also key by prefix (Haiku truncates IDs)
+            url = f"/api/v1/byo/resources/{rid}/file"
+            mtype = "file"
+
+        alias_map[alias] = {"resource_id": rid, "url": url, "name": name, "type": mtype}
+        _synth_rid_to_alias[rid] = alias
+        # Also map truncated IDs (from Haiku)
         if len(rid) >= 8:
-            _url_map[rid[:8]] = url
-            _url_map[rid[:12]] = url
-        if name:
-            _name_map[name.lower()] = url
+            _synth_rid_to_alias[rid[:8]] = alias
+            _synth_rid_to_alias[rid[:12]] = alias
 
     parts = []
 
@@ -448,6 +468,12 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
     title = collection_title or "Student Collection"
     parts.append(f"[COLLECTION -- {title}]")
     parts.append(synthesis.get("overview", ""))
+
+    # Alias legend — tells the tutor exactly how to reference each resource
+    if alias_map:
+        parts.append("\nRESOURCE ALIASES (use these in <euler-ui src=\"ALIAS\" />):")
+        for alias, info in alias_map.items():
+            parts.append(f"  {alias} = {info['name']} ({info['type']})")
 
     # Resources
     resources = synthesis.get("resources", [])
@@ -458,16 +484,20 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
             ctype = r.get("content_type", "other")
             role = r.get("role", "learning")
             rid = r.get("resource_id", "")
-            rname = r.get("name", "")
-            # Match by full ID, prefix, or resource name
-            media_url = _url_map.get(rid) or _url_map.get(rid[:12]) or _url_map.get(rid[:8]) or _name_map.get(rname.lower(), "")
-            line = f"  {name} ({ctype}, {role})"
-            if media_url:
-                line += f"\n    media: {media_url}"
+            # Find alias for this synthesis resource
+            alias = _synth_rid_to_alias.get(rid) or _synth_rid_to_alias.get(rid[:12]) or _synth_rid_to_alias.get(rid[:8])
+            # Also try matching by name
+            if not alias:
+                for a, info in alias_map.items():
+                    if info.get("name", "").lower() == name.lower():
+                        alias = a
+                        break
+            alias_str = f" [{alias}]" if alias else ""
+            line = f"  {name}{alias_str} ({ctype}, {role})"
             linked = r.get("linked_to")
             if linked:
                 linked_name = next((rr.get("name", linked[:12]) for rr in resources if rr.get("resource_id") == linked), linked[:12])
-                line += f"\n    linked to: {linked_name}"
+                line += f" → linked to: {linked_name}"
             parts.append(line)
 
             # Smart TOC
@@ -533,4 +563,4 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
             focus = step.get("focus", "")
             parts.append(f"  {n}. {action.upper()}: {rname} -- {focus}")
 
-    return "\n".join(parts)
+    return "\n".join(parts), alias_map

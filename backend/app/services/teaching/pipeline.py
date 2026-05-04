@@ -2728,14 +2728,17 @@ async def _generate_for_turn(
                                 if _synthesis and _synthesis.get("overview"):
                                     from byo.processing.synthesis import format_synthesis_for_prompt
                                     _col_title = (_col_doc or {}).get("title", "")
-                                    # Pass resource docs for direct URL mapping
-                                    _synth_text = format_synthesis_for_prompt(
+                                    # Pass resource docs for alias mapping
+                                    _synth_text, _alias_map = format_synthesis_for_prompt(
                                         _synthesis, _col_title,
                                         resource_docs=_resources,
                                     )
                                     if _synth_text:
                                         _byo_parts.append(_synth_text)
                                         _used_synthesis = True
+                                        # Store alias map — sent to frontend for media resolution
+                                        if _alias_map:
+                                            context_data["_byoAliasMap"] = _alias_map
                                         slog.info("BYO using synthesis for collection %s", _byo_cid[:8])
                             except Exception as _synth_err:
                                 slog.debug("BYO synthesis lookup failed: %s", _synth_err)
@@ -2839,6 +2842,10 @@ async def _generate_for_turn(
                                     "BYO preloaded: %d resources, %d chars, synthesis=%s",
                                     len(_resources), len(_preloaded), _used_synthesis,
                                 )
+                                # Send alias map to frontend for media resolution
+                                _am = context_data.get("_byoAliasMap")
+                                if _am:
+                                    yield _sse({"type": "BYO_ALIAS_MAP", "data": _am})
                 except Exception as _byo_err:
                     log.debug("BYO context pre-load failed: %s", _byo_err)
 

@@ -2404,6 +2404,12 @@ function _wsOnMessage(msg) {
       if (typeof handlePlanFromAgent === 'function') handlePlanFromAgent(evt.plan, evt.sessionObjective);
       break;
 
+    case 'BYO_ALIAS_MAP':
+      // Store resource alias map for media viewer resolution
+      state._byoAliasMap = evt.data || {};
+      console.log('[BYO] Alias map loaded:', Object.keys(state._byoAliasMap));
+      break;
+
     case 'COST_UPDATE':
       updateCostDisplay(evt);
       break;
@@ -14607,45 +14613,30 @@ async function _showMediaViewer(opts) {
   var src = opts.src || '';
   var type = (opts.type || '').toLowerCase();
 
-  // Resolve src to playable URL
-  // YouTube/video URLs pass through directly
+  // ── Resolve src to playable URL ──
+  // 1. Direct URLs pass through
   if (src.includes('youtube.com') || src.includes('youtu.be')) {
     type = 'video';
-  } else if (/^https?:\/\//.test(src) && /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src)) {
-    type = 'video';
-  } else if (src.startsWith('chunk:') || src.startsWith('resource:') || (!src.startsWith('http') && !src.startsWith('/'))) {
-    // BYO ref or resource name — resolve via API
-    var rid = src.replace(/^(chunk|resource):/, '');
-    var resolved = false;
-    try {
-      var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/info', { headers: AuthManager.authHeaders() });
-      if (infoRes.ok) {
-        var info = await infoRes.json();
-        if (info.source_url && (info.source_url.includes('youtube') || info.source_url.includes('youtu.be'))) {
-          src = info.source_url; type = 'video'; resolved = true;
-        } else if (info.source_url && /\.(mp4|webm|ogg|mov)/i.test(info.source_url)) {
-          src = info.source_url; type = 'video'; resolved = true;
-        } else if (info.storage_path || info.resource_id) {
-          src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(info.resource_id) + '/file';
-          resolved = true;
-        }
-      }
-    } catch(e) {}
-    // Fallback: try collection resources by name
-    if (!resolved && state.byoDetailCollectionId) {
+  } else if (/^https?:\/\//.test(src)) {
+    if (/\.(mp4|webm|ogg|mov)(\?|$)/i.test(src)) type = 'video';
+  } else {
+    // 2. Check alias map first (r1, r2, r3... — deterministic, never mangled)
+    var aliasKey = src.replace(/^(chunk|resource):/, '').trim();
+    var aliasInfo = (state._byoAliasMap || {})[aliasKey];
+    if (aliasInfo) {
+      src = aliasInfo.url.startsWith('/') ? (state.apiUrl || '') + aliasInfo.url : aliasInfo.url;
+      type = aliasInfo.type || type;
+      console.log('[Media] Resolved alias', aliasKey, '→', src);
+    } else {
+      // 3. Fallback: try /info API (handles ID, prefix, and name matching)
       try {
-        var colRes = await fetch((state.apiUrl || '') + '/api/v1/byo/collections/' + state.byoDetailCollectionId + '/resources', { headers: AuthManager.authHeaders() });
-        if (colRes.ok) {
-          var resources = await colRes.json();
-          var match = resources.find(function(r) {
-            return r.original_name && (r.original_name.toLowerCase().includes(rid.toLowerCase()) || rid.toLowerCase().includes(r.original_name.toLowerCase()));
-          });
-          if (match) {
-            if (match.source_url && (match.source_url.includes('youtube') || match.source_url.includes('youtu.be'))) {
-              src = match.source_url; type = 'video';
-            } else {
-              src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(match.resource_id) + '/file';
-            }
+        var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(aliasKey) + '/info', { headers: AuthManager.authHeaders() });
+        if (infoRes.ok) {
+          var info = await infoRes.json();
+          if (info.source_url && (info.source_url.includes('youtube') || info.source_url.includes('youtu.be'))) {
+            src = info.source_url; type = 'video';
+          } else {
+            src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(info.resource_id) + '/file';
           }
         }
       } catch(e) {}
