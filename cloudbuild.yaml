@@ -73,7 +73,7 @@ steps:
       - '--network=default'
       - '--subnet=default'
       - '--vpc-egress=private-ranges-only'
-      - '--set-env-vars=LLM_PROVIDER=openrouter,TUTOR_MODEL=anthropic/claude-opus-4-6,DB_HOST=10.5.32.3,DB_PORT=5432,DB_NAME=capacity,DB_USER=capacity_service_user,CORS_ORIGINS=https://stage.myprofessor.live,MATERIALS_BUCKET=capacity-materials,GOOGLE_CLIENT_ID_MYPROFESSOR=932228979922-61q7fmgjot8a9lrqjtehhk9onackionn.apps.googleusercontent.com,BYO_WORKER_EXTERNAL=true,MONGODB_DB=myprofessor'
+      - '--set-env-vars=LLM_PROVIDER=openrouter,TUTOR_MODEL=anthropic/claude-opus-4-6,DB_HOST=10.5.32.3,DB_PORT=5432,DB_NAME=capacity,DB_USER=capacity_service_user,CORS_ORIGINS=https://stage.myprofessor.live,MATERIALS_BUCKET=capacity-materials,GOOGLE_CLIENT_ID_MYPROFESSOR=932228979922-61q7fmgjot8a9lrqjtehhk9onackionn.apps.googleusercontent.com,BYO_WORKER_EXTERNAL=true,MONGODB_DB=myprofessor,JUDGE0_URL=http://10.128.0.7:2358'
       - '--set-secrets=ANTHROPIC_API_KEY=tutor_anthropic_api_key:latest,OPENROUTER_API_KEY=openrouter_api_key:latest,DB_PASSWORD=STAGE_DB_PASSWORD:latest,MONGODB_URI=myprofessor_mongodb_uri:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest,ELEVENLABS_API_KEY=tutor_elevenlabs_api_key:latest,GOOGLE_CLIENT_SECRET_MYPROFESSOR=google_client_secret_myprofessor:latest,QDRANT_URL=qdrant_url_myprofessor:latest,QDRANT_API_KEY=qdrant_api_key_myprofessor:latest'
 
   # ── 6. Deploy BYO worker to Cloud Run ──
@@ -96,7 +96,7 @@ steps:
       - '--max-instances=2'
       - '--min-instances=0'
       - '--set-env-vars=MONGODB_DB=myprofessor,BYO_STORAGE=gcs,BYO_GCS_BUCKET=capacity-byo-uploads'
-      - '--set-secrets=OPENROUTER_API_KEY=openrouter_api_key:latest,MONGODB_URI=myprofessor_mongodb_uri:latest,QDRANT_URL=qdrant_url_myprofessor:latest,QDRANT_API_KEY=qdrant_api_key_myprofessor:latest'
+      - '--set-secrets=OPENROUTER_API_KEY=openrouter_api_key:latest,MONGODB_URI=myprofessor_mongodb_uri:latest,QDRANT_URL=qdrant_url_myprofessor:latest,QDRANT_API_KEY=qdrant_api_key_myprofessor:latest,MOCKUP_JWT_SECRET=tutor_jwt_secret:latest,ELEVENLABS_API_KEY=tutor_elevenlabs_api_key:latest'
 
 images:
   - '${_AR_HOSTNAME}/${PROJECT_ID}/${_AR_REPOSITORY}/${_SERVICE_NAME}:${SHORT_SHA}'
