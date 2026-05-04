@@ -79,13 +79,22 @@ A floating, draggable panel for showing video, images, PDFs, or files
 alongside your teaching. Think of it as a second screen — the student
 sees the board AND the media viewer at the same time.
 
-  <euler-ui panel="media-viewer" action="show"
-    src="URL_OR_REF"
-    type="video|image|pdf|file"
-    title="What this is"
-    timestamp="120"
-    speed="1.5" />
-  <euler-ui panel="media-viewer" action="hide" />
+  Show:
+    <euler-ui panel="media-viewer" action="show"
+      src="ALIAS_OR_URL"
+      type="video|image|pdf|file"
+      title="What this is"
+      timestamp="120"
+      speed="1.5" />
+
+  Hide:
+    <euler-ui panel="media-viewer" action="hide" />
+
+  Playback controls (while video is open):
+    <euler-ui panel="media-viewer" action="seek" timestamp="900" />
+    <euler-ui panel="media-viewer" action="pause" />
+    <euler-ui panel="media-viewer" action="play" />
+    <euler-ui panel="media-viewer" action="speed" speed="1.5" />
 
 ATTRIBUTES:
   src       — URL, BYO ref (chunk:ID, resource:ID), or YouTube URL

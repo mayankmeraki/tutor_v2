@@ -2567,6 +2567,15 @@ function _wsOnMessage(msg) {
       if (pd.id === 'media-viewer') {
         if (pd.action === 'show' && pd.src) _showMediaViewer(pd);
         else if (pd.action === 'hide') _hideMediaViewer();
+        else if (state._mediaViewer && state._mediaViewer._player) {
+          var _pl = state._mediaViewer._player;
+          try {
+            if (pd.action === 'seek' && pd.timestamp) _pl.currentTime = parseFloat(pd.timestamp);
+            else if (pd.action === 'pause') _pl.pause();
+            else if (pd.action === 'play') _pl.play();
+            else if (pd.action === 'speed' && pd.speed) _pl.speed = parseFloat(pd.speed);
+          } catch(e) { console.warn('[Media] Control failed:', e); }
+        }
       }
       break;
     }
