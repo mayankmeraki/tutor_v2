@@ -7043,7 +7043,7 @@ function _showToolStatus(label) {
   if (!el) {
     el = document.createElement('div');
     el.id = 'tool-status-bar';
-    el.style.cssText = 'position:fixed;top:8px;right:20px;z-index:800;display:flex;align-items:center;gap:7px;font-size:11px;color:rgba(52,211,153,.7);font-weight:500;padding:6px 14px;border-radius:8px;background:rgba(17,24,39,.9);border:1px solid rgba(52,211,153,.15);box-shadow:0 4px 12px rgba(0,0,0,.3);backdrop-filter:blur(8px)';
+    el.style.cssText = 'position:fixed;top:50px;right:20px;z-index:800;display:flex;align-items:center;gap:7px;font-size:11px;color:rgba(52,211,153,.7);font-weight:500;padding:6px 14px;border-radius:8px;background:rgba(17,24,39,.95);border:1px solid rgba(52,211,153,.15);box-shadow:0 4px 12px rgba(0,0,0,.3);backdrop-filter:blur(8px);transition:opacity .3s';
     document.body.appendChild(el);
   }
   el.innerHTML = '<span class="loading-spinner" style="width:12px;height:12px;border-width:1.5px"></span>' + label;

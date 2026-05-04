@@ -3158,6 +3158,7 @@ async def _generate_for_turn(
             text_started = False
             text_length = 0
             _partial_text_parts = []  # accumulate text for partial save on interrupt
+            _euler_ui_sent = set()  # track which inline <euler-ui> tags we've already sent
 
             session.assistant_turn_count += 1
             slog.set_turn(session.assistant_turn_count)
@@ -3227,21 +3228,20 @@ async def _generate_for_turn(
                                 _partial_text_parts.append(text)
 
                                 # ── Inline <euler-ui> tag detection ──
-                                # Tutor can emit <euler-ui panel="media-viewer" action="show" ... />
-                                # anywhere in text (not just housekeeping). We strip the tag from
-                                # the text stream and send it as a UI_PANEL event immediately.
+                                # Scan accumulated text for complete <euler-ui .../> tags.
+                                # Track sent positions to avoid duplicate sends.
                                 _accumulated = "".join(_partial_text_parts)
-                                _ui_tag_re = _re.compile(r'<euler-ui\s+([\s\S]*?)/>')
-                                for _ui_m in _ui_tag_re.finditer(_accumulated):
-                                    if _ui_m.start() < len(_accumulated) - len(text) - 50:
-                                        continue  # already processed in a previous chunk
+                                for _ui_m in _re.finditer(r'<euler-ui\s+([\s\S]*?)/>', _accumulated):
+                                    _tag_pos = _ui_m.start()
+                                    if _tag_pos in _euler_ui_sent:
+                                        continue
+                                    _euler_ui_sent.add(_tag_pos)
                                     _ui_attrs = _ui_m.group(1)
-                                    _ui_attr = lambda n: (_re.search(rf'{n}="([^"]*)"', _ui_attrs) or [None, None])[1]
                                     _ui_data = {}
                                     for _k in ('panel', 'action', 'src', 'type', 'title', 'timestamp', 'speed', 'language', 'code'):
-                                        _v = _ui_attr(_k)
-                                        if _v:
-                                            _ui_data[_k] = _v
+                                        _am = _re.search(rf'{_k}="([^"]*)"', _ui_attrs)
+                                        if _am:
+                                            _ui_data[_k] = _am.group(1)
                                     if _ui_data.get('panel') and _ui_data.get('action'):
                                         _ui_data['id'] = _ui_data.pop('panel')
                                         yield _sse({"type": "UI_PANEL", "data": _ui_data})
