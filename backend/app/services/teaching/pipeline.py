@@ -2336,6 +2336,24 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
             _result = _labels.get(_action, "Code pushed to editor.")
             if _test_cases:
                 _result += f" {len(_test_cases)} test cases loaded."
+
+            # Persist the new code to the session doc so resume can recover it
+            # even if the WS CODE_PUSH event was dropped (navigation, reconnect,
+            # turn killed before flush). Only on 'replace' — append/insert/etc.
+            # send deltas, not the full code, and the periodic frontend save
+            # will catch those up via state.dsaMode → dsaState.code.
+            if _action == "replace" and session_id:
+                try:
+                    from app.services.session.session_service import update_session as _upd
+                    _set_doc = {
+                        "dsaState.code": inp.get("code", ""),
+                        "dsaState.language": inp.get("language", "python"),
+                    }
+                    if _test_cases and isinstance(_test_cases, list):
+                        _set_doc["dsaState.testCases"] = _test_cases
+                    await _upd(session_id, _set_doc)
+                except Exception as _persist_err:
+                    slog.warning("push_code persistence failed: %s", _persist_err)
             return _result
 
         elif name == "draw_on_canvas":
