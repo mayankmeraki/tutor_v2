@@ -421,15 +421,24 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
     if not synthesis or not synthesis.get("overview"):
         return ""
 
-    # Build resource_id → direct URL map
+    # Build resource_id → direct URL map (keyed by BOTH full ID and prefix)
     _url_map = {}
+    _name_map = {}  # resource name → URL (fallback for when IDs are mangled)
     for rd in (resource_docs or []):
         rid = rd.get("resource_id", "")
+        name = rd.get("original_name", "")
         source_url = rd.get("source_url", "")
         if source_url and ("youtube" in source_url or "youtu.be" in source_url):
-            _url_map[rid] = source_url  # YouTube → direct URL
+            url = source_url
         else:
-            _url_map[rid] = f"/api/v1/byo/resources/{rid}/file"  # uploads → file endpoint
+            url = f"/api/v1/byo/resources/{rid}/file"
+        _url_map[rid] = url
+        # Also key by prefix (Haiku truncates IDs)
+        if len(rid) >= 8:
+            _url_map[rid[:8]] = url
+            _url_map[rid[:12]] = url
+        if name:
+            _name_map[name.lower()] = url
 
     parts = []
 
@@ -447,7 +456,9 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
             ctype = r.get("content_type", "other")
             role = r.get("role", "learning")
             rid = r.get("resource_id", "")
-            media_url = _url_map.get(rid, "")
+            rname = r.get("name", "")
+            # Match by full ID, prefix, or resource name
+            media_url = _url_map.get(rid) or _url_map.get(rid[:12]) or _url_map.get(rid[:8]) or _name_map.get(rname.lower(), "")
             line = f"  {name} ({ctype}, {role})"
             if media_url:
                 line += f"\n    media: {media_url}"
