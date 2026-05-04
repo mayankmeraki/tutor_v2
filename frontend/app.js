@@ -2538,6 +2538,11 @@ function _wsOnMessage(msg) {
           if (mainLayout) mainLayout.classList.remove('dsa-mode');
         }
       }
+      // Media viewer — floating panel for video/image/pdf
+      if (pd.id === 'media-viewer') {
+        if (pd.action === 'show' && pd.src) _showMediaViewer(pd);
+        else if (pd.action === 'hide') _hideMediaViewer();
+      }
       break;
     }
 
@@ -14480,6 +14485,90 @@ function _showSessionOnboard() {
 
   overlay.style.display = 'flex';
 }
+
+// ── Media Viewer — floating panel for video/image/pdf/file ──
+function _showMediaViewer(opts) {
+  _hideMediaViewer(); // close any existing
+  var overlay = document.createElement('div');
+  overlay.id = 'media-viewer-panel';
+  overlay.style.cssText = 'position:fixed;top:60px;right:16px;width:420px;max-height:calc(100vh - 80px);background:#111827;border:1px solid rgba(255,255,255,.08);border-radius:14px;box-shadow:0 20px 50px rgba(0,0,0,.5);z-index:900;display:flex;flex-direction:column;overflow:hidden;animation:fadeIn .2s ease';
+
+  // Header
+  var header = document.createElement('div');
+  header.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid rgba(255,255,255,.05);flex-shrink:0';
+  header.innerHTML = '<div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1">' + (opts.title || 'Media') + '</div>' +
+    '<button onclick="_hideMediaViewer()" style="width:24px;height:24px;border-radius:6px;border:none;background:rgba(255,255,255,.05);color:rgba(255,255,255,.4);cursor:pointer;display:grid;place-items:center;font-size:14px;flex-shrink:0">&times;</button>';
+  overlay.appendChild(header);
+
+  // Content
+  var content = document.createElement('div');
+  content.style.cssText = 'flex:1;overflow:auto;padding:8px';
+  var type = (opts.type || '').toLowerCase();
+  var src = opts.src || '';
+
+  // Resolve BYO refs to actual URLs
+  if (src.startsWith('chunk:') || src.startsWith('resource:')) {
+    // Use the BYO file serving endpoint
+    var rid = src.split(':')[1];
+    src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file';
+  }
+
+  if (type === 'video' || /\.(mp4|webm|ogg)/.test(src) || /youtube|youtu\.be/.test(src)) {
+    if (/youtube|youtu\.be/.test(src)) {
+      // YouTube embed
+      var vid = src.match(/(?:v=|youtu\.be\/)([^&?#]+)/);
+      var ytId = vid ? vid[1] : '';
+      var start = opts.timestamp ? '&start=' + opts.timestamp : '';
+      content.innerHTML = '<iframe src="https://www.youtube.com/embed/' + ytId + '?autoplay=1' + start + '" style="width:100%;aspect-ratio:16/9;border:none;border-radius:8px" allowfullscreen></iframe>';
+    } else {
+      var video = document.createElement('video');
+      video.src = src;
+      video.controls = true;
+      video.autoplay = true;
+      video.style.cssText = 'width:100%;border-radius:8px';
+      if (opts.timestamp) video.currentTime = parseFloat(opts.timestamp);
+      if (opts.speed) video.playbackRate = parseFloat(opts.speed);
+      content.appendChild(video);
+    }
+  } else if (type === 'image' || /\.(png|jpg|jpeg|gif|svg|webp)/.test(src)) {
+    content.innerHTML = '<img src="' + src + '" style="width:100%;border-radius:8px;cursor:zoom-in" onclick="this.style.maxWidth=this.style.maxWidth?\'\':\' none\'" />';
+  } else if (type === 'pdf' || /\.pdf/.test(src)) {
+    content.innerHTML = '<iframe src="' + src + '" style="width:100%;height:500px;border:none;border-radius:8px"></iframe>';
+  } else {
+    // Generic file — try iframe, fallback to download link
+    content.innerHTML = '<iframe src="' + src + '" style="width:100%;height:400px;border:none;border-radius:8px"></iframe>' +
+      '<a href="' + src + '" target="_blank" style="display:block;text-align:center;margin-top:8px;font-size:11px;color:rgba(52,211,153,.6)">Open in new tab</a>';
+  }
+
+  overlay.appendChild(content);
+  document.body.appendChild(overlay);
+
+  // Make draggable by header
+  var isDragging = false, startX, startY, startLeft, startTop;
+  header.style.cursor = 'move';
+  header.addEventListener('mousedown', function(e) {
+    if (e.target.tagName === 'BUTTON') return;
+    isDragging = true;
+    startX = e.clientX; startY = e.clientY;
+    var rect = overlay.getBoundingClientRect();
+    startLeft = rect.left; startTop = rect.top;
+    e.preventDefault();
+  });
+  document.addEventListener('mousemove', function(e) {
+    if (!isDragging) return;
+    overlay.style.right = 'auto';
+    overlay.style.left = (startLeft + e.clientX - startX) + 'px';
+    overlay.style.top = (startTop + e.clientY - startY) + 'px';
+  });
+  document.addEventListener('mouseup', function() { isDragging = false; });
+}
+
+function _hideMediaViewer() {
+  var el = document.getElementById('media-viewer-panel');
+  if (el) el.remove();
+}
+window._showMediaViewer = _showMediaViewer;
+window._hideMediaViewer = _hideMediaViewer;
 
 function _closeSessionOnboard() {
   var overlay = document.getElementById('session-onboard-overlay');

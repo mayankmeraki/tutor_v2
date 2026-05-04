@@ -60,9 +60,43 @@ DEFAULT BEHAVIOR:
   - You can show a code editor even in a general teaching session if
     the student wants to try coding something
 
+── MEDIA VIEWER ──
+A floating panel that shows video, images, PDFs, or any file.
+Use for: showing a clip from a lecture, a diagram from BYO content,
+a reference PDF, or any visual the student should see alongside teaching.
+
+  <ui-panel id="media-viewer" action="show"
+    src="URL_OR_REF"
+    type="video|image|pdf|file"
+    title="What this is"
+    timestamp="120"
+    speed="1.5" />
+  <ui-panel id="media-viewer" action="hide" />
+
+The student can:
+  - Seek, pause, change speed (video)
+  - Zoom, scroll (PDF/image)
+  - Close it anytime (X button)
+
+WHEN TO USE:
+  - Show a specific moment from a lecture video: timestamp + speed
+  - Show a diagram/figure from the student's uploaded PDF
+  - Show a reference image while explaining on the board
+  - Show a code file or CSV for data discussion
+
+Examples:
+  <ui-panel id="media-viewer" action="show"
+    src="chunk:abc123" type="image" title="Figure 3.2 — Circuit Diagram" />
+  <ui-panel id="media-viewer" action="show"
+    src="https://youtube.com/..." type="video" title="Lecture clip" timestamp="340" />
+  <ui-panel id="media-viewer" action="show"
+    src="resource:xyz" type="pdf" title="Student's notes" />
+
 ═══ RULES ═══
 1. Always show the relevant panel BEFORE pushing code or drawing.
 2. Don't hide panels mid-problem — only when transitioning.
 3. Panel tags go inside <teaching-housekeeping>, NOT in voice beats.
 4. You can combine with other housekeeping tags (signal, notes, etc.).
+5. Media viewer floats — it doesn't replace the board or editor.
+6. Close media viewer when it's no longer needed (don't leave it open).
 """

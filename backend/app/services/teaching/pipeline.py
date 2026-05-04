@@ -625,17 +625,24 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
             )
             slog.info("Agent spawned via tag", extra={"type": agent_type, "task": task_desc[:80]})
 
-    # Parse <ui-panel> tags — tutor controls workspace panels
-    _UI_PANEL_RE = _re.compile(r'<ui-panel\s+id="([^"]+)"\s+action="(show|hide)"(?:\s+language="([^"]*)")?\s*/>')
-    ui_panels = _UI_PANEL_RE.findall(hk_content)
-    if ui_panels:
+    # Parse <ui-panel> tags — tutor controls workspace panels + media viewer
+    _UI_PANEL_RE = _re.compile(r'<ui-panel\s+([\s\S]*?)/>')
+    for _upm in _UI_PANEL_RE.finditer(hk_content):
+        _attrs_str = _upm.group(1)
+        _attr = lambda name: (_re.search(rf'{name}="([^"]*)"', _attrs_str) or [None, None])[1]
+        panel_id = _attr('id')
+        action = _attr('action')
+        if not panel_id or not action:
+            continue
         _pending = context_data.setdefault("_pending_ws_events", [])
-        for panel_id, action, language in ui_panels:
-            _pending.append({
-                "type": "UI_PANEL",
-                "data": {"id": panel_id, "action": action, "language": language or None},
-            })
-            slog.info("UI panel: %s %s", action, panel_id)
+        _data = {"id": panel_id, "action": action}
+        # Optional attributes for media-viewer and other panels
+        for _k in ('language', 'src', 'type', 'title', 'timestamp', 'speed'):
+            _v = _attr(_k)
+            if _v:
+                _data[_k] = _v
+        _pending.append({"type": "UI_PANEL", "data": _data})
+        slog.info("UI panel: %s %s", action, panel_id)
 
     # Parse <prefetch_context> tags — tutor requests tool calls to be
     # executed in the BACKGROUND. Results are injected into the next
