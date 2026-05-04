@@ -429,9 +429,11 @@ def format_synthesis_for_prompt(synthesis: dict, collection_title: str = "",
         name = rd.get("original_name", "")
         source_url = rd.get("source_url", "")
         if source_url and ("youtube" in source_url or "youtu.be" in source_url):
-            url = source_url
+            url = source_url  # YouTube → direct URL
+        elif source_url and any(source_url.lower().endswith(ext) for ext in ('.mp4', '.webm', '.ogg', '.mov')):
+            url = source_url  # Public video URL → direct
         else:
-            url = f"/api/v1/byo/resources/{rid}/file"
+            url = f"/api/v1/byo/resources/{rid}/file"  # Uploaded → file endpoint
         _url_map[rid] = url
         # Also key by prefix (Haiku truncates IDs)
         if len(rid) >= 8:

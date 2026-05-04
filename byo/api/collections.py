@@ -420,7 +420,15 @@ async def add_resource(
                     f"Already added as '{existing.get('original_name', url[:60])}'"
                 ),
             }
-        mime = "application/x-youtube" if "youtube" in url or "youtu.be" in url else "text/html"
+        _url_lower = url.lower()
+        if "youtube" in _url_lower or "youtu.be" in _url_lower:
+            mime = "application/x-youtube"
+        elif any(_url_lower.endswith(ext) for ext in ('.mp4', '.webm', '.ogg', '.mov', '.avi', '.mkv')):
+            mime = "video/mp4"
+        elif any(_url_lower.endswith(ext) for ext in ('.mp3', '.wav', '.m4a', '.flac', '.ogg')):
+            mime = "audio/mpeg"
+        else:
+            mime = "text/html"
         doc = {
             "resource_id": resource_id,
             "collection_id": collection_id,

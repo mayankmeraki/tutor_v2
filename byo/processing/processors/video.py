@@ -45,6 +45,19 @@ class VideoProcessor(BaseProcessor):
         if storage_path:
             return await self._extract_elevenlabs(storage_path, resource_id)
 
+        # Public video URL (not YouTube) — download then transcribe
+        if source_url:
+            log.info("Downloading public video URL: %s", source_url[:60])
+            dl_path = await self._download_url(source_url, resource_id)
+            if dl_path:
+                try:
+                    result = await self._extract_elevenlabs(dl_path, resource_id, source_url=source_url)
+                    return result
+                finally:
+                    import os
+                    if dl_path and os.path.exists(dl_path):
+                        os.remove(dl_path)
+
         return ProcessResult(markdown="", meta={"error": "No video source"})
 
     async def _extract_youtube(self, url: str, resource_id: str) -> ProcessResult:
@@ -280,6 +293,35 @@ class VideoProcessor(BaseProcessor):
         except Exception as e:
             log.error("ElevenLabs STT failed for %s: %s", resource_id[:8], e)
             return ProcessResult(markdown="", meta={"error": f"ElevenLabs transcription failed: {e}"})
+
+    async def _download_url(self, url: str, resource_id: str) -> str | None:
+        """Download a video/audio from a public URL."""
+        import asyncio
+        import httpx
+        import os
+
+        try:
+            ext = url.rsplit('.', 1)[-1].lower()
+            if ext not in ('mp4', 'webm', 'ogg', 'mov', 'avi', 'mp3', 'wav', 'm4a'):
+                ext = 'mp4'
+
+            tmp_dir = tempfile.mkdtemp()
+            out_path = os.path.join(tmp_dir, f"{resource_id[:8]}.{ext}")
+
+            async with httpx.AsyncClient(timeout=120, follow_redirects=True) as client:
+                async with client.stream("GET", url) as resp:
+                    resp.raise_for_status()
+                    with open(out_path, 'wb') as f:
+                        async for chunk in resp.aiter_bytes(8192):
+                            f.write(chunk)
+
+            size_mb = os.path.getsize(out_path) / (1024 * 1024)
+            log.info("Downloaded video: %s (%.1f MB)", resource_id[:8], size_mb)
+            return out_path
+
+        except Exception as e:
+            log.warning("Failed to download video URL %s: %s", url[:60], e)
+            return None
 
     @staticmethod
     def _parse_youtube_id(url: str) -> str | None:
