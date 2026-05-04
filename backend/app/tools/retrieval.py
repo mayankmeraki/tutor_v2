@@ -181,6 +181,11 @@ def _fmt_byo_hit(h, *, snippet_chars: int = 500) -> str:
         lines.append(f"    [context] {_truncate(parent, snippet_chars)}")
     else:
         lines.append(f"    {_truncate(parent, snippet_chars)}")
+    # Append image references if present
+    images = getattr(h, 'image_refs', []) or []
+    if images:
+        for img in images[:3]:
+            lines.append(f"    [image] {img.get('url', '')} — {img.get('description', '')[:80]}")
     return "\n".join(lines)
 
 
@@ -388,6 +393,12 @@ async def fetch_tool(
             parts.append(f"\nType: {', '.join(hit.labels)}")
         if hit.topics:
             parts.append(f"Topics: {', '.join(hit.topics)}")
+        # Include image references from the chunk
+        images = getattr(hit, 'image_refs', []) or []
+        if images:
+            parts.append("Images:")
+            for img in images[:5]:
+                parts.append(f"  [image] {img.get('url', '')} — {img.get('description', '')[:120]}")
         parts.append(f"Source: {citation}")
         return "\n".join(parts)
 

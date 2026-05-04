@@ -52,6 +52,7 @@ class ContentHit:
     labels: list[str] = field(default_factory=list)
     index: int = 0         # position within resource (for sequential nav)
     title: str = ""        # short title for TOC display
+    image_refs: list[dict] = field(default_factory=list)  # [{url, description, page}]
 
 
 # ── Protocol (the contract) ─────────────────────────────────────────────

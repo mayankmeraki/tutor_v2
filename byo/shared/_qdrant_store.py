@@ -84,6 +84,7 @@ def _hit_from_payload(payload: dict, score: float = 0.0) -> ContentHit:
         labels=payload.get("labels") or [],
         index=payload.get("index", 0),
         title=payload.get("title", ""),
+        image_refs=payload.get("image_refs") or [],
     )
 
 
@@ -152,6 +153,7 @@ class QdrantContentStore:
                 "index": parent.get("index", s.get("index", 0)),
                 "tokens": parent.get("tokens", 0),
                 "title": parent.get("title", ""),
+                "image_refs": parent.get("image_refs") or [],
             }
 
             point_id = _to_uuid(s["segment_id"])

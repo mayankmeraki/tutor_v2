@@ -48,6 +48,7 @@ def _hit_to_chunk(h: ContentHit) -> RetrievedChunk:
         retrieval_mode=RetrievalMode(h.retrieval_mode) if h.retrieval_mode else None,
         topics=h.topics,
         labels=h.labels,
+        image_refs=h.image_refs,
         source="byo",
         resource_name=h.resource_name,
     )

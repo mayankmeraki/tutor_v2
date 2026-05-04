@@ -39,6 +39,9 @@ class RetrievedChunk:
     sparse_score: float | None = None
     rerank_score: float | None = None
 
+    # Image references from the source document
+    image_refs: list[dict] = field(default_factory=list)  # [{url, description, page}]
+
     # Provenance for debugging / eval
     source: str = "byo"  # "byo" | "course"
     resource_name: str = ""  # original_name for citation display

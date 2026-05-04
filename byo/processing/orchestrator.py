@@ -255,15 +255,24 @@ async def _process_job(job: dict):
                     extraction["markdown"] = _merge_image_descriptions(
                         extraction.get("markdown", ""), described
                     )
+                    # Upload described images to GCS and build image_refs
+                    extraction["image_refs"] = await _upload_images_to_gcs(
+                        described, job["resource_id"]
+                    )
                     result["extraction"] = extraction
                     log.info(
-                        "[BYO] images described job=%s total=%d with_desc=%d",
+                        "[BYO] images described job=%s total=%d with_desc=%d uploaded=%d",
                         job_id[:8], len(images),
                         sum(1 for im in described if (im or {}).get("description")),
+                        len(extraction.get("image_refs", [])),
                         extra={"event": "BYO_IMAGES_DESCRIBED", "job_id": job_id},
                     )
             elif step == JobState.CHUNKING:
                 parents, segments = await _step_chunk(job, result.get("extraction", {}))
+                # Attach image_refs from extraction to matching parent chunks
+                image_refs = result.get("extraction", {}).get("image_refs") or []
+                if image_refs and parents:
+                    _attach_image_refs_to_parents(parents, image_refs)
                 result["chunks"] = parents
                 result["segments"] = segments
                 modality = parents[0].get("modality") if parents else None
@@ -555,6 +564,78 @@ async def _describe_images(images: list[dict], resource_id: str) -> list[dict]:
     return images
 
 
+async def _upload_images_to_gcs(images: list[dict], resource_id: str) -> list[dict]:
+    """Upload described images to GCS and return image_refs list.
+
+    Each ref contains {url, description, page} for later inclusion in
+    Qdrant payload and tool output. Decorative/undescribed images are
+    skipped. Failures on individual images are logged and skipped —
+    the text pipeline continues regardless.
+    """
+    import base64
+
+    described = [img for img in images if img.get("description")]
+    if not described:
+        return []
+
+    try:
+        from byo.shared.storage import default_storage
+        from byo.shared.storage.gcs import GCSStorage
+    except Exception:
+        log.warning("GCS storage not available — skipping image upload")
+        return []
+
+    image_refs: list[dict] = []
+    for i, img in enumerate(described):
+        try:
+            data = img.get("data")
+            if not data:
+                continue
+            if isinstance(data, str):
+                raw = base64.b64decode(data)
+            else:
+                raw = data
+
+            ext = img.get("path", "").rsplit(".", 1)[-1] or "png"
+            if ext not in ("png", "jpg", "jpeg", "gif", "webp"):
+                ext = "png"
+            blob_path = f"byo-images/{resource_id}/{i}.{ext}"
+
+            if isinstance(default_storage, GCSStorage):
+                content_type = f"image/{ext}" if ext != "jpg" else "image/jpeg"
+
+                def _upload(bp=blob_path, d=raw, ct=content_type):
+                    blob = default_storage.bucket.blob(bp)
+                    blob.upload_from_string(d, content_type=ct)
+
+                await asyncio.get_event_loop().run_in_executor(None, _upload)
+                gs_path = f"gs://{default_storage.bucket_name}/{blob_path}"
+                url = default_storage.generate_signed_url(gs_path, content_type=content_type)
+            else:
+                # Local storage fallback — save to local uploads dir
+                import os
+                from byo.shared.storage.local import UPLOAD_DIR
+                local_dir = os.path.join(UPLOAD_DIR, "byo-images", resource_id)
+                os.makedirs(local_dir, exist_ok=True)
+                local_path = os.path.join(local_dir, f"{i}.{ext}")
+                with open(local_path, "wb") as f:
+                    f.write(raw)
+                url = local_path
+
+            page = img.get("anchor", {}).get("page") if isinstance(img.get("anchor"), dict) else None
+            image_refs.append({
+                "url": url,
+                "description": img["description"],
+                "page": page,
+            })
+        except Exception as e:
+            log.warning("Failed to upload image %d for %s: %s", i, resource_id[:8], e)
+            continue
+
+    log.info("Uploaded %d/%d images to GCS for %s", len(image_refs), len(described), resource_id[:8])
+    return image_refs
+
+
 def _merge_image_descriptions(markdown: str, images: list[dict]) -> str:
     """Merge image descriptions into the markdown at the right page positions.
 
@@ -596,6 +677,33 @@ def _merge_image_descriptions(markdown: str, images: list[dict]) -> str:
         result += "\n\n" + "\n".join(f"[Image: {d}]" for d in orphans)
 
     return result
+
+
+def _attach_image_refs_to_parents(parents: list[dict], image_refs: list[dict]):
+    """Attach image_refs to parent chunks based on page overlap.
+
+    Each image_ref has an optional 'page' field. We match it to the parent
+    whose anchor page range covers that page. Images without a page number
+    are attached to all parents (they'll appear in every chunk's context).
+    """
+    for ref in image_refs:
+        page = ref.get("page")
+        attached = False
+        if page is not None:
+            for parent in parents:
+                anchor = parent.get("anchor") or {}
+                p_start = anchor.get("page")
+                p_end = anchor.get("page_end") or p_start
+                if p_start is not None and p_start <= page <= (p_end or p_start):
+                    parent.setdefault("image_refs", []).append(ref)
+                    attached = True
+            # If no parent matched (e.g. page out of range), attach to last
+            if not attached and parents:
+                parents[-1].setdefault("image_refs", []).append(ref)
+        else:
+            # No page info — attach to the first parent as a catch-all
+            if parents:
+                parents[0].setdefault("image_refs", []).append(ref)
 
 
 async def _step_extract(job: dict) -> dict:
