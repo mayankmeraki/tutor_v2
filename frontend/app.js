@@ -352,8 +352,15 @@ const SessionManager = (() => {
       activeBoardDrawContent: state.boardDraw?.rawContent || null,
       teachingMode: state.teachingMode,
       voiceSpeed: state.voiceSpeed,
-      // DSA/SD session state
-      dsaState: (state.dsaMode) ? {
+    };
+
+    // Only persist DSA/video state when there's actually something to save.
+    // Backend uses $set, so omitting the field preserves the previous value.
+    // Sending {dsaState: null} during a post-cleanup save would otherwise wipe
+    // the workspace state — cleanupActiveSession clears state.dsaMode, and a
+    // subsequent flush would overwrite the doc with null, breaking resume.
+    if (state.dsaMode) {
+      payload.dsaState = {
         mode: state.dsaMode,
         problemSlug: state.dsaProblemSlug,
         language: state.dsaLanguage || 'python',
@@ -367,8 +374,10 @@ const SessionManager = (() => {
         mockType: state.mockType || null,
         mockLevel: state.mockLevel || null,
         mockDifficulty: state.mockDifficulty || null,
-      } : null,
-      videoState: (state.video?.active || state.video?.lessonId || state._videoWatchAlong) ? {
+      };
+    }
+    if (state.video?.active || state.video?.lessonId || state._videoWatchAlong) {
+      payload.videoState = {
         lessonId: state.video.lessonId,
         lessonTitle: state.video.lessonTitle,
         currentTimestamp: state.video.player?.currentTime || state.video.currentTimestamp || 0,
@@ -376,8 +385,8 @@ const SessionManager = (() => {
         sectionTitle: state.video.sectionTitle,
         isPaused: state.video.isPaused,
         lessonIndex: state.video.lessonIndex,
-      } : null,
-    };
+      };
+    }
 
     // Fire-and-forget — network call runs in background, never blocks
     _saveInFlight = true;
@@ -1599,6 +1608,17 @@ var InlineMic = (() => {
     // Drive full voice bar to listening state (orb, chip, placeholder, mic pill)
     setVoiceBarState('listening');
 
+    // Focus the input from the moment recording starts — keeps the cursor
+    // in the textarea so the user can press Enter to submit at any time
+    // during or after speaking, without needing to click the input first.
+    if (field) {
+      field.focus();
+      try {
+        var _end = field.value.length;
+        field.setSelectionRange(_end, _end);
+      } catch (e) {}
+    }
+
     _startAudioCapture(_micStream);
     _connectScribe();
 
@@ -1627,6 +1647,17 @@ var InlineMic = (() => {
       _audioCtx = null;
       _analyser = null;
       _scriptNode = null;
+    }
+
+    // Focus the input so the user can press Enter to submit immediately —
+    // without this, the cursor sits elsewhere after a manual stop and Enter
+    // is swallowed by whatever has focus (the mic button etc).
+    var _field = document.getElementById('voice-bar-input');
+    if (_field && _field.value.trim()) {
+      _field.focus();
+      // Place cursor at the end so editing/typing continues naturally.
+      var _end = _field.value.length;
+      try { _field.setSelectionRange(_end, _end); } catch (e) {}
     }
 
     console.log('[InlineMic] Stopped listening');
@@ -2262,11 +2293,21 @@ function _wsOnMessage(msg) {
 
   // Only control events skip gen validation
   if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE') {
-    if (!turn) {
+    // Session-scoped state mutations (workspace) — apply even if there's no
+    // active turn. A user navigating away then back can leave _wsTurn=null
+    // while a delayed CODE_PUSH from the prior turn arrives. Dropping these
+    // silently desyncs the editor from what the LLM thinks it set.
+    // Gen mismatch still drops them — a stale event from gen=4 must not
+    // mutate state while the user is on gen=5.
+    const _sessionScoped = evt.type === 'CODE_PUSH'
+      || evt.type === 'TEST_CASES_PUSH'
+      || evt.type === 'TEST_RESULT'
+      || evt.type === 'CANVAS_DRAW';
+    if (!turn && !_sessionScoped) {
       console.warn(`[WS] Event ${evt.type} dropped — no active turn (gen=${evt.gen} wsGen=${_ws.generation})`);
       return;
     }
-    if (evt.gen !== undefined && evt.gen !== turn.gen) {
+    if (turn && evt.gen !== undefined && evt.gen !== turn.gen) {
       console.warn(`[WS] Event ${evt.type} dropped — gen mismatch (evt=${evt.gen} turn=${turn.gen})`);
       return;
     }
