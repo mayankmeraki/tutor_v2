@@ -892,13 +892,32 @@ async def _update_collection_stats(db, collection_id: str):
     # Check if all resources are ready → trigger synthesis
     ready_count = sum(1 for s in statuses if s == "ready")
     total_count = len(statuses)
+    # Re-synthesize when all resources are ready AND resource count changed
+    # This handles: initial synthesis, new resource added, resource deleted
     all_ready = ready_count == total_count and total_count > 0
+
+    # If collection is empty (all resources deleted), clear synthesis
+    if total_count == 0:
+        await db.collections.update_one(
+            {"collection_id": collection_id},
+            {"$unset": {"synthesis": 1}},
+        )
+
     if all_ready:
         existing = await db.collections.find_one(
             {"collection_id": collection_id}, {"synthesis": 1}
         )
-        if not (existing or {}).get("synthesis"):
-            # Find user_id from any resource in the collection
+        existing_synth = (existing or {}).get("synthesis") or {}
+        prev_count = (existing_synth.get("_meta") or {}).get("resource_count", 0)
+        needs_resync = not existing_synth or prev_count != total_count
+
+        if needs_resync:
+            # Invalidate old synthesis immediately so stale data isn't used
+            if existing_synth:
+                await db.collections.update_one(
+                    {"collection_id": collection_id},
+                    {"$unset": {"synthesis": 1}},
+                )
             sample_res = await db.byo_resources.find_one(
                 {"collection_id": collection_id}, {"user_id": 1}
             )
