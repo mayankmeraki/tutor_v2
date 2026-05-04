@@ -343,6 +343,7 @@ async def add_resource(
     if file:
         # File upload
         contents = await file.read()
+        mime = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
         # File size limits by type
         _size_mb = len(contents) / (1024 * 1024)
         _mime_lower = (mime or "").lower()
@@ -376,7 +377,6 @@ async def add_resource(
                 "message": f"This file was already uploaded as '{existing.get('original_name', '?')}'",
             }
 
-        mime = file.content_type or mimetypes.guess_type(file.filename or "")[0] or "application/octet-stream"
         storage_path = await storage.save(contents, user["email"], collection_id, file.filename or "upload")
 
         doc = {
