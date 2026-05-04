@@ -941,6 +941,7 @@ async function fetchJSON(path) {
 }
 
 async function loadCourseMap(courseId) {
+  if (!courseId) return null;
   const data = await fetchJSON(`/courses/${courseId}`);
 
   // API returns { course, modules[], lessons[] } — reshape into nested format
@@ -984,6 +985,7 @@ async function loadCourseMap(courseId) {
 }
 
 async function fetchSimulations(courseId) {
+  if (!courseId) return;
   try {
     const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/course/${courseId}`, {
       headers: AuthManager.authHeaders(),
@@ -1001,6 +1003,7 @@ async function fetchSimulations(courseId) {
 }
 
 async function fetchConcepts(courseId) {
+  if (!courseId) return;
   try {
     const res = await fetch(`${state.apiUrl}/api/v1/content/courses/${courseId}/concepts`, {
       headers: AuthManager.authHeaders(),
@@ -12938,20 +12941,8 @@ async function _startOnDemandSession(intentText) {
     console.warn('[Classify] Failed, proceeding as general:', e);
   }
 
-  // General session — no code editor or canvas needed
-  let courseId = 2;
-  try {
-    const res = await fetch(
-      `${state.apiUrl || ''}/api/v1/content/resolve-course?q=${encodeURIComponent(intentText)}`,
-      { headers: AuthManager.authHeaders() }
-    );
-    if (res.ok) {
-      const data = await res.json();
-      if (data.courseId) courseId = data.courseId;
-    }
-  } catch (e) {
-    console.warn('Course resolve failed, using fallback:', e);
-  }
+  // General session — no courses in Euler/MyProfessor
+  let courseId = null;
 
   const courseIdEl = document.getElementById('course-id');
   if (courseIdEl) courseIdEl.value = courseId;
@@ -14584,21 +14575,49 @@ async function _showMediaViewer(opts) {
   var src = opts.src || '';
   var type = (opts.type || '').toLowerCase();
 
-  // Resolve BYO refs to actual URLs
-  if (src.startsWith('chunk:') || src.startsWith('resource:')) {
-    var rid = src.split(':').slice(1).join(':'); // handle colons in ID
+  // Resolve src to playable URL
+  // YouTube/video URLs pass through directly
+  if (src.includes('youtube.com') || src.includes('youtu.be')) {
+    type = 'video';
+  } else if (/^https?:\/\//.test(src) && /\.(mp4|webm|ogg|mov)(\?|$)/i.test(src)) {
+    type = 'video';
+  } else if (src.startsWith('chunk:') || src.startsWith('resource:') || (!src.startsWith('http') && !src.startsWith('/'))) {
+    // BYO ref or resource name — resolve via API
+    var rid = src.replace(/^(chunk|resource):/, '');
+    var resolved = false;
     try {
       var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/info', { headers: AuthManager.authHeaders() });
       if (infoRes.ok) {
         var info = await infoRes.json();
         if (info.source_url && (info.source_url.includes('youtube') || info.source_url.includes('youtu.be'))) {
-          src = info.source_url;
-          type = 'video';
-        } else if (info.storage_path) {
+          src = info.source_url; type = 'video'; resolved = true;
+        } else if (info.source_url && /\.(mp4|webm|ogg|mov)/i.test(info.source_url)) {
+          src = info.source_url; type = 'video'; resolved = true;
+        } else if (info.storage_path || info.resource_id) {
           src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(info.resource_id) + '/file';
+          resolved = true;
         }
-      } else { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/file'; }
-    } catch(e) { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/file'; }
+      }
+    } catch(e) {}
+    // Fallback: try collection resources by name
+    if (!resolved && state.byoDetailCollectionId) {
+      try {
+        var colRes = await fetch((state.apiUrl || '') + '/api/v1/byo/collections/' + state.byoDetailCollectionId + '/resources', { headers: AuthManager.authHeaders() });
+        if (colRes.ok) {
+          var resources = await colRes.json();
+          var match = resources.find(function(r) {
+            return r.original_name && (r.original_name.toLowerCase().includes(rid.toLowerCase()) || rid.toLowerCase().includes(r.original_name.toLowerCase()));
+          });
+          if (match) {
+            if (match.source_url && (match.source_url.includes('youtube') || match.source_url.includes('youtu.be'))) {
+              src = match.source_url; type = 'video';
+            } else {
+              src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(match.resource_id) + '/file';
+            }
+          }
+        }
+      } catch(e) {}
+    }
   }
 
   // Show workspace panel if hidden
