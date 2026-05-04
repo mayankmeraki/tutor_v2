@@ -2173,6 +2173,21 @@ function wsReconnect() {
   wsConnect();
 }
 
+// Wait for WS to be connected (resolves immediately if already open)
+function wsWaitReady(timeoutMs) {
+  timeoutMs = timeoutMs || 5000;
+  return new Promise(function(resolve, reject) {
+    if (_ws.conn && _ws.conn.readyState === WebSocket.OPEN) { resolve(); return; }
+    var start = Date.now();
+    var check = function() {
+      if (_ws.conn && _ws.conn.readyState === WebSocket.OPEN) { resolve(); return; }
+      if (Date.now() - start > timeoutMs) { reject(new Error('WebSocket connection timeout')); return; }
+      setTimeout(check, 50);
+    };
+    check();
+  });
+}
+
 // ── Turn lifecycle ──────────────────────────────────────────
 
 function wsSendMessage(text, context, sessionId, isSessionStart, messages, attachments) {
@@ -13681,7 +13696,14 @@ OPENING INSTRUCTIONS:
     }
 
     updateSessionPrep('Starting your session...');
-    console.log('[StartSession] Calling streamADK, trigger length:', trigger.length);
+    // Wait for WebSocket to be connected before sending first message
+    console.log('[StartSession] Waiting for WebSocket...');
+    try { await wsWaitReady(5000); } catch(e) {
+      console.warn('[StartSession] WS wait failed, retrying connect...');
+      wsReconnect();
+      await wsWaitReady(5000);
+    }
+    console.log('[StartSession] WS ready, calling streamADK, trigger length:', trigger.length);
     await streamADK(trigger, true, true);
     console.log('[StartSession] streamADK returned');
   } catch (err) {
