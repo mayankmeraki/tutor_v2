@@ -2309,8 +2309,9 @@ function _wsOnMessage(msg) {
   let evt;
   try { evt = JSON.parse(msg.data); } catch { return; }
 
-  // Only control events skip gen validation
-  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE') {
+  // Control + session-level events skip gen validation
+  if (evt.type !== 'INTERRUPTED' && evt.type !== 'CANCELLED' && evt.type !== 'PONG' && evt.type !== 'COST_UPDATE'
+      && evt.type !== 'BYO_ALIAS_MAP' && evt.type !== 'PLAN_UPDATE' && evt.type !== 'UI_PANEL') {
     // Session-scoped state mutations (workspace) — apply even if there's no
     // active turn. A user navigating away then back can leave _wsTurn=null
     // while a delayed CODE_PUSH from the prior turn arrives. Dropping these
