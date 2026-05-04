@@ -692,13 +692,25 @@ async def get_resource_transcript(
 
 @router.get("/resources/{resource_id}/info")
 async def get_resource_info(resource_id: str, request: Request = None, user: dict = Depends(_get_user)):
-    """Get resource metadata — used to set up video player."""
+    """Get resource metadata — used to set up video player.
+
+    Supports partial resource IDs (prefix match) since LLMs often
+    truncate long UUIDs.
+    """
     db = _get_db()
+    # Try exact match first
     resource = await db.byo_resources.find_one(
         {"resource_id": resource_id, "user_id": user["email"]},
         {"_id": 0, "resource_id": 1, "collection_id": 1, "original_name": 1,
-         "source_url": 1, "mime_type": 1, "meta": 1, "status": 1},
+         "source_url": 1, "mime_type": 1, "meta": 1, "status": 1, "storage_path": 1},
     )
+    # Fallback: prefix match (LLM may truncate UUIDs)
+    if not resource and len(resource_id) >= 8:
+        resource = await db.byo_resources.find_one(
+            {"resource_id": {"$regex": f"^{resource_id}"}, "user_id": user["email"]},
+            {"_id": 0, "resource_id": 1, "collection_id": 1, "original_name": 1,
+             "source_url": 1, "mime_type": 1, "meta": 1, "status": 1, "storage_path": 1},
+        )
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
     return resource
@@ -739,10 +751,7 @@ async def serve_audio(audio_id: str, request: Request, user: dict = Depends(_get
 async def serve_resource_file(resource_id: str, request: Request, user: dict = Depends(_get_user)):
     """Serve the original uploaded file for viewing in the browser.
 
-    - GCS storage: redirects to a signed URL (1-hour expiry)
-    - Local storage: serves file directly with FileResponse
-
-    Works for: PDF, video, audio, images, text, DOCX, etc.
+    Supports partial resource IDs (prefix match) since LLMs truncate UUIDs.
     """
     import os
     from fastapi.responses import RedirectResponse
@@ -750,10 +759,22 @@ async def serve_resource_file(resource_id: str, request: Request, user: dict = D
 
     resource = await db.byo_resources.find_one(
         {"resource_id": resource_id, "user_id": user["email"]},
-        {"storage_path": 1, "mime_type": 1, "original_name": 1},
+        {"storage_path": 1, "mime_type": 1, "original_name": 1, "source_url": 1},
     )
+    # Prefix match fallback for truncated IDs
+    if not resource and len(resource_id) >= 8:
+        resource = await db.byo_resources.find_one(
+            {"resource_id": {"$regex": f"^{resource_id}"}, "user_id": user["email"]},
+            {"storage_path": 1, "mime_type": 1, "original_name": 1, "source_url": 1},
+        )
     if not resource:
         raise HTTPException(status_code=404, detail="Resource not found")
+
+    # YouTube resources: redirect to source URL (no file to serve)
+    source_url = resource.get("source_url", "")
+    if source_url and ("youtube" in source_url or "youtu.be" in source_url):
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=source_url, status_code=302)
 
     storage_path = resource.get("storage_path")
     if not storage_path:

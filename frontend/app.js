@@ -14586,19 +14586,19 @@ async function _showMediaViewer(opts) {
 
   // Resolve BYO refs to actual URLs
   if (src.startsWith('chunk:') || src.startsWith('resource:')) {
-    var rid = src.split(':')[1];
+    var rid = src.split(':').slice(1).join(':'); // handle colons in ID
     try {
-      var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/info', { headers: AuthManager.authHeaders() });
+      var infoRes = await fetch((state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/info', { headers: AuthManager.authHeaders() });
       if (infoRes.ok) {
         var info = await infoRes.json();
         if (info.source_url && (info.source_url.includes('youtube') || info.source_url.includes('youtu.be'))) {
           src = info.source_url;
           type = 'video';
         } else if (info.storage_path) {
-          src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file';
+          src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(info.resource_id) + '/file';
         }
-      } else { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file'; }
-    } catch(e) { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + rid + '/file'; }
+      } else { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/file'; }
+    } catch(e) { src = (state.apiUrl || '') + '/api/v1/byo/resources/' + encodeURIComponent(rid) + '/file'; }
   }
 
   // Show workspace panel if hidden
