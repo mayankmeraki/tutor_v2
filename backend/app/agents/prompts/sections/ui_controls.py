@@ -3,9 +3,23 @@
 SECTION_UI_CONTROLS = r"""
 ═══ UI CONTROLS — SHOW/HIDE WORKSPACE PANELS ═══
 
-You can dynamically open or close UI panels by emitting control tags
-inside your <teaching-housekeeping> block. The student NEVER sees these
-tags — they are parsed by the backend and forwarded as WebSocket events.
+You have TWO ways to control the UI:
+
+1. <euler-ui /> — INLINE, parsed during streaming. Use this for
+   immediate actions (open video, show canvas). Can appear ANYWHERE
+   in your response — before, between, or after voice scenes.
+
+2. <ui-panel /> inside <teaching-housekeeping> — parsed at the END
+   of your response. Use this for cleanup (hide panels after teaching).
+
+PREFER <euler-ui> for showing panels — it acts INSTANTLY.
+Use <ui-panel> in housekeeping only for hiding/cleanup.
+
+FORMAT:
+  <euler-ui panel="PANEL_ID" action="show|hide" [attributes...] />
+
+The student NEVER sees these tags — they are stripped and forwarded
+as WebSocket events.
 
 ═══ AVAILABLE PANELS ═══
 
@@ -13,8 +27,8 @@ tags — they are parsed by the backend and forwarded as WebSocket events.
 A full code editor (Ace) on the right side of the screen.
 Use for: DSA problems, algorithm implementation, any coding task.
 
-  <ui-panel id="code-editor" action="show" language="python" />
-  <ui-panel id="code-editor" action="hide" />
+  <euler-ui panel="code-editor" action="show" language="python" />
+  <euler-ui panel="code-editor" action="hide" />
 
 After showing the editor, use push_code() to populate it with
 a function signature or starter code. The student writes code in
@@ -26,8 +40,8 @@ Languages: python, javascript, java, cpp, go, typescript
 A Fabric.js drawing canvas for system design architecture diagrams.
 Use for: HLD problems, architecture discussions, any visual design.
 
-  <ui-panel id="sd-canvas" action="show" />
-  <ui-panel id="sd-canvas" action="hide" />
+  <euler-ui panel="sd-canvas" action="show" />
+  <euler-ui panel="sd-canvas" action="hide" />
 
 After showing the canvas, use draw_on_canvas() to add nodes/edges.
 The student can also drag and rearrange elements.
@@ -36,8 +50,8 @@ The student can also drag and rearrange elements.
 Code editor + canvas side by side for Low-Level Design.
 Use for: class design, OOP problems, design patterns implementation.
 
-  <ui-panel id="lld-split" action="show" language="python" />
-  <ui-panel id="lld-split" action="hide" />
+  <euler-ui panel="lld-split" action="show" language="python" />
+  <euler-ui panel="lld-split" action="hide" />
 
 ═══ WHEN TO USE ═══
 
@@ -65,13 +79,13 @@ A floating, draggable panel for showing video, images, PDFs, or files
 alongside your teaching. Think of it as a second screen — the student
 sees the board AND the media viewer at the same time.
 
-  <ui-panel id="media-viewer" action="show"
+  <euler-ui panel="media-viewer" action="show"
     src="URL_OR_REF"
     type="video|image|pdf|file"
     title="What this is"
     timestamp="120"
     speed="1.5" />
-  <ui-panel id="media-viewer" action="hide" />
+  <euler-ui panel="media-viewer" action="hide" />
 
 ATTRIBUTES:
   src       — URL, BYO ref (chunk:ID, resource:ID), or YouTube URL
@@ -96,7 +110,7 @@ HOW VIDEOS ARE STORED IN BYO:
   When you search or fetch BYO content and find a video chunk, you'll
   see timestamps in the citation (e.g., "lecture.mp4 · 2:30"). Use
   these to open the media viewer at the right moment:
-    <ui-panel id="media-viewer" action="show"
+    <euler-ui panel="media-viewer" action="show"
       src="resource:RESOURCE_ID" type="video" title="Lecture"
       timestamp="150" speed="1" />
 
@@ -104,7 +118,7 @@ HOW IMAGES ARE STORED IN BYO:
   PDFs have images extracted and stored separately. When you fetch a
   chunk, you may see [image] entries with URLs and descriptions.
   Show these to the student:
-    <ui-panel id="media-viewer" action="show"
+    <euler-ui panel="media-viewer" action="show"
       src="IMAGE_URL" type="image" title="Figure 3.2 — Circuit Diagram" />
 
 WHEN TO USE MEDIA VIEWER:

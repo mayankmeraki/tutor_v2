@@ -3225,6 +3225,28 @@ async def _generate_for_turn(
                                         _first_text_at = _time.monotonic()
                                 text_length += len(text)
                                 _partial_text_parts.append(text)
+
+                                # ── Inline <euler-ui> tag detection ──
+                                # Tutor can emit <euler-ui panel="media-viewer" action="show" ... />
+                                # anywhere in text (not just housekeeping). We strip the tag from
+                                # the text stream and send it as a UI_PANEL event immediately.
+                                _accumulated = "".join(_partial_text_parts)
+                                _ui_tag_re = _re.compile(r'<euler-ui\s+([\s\S]*?)/>')
+                                for _ui_m in _ui_tag_re.finditer(_accumulated):
+                                    if _ui_m.start() < len(_accumulated) - len(text) - 50:
+                                        continue  # already processed in a previous chunk
+                                    _ui_attrs = _ui_m.group(1)
+                                    _ui_attr = lambda n: (_re.search(rf'{n}="([^"]*)"', _ui_attrs) or [None, None])[1]
+                                    _ui_data = {}
+                                    for _k in ('panel', 'action', 'src', 'type', 'title', 'timestamp', 'speed', 'language', 'code'):
+                                        _v = _ui_attr(_k)
+                                        if _v:
+                                            _ui_data[_k] = _v
+                                    if _ui_data.get('panel') and _ui_data.get('action'):
+                                        _ui_data['id'] = _ui_data.pop('panel')
+                                        yield _sse({"type": "UI_PANEL", "data": _ui_data})
+                                        slog.info("Inline euler-ui: %s %s", _ui_data.get('action'), _ui_data.get('id'))
+
                                 yield _sse({"type": "TEXT_MESSAGE_CONTENT", "delta": text})
 
                             message = await stream.get_final_message()
@@ -3353,6 +3375,11 @@ async def _generate_for_turn(
             # Parse and strip housekeeping tags from the final message
             full_text = "".join(_partial_text_parts)
             _process_housekeeping_tags(session, full_text, context_data, sid, slog)
+
+            # Drain any WS events from housekeeping (UI_PANEL, etc.)
+            _hk_events = context_data.pop("_pending_ws_events", [])
+            for _hk_evt in _hk_events:
+                yield _sse(_hk_evt)
 
             # ── Auto-spawn planner when tutor has enough context ──
             _auto_spawn_planner_if_ready(session, runtime, context_data, slog)
