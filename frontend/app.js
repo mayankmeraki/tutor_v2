@@ -14658,7 +14658,6 @@ async function _showMediaViewer(opts) {
       var video = document.createElement('video');
       video.id = 'media-plyr-video';
       video.src = src;
-      video.style.cssText = 'width:100%;border-radius:8px';
       content.appendChild(video);
       setTimeout(function() {
         try {
