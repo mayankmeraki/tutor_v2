@@ -1301,10 +1301,8 @@ function _renderPathPage(path) {
     </div>`;
   }
 
-  container.style.height = '100%';
-  container.style.overflow = 'hidden';
   container.innerHTML = `
-    <div style="display:flex;height:100%;overflow:hidden">
+    <div style="display:flex;height:100vh;overflow:hidden;position:fixed;inset:0;z-index:10;background:#0a0f1a">
       <!-- LEFT: Path timeline -->
       <div style="flex:1;overflow-y:auto;min-width:0">
         <!-- Topbar -->
