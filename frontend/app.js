@@ -2038,6 +2038,9 @@ function wsSendMessage(text, context, sessionId, isSessionStart, messages, attac
   }
   _wsTurn = _wsNewTurn();
 
+  // Extra cleanup: stop any video/media elements that might still be playing
+  document.querySelectorAll('video, .plyr').forEach(v => { try { v.pause(); } catch(e) {} });
+
   _eagerReset();
   state._voiceSceneActive = false;
   state.isStreaming = true;
@@ -2191,6 +2194,7 @@ function _wsOnMessage(msg) {
       turn.beats[evt.beat].data = beat;
       turn.beats[evt.beat].text = beat.say || '';
       _eager.parsedCount = evt.beat;
+      beat._gen = turn.gen;
       _eager.queue.push(beat);
       _wsEnsureExecutor(turn);
       // Beat arrived — re-evaluate skeleton (a beat completing usually means
@@ -2533,6 +2537,8 @@ async function _wsRunExecutor(turn) {
 
       if (_eager.queue.length > 0) {
         const beat = _eager.queue.shift();
+        // Generation check — drop beats from a previous turn that leaked into the queue
+        if (beat._gen !== undefined && beat._gen !== turn.gen) { console.warn('[WS Exec] Dropping beat from old gen:', beat._gen, 'current:', turn.gen); continue; }
         if (_vbState === 'thinking') setVoiceBarState('speaking');
         else if (_vbState === 'drawing' && !(beat.draw && beat.draw.length > 0)) setVoiceBarState('speaking');
         _hideBoardStreaming();
@@ -2593,9 +2599,30 @@ async function _wsExecBeat(beat, beatNum, turn) {
     if (p.length >= 3 && p[1] === 'id') voiceAnnotate(p[0], p.slice(2).join(':'), { color: beat.annotateColor || '#34d399', duration: beat.annotateDuration || 2000 });
   }
 
-  if (beat.videoLesson) { renderTeachingTag({ name: 'teaching-video', attrs: { lesson: beat.videoLesson, start: beat.videoStart || '0', end: beat.videoEnd || '' }, content: '' }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
-  if (beat.simulation) { renderTeachingTag({ name: 'teaching-simulation', attrs: { id: beat.simulation }, content: '' }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
-  if (beat.widgetTitle && beat.widgetCode) { renderTeachingTag({ name: 'teaching-widget', attrs: { title: beat.widgetTitle }, content: beat.widgetCode }); if (beat.say) await _wsPlayAudio(beat, beatNum, turn); await voiceBeatGap(beat.pause); return; }
+  if (beat.videoLesson) {
+    renderTeachingTag({ name: 'teaching-video', attrs: { lesson: beat.videoLesson, start: beat.videoStart || '0', end: beat.videoEnd || '' }, content: '' });
+    if (turn._killed || _wsTurn !== turn) return;
+    if (beat.say) await _wsPlayAudio(beat, beatNum, turn);
+    if (turn._killed || _wsTurn !== turn) return;
+    await voiceBeatGap(beat.pause);
+    return;
+  }
+  if (beat.simulation) {
+    renderTeachingTag({ name: 'teaching-simulation', attrs: { id: beat.simulation }, content: '' });
+    if (turn._killed || _wsTurn !== turn) return;
+    if (beat.say) await _wsPlayAudio(beat, beatNum, turn);
+    if (turn._killed || _wsTurn !== turn) return;
+    await voiceBeatGap(beat.pause);
+    return;
+  }
+  if (beat.widgetTitle && beat.widgetCode) {
+    renderTeachingTag({ name: 'teaching-widget', attrs: { title: beat.widgetTitle }, content: beat.widgetCode });
+    if (turn._killed || _wsTurn !== turn) return;
+    if (beat.say) await _wsPlayAudio(beat, beatNum, turn);
+    if (turn._killed || _wsTurn !== turn) return;
+    await voiceBeatGap(beat.pause);
+    return;
+  }
 
   // Log beat execution with full details for debugging voice issues
   var hasDraw = beat.draw && (Array.isArray(beat.draw) ? beat.draw.length > 0 : true);
@@ -3306,6 +3333,12 @@ function buildContext() {
   } else if (state._sessionPathContext) {
     _scObj.path_id = state._sessionPathContext.pathId;
     _scObj.node_id = state._sessionPathContext.nodeId;
+  }
+  // Optional sub-focus inside the current node — set when student clicked
+  // a specific subtopic (Learn → button) instead of the chapter card.
+  // The backend reads this as a strong "start here" directive.
+  if (state._sessionPathContext && state._sessionPathContext.focusSubtopic) {
+    _scObj.focus_subtopic = state._sessionPathContext.focusSubtopic;
   }
 
   // Active UI panels — so Euler knows what's visible
@@ -18588,6 +18621,7 @@ function _eagerBeatWatcher(text) {
     if (!m) continue;
     const beat = _parseVoiceBeatAttrs(m[1]);
     if (beat) {
+      beat._gen = _ws.generation;
       _eager.queue.push(beat);
       console.log(`[EagerBeat] Parsed beat ${_eager.parsedCount}: ${beat.say?.slice(0, 40) || '(draw)'}`);
     }
