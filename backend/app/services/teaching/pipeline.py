@@ -2497,6 +2497,10 @@ async def _generate_for_turn(
     # context window keeps the first multimodal message visible on all turns.
     # No re-injection needed — just upload to GCS for long-term persistence.
     if attachments and claude_messages:
+        slog.info("Attachments received: %d items, types: %s",
+                  len(attachments),
+                  [a.get("mime_type", "?") for a in attachments],
+                  extra={"event": "ATTACHMENTS_RECEIVED"})
         last_user = None
         for msg in reversed(claude_messages):
             if msg.get("role") == "user":
@@ -3017,6 +3021,16 @@ async def _generate_for_turn(
             # ── Path context (cross-session memory) ────────────────
             _path_id = _sc_obj.get("path_id") or _sc_obj.get("pathId")
             _node_id = _sc_obj.get("node_id") or _sc_obj.get("nodeId")
+            # Per-turn focus subtopic — set when student clicked a specific
+            # "Learn →" button on a subtopic. We keep the latest one on the
+            # session so it sticks even when the FE stops sending it.
+            _focus_subtopic = (
+                _sc_obj.get("focus_subtopic")
+                or _sc_obj.get("focusSubtopic")
+                or None
+            )
+            if _focus_subtopic:
+                session._focus_subtopic = _focus_subtopic
             if _path_id and _node_id:
                 # Load on first turn, refresh every 5 turns to pick up external changes
                 _should_load = (
@@ -3036,7 +3050,14 @@ async def _generate_for_turn(
                     except Exception as _pe:
                         slog.debug("Path context load failed: %s", _pe)
                 if getattr(session, '_path_context', None):
-                    context_data["pathContext"] = json.dumps(session._path_context, default=str)
+                    # Stamp the live focus subtopic into the context dict so
+                    # the prompt builder can surface it without depending on
+                    # a fresh DB load every turn.
+                    _pc = dict(session._path_context)
+                    _live_focus = getattr(session, '_focus_subtopic', None)
+                    if _live_focus:
+                        _pc["focusSubtopic"] = _live_focus
+                    context_data["pathContext"] = json.dumps(_pc, default=str)
 
             tutor_prompt = build_tutor_prompt({
                 **context_data,
