@@ -73,14 +73,48 @@ class JSONFormatter(logging.Formatter):
 
 
 def setup_logging() -> None:
-    """Configure the root logger for structured JSON output to stdout."""
-    handler = logging.StreamHandler(sys.stdout)
-    handler.setFormatter(JSONFormatter())
+    """Configure the root logger for structured JSON output to stdout.
+
+    BYO pipeline logs go to a separate file (logs/byo.log) so they don't
+    clutter the main service output. In Cloud Run, both go to stdout
+    (Cloud Logging separates by service name).
+    """
+    import os
+
+    formatter = JSONFormatter()
+
+    # Main handler — stdout for all non-BYO logs
+    main_handler = logging.StreamHandler(sys.stdout)
+    main_handler.setFormatter(formatter)
 
     root = logging.getLogger()
     root.handlers.clear()
-    root.addHandler(handler)
+    root.addHandler(main_handler)
     root.setLevel(logging.INFO)
+
+    # BYO handler — separate file in local dev, stdout in Cloud Run
+    is_cloud_run = os.environ.get("K_SERVICE") or os.environ.get("CLOUD_RUN")
+    if not is_cloud_run:
+        try:
+            log_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "logs")
+            os.makedirs(log_dir, exist_ok=True)
+            byo_file = logging.FileHandler(os.path.join(log_dir, "byo.log"), encoding="utf-8")
+            byo_file.setFormatter(formatter)
+
+            # Route all byo.* loggers to the file
+            byo_logger = logging.getLogger("byo")
+            byo_logger.addHandler(byo_file)
+            byo_logger.propagate = False  # Don't send to root (stdout)
+            byo_logger.setLevel(logging.INFO)
+
+            # Also add stdout so you can still see BYO in terminal if needed,
+            # but at WARNING level only (errors + warnings show, INFO goes to file)
+            byo_stdout = logging.StreamHandler(sys.stdout)
+            byo_stdout.setFormatter(formatter)
+            byo_stdout.setLevel(logging.WARNING)
+            byo_logger.addHandler(byo_stdout)
+        except Exception:
+            pass  # Fall back to default (all to stdout)
 
     # Silence noisy third-party loggers
     logging.getLogger("httpx").setLevel(logging.WARNING)

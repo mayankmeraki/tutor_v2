@@ -422,17 +422,31 @@
           <!-- ═══ Compact CTA suggestions ═══ -->
           <!-- (removed large cards — replaced by collection-centric flow) -->
 
-          <!-- ═══ Sessions row ═══ -->
+          <!-- ═══ Pick up where you left off — paths + sessions ═══ -->
           <div class="home-browse-section" id="home-browse">
-            <div id="home-sessions-section" class="section" style="display:none;margin-bottom:40px">
-              <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Pick up where you left off</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">All sessions</span></div>
-              <div class="session-row hscroll" id="home-sessions-row"></div>
+            <div id="home-activity-section" class="section" style="display:none;margin-bottom:40px">
+              <!-- Paths row -->
+              <div id="home-paths-wrap" style="display:none;margin-bottom:24px">
+                <div class="sec-head" style="margin-bottom:8px">
+                  <h2 style="font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin:0">Your <span style="color:#34d399">paths</span></h2>
+                </div>
+                <div id="home-paths-hscroll" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch"></div>
+              </div>
+              <!-- Sessions row -->
+              <div id="home-sessions-wrap" style="display:none">
+                <div class="sec-head" style="margin-bottom:8px">
+                  <h2 style="font-size:13px;font-weight:600;color:rgba(255,255,255,.8);margin:0">Recent sessions</h2>
+                  <span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">All sessions</span>
+                </div>
+                <div id="home-sessions-hscroll" style="display:flex;gap:10px;overflow-x:auto;padding-bottom:6px;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch"></div>
+              </div>
             </div>
-            <div id="home-courses-section" style="display:none"></div>
-            <div id="home-videos-section" class="section" style="display:none;margin-bottom:40px">
-              <div class="sec-head"><h2 style="font-size:14px;font-weight:600;color:rgba(255,255,255,.8)">Follow along with a video</h2><span class="sec-link" style="font-size:11px;color:var(--text-dim);cursor:pointer">Upload new</span></div>
-              <div class="session-row hscroll" id="home-videos-row"></div>
-            </div>
+
+            <!-- Legacy hidden slots -->
+            <div id="home-paths-section" style="display:none"><div id="home-paths-row"></div></div>
+            <div id="home-sessions-section" style="display:none"><div class="session-row hscroll" id="home-sessions-row"></div></div>
+            <div id="home-activity-row" style="display:none"></div>
+            <div id="home-videos-section" style="display:none"><div id="home-videos-row"></div></div>
           </div>
 
           <!-- ═══ Study Tracks ═══ -->
@@ -644,89 +658,13 @@
       <div id="byo-search-input"></div>
     </div>
 
-    <!-- ═══ COURSE DETAIL SCREEN ═══ -->
-    <div id="course-screen" class="app-screen" style="display:none">
-      <nav class="sc-nav">
-        <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler <sup style="font-size:9px;font-weight:500;color:rgba(255,255,255,.25);letter-spacing:.5px;vertical-align:super">beta</sup></a>
-        <div class="sc-nav-r">
-          <a href="#" class="sc-nav-link" data-nav="courses">Courses</a>
-          <div class="sc-pill" id="course-logout">
-            <div class="sc-pill-avatar" id="course-avatar">?</div>
-            <span id="course-user-name">User</span>
-          </div>
-        </div>
-      </nav>
-
-      <!-- ── Netflix-style hero ── -->
-      <div class="cd-banner" id="cd-banner" style="position:relative;min-height:340px;padding-bottom:40px">
-        <div class="cd-banner-overlay"></div>
-        <div class="cd-banner-content" style="position:relative;z-index:2">
-          <div class="cd-back" id="cd-back">
-            <svg width="14" height="14" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M17 10a.75.75 0 01-.75.75H5.612l4.158 3.96a.75.75 0 11-1.04 1.08l-5.5-5.25a.75.75 0 010-1.08l5.5-5.25a.75.75 0 111.04 1.08L5.612 9.25H16.25A.75.75 0 0117 10z"/></svg>
-            Back to courses
-          </div>
-          <span class="sc-tag" id="cd-tag"></span>
-          <h1 id="cd-title" style="font-size:36px;font-weight:800;letter-spacing:-.8px;margin-bottom:10px"></h1>
-          <p id="cd-description" style="max-width:520px;font-size:14px;color:rgba(255,255,255,.55);line-height:1.5;margin-bottom:18px"></p>
-          <div style="display:flex;gap:14px;align-items:center;flex-wrap:wrap">
-            <button class="sc-btn sc-btn-accent" id="cd-play-btn" style="display:flex;align-items:center;gap:10px;font-size:16px;font-weight:700;padding:14px 32px;border-radius:10px;letter-spacing:-.2px">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><polygon points="6 3 20 12 6 21"/></svg>
-              Play
-            </button>
-            <div class="cd-stats" style="display:flex;gap:16px">
-              <div class="cd-stat"><div class="cd-stat-v" id="cd-lessons-count" style="font-size:16px">0</div><div class="cd-stat-l">Lessons</div></div>
-              <div class="cd-stat"><div class="cd-stat-v" id="cd-modules-count" style="font-size:16px">0</div><div class="cd-stat-l">Modules</div></div>
-              <div class="cd-stat"><div class="cd-stat-v" id="cd-hours" style="font-size:16px">~0</div><div class="cd-stat-l">Hours</div></div>
-            </div>
-          </div>
-          <!-- Outcomes + meta inline in hero -->
-          <div id="cd-outcomes" style="display:flex;gap:6px;flex-wrap:wrap;margin-top:14px"></div>
-          <div id="cd-prereqs" style="font-size:11px;color:rgba(255,255,255,.35);margin-top:4px"></div>
-          <div style="font-size:11px;color:rgba(255,255,255,.3);margin-top:4px" id="cd-meta-line"></div>
-        </div>
-        <!-- Bottom gradient fade into content -->
-        <div style="position:absolute;bottom:0;left:0;right:0;height:80px;background:linear-gradient(transparent,var(--bg));z-index:1"></div>
-      </div>
-
-      <!-- ── Lectures filmstrip ── -->
-      <div class="cd-body" style="padding:0 40px 60px;overflow:visible">
-        <div style="margin-bottom:10px;display:flex;align-items:center;justify-content:space-between">
-          <h2 style="font-size:15px;font-weight:600;color:rgba(255,255,255,.8)">Lectures</h2>
-          <span style="font-size:11px;color:var(--text-dim)" id="cd-selected-count"></span>
-        </div>
-        <div class="cd-filmstrip" id="cd-filmstrip" style="display:flex;gap:12px;overflow-x:auto;padding:4px 0 12px;scrollbar-width:thin;scrollbar-color:rgba(255,255,255,.08) transparent">
-          <!-- Populated by JS -->
-        </div>
-
-        <!-- Selected lesson detail (shown on click) -->
-        <div class="cd-lesson-detail" id="cd-lesson-detail" style="margin-top:8px;padding:16px 20px;border-radius:12px;border:1px solid var(--border);background:rgba(255,255,255,.02);display:none">
-          <div style="display:flex;align-items:flex-start;gap:16px">
-            <div id="cd-detail-thumb" style="width:160px;height:90px;border-radius:8px;background:var(--bg-surface);flex-shrink:0;overflow:hidden;display:grid;place-items:center">
-              <img id="cd-detail-img" style="width:100%;height:100%;object-fit:cover;display:none">
-              <span id="cd-detail-num" style="font-size:22px;font-weight:700;color:var(--text-dim)"></span>
-            </div>
-            <div style="flex:1;min-width:0">
-              <h3 id="cd-detail-title" style="font-size:16px;font-weight:600;margin-bottom:6px"></h3>
-              <p id="cd-detail-desc" style="font-size:12px;color:var(--text-muted);line-height:1.6;margin-bottom:8px"></p>
-              <div style="display:flex;gap:12px;font-size:11px;color:var(--text-dim)">
-                <span id="cd-detail-duration"></span>
-                <span id="cd-detail-module"></span>
-              </div>
-            </div>
-            <!-- Watch button removed — Play button handles all playback -->
-          </div>
-        </div>
-
-        <div id="cd-curriculum" style="display:none"></div>
-      </div>
-    </div>
+    <!-- Legacy PG course detail screen removed -->
 
     <!-- ═══ ON-DEMAND SCREEN ═══ -->
     <div id="ondemand-screen" class="app-screen" style="display:none">
       <nav class="sc-nav">
         <a class="sc-logo" href="/" onclick="event.preventDefault();Router.navigate('/')"><em>E</em>uler <sup style="font-size:9px;font-weight:500;color:rgba(255,255,255,.25);letter-spacing:.5px;vertical-align:super">beta</sup></a>
         <div class="sc-nav-r">
-          <a href="#" class="sc-nav-link" data-nav="courses">Courses</a>
           <div class="sc-pill" id="od-logout">
             <div class="sc-pill-avatar" id="od-avatar">?</div>
             <span id="od-user-name">User</span>
@@ -751,7 +689,7 @@
         </div>
         <div class="od-how">
           <h3>What happens next</h3>
-          <div class="od-step"><div class="od-step-n">1</div><p><strong>Finds the right material</strong> &mdash; searches across all courses for the best content.</p></div>
+          <div class="od-step"><div class="od-step-n">1</div><p><strong>Finds the right material</strong> &mdash; searches your uploaded content and the web.</p></div>
           <div class="od-step"><div class="od-step-n">2</div><p><strong>Builds a plan</strong> &mdash; creates a sequence, checks prerequisites, adjusts depth.</p></div>
           <div class="od-step"><div class="od-step-n">3</div><p><strong>Teaches you live</strong> &mdash; draws on the board, speaks, asks questions, adapts in real time.</p></div>
         </div>
@@ -914,6 +852,11 @@
       </div>
     </div>
 
+    <!-- ═══ Path Landing Page ═══ -->
+    <div id="path-screen" class="app-screen" style="display:none;flex-direction:column">
+      <div id="path-screen-content" style="flex:1;overflow-y:auto;padding:0"></div>
+    </div>
+
     <!-- ═══ Teaching Layout — Split View ═══ -->
     <div id="teaching-layout" class="hidden">
 
@@ -946,22 +889,7 @@
         </div>
       </header>
 
-      <!-- Video overlay -->
-      <div id="vm-video-overlay" class="vm-overlay hidden">
-        <button class="vm-close-btn" id="vm-close-btn" onclick="vmExitVideoSession()" title="Exit video session">&times;</button>
-        <div class="vm-vid-wrap" id="vm-vid-wrap"><div class="vm-vid-box"></div></div>
-        <div class="vm-chat-wrap" id="vm-chat-wrap">
-          <div class="vm-chat-bar">
-            <input class="vm-chat-input" id="vm-chat-input" placeholder="Ask about what you just saw...">
-            <button class="vm-chat-btn vm-send-btn" id="vm-send-btn">
-              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14"/><path d="M12 5l7 7-7 7"/></svg>
-            </button>
-            <button class="vm-chat-btn vm-stop-btn hidden" id="vm-stop-btn" onclick="stopGeneration()" title="Stop tutor">
-              <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>
-            </button>
-          </div>
-        </div>
-      </div>
+      <!-- Legacy course video-follow overlay removed -->
 
       <!-- Plan Heading Bar -->
       <div id="plan-heading-bar" class="plan-heading-bar hidden">
@@ -1170,14 +1098,7 @@
           </div>
         </div>
 
-        <!-- Video playlist sidebar (video follow-along mode only) -->
-        <div id="video-playlist" class="vpl hidden">
-          <div class="vpl-header">
-            <span class="vpl-title">Up next</span>
-            <span class="vpl-count" id="vpl-count"></span>
-          </div>
-          <div class="vpl-list" id="vpl-list"></div>
-        </div>
+        <!-- Legacy video playlist sidebar removed -->
 
         <!-- Plan sidebar -->
         <div id="plan-sidebar" class="psb hidden">
@@ -1397,6 +1318,7 @@
   <script src="/router.js"></script>
   <script src="/board/bundle.js?v=20260428b"></script>
   <script src="/animation-helpers.js"></script>
+  <script src="/paths.js?v=20260505a"></script>
   <script src="/app.js?v=20260424j"></script>
 <!-- ═══ Feedback / Bug Report Modal ═══ -->
 <div class="fb-overlay" id="fb-overlay" style="display:none" onclick="if(event.target===this)closeFeedbackModal()">
@@ -1453,8 +1375,8 @@
       <textarea id="fb-reason" rows="2" style="width:100%;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;color:#e0e0e0;padding:8px 10px;font-size:12px;font-family:inherit;resize:none" placeholder="Anything else? (optional)"></textarea>
     </div>
 
-    <!-- Submit -->
-    <button id="fb-submit-btn" onclick="submitSessionFeedback()" style="display:none;width:100%;padding:10px;margin-top:12px;background:rgba(52,211,153,0.1);border:1px solid rgba(52,211,153,0.15);border-radius:8px;color:#34d399;font-size:12px;font-weight:600;cursor:pointer;font-family:inherit;transition:all .12s">Submit</button>
+    <!-- Submit (disabled until user picks a chip or types a comment) -->
+    <button id="fb-submit-btn" onclick="submitSessionFeedback()" disabled style="display:none;width:100%;padding:10px;margin-top:12px;background:rgba(255,255,255,0.03);border:1px solid rgba(255,255,255,0.06);border-radius:8px;color:rgba(255,255,255,0.3);font-size:12px;font-weight:600;cursor:not-allowed;font-family:inherit;transition:all .12s">Pick a tag or add a note</button>
 
     <!-- Thanks -->
     <div id="fb-thanks" style="display:none;text-align:center;padding:20px 0;color:rgba(52,211,153,0.8);font-size:13px">Thanks! Your feedback shapes Euler.</div>
@@ -1463,6 +1385,7 @@
 <script>
 // ── Session Feedback Form ──
 var _fbScore = null;
+var _fbScoreRaw = null;
 var _fbSessionId = '';  // captured at form-open so submit can use it even if state resets
 
 var _fbSelectedChips = [];
@@ -1511,20 +1434,21 @@ function showFeedbackForm() {
     }
     row.innerHTML = '';
     var faces = [
-      {score:1, emoji:'😫', label:'Terrible'},
-      {score:2, emoji:'😕', label:'Bad'},
-      {score:3, emoji:'😐', label:'OK'},
-      {score:4, emoji:'🙂', label:'Good'},
-      {score:5, emoji:'🤩', label:'Amazing'},
+      {score:1, nps:2,  emoji:'😫', label:'1'},
+      {score:2, nps:4,  emoji:'😕', label:'2'},
+      {score:3, nps:5,  emoji:'😐', label:'3'},
+      {score:4, nps:8,  emoji:'🙂', label:'4'},
+      {score:5, nps:10, emoji:'🤩', label:'5'},
     ];
     faces.forEach(function(f) {
       var btn = document.createElement('button');
       btn.type = 'button';
       btn.dataset.score = f.score;
       btn.style.cssText = 'flex:1;padding:10px 0 6px;border-radius:10px;border:1px solid rgba(255,255,255,0.06);background:rgba(255,255,255,0.02);cursor:pointer;transition:all .12s;text-align:center';
-      btn.innerHTML = '<div style="font-size:22px;line-height:1">' + f.emoji + '</div><div style="font-size:8px;color:rgba(255,255,255,.2);margin-top:3px">' + f.label + '</div>';
+      btn.innerHTML = '<div style="font-size:22px;line-height:1">' + f.emoji + '</div><div style="font-size:9px;color:rgba(255,255,255,.25);margin-top:3px">' + f.label + '</div>';
       btn.addEventListener('click', function() {
-        _fbScore = f.score;
+        _fbScore = f.nps;      // NPS-mapped (1-10) for analytics
+        _fbScoreRaw = f.score; // Display value (1-5) for reference
         row.querySelectorAll('button').forEach(function(b) {
           b.style.background = 'rgba(255,255,255,0.02)';
           b.style.borderColor = 'rgba(255,255,255,0.06)';
@@ -1550,7 +1474,7 @@ function _fbShowFollowUp(score) {
   var chips = document.getElementById('fb-chips');
   if (!label || !chips) return;
 
-  // Set contextual question
+  // Set contextual question (score is 1-5 visual)
   if (score <= 2) label.textContent = 'What went wrong?';
   else if (score <= 3) label.textContent = 'What could be better?';
   else label.textContent = 'What did you love?';
@@ -1577,12 +1501,48 @@ function _fbShowFollowUp(score) {
         chip.style.borderColor = 'rgba(52,211,153,0.2)';
         chip.style.color = '#34d399';
       }
+      _fbUpdateSubmitState();
     });
     chips.appendChild(chip);
   });
 
+  // Re-bind textarea engagement listener so typing also unlocks submit
+  var reason = document.getElementById('fb-reason');
+  if (reason && !reason._fbBound) {
+    reason.addEventListener('input', _fbUpdateSubmitState);
+    reason._fbBound = true;
+  }
+
   _fbSetDisplay('fb-followup', 'block');
   _fbSetDisplay('fb-submit-btn', 'block');
+  _fbUpdateSubmitState();
+}
+
+// Submit is "armed" only when the user has actually given us a signal —
+// at least one chip selected, or 3+ characters of comment. Empty submissions
+// were turning every Mongo doc into {chips:[], comment:""}, which is useless
+// for analytics. Skip-for-now is still available in the corner.
+function _fbUpdateSubmitState() {
+  var btn = document.getElementById('fb-submit-btn');
+  if (!btn) return;
+  var commentLen = 0;
+  try { commentLen = ((document.getElementById('fb-reason') || {}).value || '').trim().length; } catch (e) {}
+  var armed = (_fbSelectedChips && _fbSelectedChips.length > 0) || commentLen >= 3;
+  if (armed) {
+    btn.disabled = false;
+    btn.textContent = 'Submit';
+    btn.style.background = 'rgba(52,211,153,0.1)';
+    btn.style.borderColor = 'rgba(52,211,153,0.25)';
+    btn.style.color = '#34d399';
+    btn.style.cursor = 'pointer';
+  } else {
+    btn.disabled = true;
+    btn.textContent = 'Pick a tag or add a note';
+    btn.style.background = 'rgba(255,255,255,0.03)';
+    btn.style.borderColor = 'rgba(255,255,255,0.06)';
+    btn.style.color = 'rgba(255,255,255,0.3)';
+    btn.style.cursor = 'not-allowed';
+  }
 }
 
 function closeFeedbackForm() {
@@ -1639,11 +1599,25 @@ function submitSessionFeedback() {
       return;
     }
 
+    var commentVal = (document.getElementById('fb-reason')?.value || '').trim();
+    var chipList = _fbSelectedChips || [];
+
+    // Final guard — if neither chips nor a real comment exist, treat as a skip.
+    // The submit button is disabled in this state, but this catches programmatic
+    // submits / stale-DOM races so we never write {chips:[], comment:""} rows.
+    if (chipList.length === 0 && commentVal.length < 3) {
+      console.warn('[Feedback] empty payload — treating as skip, not submitting');
+      _fbShowThanksAndClose(800);
+      return;
+    }
+
     var body = {
       sessionId: sid,
-      score: _fbScore,
-      chips: _fbSelectedChips || [],
-      comment: (document.getElementById('fb-reason')?.value || '').trim(),
+      score: _fbScore,          // NPS-mapped (1-10) for analytics
+      scoreRaw: _fbScoreRaw,    // Display score (1-5) for reference
+      scaleMax: 5,              // So we know the scale
+      chips: chipList,
+      comment: commentVal,
     };
 
     // Attach JWT so backend records the real userEmail (else falls back to dev@local in dev)

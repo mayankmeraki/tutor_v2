@@ -21,40 +21,44 @@ _SUBJECT_KEYWORDS = {
 
 
 def _detect_subject(context_data: dict) -> str | None:
-    """Detect the subject from course metadata or session context.
+    """Detect the subject from session context.
 
-    Checks course tags, title, and description for subject keywords.
+    Checks the student intent and session context for subject keywords.
     Returns a subject profile ID or None for general mode.
     """
     import json
 
-    # Check course map for subject tags
-    course_map_str = context_data.get("courseMap", "")
-    if course_map_str:
-        try:
-            course_map = json.loads(course_map_str) if isinstance(course_map_str, str) else course_map_str
-            title = (course_map.get("title") or "").lower()
-            tags = [t.lower() for t in (course_map.get("tags") or [])]
-            desc = (course_map.get("description") or "").lower()
-            search_text = f"{title} {' '.join(tags)} {desc}"
+    candidates: list[str] = []
 
-            for subject_id, keywords in _SUBJECT_KEYWORDS.items():
-                if any(kw in search_text for kw in keywords):
-                    return subject_id
-        except (json.JSONDecodeError, TypeError, AttributeError):
-            pass
-
-    # Check student profile for subject hints
     profile_str = context_data.get("studentProfile", "")
     if profile_str:
         try:
             profile = json.loads(profile_str) if isinstance(profile_str, str) else profile_str
-            course_title = (profile.get("courseTitle") or "").lower()
-            for subject_id, keywords in _SUBJECT_KEYWORDS.items():
-                if any(kw in course_title for kw in keywords):
-                    return subject_id
+            for k in ("subject", "topic", "intent", "studentIntent"):
+                v = profile.get(k)
+                if isinstance(v, str):
+                    candidates.append(v.lower())
         except (json.JSONDecodeError, TypeError, AttributeError):
             pass
+
+    sc = context_data.get("sessionContext", "")
+    if sc:
+        try:
+            sc_obj = json.loads(sc) if isinstance(sc, str) else sc
+            for k in ("subject", "topic", "intent"):
+                v = sc_obj.get(k) if isinstance(sc_obj, dict) else None
+                if isinstance(v, str):
+                    candidates.append(v.lower())
+        except (json.JSONDecodeError, TypeError, AttributeError):
+            pass
+
+    if not candidates:
+        return None
+
+    search_text = " ".join(candidates)
+    for subject_id, keywords in _SUBJECT_KEYWORDS.items():
+        if any(kw in search_text for kw in keywords):
+            return subject_id
 
     return None  # General mode — no subject-specific instructions
 
@@ -244,6 +248,160 @@ def _get_voice_mode_prompt() -> str:
     return build_voice_mode_prompt()
 
 
+def _inject_path_context(parts: list[str], context_data: dict):
+    """Inject learning path context when this session is part of a path.
+
+    Gives the tutor:
+      - Full path plan with node statuses (completed/active/pending)
+      - ALL reflection notes from any prior session (not just sequential)
+      - Student's wizard answers (goal, background, depth)
+      - Whether the student jumped out of order
+      - Handover instructions from the last reflection
+      - Upcoming nodes for foreshadowing
+    """
+    import json as _json
+
+    path_context = context_data.get("pathContext")
+    if not path_context:
+        return
+
+    if isinstance(path_context, str):
+        try:
+            path_context = _json.loads(path_context)
+        except (ValueError, TypeError):
+            return
+
+    if not isinstance(path_context, dict):
+        return
+
+    cur = path_context.get("currentNode", {})
+    node_title = cur.get("title", "")
+    node_type = cur.get("type", "")
+    node_order = cur.get("order", 0)
+    node_topics = cur.get("topics", [])
+    total_nodes = path_context.get("totalNodes", 0)
+    completed = path_context.get("completedCount", 0)
+
+    parts.append("\n═══════════════════════════════════════════════════")
+    parts.append(" PATH CONTEXT — this session is part of a structured learning path")
+    parts.append("═══════════════════════════════════════════════════\n")
+    parts.append(f"Path: {path_context.get('title', '')}")
+    parts.append(f"Description: {path_context.get('description', '')}")
+    parts.append(f"Current node: {node_order}/{total_nodes} — \"{node_title}\" ({node_type})")
+    parts.append(f"Progress: {completed}/{total_nodes} completed")
+    if node_topics:
+        parts.append(f"This node covers: {', '.join(node_topics)}")
+
+    # Student's self-reported calibration note for THIS node
+    student_note = cur.get("studentNote", "")
+    if student_note:
+        parts.append(f"\nSTUDENT'S OWN NOTE FOR THIS NODE: \"{student_note}\"")
+        parts.append("  → Honor this. If they say they know X, skip it. If they want practice, give problems.")
+
+    # Wizard context
+    wizard = path_context.get("wizard", {})
+    if wizard:
+        parts.append(f"\nStudent profile (from path setup):")
+        for k, v in wizard.items():
+            if v and k != "intent":
+                parts.append(f"  {k}: {v}")
+
+    # Out-of-order jump detection
+    if path_context.get("skippedAhead"):
+        parts.append(
+            "\n⚠ STUDENT JUMPED AHEAD — there are uncompleted nodes before this one. "
+            "Don't assume they covered earlier topics. Ask if unclear about prerequisites."
+        )
+
+    # Full path plan overview (compact)
+    node_map = path_context.get("nodeMap", [])
+    if node_map:
+        parts.append("\nFULL PATH PLAN:")
+        for nm in node_map:
+            status = nm.get("status", "pending")
+            marker = {"completed": "✓", "active": "▶", "skipped": "⏭"}.get(status, "○")
+            current_marker = " ← YOU ARE HERE" if nm.get("nodeId") == cur.get("nodeId") else ""
+            sn = f' — student says: "{nm["studentNote"]}"' if nm.get("studentNote") else ""
+            parts.append(
+                f"  {marker} {nm['order']}. {nm['title']} ({nm['type']}, {nm['targetMin']}m)"
+                f"{current_marker}{sn}"
+            )
+
+    # ── Prior notes (from ALL touched sessions, not just sequential) ──
+    prior = path_context.get("priorNotes", {})
+
+    strengths = prior.get("strengths", [])
+    if strengths:
+        parts.append("\nSTRENGTHS (demonstrated in prior sessions — don't re-teach unless asked):")
+        for s in strengths:
+            node_ref = f" [from node {s.get('nodeId', '?')}]" if s.get("nodeId") else ""
+            parts.append(f"  ✓ {s.get('concept', '')}: {s.get('detail', '')}{node_ref}")
+
+    gaps = prior.get("gaps", [])
+    if gaps:
+        parts.append("\nGAPS (struggled in prior sessions — reinforce proactively):")
+        for g in gaps:
+            node_ref = f" [from node {g.get('nodeId', '?')}]" if g.get("nodeId") else ""
+            parts.append(f"  ⚠ {g.get('concept', '')}: {g.get('detail', '')}{node_ref}")
+
+    handovers = prior.get("handovers", [])
+    if handovers:
+        parts.append("\nHANDOVER INSTRUCTIONS (from reflection agent — follow these):")
+        for h in handovers:
+            parts.append(f"  → {h.get('detail', '')}")
+
+    observations = prior.get("observations", [])
+    if observations:
+        parts.append("\nOBSERVATIONS (general notes from prior sessions):")
+        for o in observations:
+            parts.append(f"  · {o.get('detail', '')}")
+
+    # Upcoming nodes
+    upcoming = path_context.get("upcomingNodes", [])
+    if upcoming:
+        parts.append("\nUPCOMING (so you can foreshadow and connect):")
+        for u in upcoming:
+            topics = ", ".join(u.get("topics", []))
+            parts.append(f"  {u['order']}. {u['title']} ({u['type']}){f' — {topics}' if topics else ''}")
+
+    # Recent pivots (path was modified)
+    pivots = path_context.get("recentPivots", [])
+    if pivots:
+        accepted = [p for p in pivots if p.get("accepted")]
+        if accepted:
+            parts.append(f"\nPATH WAS RECENTLY MODIFIED: {accepted[-1].get('reason', '')}")
+
+    # Node-type-specific instructions
+    parts.append(f"\n── NODE TYPE: {node_type.upper()} ──")
+    if node_type == "learn":
+        parts.append("Teach the concepts using the board with animations and worked examples.")
+        parts.append("Use BYO materials if available. End with a quick pulse check to verify understanding.")
+        parts.append("Focus specifically on: " + (", ".join(node_topics) if node_topics else node_title))
+    elif node_type == "drill":
+        parts.append("This is a practice session. Push problems to the code editor using push_code.")
+        parts.append("Let the student solve, give hints only when stuck. Track which they get right.")
+        parts.append("Use run_code to test their solutions. Aim for 3-5 problems.")
+    elif node_type == "quiz":
+        parts.append("Run a focused assessment: 5-8 questions covering this node's topics.")
+        parts.append("Keep it to 10-15 minutes. Report results clearly at the end.")
+        parts.append("Results feed the reflection agent to update the path.")
+    elif node_type == "build":
+        parts.append("Guide a hands-on project. The student should produce something tangible.")
+        parts.append("Use push_code for starter code, then let them drive implementation.")
+        parts.append("Break it into clear milestones. This should feel like building, not lecturing.")
+
+    parts.append(
+        "\n── PATH RULES ──"
+        "\n• Reference prior findings naturally ('You nailed register access last time — let's build on that')"
+        "\n• Don't re-teach strengths unless the student asks"
+        "\n• Address gaps proactively — weave remediation into this node's content"
+        "\n• If the student jumped ahead, check prerequisites don't assume prior coverage"
+        "\n• Your <notes> will feed the reflection agent — tag concepts clearly"
+        "\n• Stay focused on THIS node's topics — don't drift to other nodes"
+    )
+    parts.append("")
+
+
 def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     """Build tutor system prompt.
 
@@ -280,37 +438,6 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
 
     # Voice mode instructions (locked for entire session — voice is the only mode)
     static_parts.append(_get_voice_mode_prompt())
-
-    # Video follow-along: inject course map into STATIC block (cacheable across turns)
-    # This gives the tutor full course context so it can teach even without the video
-    if context_data.get("videoState") and context_data.get("courseMap"):
-        import json as _json_s
-        try:
-            cm = _json_s.loads(context_data["courseMap"]) if isinstance(context_data["courseMap"], str) else context_data["courseMap"]
-        except (ValueError, TypeError):
-            cm = {}
-        if cm:
-            course_title = cm.get("title") or cm.get("course", {}).get("title", "")
-            course_desc = cm.get("course", {}).get("description", "") or cm.get("description", "")
-            modules = cm.get("modules", [])
-            lessons = cm.get("lessons", [])
-            outline_lines = []
-            for mod in modules:
-                mod_lessons = sorted(
-                    [l for l in lessons if l.get("module_id") == mod.get("id")],
-                    key=lambda l: l.get("order", 0),
-                )
-                lesson_strs = [f'"{l.get("title", "?")}" (lesson_id:{l.get("id")}, {l.get("duration", "?")}min)' for l in mod_lessons]
-                outline_lines.append(f"  {mod.get('title', '?')}: {', '.join(lesson_strs)}")
-            static_parts.append(
-                f"\n═══ COURSE CONTENT (video follow-along) ═══\n"
-                f"Course: {course_title}\n"
-                f"{course_desc[:300]}\n"
-                f"Structure:\n" + "\n".join(outline_lines) + "\n"
-                f"\nYou have FULL access to this course content via search/fetch/peek/nearby tools (scope='course').\n"
-                f"You can teach ANY topic from this course on the board — even without the video playing.\n"
-                f"═══════════════════════════════════════════\n"
-            )
 
     # ── SESSION-STABLE content (cacheable within a session) ──
     # Teaching plan, BYO preloaded content — same for every turn in this session.
@@ -474,6 +601,43 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
         parts.append(TRIAGE_SYSTEM_PROMPT)
         # Include triage-specific context
         triage_ctx = context_data.get("triageContext") or {}
+        # Low-signal intent override: the input was JUST a URL / empty /
+        # one word. The tutor must NOT pick a topic. Force a single
+        # clarifying question and complete_triage on the next reply.
+        _ls_reason = triage_ctx.get("lowSignalReason")
+        if _ls_reason:
+            _ls_text = (triage_ctx.get("lowSignalText") or "").strip()
+            if _ls_reason == "youtube_url_only":
+                _block = (
+                    "\n[LOW-SIGNAL INTENT — YouTube URL]\n"
+                    f"The student's only input is a YouTube URL: {_ls_text}\n"
+                    "You CANNOT open videos, fetch transcripts, or read the page. Do NOT guess what the video is about.\n"
+                    "Do NOT pick a topic like 'Networking', 'System Design', 'DSA', etc.\n"
+                    "Respond ONLY with one short clarifying question. Example:\n"
+                    "  \"Quick one — I can't open videos directly. What topic from this would you like me to walk you through?\"\n"
+                    "Draw a minimal board (title + the question). When the student replies with an actual topic, call complete_triage.\n"
+                )
+            elif _ls_reason == "url_only":
+                _block = (
+                    "\n[LOW-SIGNAL INTENT — bare URL]\n"
+                    f"The student's only input is a URL: {_ls_text}\n"
+                    "You cannot fetch external pages. Do NOT invent a topic from the URL.\n"
+                    "Ask one short clarifying question: 'What topic from this would you like me to teach?' "
+                    "Then call complete_triage once they answer.\n"
+                )
+            elif _ls_reason == "empty_intent":
+                _block = (
+                    "\n[LOW-SIGNAL INTENT — no input]\n"
+                    "The student gave no topic. Ask one short, friendly question to find out what they "
+                    "want to learn today. Do NOT pick a topic on their behalf.\n"
+                )
+            else:  # too_few_words / fallback
+                _block = (
+                    "\n[LOW-SIGNAL INTENT — only one word]\n"
+                    f"The student input is too short to safely teach from: {_ls_text!r}.\n"
+                    "Ask one short clarifying question to scope the topic. Do NOT guess.\n"
+                )
+            parts.append(_block)
         if triage_ctx.get("contentBrief"):
             parts.append(f"\n{triage_ctx['contentBrief']}\n")
         elif triage_ctx.get("availableContent"):
@@ -518,6 +682,9 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
     last_assessment = context_data.get("lastAssessmentSummary")
     if last_assessment and not context_data.get("assessmentResult"):
         _inject_last_assessment(parts, last_assessment)
+
+    # ─── SECTION 2b: PATH CONTEXT (cross-session memory) ─────
+    _inject_path_context(parts, context_data)
 
     # ─── SECTION 3: SESSION & TEACHING CONTEXT ──────────────────
     # Current session state — plan, topic, progress, scope.
@@ -630,57 +797,31 @@ def build_tutor_prompt(context_data: dict) -> str | tuple[str, str]:
                 f'company="{_interview_state.get("company", "generic")}" />\n'
             )
 
-    # Video follow-along state (dynamic — changes every turn)
-    video_state_raw = context_data.get("videoState")
-    if video_state_raw:
-        import json as _json
-        try:
-            vs = _json.loads(video_state_raw) if isinstance(video_state_raw, str) else video_state_raw
-        except (ValueError, TypeError):
-            vs = {}
-        if vs:
-            lesson_id = vs.get('lessonId')
-            ts = vs.get('currentTimestamp', 0)
-            parts.append("[VIDEO FOLLOW-ALONG — Current State]")
-            parts.append(f"Lesson: {vs.get('lessonTitle', '?')} (ID: {lesson_id})")
-            parts.append(f"Timestamp: {ts:.0f}s ({int(ts // 60)}:{int(ts % 60):02d})")
-            parts.append(f"Section: [{vs.get('currentSectionIndex', 0)}] {vs.get('sectionTitle', '?')}")
-            # Playlist info if available
-            playlist = vs.get('playlist')
-            if playlist:
-                parts.append(f"Playlist: {len(playlist)} lessons — " + ", ".join(f'"{l.get("title","?")}"' for l in playlist[:8]))
-            # Lesson sections if available
-            sections = vs.get('sections')
-            if sections:
-                parts.append("Lesson sections: " + ", ".join(f'{s.get("title","?")}' for s in sections[:8]))
+    # Auto-injected transcript / section context (pre-fetched by chat route)
+    transcript_ctx = context_data.get("_autoTranscript")
+    section_ctx = context_data.get("_autoSectionContent")
+    if transcript_ctx or section_ctx:
+        parts.append("\n╔══════════════════════════════════════════════════════════╗")
+        parts.append("║  PRE-LOADED CONTEXT — DO NOT FETCH THIS VIA TOOLS        ║")
+        parts.append("║  Only use tools if student asks about a DIFFERENT section.║")
+        parts.append("╚══════════════════════════════════════════════════════════╝\n")
 
-            # ── Auto-injected transcript (pre-fetched by chat route) ──
-            # The chat route fetches nearby transcript before building the prompt
-            # so the tutor has the professor's words without a tool call round-trip.
-            transcript_ctx = context_data.get("_autoTranscript")
-            section_ctx = context_data.get("_autoSectionContent")
+        if transcript_ctx:
+            parts.append("[TRANSCRIPT]")
+            if len(transcript_ctx) > 1500:
+                transcript_ctx = transcript_ctx[:1500] + "\n[... truncated]"
+            parts.append(transcript_ctx)
 
-            if transcript_ctx or section_ctx:
-                parts.append("\n╔══════════════════════════════════════════════════════════╗")
-                parts.append("║  PRE-LOADED CONTEXT — DO NOT FETCH THIS VIA TOOLS       ║")
-                parts.append("║  Everything below is for the CURRENT video position.     ║")
-                parts.append("║  Only use tools if student asks about a DIFFERENT section.║")
-                parts.append("╚══════════════════════════════════════════════════════════╝\n")
+        if section_ctx:
+            parts.append("\n[SECTION CONTENT — key points, formulas, examples]")
+            if len(section_ctx) > 2000:
+                section_ctx = section_ctx[:2000] + "\n[... truncated]"
+            parts.append(section_ctx)
 
-            if transcript_ctx:
-                parts.append(f"[TRANSCRIPT — around {int(ts // 60)}:{int(ts % 60):02d}]")
-                if len(transcript_ctx) > 1500:
-                    transcript_ctx = transcript_ctx[:1500] + "\n[... truncated]"
-                parts.append(transcript_ctx)
-
-            if section_ctx:
-                parts.append("\n[SECTION CONTENT — key points, formulas, examples]")
-                if len(section_ctx) > 2000:
-                    section_ctx = section_ctx[:2000] + "\n[... truncated]"
-                parts.append(section_ctx)
-
-            if transcript_ctx or section_ctx:
-                parts.append("\n⚠️ The above content is ALREADY HERE. Do NOT call get_transcript_context or get_section_content for this section. Those tools are ONLY for looking up OTHER sections the student asks about.\n")
+        parts.append(
+            "\n⚠️ The above content is ALREADY HERE. Do NOT call additional fetch/peek/search "
+            "for this section. Those tools are ONLY for looking up OTHER content the student asks about.\n"
+        )
 
     active_sim = context_data.get("activeSimulation")
     if active_sim:
@@ -983,15 +1124,14 @@ def build_assessment_prompt(context_data: dict) -> str:
         TAGS_PROMPT,
     ]
 
-    # Course context (lighter than tutor — no simulations, no plan, no agents)
+    # Session context (lighter than tutor — no simulations, no plan, no agents)
     parts.append("\n═══════════════════════════════════════════════════")
-    parts.append(" COURSE CONTEXT")
+    parts.append(" SESSION CONTEXT")
     parts.append("═══════════════════════════════════════════════════\n")
 
     for key, label in [
         ("studentProfile", "Student Profile"),
-        ("courseMap", "Course Map"),
-        ("concepts", "Course Concepts"),
+        ("concepts", "Concepts"),
         ("sessionMetrics", "Session Metrics"),
     ]:
         val = context_data.get(key)
@@ -1015,16 +1155,15 @@ _ASSESSMENT_TOOLKIT = """═══ YOUR TOOLS (Assessment Mode) ═══
 You have a focused subset of tools for assessment:
 
 search(query, scope?)
-  Semantic search across course + BYO content. Use to find refs when you
-  don't have them. scope: "course" (default), "collection", "both".
+  Semantic search over the student's uploaded (BYO) content. Use to find
+  refs when you don't have them. scope: "collection" | "user_corpus" | "resource".
 
 fetch(ref)
-  Get the full content for a ref (transcript, key points, formulas).
-  Use to ground your questions in exact course / student material.
-  Refs: lesson:ID:section:IDX, lesson:ID, sim:ID, chunk:ID.
+  Get the full content for a ref. Use to ground your questions in the
+  student's exact material. Refs: chunk:ID, segment:ID, resource:ID.
 
 peek(ref)
-  Cheap summary (~100 tokens). Use to pick the right section quickly.
+  Cheap summary (~100 tokens). Use to pick the right chunk quickly.
 
 query_knowledge(query)
   Look up what you know about this student's understanding of a concept.
@@ -1038,7 +1177,7 @@ search_images(query, limit)
   Find images if you need a visual for a question scenario.
 
 web_search(query, limit)
-  Supplementary info for question grounding (rare — prefer course content).
+  Supplementary info for question grounding (rare — prefer BYO content).
 
 TOOLS YOU DO NOT HAVE (assessment is focused):
   Plan/agent control (handled by main tutor via housekeeping tags).

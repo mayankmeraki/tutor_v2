@@ -1,5 +1,7 @@
 backend/.venv/
+logs/
 backend/.env
+admin-dashboard/.env
 backend/rendered/
 wireframes/
 __pycache__/

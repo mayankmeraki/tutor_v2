@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Home Redesign — Above the Fold</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0f1a; --panel: #111827;
+    --border: rgba(255,255,255,.06);
+    --text: rgba(255,255,255,.9); --text2: rgba(255,255,255,.5); --text3: rgba(255,255,255,.25);
+    --green: #34d399; --blue: #60a5fa; --purple: #a78bfa; --orange: #fb923c;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; height: 100vh; overflow: hidden; }
+
+  /* Switcher */
+  .sw { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 8px 16px; background: rgba(10,15,26,.95); backdrop-filter: blur(8px); border-bottom: 1px solid var(--border); display: flex; gap: 6px; }
+  .sw-btn { padding: 6px 14px; border-radius: 6px; border: 1px solid var(--border); background: rgba(255,255,255,.02); color: var(--text3); font-size: 11px; font-weight: 600; cursor: pointer; font-family: inherit; }
+  .sw-btn.active { background: rgba(52,211,153,.1); border-color: rgba(52,211,153,.3); color: var(--green); }
+  .opt { display: none; height: 100vh; padding-top: 40px; } .opt.active { display: flex; flex-direction: column; }
+
+  /* ── Shared nav ── */
+  .nav { padding: 10px 24px; display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid var(--border); flex-shrink: 0; }
+  .nav-logo { font-size: 17px; font-weight: 800; letter-spacing: -.3px; } .nav-logo em { color: var(--green); font-style: normal; }
+  .nav-right { display: flex; align-items: center; gap: 8px; }
+  .nav-av { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, #34d399, #60a5fa); display: grid; place-items: center; font-size: 10px; font-weight: 700; color: #0a0f1a; }
+
+  /* ════════════════════════════════════════════════════════════ */
+  /* OPTION A: New student — everything above the fold           */
+  /* ════════════════════════════════════════════════════════════ */
+  .a-body { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 0 24px; gap: 28px; }
+
+  .a-greeting { font-size: 13px; color: var(--text3); }
+  .a-headline { font-size: 28px; font-weight: 800; color: #fff; letter-spacing: -.5px; text-align: center; }
+  .a-headline span { background: linear-gradient(135deg, var(--green), var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+
+  /* Input bar */
+  .a-input-wrap { width: 100%; max-width: 580px; position: relative; }
+  .a-input { width: 100%; padding: 15px 20px 15px 18px; border-radius: 14px; border: 1px solid rgba(52,211,153,.2); background: rgba(255,255,255,.03); color: #fff; font-size: 15px; font-family: inherit; outline: none; }
+  .a-input:focus { border-color: rgba(52,211,153,.4); box-shadow: 0 0 0 4px rgba(52,211,153,.06); }
+  .a-input::placeholder { color: var(--text3); }
+  .a-input-icons { position: absolute; right: 12px; top: 50%; transform: translateY(-50%); display: flex; gap: 4px; align-items: center; }
+  .a-input-icon { width: 32px; height: 32px; border-radius: 8px; border: 1px solid var(--border); background: none; color: var(--text3); cursor: pointer; display: grid; place-items: center; transition: all .1s; }
+  .a-input-icon:hover { color: var(--text); border-color: var(--border); background: rgba(255,255,255,.04); }
+  .a-input-icon.send { border: none; background: rgba(52,211,153,.15); color: var(--green); }
+  .a-icon-label { position: absolute; bottom: -18px; left: 50%; transform: translateX(-50%); font-size: 8px; color: var(--text3); white-space: nowrap; opacity: 0; transition: opacity .15s; pointer-events: none; }
+  .a-input-icon:hover .a-icon-label { opacity: 1; }
+
+  /* Quick start cards — 3 across */
+  .a-cards { display: flex; gap: 10px; max-width: 580px; width: 100%; }
+  .a-card { flex: 1; padding: 14px 14px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,.02); cursor: pointer; transition: all .12s; text-align: left; }
+  .a-card:hover { border-color: rgba(96,165,250,.2); background: rgba(255,255,255,.04); transform: translateY(-1px); }
+  .a-card-ic { font-size: 18px; margin-bottom: 6px; }
+  .a-card-title { font-size: 12px; font-weight: 700; color: #fff; margin-bottom: 2px; }
+  .a-card-sub { font-size: 10px; color: var(--text3); line-height: 1.4; }
+
+  /* Subtle hint at bottom */
+  .a-hint { font-size: 10px; color: var(--text3); text-align: center; }
+  .a-hint a { color: rgba(96,165,250,.7); text-decoration: none; cursor: pointer; }
+
+  /* ════════════════════════════════════════════════════════════ */
+  /* OPTION B: Returning student — continue + explore            */
+  /* ════════════════════════════════════════════════════════════ */
+  .b-body { flex: 1; display: grid; grid-template-columns: 1fr 1fr; gap: 0; overflow: hidden; }
+
+  /* Left: continue what you're doing */
+  .b-left { padding: 24px; overflow-y: auto; border-right: 1px solid var(--border); display: flex; flex-direction: column; }
+  .b-greeting { font-size: 12px; color: var(--text3); margin-bottom: 4px; }
+  .b-headline { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -.3px; margin-bottom: 18px; }
+
+  .b-continue-card { padding: 16px; border-radius: 12px; background: linear-gradient(135deg, rgba(52,211,153,.06), rgba(96,165,250,.03)); border: 1px solid rgba(52,211,153,.18); margin-bottom: 10px; cursor: pointer; transition: all .12s; }
+  .b-continue-card:hover { border-color: rgba(52,211,153,.3); transform: translateY(-1px); }
+  .b-cc-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 6px; }
+  .b-cc-badge { font-size: 7.5px; font-weight: 700; letter-spacing: .5px; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; }
+  .b-cc-badge-path { color: var(--green); background: rgba(52,211,153,.1); }
+  .b-cc-badge-session { color: var(--blue); background: rgba(96,165,250,.1); }
+  .b-cc-frac { font-size: 13px; font-weight: 800; color: var(--green); } .b-cc-frac span { color: var(--text3); font-weight: 600; }
+  .b-cc-title { font-size: 14px; font-weight: 700; color: #fff; margin-bottom: 4px; }
+  .b-cc-next { font-size: 10.5px; color: var(--text2); display: flex; align-items: center; gap: 5px; }
+  .b-cc-cta { margin-top: 10px; padding: 9px; border-radius: 8px; border: none; background: linear-gradient(135deg, var(--green), #22c584); color: #0a0f1a; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; width: 100%; }
+
+  .b-session-card { padding: 10px 12px; border-radius: 9px; background: rgba(255,255,255,.02); border: 1px solid var(--border); cursor: pointer; transition: all .1s; margin-bottom: 6px; }
+  .b-session-card:hover { border-color: rgba(96,165,250,.15); }
+  .b-sc-title { font-size: 11.5px; font-weight: 600; color: #fff; }
+  .b-sc-meta { font-size: 9px; color: var(--text3); margin-top: 2px; }
+
+  /* Right: start something new */
+  .b-right { padding: 24px; overflow-y: auto; display: flex; flex-direction: column; }
+  .b-right-title { font-size: 12px; font-weight: 700; color: var(--text2); margin-bottom: 14px; }
+
+  .b-input-wrap { position: relative; margin-bottom: 16px; }
+  .b-input { width: 100%; padding: 12px 16px 12px 14px; border-radius: 11px; border: 1px solid rgba(52,211,153,.15); background: rgba(255,255,255,.02); color: #fff; font-size: 13px; font-family: inherit; outline: none; }
+  .b-input::placeholder { color: var(--text3); }
+  .b-input-hint { font-size: 9px; color: var(--text3); margin-top: 5px; display: flex; align-items: center; gap: 4px; }
+  .b-input-hint svg { opacity: .4; }
+
+  .b-quick { display: flex; flex-direction: column; gap: 6px; margin-bottom: 16px; }
+  .b-quick-item { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 9px; border: 1px solid var(--border); background: rgba(255,255,255,.02); cursor: pointer; transition: all .1s; }
+  .b-quick-item:hover { border-color: rgba(96,165,250,.15); background: rgba(255,255,255,.04); }
+  .b-qi-ic { width: 28px; height: 28px; border-radius: 7px; display: grid; place-items: center; font-size: 13px; flex-shrink: 0; }
+  .b-qi-title { font-size: 11.5px; font-weight: 600; color: #fff; }
+  .b-qi-sub { font-size: 9px; color: var(--text3); margin-top: 1px; }
+
+  /* Upload area */
+  .b-upload { padding: 16px; border-radius: 11px; border: 1.5px dashed rgba(167,139,250,.15); background: rgba(167,139,250,.02); cursor: pointer; text-align: center; transition: all .12s; }
+  .b-upload:hover { border-color: rgba(167,139,250,.3); background: rgba(167,139,250,.04); }
+  .b-upload-ic { font-size: 20px; margin-bottom: 4px; color: var(--purple); opacity: .6; }
+  .b-upload-title { font-size: 11px; font-weight: 600; color: var(--purple); margin-bottom: 2px; }
+  .b-upload-sub { font-size: 9px; color: var(--text3); line-height: 1.4; }
+</style>
+</head>
+<body>
+
+<div class="sw">
+  <button class="sw-btn active" onclick="show('a')">A. New Student</button>
+  <button class="sw-btn" onclick="show('b')">B. Returning Student</button>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- OPTION A: New student — clean, centered, everything visible -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="opt active" id="opt-a">
+  <div class="nav">
+    <div class="nav-logo"><em>E</em>uler</div>
+    <div class="nav-right"><div class="nav-av">M</div></div>
+  </div>
+
+  <div class="a-body">
+    <div>
+      <div class="a-greeting">Good evening, Mayank</div>
+      <div class="a-headline">What do you want to <span>learn</span>?</div>
+    </div>
+
+    <!-- Input with visible icons explained -->
+    <div class="a-input-wrap">
+      <input class="a-input" placeholder="Teach me quantum mechanics, help me prep for Google interviews...">
+      <div class="a-input-icons">
+        <button class="a-input-icon" title="Upload file — PDF, notes, images">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+          <span class="a-icon-label">Attach file</span>
+        </button>
+        <button class="a-input-icon" title="Use your study materials">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          <span class="a-icon-label">My materials</span>
+        </button>
+        <button class="a-input-icon send">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <!-- Quick-start cards -->
+    <div class="a-cards">
+      <div class="a-card">
+        <div class="a-card-ic">&#127919;</div>
+        <div class="a-card-title">Learn a topic</div>
+        <div class="a-card-sub">Euler teaches with board animations &amp; voice</div>
+      </div>
+      <div class="a-card">
+        <div class="a-card-ic">&#128187;</div>
+        <div class="a-card-title">DSA &amp; System Design</div>
+        <div class="a-card-sub">Code editor, test runner, mock interviews</div>
+      </div>
+      <div class="a-card">
+        <div class="a-card-ic">&#128218;</div>
+        <div class="a-card-title">Upload &amp; study</div>
+        <div class="a-card-sub">Drop your PDF, notes, or video &mdash; Euler teaches from it</div>
+      </div>
+    </div>
+
+    <div class="a-hint">
+      Euler builds a <a>learning path</a> for broad topics &middot; Or just ask one question
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════════════════ -->
+<!-- OPTION B: Returning student — split: continue | explore     -->
+<!-- ════════════════════════════════════════════════════════════ -->
+<div class="opt" id="opt-b">
+  <div class="nav">
+    <div class="nav-logo"><em>E</em>uler</div>
+    <div class="nav-right"><div class="nav-av">M</div></div>
+  </div>
+
+  <div class="b-body">
+    <!-- Left: continue -->
+    <div class="b-left">
+      <div class="b-greeting">Good evening, Mayank</div>
+      <div class="b-headline">Pick up where you left off</div>
+
+      <!-- Active path -->
+      <div class="b-continue-card">
+        <div class="b-cc-top">
+          <span class="b-cc-badge b-cc-badge-path">Path</span>
+          <span class="b-cc-frac">3<span>/13</span></span>
+        </div>
+        <div class="b-cc-title">ESP32 Firmware &mdash; From C to Wi-Fi Logger</div>
+        <div style="height:3px;border-radius:2px;background:rgba(255,255,255,.04);overflow:hidden;margin:6px 0">
+          <div style="height:100%;width:23%;background:linear-gradient(90deg,#34d399,#22c584);border-radius:2px"></div>
+        </div>
+        <div class="b-cc-next">
+          <span style="width:16px;height:16px;border-radius:50%;background:rgba(251,146,60,.1);color:#fb923c;
+            display:grid;place-items:center;font-size:7px;font-weight:700">4</span>
+          GPIO Drills &middot; 25m
+        </div>
+        <button class="b-cc-cta">Continue &rarr;</button>
+      </div>
+
+      <!-- Recent sessions -->
+      <div style="font-size: 10px; font-weight: 700; color: var(--text3); letter-spacing: .5px; text-transform: uppercase; margin: 12px 0 6px">Recent sessions</div>
+
+      <div class="b-session-card">
+        <div class="b-sc-title">Observables &amp; Eigenvalues</div>
+        <div class="b-sc-meta">2h ago &middot; 15 min &middot; Continue &rarr;</div>
+      </div>
+      <div class="b-session-card">
+        <div class="b-sc-title">Calculus Exam Preparation</div>
+        <div class="b-sc-meta">4h ago &middot; 6 min &middot; Continue &rarr;</div>
+      </div>
+    </div>
+
+    <!-- Right: start new -->
+    <div class="b-right">
+      <div class="b-right-title">Start something new</div>
+
+      <div class="b-input-wrap">
+        <input class="b-input" placeholder="Teach me anything...">
+        <div class="b-input-hint">
+          <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 5v14M5 12h14"/></svg>
+          Euler auto-detects topic type &middot; builds a path for broad topics
+        </div>
+      </div>
+
+      <div class="b-quick">
+        <div class="b-quick-item">
+          <div class="b-qi-ic" style="background:rgba(52,211,153,.08);color:#34d399">&#128187;</div>
+          <div>
+            <div class="b-qi-title">DSA &amp; System Design</div>
+            <div class="b-qi-sub">150 problems &middot; mock interviews &middot; code editor</div>
+          </div>
+        </div>
+        <div class="b-quick-item">
+          <div class="b-qi-ic" style="background:rgba(167,139,250,.08);color:#a78bfa">&#127891;</div>
+          <div>
+            <div class="b-qi-title">Create a learning path</div>
+            <div class="b-qi-sub">Multi-session structured track with milestones</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Upload — visible, not hidden behind an icon -->
+      <div class="b-upload">
+        <div class="b-upload-ic">&#128230;</div>
+        <div class="b-upload-title">Drop your study materials</div>
+        <div class="b-upload-sub">PDF, notes, video &mdash; Euler teaches from your content</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+function show(id) {
+  document.querySelectorAll('.opt').forEach(o => o.classList.remove('active'));
+  document.querySelectorAll('.sw-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('opt-' + id).classList.add('active');
+  event.target.classList.add('active');
+}
+</script>
+</body>
+</html>

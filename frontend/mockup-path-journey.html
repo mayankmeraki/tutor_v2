@@ -1,0 +1,1480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — Path Journey (full UX)</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0f1a;
+    --bg-2: #060b14;
+    --panel: #0f172a;
+    --panel-2: #111827;
+    --line: rgba(255,255,255,.05);
+    --line-2: rgba(255,255,255,.08);
+    --text: rgba(255,255,255,.9);
+    --text-2: rgba(255,255,255,.55);
+    --text-3: rgba(255,255,255,.3);
+    --green: #34d399;
+    --green-d: #22c584;
+    --blue: #60a5fa;
+    --purple: #a78bfa;
+    --gold: #fbbf24;
+    --orange: #fb923c;
+    --red: #f87171;
+    --pink: #f472b6;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    min-height: 100vh; padding-bottom: 100px;
+  }
+
+  /* ─── Top journey stepper ─── */
+  .journey-bar {
+    position: sticky; top: 0; z-index: 100;
+    background: rgba(10,15,26,.92); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--line);
+    padding: 14px 28px;
+  }
+  .journey-bar-inner { max-width: 1200px; margin: 0 auto; display: flex; align-items: center; gap: 18px; }
+  .journey-logo { font-size: 18px; font-weight: 800; letter-spacing: -.4px; flex-shrink: 0; }
+  .journey-logo em { color: var(--green); font-style: normal; }
+  .journey-title {
+    font-size: 11px; color: var(--text-3); letter-spacing: 1px; text-transform: uppercase; font-weight: 600;
+    flex-shrink: 0;
+  }
+  .stepper { flex: 1; display: flex; gap: 4px; overflow-x: auto; padding: 2px; }
+  .stepper::-webkit-scrollbar { display: none; }
+  .step-btn {
+    flex: 1; min-width: 100px; padding: 10px 14px; border-radius: 9px;
+    border: 1px solid var(--line); background: rgba(255,255,255,.02);
+    color: var(--text-2); font-family: inherit; cursor: pointer;
+    text-align: left; transition: all .15s; font-size: 11px;
+    display: flex; flex-direction: column; gap: 2px;
+  }
+  .step-btn:hover { border-color: var(--line-2); color: var(--text); background: rgba(255,255,255,.04); }
+  .step-btn.active {
+    border-color: rgba(52,211,153,.35); background: rgba(52,211,153,.07); color: var(--green);
+  }
+  .step-num {
+    font-size: 9px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,.35);
+  }
+  .step-btn.active .step-num { color: rgba(52,211,153,.85); }
+  .step-name { font-size: 12px; font-weight: 600; line-height: 1.3; }
+  .step-btn.active .step-name { color: #fff; }
+
+  /* ─── Stage container ─── */
+  .stage-wrap { max-width: 1200px; margin: 0 auto; padding: 24px 28px; }
+
+  /* ─── Stage caption ─── */
+  .caption {
+    background: linear-gradient(135deg, rgba(52,211,153,.06), rgba(96,165,250,.03));
+    border: 1px solid rgba(52,211,153,.15);
+    border-radius: 12px; padding: 14px 18px; margin-bottom: 18px;
+    display: flex; gap: 14px; align-items: flex-start;
+  }
+  .cap-ic {
+    width: 32px; height: 32px; border-radius: 8px;
+    background: rgba(52,211,153,.12); color: var(--green);
+    display: grid; place-items: center; font-size: 14px; flex-shrink: 0;
+  }
+  .cap-text { flex: 1; }
+  .cap-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.4px; color: rgba(52,211,153,.85);
+    text-transform: uppercase; margin-bottom: 3px;
+  }
+  .cap-title { font-size: 16px; font-weight: 700; color: var(--text); margin-bottom: 3px; }
+  .cap-sub { font-size: 12px; color: var(--text-2); line-height: 1.55; }
+  .cap-sub em { color: var(--blue); font-style: normal; font-weight: 600; }
+
+  /* ─── Device-style frame for stage UI ─── */
+  .frame {
+    border-radius: 14px; border: 1px solid var(--line-2);
+    background: var(--bg-2); overflow: hidden;
+    box-shadow: 0 12px 40px rgba(0,0,0,.4);
+  }
+  .frame-chrome {
+    height: 32px; display: flex; align-items: center; gap: 10px;
+    padding: 0 14px; background: rgba(255,255,255,.02);
+    border-bottom: 1px solid var(--line);
+  }
+  .chrome-dots { display: flex; gap: 5px; }
+  .chrome-dot { width: 9px; height: 9px; border-radius: 50%; background: rgba(255,255,255,.1); }
+  .chrome-url {
+    flex: 1; text-align: center; font-size: 10.5px; color: var(--text-3);
+    font-family: 'SF Mono', Monaco, monospace;
+  }
+  .frame-body { background: var(--bg-2); }
+
+  /* ─── Generic Euler nav inside frames ─── */
+  .e-nav {
+    height: 52px; padding: 0 22px;
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid var(--line);
+    background: rgba(255,255,255,.01);
+  }
+  .e-logo { font-size: 17px; font-weight: 800; letter-spacing: -.3px; }
+  .e-logo em { color: var(--green); font-style: normal; }
+  .e-tabs { display: flex; gap: 3px; background: rgba(255,255,255,.03); border-radius: 8px; padding: 3px; }
+  .e-tab { padding: 6px 14px; border-radius: 6px; font-size: 11px; color: var(--text-3); cursor: pointer; }
+  .e-tab.active { background: rgba(255,255,255,.08); color: #fff; }
+  .e-avatar {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg,#34d399,#60a5fa);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700; color: #0a0f1a;
+  }
+
+  /* ─── Stage management ─── */
+  .stage { display: none; animation: fadeIn .25s ease; }
+  .stage.active { display: block; }
+  @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
+
+  /* ─── Prev/next buttons ─── */
+  .stage-nav {
+    display: flex; justify-content: space-between; align-items: center;
+    margin-top: 18px; padding: 12px 4px;
+  }
+  .nav-btn {
+    padding: 9px 18px; border-radius: 9px; border: 1px solid var(--line-2);
+    background: rgba(255,255,255,.03); color: var(--text-2);
+    font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: all .12s;
+  }
+  .nav-btn:hover { color: var(--text); background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.18); }
+  .nav-btn:disabled { opacity: .3; cursor: not-allowed; }
+  .nav-btn-next {
+    border: none; background: linear-gradient(135deg, var(--green), var(--green-d)); color: #0a0f1a;
+  }
+  .nav-btn-next:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(52,211,153,.3); color: #0a0f1a; background: linear-gradient(135deg, var(--green), var(--green-d)); }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 1 — Discovery                                  */
+  /* ──────────────────────────────────────────────────── */
+  .home-hero { padding: 56px 32px 24px; text-align: center; }
+  .home-hero h1 { font-size: 26px; font-weight: 800; letter-spacing: -.5px; margin-bottom: 8px; }
+  .home-hero h1 span { background: linear-gradient(135deg, var(--green), var(--blue)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .home-hero p { font-size: 13px; color: var(--text-3); margin-bottom: 22px; }
+  .home-search-wrap { max-width: 600px; margin: 0 auto; position: relative; }
+  .home-search {
+    width: 100%; padding: 16px 20px 16px 44px; border-radius: 14px;
+    border: 1px solid rgba(52,211,153,.25); background: rgba(255,255,255,.03);
+    color: #fff; font-size: 14px; font-family: inherit; outline: none;
+    box-shadow: 0 0 0 4px rgba(52,211,153,.06);
+  }
+  .home-search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: var(--text-3); font-size: 16px; }
+  .home-cursor { display: inline-block; width: 1.5px; height: 14px; background: var(--green); animation: blink 1s infinite; vertical-align: middle; margin-left: 1px; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* Classifier preview chip */
+  .classifier-hint {
+    margin: 12px auto 0; max-width: 600px;
+    padding: 12px 14px; border-radius: 11px;
+    background: rgba(52,211,153,.05); border: 1px solid rgba(52,211,153,.18);
+    display: flex; gap: 10px; align-items: center;
+    animation: hintIn .35s ease;
+  }
+  @keyframes hintIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: translateY(0); } }
+  .ch-ic {
+    width: 26px; height: 26px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--green), var(--green-d));
+    display: grid; place-items: center; font-size: 11px; font-weight: 800; color: #0a0f1a;
+    flex-shrink: 0;
+  }
+  .ch-text { flex: 1; text-align: left; font-size: 12px; color: var(--text); }
+  .ch-text strong { color: var(--green); font-weight: 700; }
+  .ch-text .ch-meta { font-size: 10.5px; color: var(--text-3); margin-top: 2px; }
+  .ch-action {
+    padding: 7px 13px; border-radius: 8px; border: none;
+    background: linear-gradient(135deg, var(--green), var(--green-d)); color: #0a0f1a;
+    font-size: 11px; font-weight: 700; cursor: pointer; font-family: inherit;
+    flex-shrink: 0;
+  }
+  .ch-action-secondary {
+    background: none; border: 1px solid rgba(255,255,255,.1); color: var(--text-2);
+  }
+  .ch-action-secondary:hover { background: rgba(255,255,255,.05); color: #fff; }
+
+  /* Intent grid below */
+  .home-intents {
+    max-width: 900px; margin: 32px auto 24px; padding: 0 32px;
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px;
+    opacity: .5;
+  }
+  .intent-card-mini {
+    padding: 14px 12px; border-radius: 11px; border: 1px solid var(--line);
+    background: rgba(255,255,255,.02); cursor: pointer; text-align: left;
+  }
+  .intent-card-mini .ic-emoji { font-size: 20px; margin-bottom: 6px; }
+  .intent-card-mini .ic-name { font-size: 12px; font-weight: 700; }
+  .intent-card-mini .ic-desc { font-size: 10px; color: var(--text-3); margin-top: 2px; }
+
+  /* Annotation pills (inline callouts) */
+  .anno {
+    display: inline-flex; align-items: center; gap: 4px;
+    padding: 3px 8px; border-radius: 999px;
+    background: rgba(96,165,250,.08); border: 1px solid rgba(96,165,250,.2);
+    color: rgba(96,165,250,.95); font-size: 10px; font-weight: 600;
+    margin-left: 6px;
+  }
+  .anno::before { content: '◉'; font-size: 8px; }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 2 — Wizard ↔ Path (compressed)                  */
+  /* ──────────────────────────────────────────────────── */
+  .compressed-row {
+    display: grid; grid-template-columns: 1fr 24px 1fr; gap: 14px; align-items: stretch;
+    padding: 24px;
+  }
+  .comp-card {
+    padding: 16px 18px; border-radius: 12px;
+    border: 1px solid var(--line-2); background: rgba(255,255,255,.02);
+  }
+  .comp-card-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase;
+    color: var(--green); margin-bottom: 6px;
+  }
+  .comp-card-title { font-size: 14px; font-weight: 700; margin-bottom: 8px; }
+  .comp-arrow { display: grid; place-items: center; color: var(--text-3); font-size: 22px; }
+
+  /* Mini chat lines for wizard preview */
+  .mini-chat { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+  .mini-msg { font-size: 11px; padding: 6px 10px; border-radius: 7px; }
+  .mini-msg.bot { background: rgba(255,255,255,.04); align-self: flex-start; max-width: 75%; }
+  .mini-msg.user { background: rgba(96,165,250,.1); align-self: flex-end; max-width: 70%; color: rgba(255,255,255,.95); }
+  .mini-cards { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 6px 0; }
+  .mini-card-chip {
+    padding: 4px 8px; border-radius: 6px; font-size: 10px;
+    background: rgba(255,255,255,.03); border: 1px solid var(--line);
+    color: var(--text-2);
+  }
+  .mini-card-chip.selected { background: rgba(52,211,153,.1); border-color: rgba(52,211,153,.35); color: var(--green); }
+
+  .comp-card-link {
+    display: inline-flex; align-items: center; gap: 5px;
+    margin-top: 8px; padding: 6px 12px; border-radius: 7px;
+    background: rgba(96,165,250,.06); border: 1px solid rgba(96,165,250,.18);
+    color: rgba(96,165,250,.95); font-size: 11px; font-weight: 600;
+    text-decoration: none; transition: all .12s;
+  }
+  .comp-card-link:hover { background: rgba(96,165,250,.12); }
+
+  /* Mini path preview */
+  .mini-path-stats { display: flex; gap: 12px; margin-bottom: 10px; }
+  .mini-stat { font-size: 11px; color: var(--text-2); }
+  .mini-stat strong { color: #fff; font-weight: 700; }
+  .mini-nodes { display: flex; flex-direction: column; gap: 4px; }
+  .mini-node {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 9px; border-radius: 6px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+    font-size: 11px;
+  }
+  .mini-node-num {
+    width: 18px; height: 18px; border-radius: 50%; background: rgba(255,255,255,.05);
+    display: grid; place-items: center; font-size: 9px; font-weight: 700; color: var(--text-2);
+    flex-shrink: 0;
+  }
+  .mini-node.t-learn .mini-node-num { background: rgba(52,211,153,.15); color: var(--green); }
+  .mini-node.t-drill .mini-node-num { background: rgba(251,146,60,.15); color: var(--orange); }
+  .mini-node.t-quiz .mini-node-num { background: rgba(167,139,250,.15); color: var(--purple); }
+  .mini-node.t-build .mini-node-num { background: rgba(251,191,36,.15); color: var(--gold); }
+  .mini-node-title { flex: 1; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 3 — Home with active paths                      */
+  /* ──────────────────────────────────────────────────── */
+  .home-paths { padding: 28px 32px 16px; max-width: 1100px; margin: 0 auto; }
+  .section-head {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 14px;
+  }
+  .section-title { font-size: 13px; font-weight: 700; color: var(--text); letter-spacing: -.2px; }
+  .section-title em { color: var(--green); font-style: normal; }
+  .section-link { font-size: 11px; color: rgba(52,211,153,.7); text-decoration: none; cursor: pointer; }
+
+  /* Big active path card */
+  .path-card {
+    padding: 20px 22px; border-radius: 14px;
+    background: linear-gradient(135deg, rgba(52,211,153,.05), rgba(96,165,250,.025));
+    border: 1px solid rgba(52,211,153,.2);
+    margin-bottom: 12px;
+    transition: all .15s;
+  }
+  .path-card:hover { border-color: rgba(52,211,153,.35); transform: translateY(-1px); }
+  .path-card-head {
+    display: flex; align-items: flex-start; justify-content: space-between;
+    gap: 14px; margin-bottom: 12px;
+  }
+  .path-card-meta { flex: 1; }
+  .path-card-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase;
+    color: rgba(52,211,153,.85); margin-bottom: 4px;
+  }
+  .path-card-title { font-size: 16px; font-weight: 800; color: #fff; margin-bottom: 3px; letter-spacing: -.2px; }
+  .path-card-sub { font-size: 11.5px; color: var(--text-2); }
+  .path-card-frac {
+    font-size: 22px; font-weight: 800; color: var(--green); letter-spacing: -.5px;
+    flex-shrink: 0;
+  }
+  .path-card-frac span { font-size: 14px; color: var(--text-3); font-weight: 700; }
+
+  /* Progress bar */
+  .progress-bar {
+    height: 5px; border-radius: 3px; background: rgba(255,255,255,.05);
+    overflow: hidden; margin-bottom: 14px;
+  }
+  .progress-fill {
+    height: 100%; background: linear-gradient(90deg, var(--green), var(--green-d));
+    border-radius: 3px;
+  }
+
+  /* Reflections row */
+  .reflections-row { display: flex; gap: 6px; margin-bottom: 14px; flex-wrap: wrap; }
+  .reflection-pill {
+    padding: 4px 10px; border-radius: 999px; font-size: 11px; font-weight: 600;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .reflection-pill.strength {
+    background: rgba(52,211,153,.1); color: rgba(52,211,153,.95);
+    border: 1px solid rgba(52,211,153,.25);
+  }
+  .reflection-pill.gap {
+    background: rgba(251,191,36,.1); color: rgba(251,191,36,.95);
+    border: 1px solid rgba(251,191,36,.25);
+  }
+  .reflection-pill.byo {
+    background: rgba(244,114,182,.1); color: rgba(244,114,182,.95);
+    border: 1px solid rgba(244,114,182,.25);
+  }
+
+  /* "Up next" card */
+  .up-next-row {
+    padding: 12px 14px; border-radius: 10px;
+    background: rgba(255,255,255,.025); border: 1px solid var(--line-2);
+    display: flex; align-items: center; gap: 12px;
+  }
+  .un-num {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: rgba(52,211,153,.14); color: var(--green);
+    display: grid; place-items: center; font-size: 12px; font-weight: 700;
+    flex-shrink: 0;
+  }
+  .un-text { flex: 1; min-width: 0; }
+  .un-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 1px;
+  }
+  .un-title { font-size: 13px; font-weight: 700; color: var(--text); }
+  .un-meta { font-size: 11px; color: var(--text-3); margin-top: 1px; }
+  .un-cta {
+    padding: 8px 16px; border-radius: 8px; border: none;
+    background: linear-gradient(135deg, var(--green), var(--green-d)); color: #0a0f1a;
+    font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit;
+    flex-shrink: 0;
+  }
+
+  /* Secondary path card (more compact) */
+  .path-card-mini {
+    padding: 14px 16px; border-radius: 12px;
+    background: rgba(255,255,255,.025); border: 1px solid var(--line);
+    display: flex; align-items: center; gap: 14px;
+  }
+  .path-card-mini-meta { flex: 1; min-width: 0; }
+  .path-card-mini-title { font-size: 13px; font-weight: 700; color: var(--text); margin-bottom: 4px; }
+  .path-card-mini-sub { font-size: 11px; color: var(--text-3); }
+  .path-card-mini-frac { font-size: 14px; font-weight: 700; color: var(--text-2); flex-shrink: 0; }
+
+  /* New path / browse */
+  .new-path-card {
+    padding: 14px 16px; border-radius: 12px;
+    border: 1.5px dashed rgba(167,139,250,.18); background: rgba(167,139,250,.025);
+    display: flex; align-items: center; gap: 12px; cursor: pointer;
+    transition: all .12s;
+  }
+  .new-path-card:hover { border-color: rgba(167,139,250,.4); background: rgba(167,139,250,.05); }
+  .new-path-ic { font-size: 18px; }
+  .new-path-text { font-size: 12px; color: var(--purple); font-weight: 600; }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 4 — Session inside a path                       */
+  /* ──────────────────────────────────────────────────── */
+  .session-frame { display: flex; flex-direction: column; height: 580px; }
+
+  /* Path breadcrumb at top of session */
+  .path-bar {
+    height: 42px; padding: 0 18px;
+    display: flex; align-items: center; gap: 14px;
+    background: rgba(52,211,153,.04); border-bottom: 1px solid rgba(52,211,153,.12);
+  }
+  .pb-back {
+    font-size: 11px; color: rgba(52,211,153,.85); cursor: pointer;
+    display: flex; align-items: center; gap: 5px; font-weight: 600;
+  }
+  .pb-divider { width: 1px; height: 16px; background: var(--line); }
+  .pb-frac {
+    font-size: 10px; padding: 2px 7px; border-radius: 4px;
+    background: rgba(52,211,153,.12); color: var(--green); font-weight: 700;
+  }
+  .pb-title { font-size: 12.5px; font-weight: 700; color: var(--text); flex: 1; }
+  .pb-meta { font-size: 11px; color: var(--text-3); display: flex; gap: 10px; }
+  .pb-meta strong { color: var(--text-2); }
+
+  /* Session body */
+  .session-body { flex: 1; display: grid; grid-template-columns: 1fr 280px; }
+  .session-board {
+    background: var(--bg-2); display: grid; place-items: center;
+    border-right: 1px solid var(--line);
+    position: relative;
+  }
+  .session-board-mock {
+    width: 80%; padding: 24px; border-radius: 10px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+    text-align: center;
+  }
+  .board-hand {
+    font-size: 11px; color: var(--green); font-family: 'Caveat', cursive; font-weight: 600;
+    margin-bottom: 14px;
+  }
+  .board-diagram {
+    border-radius: 8px; padding: 16px; background: rgba(0,0,0,.3);
+    border: 1px solid var(--line); font-size: 13px; color: var(--text-2);
+    font-family: 'SF Mono', Monaco, monospace; line-height: 1.7;
+    text-align: left;
+  }
+  .board-diagram .reg { color: var(--green); }
+  .board-diagram .com { color: var(--text-3); }
+
+  /* Session sidebar — path-aware */
+  .session-side {
+    background: rgba(255,255,255,.01); padding: 14px;
+    display: flex; flex-direction: column; gap: 12px; overflow-y: auto;
+  }
+  .side-block {
+    padding: 12px; border-radius: 10px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+  }
+  .side-block-head {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 8px; display: flex; justify-content: space-between;
+  }
+  .side-block-head em { color: var(--blue); font-style: normal; }
+  .side-progress {
+    height: 4px; border-radius: 2px; background: rgba(255,255,255,.06);
+    overflow: hidden; margin-bottom: 6px;
+  }
+  .side-progress-fill { height: 100%; background: var(--green); width: 65%; }
+  .side-meta { font-size: 11px; color: var(--text-2); }
+  .side-meta strong { color: var(--text); }
+
+  .next-list { display: flex; flex-direction: column; gap: 5px; }
+  .next-item {
+    padding: 8px 10px; border-radius: 7px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+    display: grid; grid-template-columns: 22px 1fr auto; gap: 8px; align-items: center;
+    font-size: 11px;
+  }
+  .next-item-num {
+    width: 20px; height: 20px; border-radius: 50%; background: rgba(255,255,255,.05);
+    display: grid; place-items: center; font-size: 9.5px; font-weight: 700; color: var(--text-2);
+  }
+  .next-item.upcoming .next-item-num { background: rgba(255,255,255,.04); color: var(--text-3); }
+  .next-item-title { color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .next-item-type {
+    font-size: 8.5px; font-weight: 700; letter-spacing: .5px; padding: 1px 5px; border-radius: 3px;
+    text-transform: uppercase; flex-shrink: 0;
+  }
+  .next-item.t-drill .next-item-type { background: rgba(251,146,60,.14); color: var(--orange); }
+  .next-item.t-build .next-item-type { background: rgba(251,191,36,.16); color: var(--gold); }
+  .next-item.t-learn .next-item-type { background: rgba(52,211,153,.12); color: var(--green); }
+
+  .strength-callout {
+    padding: 10px 12px; border-radius: 9px;
+    background: rgba(52,211,153,.06); border: 1px solid rgba(52,211,153,.2);
+    font-size: 11px; line-height: 1.5; color: var(--text);
+  }
+  .strength-callout strong { color: var(--green); }
+
+  /* Voice/text bar */
+  .session-voice {
+    height: 56px; padding: 10px 16px;
+    border-top: 1px solid var(--line); background: rgba(255,255,255,.015);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .voice-input {
+    flex: 1; padding: 9px 14px; border-radius: 9px;
+    background: rgba(255,255,255,.03); border: 1px solid var(--line);
+    color: var(--text); font-size: 12px; font-family: inherit; outline: none;
+  }
+  .voice-mic {
+    width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--green), var(--green-d));
+    color: #0a0f1a; display: grid; place-items: center; cursor: pointer;
+    font-size: 14px; flex-shrink: 0;
+  }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 5 — Reflection / adaptive pivot                  */
+  /* ──────────────────────────────────────────────────── */
+  .reflection-overlay {
+    position: relative; min-height: 600px;
+    background: var(--bg-2);
+    display: grid; place-items: center;
+    padding: 40px 24px;
+  }
+  .reflection-bg {
+    position: absolute; inset: 0; opacity: .4;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(52,211,153,.06) 0, transparent 50%),
+      radial-gradient(circle at 70% 80%, rgba(96,165,250,.06) 0, transparent 50%);
+  }
+  .reflection-card {
+    position: relative; max-width: 580px; width: 100%;
+    background: var(--panel); border: 1px solid var(--line-2);
+    border-radius: 16px; overflow: hidden;
+    box-shadow: 0 25px 60px rgba(0,0,0,.5);
+  }
+  .ref-head {
+    padding: 18px 24px 14px; display: flex; align-items: center; gap: 12px;
+    background: linear-gradient(135deg, rgba(52,211,153,.07), rgba(255,255,255,0));
+    border-bottom: 1px solid var(--line);
+  }
+  .ref-head-ic {
+    width: 36px; height: 36px; border-radius: 9px;
+    background: rgba(52,211,153,.14); color: var(--green);
+    display: grid; place-items: center; font-size: 16px; flex-shrink: 0;
+  }
+  .ref-head-text { flex: 1; }
+  .ref-head-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.4px; text-transform: uppercase;
+    color: rgba(52,211,153,.85); margin-bottom: 2px;
+  }
+  .ref-head-title { font-size: 16px; font-weight: 800; color: #fff; }
+  .ref-stats { display: flex; gap: 14px; font-size: 11px; color: var(--text-3); flex-shrink: 0; }
+  .ref-stat strong { color: var(--text); display: block; font-size: 13px; font-weight: 700; }
+
+  .ref-body { padding: 18px 24px; display: flex; flex-direction: column; gap: 12px; }
+  .ref-section-label {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 4px;
+  }
+
+  .ref-finding {
+    padding: 11px 13px; border-radius: 10px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line-2);
+    display: flex; gap: 11px; align-items: flex-start;
+  }
+  .ref-finding.strength { background: rgba(52,211,153,.04); border-color: rgba(52,211,153,.18); }
+  .ref-finding.gap { background: rgba(251,191,36,.04); border-color: rgba(251,191,36,.18); }
+  .ref-finding-ic {
+    width: 22px; height: 22px; border-radius: 6px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 11px;
+  }
+  .ref-finding.strength .ref-finding-ic { background: rgba(52,211,153,.14); color: var(--green); }
+  .ref-finding.gap .ref-finding-ic { background: rgba(251,191,36,.14); color: var(--gold); }
+  .ref-finding-text { flex: 1; }
+  .ref-finding-title { font-size: 12.5px; font-weight: 700; color: var(--text); margin-bottom: 2px; }
+  .ref-finding-sub { font-size: 11px; color: var(--text-2); line-height: 1.45; }
+  .ref-finding-tags { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+  .tag-chip {
+    font-size: 9.5px; padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,.05); color: var(--text-2);
+  }
+
+  /* Path diff */
+  .path-diff {
+    padding: 12px 14px; border-radius: 10px;
+    background: rgba(96,165,250,.04); border: 1px solid rgba(96,165,250,.18);
+  }
+  .path-diff-head { font-size: 12px; font-weight: 700; color: var(--blue); margin-bottom: 8px; display: flex; align-items: center; gap: 6px; }
+  .path-diff-list { display: flex; flex-direction: column; gap: 4px; }
+  .diff-line {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 9px; border-radius: 6px; font-size: 11.5px;
+  }
+  .diff-line.kept { color: var(--text-2); background: rgba(255,255,255,.015); }
+  .diff-line.added {
+    color: rgba(52,211,153,.95); background: rgba(52,211,153,.06);
+    border-left: 2px solid var(--green); padding-left: 7px;
+  }
+  .diff-line.added::before { content: '+'; font-weight: 700; margin-right: 2px; color: var(--green); }
+  .diff-line.removed {
+    color: rgba(248,113,113,.85); background: rgba(248,113,113,.05);
+    text-decoration: line-through; opacity: .65;
+  }
+  .diff-line.removed::before { content: '−'; font-weight: 700; margin-right: 2px; }
+  .diff-num { font-size: 9px; opacity: .6; }
+
+  .ref-actions {
+    padding: 14px 24px; display: flex; gap: 8px; justify-content: flex-end;
+    border-top: 1px solid var(--line); background: rgba(0,0,0,.15);
+  }
+  .ref-btn {
+    padding: 9px 16px; border-radius: 9px; border: 1px solid var(--line-2);
+    background: rgba(255,255,255,.03); color: var(--text-2);
+    font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+  }
+  .ref-btn:hover { color: #fff; background: rgba(255,255,255,.07); }
+  .ref-btn-primary {
+    border: none; background: linear-gradient(135deg, var(--green), var(--green-d)); color: #0a0f1a;
+  }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 6 — Mid-path natural-language refine             */
+  /* ──────────────────────────────────────────────────── */
+  .refine-frame { padding: 24px; display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+  .refine-col { display: flex; flex-direction: column; gap: 10px; }
+  .refine-col-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.3px; text-transform: uppercase;
+    color: var(--text-3); margin-bottom: 6px;
+  }
+  .refine-col-eyebrow.before { color: rgba(248,113,113,.7); }
+  .refine-col-eyebrow.after { color: var(--green); }
+
+  .refine-path-card {
+    padding: 14px 16px; border-radius: 11px; flex: 1;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+  }
+  .refine-path-card.after { border-color: rgba(52,211,153,.2); background: rgba(52,211,153,.03); }
+  .refine-path-stats {
+    display: flex; gap: 12px; padding-bottom: 10px; margin-bottom: 10px;
+    border-bottom: 1px solid var(--line); font-size: 11px;
+  }
+  .refine-path-stat strong { color: var(--text); font-weight: 700; }
+  .refine-nodes { display: flex; flex-direction: column; gap: 5px; }
+  .refine-node {
+    padding: 7px 10px; border-radius: 6px; font-size: 11px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .refine-node.removed { opacity: .35; text-decoration: line-through; border-color: rgba(248,113,113,.15); }
+  .refine-node.kept-but-different { border-color: rgba(96,165,250,.2); background: rgba(96,165,250,.03); }
+
+  .refine-chat {
+    grid-column: 1 / -1; margin-top: 8px; padding: 16px;
+    border-radius: 12px; background: var(--panel); border: 1px solid var(--line);
+  }
+  .refine-chat-msg { display: flex; gap: 9px; align-items: flex-start; margin-bottom: 10px; }
+  .refine-chat-msg.user { flex-direction: row-reverse; }
+  .refine-av {
+    width: 22px; height: 22px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 10px; font-weight: 800;
+  }
+  .refine-chat-msg.bot .refine-av { background: linear-gradient(135deg, var(--green), var(--green-d)); color: #0a0f1a; }
+  .refine-chat-msg.user .refine-av { background: linear-gradient(135deg, var(--blue), #818cf8); color: #fff; }
+  .refine-bubble {
+    padding: 8px 11px; border-radius: 10px; font-size: 12.5px; line-height: 1.5;
+    max-width: 80%;
+  }
+  .refine-chat-msg.bot .refine-bubble { background: rgba(255,255,255,.04); border-top-left-radius: 4px; }
+  .refine-chat-msg.bot .refine-bubble strong { color: var(--green); font-weight: 700; }
+  .refine-chat-msg.user .refine-bubble {
+    background: rgba(96,165,250,.12); color: #fff;
+    border: 1px solid rgba(96,165,250,.2); border-top-right-radius: 4px;
+  }
+  .refine-chat-input {
+    margin-top: 10px; padding: 10px 14px; border-radius: 10px;
+    background: rgba(255,255,255,.03); border: 1px solid var(--line);
+    font-size: 12px; color: var(--text-3); font-style: italic;
+  }
+
+  /* ──────────────────────────────────────────────────── */
+  /* STAGE 7 — Path complete                                */
+  /* ──────────────────────────────────────────────────── */
+  .complete-frame {
+    padding: 36px 28px;
+    background: linear-gradient(180deg, rgba(52,211,153,.04) 0, transparent 60%);
+  }
+  .complete-hero {
+    text-align: center; margin-bottom: 28px;
+  }
+  .complete-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 5px 12px; border-radius: 999px;
+    background: rgba(52,211,153,.1); border: 1px solid rgba(52,211,153,.3);
+    font-size: 10px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: var(--green); margin-bottom: 14px;
+  }
+  .complete-title { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -.5px; margin-bottom: 6px; }
+  .complete-title em {
+    color: transparent; font-style: normal;
+    background: linear-gradient(135deg, var(--green), var(--blue));
+    -webkit-background-clip: text;
+  }
+  .complete-sub { font-size: 13px; color: var(--text-2); }
+
+  .complete-stats-grid {
+    display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px;
+    max-width: 700px; margin: 22px auto 28px;
+  }
+  .complete-stat {
+    padding: 14px; border-radius: 11px;
+    background: rgba(255,255,255,.025); border: 1px solid var(--line);
+    text-align: center;
+  }
+  .complete-stat-num { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -.4px; }
+  .complete-stat-num em { color: var(--green); font-style: normal; }
+  .complete-stat-label { font-size: 9.5px; font-weight: 600; letter-spacing: 1px; color: var(--text-3); text-transform: uppercase; margin-top: 3px; }
+
+  .complete-grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 900px; margin: 0 auto 22px;
+  }
+  .complete-block {
+    padding: 16px 18px; border-radius: 12px;
+    background: rgba(255,255,255,.02); border: 1px solid var(--line);
+  }
+  .complete-block.strengths { border-color: rgba(52,211,153,.18); background: rgba(52,211,153,.03); }
+  .complete-block.gaps { border-color: rgba(251,191,36,.18); background: rgba(251,191,36,.03); }
+  .complete-block-head { font-size: 12px; font-weight: 700; margin-bottom: 10px; display: flex; align-items: center; gap: 7px; }
+  .complete-block.strengths .complete-block-head { color: var(--green); }
+  .complete-block.gaps .complete-block-head { color: var(--gold); }
+  .concept-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+  .concept-tag {
+    font-size: 11px; padding: 4px 9px; border-radius: 999px;
+    background: rgba(255,255,255,.04); color: var(--text); font-weight: 500;
+  }
+  .complete-block.strengths .concept-tag { background: rgba(52,211,153,.1); color: rgba(52,211,153,.95); }
+  .complete-block.gaps .concept-tag { background: rgba(251,191,36,.1); color: rgba(251,191,36,.95); cursor: pointer; }
+  .complete-block.gaps .concept-tag:hover { background: rgba(251,191,36,.18); }
+  .gap-cta {
+    margin-top: 10px; padding: 8px 12px; border-radius: 7px;
+    background: rgba(251,191,36,.1); border: 1px dashed rgba(251,191,36,.3);
+    font-size: 11px; color: rgba(251,191,36,.95); cursor: pointer; text-align: center; font-weight: 600;
+  }
+
+  /* Suggested next paths */
+  .next-paths-grid {
+    display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px;
+    max-width: 900px; margin: 0 auto;
+  }
+  .next-path-card {
+    padding: 14px 16px; border-radius: 11px;
+    background: rgba(96,165,250,.025); border: 1px solid rgba(96,165,250,.15);
+    cursor: pointer; transition: all .15s;
+  }
+  .next-path-card:hover { border-color: rgba(96,165,250,.3); background: rgba(96,165,250,.05); transform: translateY(-1px); }
+  .npc-eyebrow {
+    font-size: 9px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: rgba(96,165,250,.85); margin-bottom: 4px;
+  }
+  .npc-title { font-size: 13px; font-weight: 700; color: #fff; margin-bottom: 3px; }
+  .npc-sub { font-size: 11px; color: var(--text-2); line-height: 1.45; }
+  .npc-meta { font-size: 10px; color: var(--text-3); margin-top: 6px; }
+
+  .complete-actions {
+    display: flex; justify-content: center; gap: 10px; margin-top: 28px;
+  }
+  .complete-btn {
+    padding: 11px 22px; border-radius: 10px; border: 1px solid var(--line-2);
+    background: rgba(255,255,255,.04); color: var(--text);
+    font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit;
+    transition: all .12s;
+  }
+  .complete-btn:hover { background: rgba(255,255,255,.07); }
+  .complete-btn-primary {
+    border: none; background: linear-gradient(135deg, var(--green), var(--green-d)); color: #0a0f1a;
+  }
+
+  @media (max-width: 800px) {
+    .compressed-row { grid-template-columns: 1fr; gap: 10px; }
+    .comp-arrow { transform: rotate(90deg); height: 30px; }
+    .session-body { grid-template-columns: 1fr; }
+    .session-side { display: none; }
+    .refine-frame { grid-template-columns: 1fr; }
+    .complete-stats-grid { grid-template-columns: 1fr 1fr; }
+    .complete-grid, .next-paths-grid { grid-template-columns: 1fr; }
+    .home-intents { grid-template-columns: 1fr 1fr; }
+    .stepper { flex-wrap: nowrap; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- Top journey stepper                          -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="journey-bar">
+  <div class="journey-bar-inner">
+    <div class="journey-logo"><em>E</em>uler</div>
+    <div class="journey-title">Path Journey</div>
+    <div class="stepper" id="stepper">
+      <button class="step-btn active" onclick="showStage(1, this)"><span class="step-num">Stage 1</span><span class="step-name">Discovery</span></button>
+      <button class="step-btn" onclick="showStage(2, this)"><span class="step-num">Stage 2</span><span class="step-name">Wizard → Path</span></button>
+      <button class="step-btn" onclick="showStage(3, this)"><span class="step-num">Stage 3</span><span class="step-name">Home with paths</span></button>
+      <button class="step-btn" onclick="showStage(4, this)"><span class="step-num">Stage 4</span><span class="step-name">Inside a session</span></button>
+      <button class="step-btn" onclick="showStage(5, this)"><span class="step-num">Stage 5</span><span class="step-name">Reflection</span></button>
+      <button class="step-btn" onclick="showStage(6, this)"><span class="step-num">Stage 6</span><span class="step-name">Mid-path refine</span></button>
+      <button class="step-btn" onclick="showStage(7, this)"><span class="step-num">Stage 7</span><span class="step-name">Path complete</span></button>
+    </div>
+  </div>
+</div>
+
+<div class="stage-wrap">
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 1 — DISCOVERY                          -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage active" data-stage="1">
+    <div class="caption">
+      <div class="cap-ic">🔍</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 1 · Discovery</div>
+        <div class="cap-title">Student types a broad intent on home</div>
+        <div class="cap-sub">The classifier (already built — see <em>blueprint.classify_intent</em>) decides this is broad. Instead of starting a generic session, an inline hint offers to <em>set up a path</em>. Narrow intents (e.g. "explain quicksort") skip this and start a session directly — same as today.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/home</div></div>
+      <div class="frame-body">
+        <div class="e-nav">
+          <div class="e-logo"><em>E</em>uler</div>
+          <div class="e-tabs"><div class="e-tab active">Home</div><div class="e-tab">My Paths</div><div class="e-tab">Materials</div></div>
+          <div class="e-avatar">M</div>
+        </div>
+
+        <div class="home-hero">
+          <h1>What do you want to <span>learn</span> today?</h1>
+          <p>Type anything — Euler adapts to you.</p>
+
+          <div class="home-search-wrap">
+            <span class="home-search-icon">⌕</span>
+            <input class="home-search" value="teach me embedded c" />
+          </div>
+
+          <!-- Classifier preview hint -->
+          <div class="classifier-hint">
+            <div class="ch-ic">E</div>
+            <div class="ch-text">
+              <div><strong>Embedded C</strong> — that's a big topic. I'll set up a path before we start, so I can pace it for you.</div>
+              <div class="ch-meta">Detected: <strong style="color:var(--blue)">learn intent</strong> · broad scope · ~30s setup</div>
+            </div>
+            <button class="ch-action ch-action-secondary">Just one session</button>
+            <button class="ch-action">Set up path →</button>
+          </div>
+        </div>
+
+        <div class="home-intents">
+          <div class="intent-card-mini"><div class="ic-emoji">🎯</div><div class="ic-name">Learn</div><div class="ic-desc">Teach me a topic</div></div>
+          <div class="intent-card-mini"><div class="ic-emoji">📝</div><div class="ic-name">Solve</div><div class="ic-desc">Walk me through</div></div>
+          <div class="intent-card-mini"><div class="ic-emoji">🎤</div><div class="ic-name">Mock</div><div class="ic-desc">Interview prep</div></div>
+          <div class="intent-card-mini"><div class="ic-emoji">📚</div><div class="ic-name">My Stuff</div><div class="ic-desc">Use my uploads</div></div>
+        </div>
+
+        <div style="text-align:center; padding: 12px 20px 28px; font-size: 11px; color: var(--text-3); line-height: 1.6;">
+          Backend: <em style="color:var(--blue);font-style:normal">classify_intent()</em> returns <code style="color:var(--green)">{type:"learn", scope:"broad", confidence:0.92}</code> → frontend renders the hint above instead of jumping straight to a session.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 2 — WIZARD → PATH (compressed)         -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage" data-stage="2">
+    <div class="caption">
+      <div class="cap-ic">⚡</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 2 · Wizard runs · Path generated</div>
+        <div class="cap-title">4 directed taps → path skeleton in ~5 seconds</div>
+        <div class="cap-sub">Wizard collects: <em>background</em>, <em>goal</em>, <em>depth</em>, <em>prereqs</em>. Then the new <em>path_planner</em> background agent runs once — produces just the node skeleton (titles + types + targets), not the actual lesson content. <em>Lazy</em>: each node hydrates when the student starts it. Full UX in <em>mockup-intent-onboard.html</em>.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/path/new</div></div>
+      <div class="frame-body">
+        <div class="compressed-row">
+          <!-- Wizard preview -->
+          <div class="comp-card">
+            <div class="comp-card-eyebrow">Wizard · 4 taps</div>
+            <div class="comp-card-title">Inline chat — directed Qs, no typing</div>
+            <div class="mini-chat">
+              <div class="mini-msg bot">Embedded C — broad topic. 4 quick taps?</div>
+              <div class="mini-msg bot">Where are you starting?</div>
+            </div>
+            <div class="mini-cards">
+              <div class="mini-card-chip">Total beginner</div>
+              <div class="mini-card-chip selected">Python / JS</div>
+              <div class="mini-card-chip">Know C</div>
+              <div class="mini-card-chip">Done embedded</div>
+            </div>
+            <div class="mini-chat">
+              <div class="mini-msg user">Python / JS</div>
+              <div class="mini-msg bot">Goal? · Depth? · Prereqs?</div>
+              <div class="mini-msg user">Side project · Build stuff · Knows pointers</div>
+            </div>
+            <a class="comp-card-link" href="mockup-intent-onboard.html" target="_blank">Open full wizard mockup →</a>
+          </div>
+
+          <div class="comp-arrow">→</div>
+
+          <!-- Path generated preview -->
+          <div class="comp-card">
+            <div class="comp-card-eyebrow">Path generated · skeleton only</div>
+            <div class="comp-card-title">ESP32 firmware — 13 sessions, ~8h</div>
+            <div class="mini-path-stats">
+              <div class="mini-stat"><strong>13</strong> sessions</div>
+              <div class="mini-stat"><strong>~8h</strong> total</div>
+              <div class="mini-stat"><strong>3</strong> milestones</div>
+              <div class="mini-stat"><strong>2w</strong> pace</div>
+            </div>
+            <div class="mini-nodes">
+              <div class="mini-node t-learn"><div class="mini-node-num">1</div><div class="mini-node-title">C for embedded · 30m</div></div>
+              <div class="mini-node t-learn"><div class="mini-node-num">2</div><div class="mini-node-title">Bit manipulation · 30m</div></div>
+              <div class="mini-node t-learn"><div class="mini-node-num">3</div><div class="mini-node-title">Memory-mapped I/O · 40m</div></div>
+              <div class="mini-node t-drill"><div class="mini-node-num">4</div><div class="mini-node-title">GPIO drills · 25m</div></div>
+              <div class="mini-node t-build"><div class="mini-node-num">5</div><div class="mini-node-title">★ Blink an LED · 45m</div></div>
+              <div class="mini-node t-learn"><div class="mini-node-num">6</div><div class="mini-node-title">Interrupts · 35m</div></div>
+              <div class="mini-node t-quiz"><div class="mini-node-num">8</div><div class="mini-node-title">? Checkpoint · 10m</div></div>
+              <div class="mini-node t-build"><div class="mini-node-num">11</div><div class="mini-node-title">★ Temp logger v1 · 60m</div></div>
+              <div class="mini-node t-build"><div class="mini-node-num">13</div><div class="mini-node-title">★ Logger v2 (Wi-Fi+RTOS) · 75m</div></div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding: 0 24px 24px; font-size: 11px; color: var(--text-3); line-height: 1.6;">
+          Backend at this stage: <em style="color:var(--blue);font-style:normal">POST /api/v1/paths</em> with wizard answers → spawns <em style="color:var(--blue);font-style:normal">path_planner</em> agent (Sonnet, 1 call) → writes <em style="color:var(--green);font-style:normal">paths</em> doc with node skeleton. <strong style="color:var(--green)">No session content generated yet.</strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 3 — HOME WITH ACTIVE PATHS             -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage" data-stage="3">
+    <div class="caption">
+      <div class="cap-ic">🏠</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 3 · Home with active path</div>
+        <div class="cap-title">Path becomes a first-class object on home</div>
+        <div class="cap-sub">Student returns later. Their path is the headline — progress, what reflection found, what's next. Clicking <em>Continue</em> jumps straight into the next node's session. Multiple concurrent paths are allowed; new path entry stays one click away.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/home</div></div>
+      <div class="frame-body">
+        <div class="e-nav">
+          <div class="e-logo"><em>E</em>uler</div>
+          <div class="e-tabs"><div class="e-tab active">Home</div><div class="e-tab">My Paths</div><div class="e-tab">Materials</div></div>
+          <div class="e-avatar">M</div>
+        </div>
+
+        <div class="home-paths">
+          <!-- Featured active path -->
+          <div class="section-head">
+            <div class="section-title">Continue your <em>path</em></div>
+            <a class="section-link">View all paths →</a>
+          </div>
+
+          <div class="path-card">
+            <div class="path-card-head">
+              <div class="path-card-meta">
+                <div class="path-card-eyebrow">Active · started 4 days ago</div>
+                <div class="path-card-title">ESP32 firmware — from C to a Wi-Fi temp logger</div>
+                <div class="path-card-sub">Side project · 13 sessions · ~8h · 2 weeks pace</div>
+              </div>
+              <div class="path-card-frac">3<span>/13</span></div>
+            </div>
+
+            <div class="progress-bar"><div class="progress-fill" style="width: 23%;"></div></div>
+
+            <div class="reflections-row">
+              <span class="reflection-pill strength">✓ Strong on hardware concepts</span>
+              <span class="reflection-pill gap">⚠ Bit ops feel shaky</span>
+              <span class="reflection-pill byo">📦 Pulling from your ESP32 datasheet</span>
+            </div>
+
+            <div class="up-next-row">
+              <div class="un-num">4</div>
+              <div class="un-text">
+                <div class="un-eyebrow">Up next · Drill</div>
+                <div class="un-title">GPIO drills · 3 problems</div>
+                <div class="un-meta">25m · last session 2 days ago · 1 hint enabled</div>
+              </div>
+              <button class="un-cta">Continue →</button>
+            </div>
+          </div>
+
+          <!-- Secondary path -->
+          <div class="section-head" style="margin-top: 22px;">
+            <div class="section-title">Other paths</div>
+          </div>
+
+          <div class="path-card-mini">
+            <div class="un-num" style="background: rgba(167,139,250,.14); color: var(--purple);">8</div>
+            <div class="path-card-mini-meta">
+              <div class="path-card-mini-title">DSA prep — sliding window &amp; trees</div>
+              <div class="path-card-mini-sub">Paused 3 days ago · 8/14 done · ~3h remaining</div>
+            </div>
+            <div class="path-card-mini-frac">8/14</div>
+          </div>
+
+          <div style="margin-top: 8px;">
+            <div class="new-path-card">
+              <div class="new-path-ic">✦</div>
+              <div class="new-path-text">Start a new path · or pick a one-off session</div>
+            </div>
+          </div>
+        </div>
+
+        <div style="padding: 4px 32px 28px; font-size: 11px; color: var(--text-3); line-height: 1.6; max-width: 1100px; margin: 0 auto;">
+          Backend: <em style="color:var(--blue);font-style:normal">GET /api/v1/paths?user_id=...</em> returns active paths with progress. Reflections come from <em style="color:var(--green);font-style:normal">path.path_notes</em> (kind=strength|gap). "Up next" is the first <em style="color:var(--green);font-style:normal">node.status === "pending"</em>.
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 4 — SESSION INSIDE A PATH              -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage" data-stage="4">
+    <div class="caption">
+      <div class="cap-ic">▶</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 4 · Inside a session, path-aware</div>
+        <div class="cap-title">A regular session — but with path context everywhere</div>
+        <div class="cap-sub">The session itself is the existing pipeline. What's new: a path breadcrumb on top, a side panel showing position + what's next, and the tutor prompt is enriched with <em>path notes from previous nodes</em> + <em>filtered concept mastery for this path</em>. Tutor's <em>&lt;notes&gt;</em> get tagged with path_id + node_id automatically.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/session/sess_abc · path_xyz · node_n3</div></div>
+      <div class="frame-body session-frame">
+
+        <!-- Path breadcrumb -->
+        <div class="path-bar">
+          <div class="pb-back">←  ESP32 firmware</div>
+          <div class="pb-divider"></div>
+          <div class="pb-frac">Node 3 / 13</div>
+          <div class="pb-title">Memory-mapped I/O</div>
+          <div class="pb-meta">
+            <span><strong>26m</strong> / 40m</span>
+            <span>📦 BYO active</span>
+          </div>
+        </div>
+
+        <!-- Body: board + sidebar -->
+        <div class="session-body">
+          <div class="session-board">
+            <div class="session-board-mock">
+              <div class="board-hand">↓ Euler is drawing on the board</div>
+              <div class="board-diagram">
+<span class="com">// ESP32 GPIO output register</span>
+<span class="reg">GPIO_OUT_REG</span> = <span class="reg">0x3FF44004</span>
+   ↓
+[31..18 reserved] [17..0 pin bits]
+
+<span class="com">// Set pin 5 high (bare-metal)</span>
+*(<span class="reg">volatile uint32_t*</span>)0x3FF44004 |= (1 &lt;&lt; 5);
+              </div>
+            </div>
+          </div>
+
+          <!-- Path-aware side panel -->
+          <div class="session-side">
+
+            <div class="side-block">
+              <div class="side-block-head"><span>This node</span><em>node 3</em></div>
+              <div class="side-progress"><div class="side-progress-fill"></div></div>
+              <div class="side-meta"><strong>Memory-mapped I/O</strong></div>
+              <div class="side-meta" style="font-size: 10.5px; margin-top: 2px;">26m / 40m · 65%</div>
+            </div>
+
+            <div class="side-block">
+              <div class="side-block-head"><span>What I'm using</span></div>
+              <div class="side-meta" style="font-size: 11px; line-height: 1.6;">
+                📦 ESP32 datasheet · register map (p. 234)<br>
+                📚 Curated · MMIO fundamentals<br>
+                💪 Drill bank · 3 GPIO problems queued for next
+              </div>
+            </div>
+
+            <div class="strength-callout">
+              <strong>Noticed:</strong> you got register access patterns fast — this came from session 1's notes. I'll skip the recap I'd planned for node 5.
+            </div>
+
+            <div class="side-block">
+              <div class="side-block-head"><span>What's next</span></div>
+              <div class="next-list">
+                <div class="next-item upcoming t-drill">
+                  <div class="next-item-num">4</div>
+                  <div class="next-item-title">GPIO drills</div>
+                  <div class="next-item-type">Drill</div>
+                </div>
+                <div class="next-item upcoming t-build">
+                  <div class="next-item-num">5</div>
+                  <div class="next-item-title">★ Blink an LED</div>
+                  <div class="next-item-type">Build</div>
+                </div>
+                <div class="next-item upcoming t-learn">
+                  <div class="next-item-num">6</div>
+                  <div class="next-item-title">Interrupts (ISRs)</div>
+                  <div class="next-item-type">Learn</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Voice/text bar -->
+        <div class="session-voice">
+          <input class="voice-input" placeholder="Type to Euler · or just talk..." />
+          <div class="voice-mic">🎤</div>
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 14px 4px 0; font-size: 11px; color: var(--text-3); line-height: 1.7;">
+      <strong style="color:var(--text)">Tutor prompt now includes:</strong>
+      session.path_id, session.node_id, formatted path_notes from prior nodes, knowledge_state filtered to <code style="color:var(--green)">notes.path_id == current</code>.
+      <strong style="color:var(--text)">Tutor's &lt;notes&gt; XML</strong> auto-tags with path_id + node_id at write time.
+      <strong style="color:var(--text)">Tools available:</strong> existing TUTOR_TOOLS — retrieval (search/fetch on BYO + auto-collection from web), web_search (now enabled in path mode), draw_on_canvas, etc.
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 5 — REFLECTION + ADAPTIVE PIVOT        -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage" data-stage="5">
+    <div class="caption">
+      <div class="cap-ic">✨</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 5 · Post-session reflection</div>
+        <div class="cap-title">Euler reflects on the session → adapts the path</div>
+        <div class="cap-sub">After every node, a lightweight <em>reflection agent</em> (Haiku tier) runs. It reads the session's notes + signals + assessment → writes <em>path_notes</em> with strengths/gaps → may propose pivots (insert remediation, skip ahead, swap a node). User confirms before path mutates — keeps trust.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/session/done</div></div>
+      <div class="reflection-overlay">
+        <div class="reflection-bg"></div>
+
+        <div class="reflection-card">
+
+          <div class="ref-head">
+            <div class="ref-head-ic">✓</div>
+            <div class="ref-head-text">
+              <div class="ref-head-eyebrow">Node 3 of 13 · complete</div>
+              <div class="ref-head-title">Memory-mapped I/O</div>
+            </div>
+            <div class="ref-stats">
+              <div class="ref-stat"><strong>32m</strong>actual</div>
+              <div class="ref-stat"><strong>40m</strong>target</div>
+            </div>
+          </div>
+
+          <div class="ref-body">
+
+            <div>
+              <div class="ref-section-label">What I noticed</div>
+
+              <div class="ref-finding strength" style="margin-bottom: 6px;">
+                <div class="ref-finding-ic">✓</div>
+                <div class="ref-finding-text">
+                  <div class="ref-finding-title">Strong on register access patterns</div>
+                  <div class="ref-finding-sub">You connected the address arithmetic to bit manipulation without prompting. I'm flagging this as a strength.</div>
+                  <div class="ref-finding-tags"><span class="tag-chip">mmio</span><span class="tag-chip">registers</span><span class="tag-chip">bit-ops</span></div>
+                </div>
+              </div>
+
+              <div class="ref-finding gap">
+                <div class="ref-finding-ic">⚠</div>
+                <div class="ref-finding-text">
+                  <div class="ref-finding-title">Volatile keyword tripped you up</div>
+                  <div class="ref-finding-sub">You re-asked twice. Worth a 5m revisit before the LED milestone — otherwise the build will surface the same confusion.</div>
+                  <div class="ref-finding-tags"><span class="tag-chip">volatile</span><span class="tag-chip">c-keywords</span></div>
+                </div>
+              </div>
+            </div>
+
+            <div class="path-diff">
+              <div class="path-diff-head"><span>⚙</span> Proposed path update</div>
+              <div class="path-diff-list">
+                <div class="diff-line kept"><span class="diff-num">4</span>Drill — GPIO drills · 25m</div>
+                <div class="diff-line added"><span class="diff-num">4.5</span>Mini-recap — volatile, the safe way · 5m</div>
+                <div class="diff-line kept"><span class="diff-num">5</span>★ Build — Blink an LED · 45m</div>
+                <div class="diff-line removed"><span class="diff-num">6</span>Learn — pre-interrupts setup recap · 15m  <em style="font-size:9px;opacity:.7;">(skipped — you're solid here)</em></div>
+                <div class="diff-line kept"><span class="diff-num">7</span>Learn — Interrupts (ISRs) · 35m</div>
+              </div>
+              <div style="font-size: 10.5px; color: var(--text-3); margin-top: 8px;">
+                Net: <strong style="color:var(--text)">+1 session, –10m total</strong>. Targeted at the gap, skips what you've already shown.
+              </div>
+            </div>
+          </div>
+
+          <div class="ref-actions">
+            <button class="ref-btn">Don't change anything</button>
+            <button class="ref-btn">Let me decide each</button>
+            <button class="ref-btn ref-btn-primary">Looks right · apply</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 14px 4px 0; font-size: 11px; color: var(--text-3); line-height: 1.7;">
+      <strong style="color:var(--text)">Where this comes from:</strong>
+      reflection agent reads <code style="color:var(--green)">session.tutor_notes</code> + <code style="color:var(--green)">session.last_signals</code> + <code style="color:var(--green)">session.last_assessment_summary</code>.
+      Strengths/gaps written to <code style="color:var(--green)">path.path_notes[]</code>. Pivots written to <code style="color:var(--green)">path.pivots[]</code> with reason + diff.
+      <strong style="color:var(--text)">Auto-apply</strong> is configurable per user (default: confirm).
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 6 — MID-PATH NL REFINE                 -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage" data-stage="6">
+    <div class="caption">
+      <div class="cap-ic">💬</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 6 · Student drives the change</div>
+        <div class="cap-title">"Shorter please. Drop the stretch phase."</div>
+        <div class="cap-sub">User can refine the path at any time via natural language — same loop as the reflection agent, but triggered by a user message instead of a session-end event. Path planner regenerates downstream nodes; UI shows the diff before applying.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/path/path_xyz</div></div>
+      <div class="frame-body">
+        <div class="refine-frame">
+
+          <!-- BEFORE -->
+          <div class="refine-col">
+            <div class="refine-col-eyebrow before">Before · 13 sessions, ~8h</div>
+            <div class="refine-path-card">
+              <div class="refine-path-stats">
+                <span class="refine-path-stat"><strong>13</strong> sessions</span>
+                <span class="refine-path-stat"><strong>~8h</strong> total</span>
+                <span class="refine-path-stat"><strong>3</strong> milestones</span>
+              </div>
+              <div class="refine-nodes">
+                <div class="refine-node">1 · C for embedded</div>
+                <div class="refine-node">2 · Bit manipulation</div>
+                <div class="refine-node">3 · Memory-mapped I/O ✓</div>
+                <div class="refine-node">4 · GPIO drills</div>
+                <div class="refine-node">5 · ★ Blink an LED</div>
+                <div class="refine-node">6 · Interrupts</div>
+                <div class="refine-node">7 · UART → laptop</div>
+                <div class="refine-node">8 · ? Quiz checkpoint</div>
+                <div class="refine-node">9 · I²C — read sensor</div>
+                <div class="refine-node">10 · Timers &amp; PWM</div>
+                <div class="refine-node">11 · ★ Temp logger v1</div>
+                <div class="refine-node removed">12 · FreeRTOS basics</div>
+                <div class="refine-node removed">13 · ★ Logger v2 (Wi-Fi+RTOS)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- AFTER -->
+          <div class="refine-col">
+            <div class="refine-col-eyebrow after">After · 11 sessions, ~6h</div>
+            <div class="refine-path-card after">
+              <div class="refine-path-stats">
+                <span class="refine-path-stat"><strong style="color:var(--green)">11</strong> sessions</span>
+                <span class="refine-path-stat"><strong style="color:var(--green)">~6h</strong> total</span>
+                <span class="refine-path-stat"><strong>2</strong> milestones</span>
+              </div>
+              <div class="refine-nodes">
+                <div class="refine-node">1 · C for embedded</div>
+                <div class="refine-node">2 · Bit manipulation</div>
+                <div class="refine-node">3 · Memory-mapped I/O ✓</div>
+                <div class="refine-node">4 · GPIO drills</div>
+                <div class="refine-node">5 · ★ Blink an LED</div>
+                <div class="refine-node">6 · Interrupts</div>
+                <div class="refine-node">7 · UART → laptop</div>
+                <div class="refine-node">8 · ? Quiz checkpoint</div>
+                <div class="refine-node">9 · I²C — read sensor</div>
+                <div class="refine-node">10 · Timers &amp; PWM</div>
+                <div class="refine-node kept-but-different">11 · ★ Temp logger (logs to UART, no Wi-Fi)</div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Chat -->
+          <div class="refine-chat">
+            <div class="refine-chat-msg user">
+              <div class="refine-av">M</div>
+              <div class="refine-bubble">shorter please — drop the stretch phase, my deadline moved</div>
+            </div>
+            <div class="refine-chat-msg bot">
+              <div class="refine-av">E</div>
+              <div class="refine-bubble">Done. Dropped <strong>FreeRTOS</strong> + <strong>Logger v2 Wi-Fi</strong>. Re-scoped <strong>Logger v1</strong> as the final milestone — keeps the project complete. Down to <strong>11 sessions, ~6h</strong>. Apply?</div>
+            </div>
+            <div class="refine-chat-input">type to refine further · or "apply" / "undo"</div>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 14px 4px 0; font-size: 11px; color: var(--text-3); line-height: 1.7;">
+      <strong style="color:var(--text)">Implementation:</strong>
+      a new tool <code style="color:var(--green)">propose_path_pivot(user_request)</code> available to the tutor + a dedicated chat surface on the path view.
+      Re-runs <em style="color:var(--blue);font-style:normal">path_planner</em> with the existing nodes + user constraint. Diff is mockup-only until user clicks apply.
+      Existing pattern: same as <code style="color:var(--green)">detour_stack</code> for in-session deviations, scaled up.
+    </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════ -->
+  <!-- STAGE 7 — PATH COMPLETE                      -->
+  <!-- ═══════════════════════════════════════════ -->
+  <div class="stage" data-stage="7">
+    <div class="caption">
+      <div class="cap-ic">🏁</div>
+      <div class="cap-text">
+        <div class="cap-eyebrow">Stage 7 · Path complete</div>
+        <div class="cap-title">Retrospective + what to do next</div>
+        <div class="cap-sub">Final milestone done. Student sees what they actually mastered (concept tags from <em>student_concept_mastery</em> filtered to this path), what's still shaky, and 2-3 suggested next paths. Strong concepts inform future paths' "skip prereqs" logic.</div>
+      </div>
+    </div>
+
+    <div class="frame">
+      <div class="frame-chrome"><div class="chrome-dots"><div class="chrome-dot"></div><div class="chrome-dot"></div><div class="chrome-dot"></div></div><div class="chrome-url">euler.ai/path/path_xyz/complete</div></div>
+      <div class="frame-body">
+        <div class="complete-frame">
+
+          <div class="complete-hero">
+            <div class="complete-badge">★ Path complete</div>
+            <div class="complete-title"><em>ESP32 firmware</em> — done.</div>
+            <div class="complete-sub">From "I know Python" to a working Wi-Fi temperature logger. Your portfolio piece is on a shelf somewhere.</div>
+          </div>
+
+          <div class="complete-stats-grid">
+            <div class="complete-stat"><div class="complete-stat-num"><em>13</em></div><div class="complete-stat-label">sessions</div></div>
+            <div class="complete-stat"><div class="complete-stat-num"><em>9h 14m</em></div><div class="complete-stat-label">time spent</div></div>
+            <div class="complete-stat"><div class="complete-stat-num"><em>14d</em></div><div class="complete-stat-label">elapsed</div></div>
+            <div class="complete-stat"><div class="complete-stat-num"><em>3</em></div><div class="complete-stat-label">builds shipped</div></div>
+          </div>
+
+          <div class="complete-grid">
+            <div class="complete-block strengths">
+              <div class="complete-block-head">✓ Strengths discovered (12 concepts)</div>
+              <div class="concept-tags">
+                <span class="concept-tag">memory-mapped I/O</span>
+                <span class="concept-tag">register access</span>
+                <span class="concept-tag">bit manipulation</span>
+                <span class="concept-tag">GPIO</span>
+                <span class="concept-tag">UART</span>
+                <span class="concept-tag">I²C</span>
+                <span class="concept-tag">interrupts (basic)</span>
+                <span class="concept-tag">timers</span>
+                <span class="concept-tag">debugging via serial</span>
+                <span class="concept-tag">datasheet reading</span>
+                <span class="concept-tag">bare-metal C</span>
+                <span class="concept-tag">Wi-Fi (basic)</span>
+              </div>
+              <div style="font-size: 10.5px; color: var(--text-3); margin-top: 9px;">
+                These are now in your global mastery — future paths will skip them as prereqs automatically.
+              </div>
+            </div>
+
+            <div class="complete-block gaps">
+              <div class="complete-block-head">⚠ Still shaky (3 concepts)</div>
+              <div class="concept-tags">
+                <span class="concept-tag">advanced ISR patterns</span>
+                <span class="concept-tag">RTOS task coordination</span>
+                <span class="concept-tag">power management</span>
+              </div>
+              <div class="gap-cta">+ Extend this path with a stretch chapter (~3 sessions)</div>
+            </div>
+          </div>
+
+          <div class="section-head" style="max-width: 900px; margin: 28px auto 14px; padding: 0 4px;">
+            <div class="section-title">Suggested next paths</div>
+            <a class="section-link">Browse all →</a>
+          </div>
+
+          <div class="next-paths-grid">
+            <div class="next-path-card">
+              <div class="npc-eyebrow">Builds on what you know</div>
+              <div class="npc-title">Embedded Linux on a Raspberry Pi</div>
+              <div class="npc-sub">Same hardware-software bridge, larger scope. Drivers, kernel modules, syscalls.</div>
+              <div class="npc-meta">~12 sessions · ~10h · uses 8 of your concepts</div>
+            </div>
+
+            <div class="next-path-card">
+              <div class="npc-eyebrow">Deepens this path</div>
+              <div class="npc-title">FreeRTOS &amp; multi-tasking firmware</div>
+              <div class="npc-sub">Picks up where you stopped — tasks, queues, semaphores. Targets your ISR + RTOS gaps.</div>
+              <div class="npc-meta">~8 sessions · ~6h · plugs 2 of your gaps</div>
+            </div>
+
+            <div class="next-path-card">
+              <div class="npc-eyebrow">Different direction</div>
+              <div class="npc-title">CircuitPython for the Maker side</div>
+              <div class="npc-sub">If bare-metal felt heavy. Higher-level, faster prototyping. You'd skip 4 prereqs.</div>
+              <div class="npc-meta">~6 sessions · ~4h</div>
+            </div>
+          </div>
+
+          <div class="complete-actions">
+            <button class="complete-btn">Save retrospective &amp; close</button>
+            <button class="complete-btn complete-btn-primary">Start FreeRTOS path →</button>
+          </div>
+
+        </div>
+      </div>
+    </div>
+
+    <div style="padding: 14px 4px 0; font-size: 11px; color: var(--text-3); line-height: 1.7;">
+      <strong style="color:var(--text)">What's stored:</strong>
+      <code style="color:var(--green)">path.status = "completed"</code>, full retrospective derived from <em style="color:var(--blue);font-style:normal">student_concept_mastery</em> filtered to this path.
+      Strengths flow into the global mastery doc — future <em style="color:var(--blue);font-style:normal">path_planner</em> calls automatically skip them as prereqs.
+      Suggested paths come from a small recommender that scores prereq-overlap × concept-novelty against the global path catalog.
+    </div>
+  </div>
+
+</div>
+
+<!-- Prev/next nav -->
+<div class="stage-wrap">
+  <div class="stage-nav">
+    <button class="nav-btn" id="prev-btn" onclick="navStage(-1)">← Previous stage</button>
+    <span style="font-size: 11px; color: var(--text-3);" id="stage-indicator">Stage 1 of 7</span>
+    <button class="nav-btn nav-btn-next" id="next-btn" onclick="navStage(1)">Next stage →</button>
+  </div>
+</div>
+
+<script>
+let currentStage = 1;
+const totalStages = 7;
+function showStage(n, btn) {
+  currentStage = n;
+  document.querySelectorAll('.stage').forEach(el => el.classList.remove('active'));
+  document.querySelector(`.stage[data-stage="${n}"]`).classList.add('active');
+  document.querySelectorAll('.step-btn').forEach(el => el.classList.remove('active'));
+  if (btn) {
+    btn.classList.add('active');
+  } else {
+    const buttons = document.querySelectorAll('.step-btn');
+    if (buttons[n - 1]) buttons[n - 1].classList.add('active');
+  }
+  updateNav();
+  window.scrollTo({ top: 0, behavior: 'smooth' });
+}
+function navStage(delta) {
+  const next = currentStage + delta;
+  if (next >= 1 && next <= totalStages) showStage(next);
+}
+function updateNav() {
+  document.getElementById('prev-btn').disabled = currentStage === 1;
+  document.getElementById('next-btn').disabled = currentStage === totalStages;
+  document.getElementById('next-btn').textContent = currentStage === totalStages ? 'Done ✓' : 'Next stage →';
+  document.getElementById('stage-indicator').textContent = `Stage ${currentStage} of ${totalStages}`;
+}
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+  if (e.key === 'ArrowRight') navStage(1);
+  if (e.key === 'ArrowLeft') navStage(-1);
+});
+updateNav();
+</script>
+
+</body>
+</html>

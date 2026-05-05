@@ -52,7 +52,6 @@ from app.tools import (
     DELEGATION_TOOLS,
     ASSESSMENT_TOOLS,
     RETURN_TO_TUTOR_TOOL,
-    VIDEO_FOLLOW_TOOLS,
     execute_tutor_tool,
 )
 
@@ -514,9 +513,8 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                 slog.debug("Housekeeping notes updated", extra={"count": len(notes)})
 
                 # Build rich note text for DB persistence
-                _sm_course_id, _ = _extract_student_info(context_data)
                 _sm_email = _extract_user_email(context_data)
-                if _sm_course_id and _sm_email:
+                if _sm_email:
                     import asyncio as _aio
                     from app.services.knowledge.knowledge_state import upsert_concept_note
 
@@ -535,7 +533,7 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                             note_text = " ".join(parts) if parts else ""
                             try:
                                 await upsert_concept_note(
-                                    _sm_course_id, _sm_email, session_id,
+                                    _sm_email, session_id,
                                     concepts=entry.get("concepts", ["_uncategorized"]),
                                     note_text=note_text,
                                     lesson=entry.get("lesson"),
@@ -739,7 +737,7 @@ def _process_housekeeping_inner(session, full_text: str, context_data: dict, ses
                     elif tool == "web_search" and query:
                         try:
                             from app.tools.web_search import web_search
-                            result_text = await web_search({"query": query, "limit": 3})
+                            result_text = await web_search(query, limit=3)
                             result_text = f"web_search(\"{query}\"):\n{(result_text or '')[:600]}\n"
                         except Exception:
                             pass
@@ -765,7 +763,6 @@ def extract_context(context_items: list[dict] | None) -> dict:
     data: dict[str, str] = {}
     key_map = {
         "student profile": "studentProfile",
-        "course map": "courseMap",
         "simulations": "simulations",
         "interactive tools": "simulations",
         "concepts": "concepts",
@@ -773,7 +770,6 @@ def extract_context(context_items: list[dict] | None) -> dict:
         "active simulation state": "activeSimulation",
         "active board": "activeBoard",
         "previous boards": "previousBoards",
-        "video state": "videoState",
         "teaching plan": "teachingPlan",
         "session context": "sessionContext",
     }
@@ -785,15 +781,15 @@ def extract_context(context_items: list[dict] | None) -> dict:
     return data
 
 
-def _extract_student_info(context_data: dict) -> tuple[int | None, str | None]:
+def _extract_student_name(context_data: dict) -> str | None:
     profile_str = context_data.get("studentProfile", "")
     if not profile_str:
-        return None, None
+        return None
     try:
         profile = json.loads(profile_str)
-        return profile.get("courseId"), profile.get("studentName")
+        return profile.get("studentName")
     except (json.JSONDecodeError, TypeError):
-        return None, None
+        return None
 
 
 def _extract_user_email(context_data: dict) -> str | None:
@@ -813,8 +809,36 @@ CONTENT_TOOL_NAMES = {"search", "fetch", "peek", "nearby", "list_contents"}
 # ── Session Phase Controller ──────────────────────────────────────────────────
 
 def _init_session_phase(session, context_data: dict, slog):
-    """Set the initial session phase. Always TEACHING — triage is now
-    embedded in the per-topic READ-CHECK-TEACH-VERIFY cycle."""
+    """Set the initial session phase.
+
+    Default: TEACHING — diagnostic is embedded in the per-topic
+    READ-CHECK-TEACH-VERIFY cycle. But when the student's intent is
+    LOW-SIGNAL (just a URL we cannot fetch, empty, or fewer than 2
+    meaningful words), TEACHING immediately would force the tutor to
+    invent a topic — which is exactly the bug that produced the
+    "Networking Fundamentals" hallucination on a Schrödinger YouTube
+    link. In that case we start in TRIAGE so the tutor asks one short
+    clarifying question first.
+    """
+    from app.agents.blueprint import is_low_signal_intent
+
+    intent_text = (getattr(session, "student_intent", "") or "").strip()
+    low_signal, reason = is_low_signal_intent(intent_text)
+    if low_signal:
+        session.phase = SessionPhase.TRIAGE
+        # Stash a hint that the prompt builder can surface to the tutor.
+        try:
+            context_data["lowSignalIntentReason"] = reason
+            context_data["lowSignalIntentText"] = intent_text[:400]
+        except Exception:
+            pass
+        slog.info(
+            "Phase: TRIAGE (low-signal intent: %s, raw=%r)",
+            reason,
+            intent_text[:120],
+        )
+        return
+
     session.phase = SessionPhase.TEACHING
     slog.info("Phase: TEACHING (diagnostic embedded in teaching cycle)")
 
@@ -870,14 +894,15 @@ def _check_phase_transition(session, agent_output: dict) -> SessionPhase | None:
 
 async def _load_knowledge_context(context_data: dict) -> dict:
     """Load knowledge state + summary in parallel at session start."""
-    course_id, student_name = _extract_student_info(context_data)
-    if not course_id or not student_name:
-        return context_data
+    student_name = _extract_student_name(context_data)
     user_email = _extract_user_email(context_data)
+    key = user_email or student_name
+    if not key:
+        return context_data
     try:
         ks, summary = await asyncio.gather(
-            get_or_init_knowledge_state(course_id, student_name),
-            get_knowledge_summary(course_id, user_email or student_name),
+            get_or_init_knowledge_state(key),
+            get_knowledge_summary(key),
         )
         context_data["knowledgeState"] = format_knowledge_state(ks)
         if summary:
@@ -1361,10 +1386,7 @@ def _auto_spawn_planner_if_ready(session, runtime, context_data: dict, slog) -> 
             except (json.JSONDecodeError, TypeError, AttributeError):
                 pass
 
-        has_course = bool(context_data.get("courseMap"))
         course_instruction = (
-            "Use search(scope='course') and fetch/peek on returned refs to inspect relevant course sections and ground your plan in the professor's material."
-            if has_course else
             "No structured course available. Use web_search to find authoritative resources and plan from your knowledge."
         )
 
@@ -2189,14 +2211,13 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
                     slog.info("Assessment updated student model", extra={"agent": "assessment", "tool": "update_student_model"})
 
                     # Persist
-                    _sm_course_id, _ = _extract_student_info(context_data)
                     _sm_email = _extract_user_email(context_data)
-                    if _sm_course_id and _sm_email:
+                    if _sm_email:
                         from app.services.knowledge.knowledge_state import upsert_concept_note
                         for entry in notes:
                             try:
                                 await upsert_concept_note(
-                                    _sm_course_id, _sm_email, session_id,
+                                    _sm_email, session_id,
                                     concepts=entry.get("concepts", ["_uncategorized"]),
                                     note_text=entry.get("note", ""),
                                     lesson=entry.get("lesson"),
@@ -2209,11 +2230,10 @@ async def _handle_assessment(session, session_id, claude_messages, context_data,
 
                 # ── query_knowledge ─────────────────────────────
                 elif block.name == "query_knowledge":
-                    course_id, _ = _extract_student_info(context_data)
                     user_email = _extract_user_email(context_data)
-                    if course_id and user_email:
+                    if user_email:
                         try:
-                            result = await hybrid_search_notes(course_id, user_email, block.input["query"])
+                            result = await hybrid_search_notes(user_email, block.input["query"])
                         except Exception as e:
                             result = f"Failed to query knowledge: {str(e)[:200]}"
                     else:
@@ -2388,14 +2408,13 @@ async def _execute_tool_block(*, block, session, session_id, context_data, runti
 
         elif name == "query_knowledge":
             # Removed from active tools but model sometimes still calls it.
-            # Route through hybrid_search_notes if we have student info,
+            # Route through hybrid_search_notes if we have a user email,
             # otherwise return a graceful message.
-            course_id, _ = _extract_student_info(context_data)
             user_email = _extract_user_email(context_data)
-            if course_id and user_email:
+            if user_email:
                 try:
-                    from app.services.student_model.service import hybrid_search_notes
-                    return await hybrid_search_notes(course_id, user_email, inp.get("query", ""))
+                    from app.services.knowledge.knowledge_state import hybrid_search_notes
+                    return await hybrid_search_notes(user_email, inp.get("query", ""))
                 except Exception as e:
                     slog.debug("query_knowledge failed: %s", e)
             return "No student knowledge records available. Teach from your current context."
@@ -2592,26 +2611,21 @@ async def _generate_for_turn(
                 session.agent_runtime = AgentRuntime(session_id=sid)
             runtime = session.agent_runtime
 
-            is_video_mode = bool(context_data.get("videoState"))
-            if is_video_mode:
-                session.active_scenario = "video_follow"
-
-            if is_session_start and not is_video_mode:
+            if is_session_start:
                 _init_session_phase(session, context_data, slog)
 
             # ── Triage phase: inject triage overlay into tutor prompt ──
             if session.phase == SessionPhase.TRIAGE:
                 triage_ctx = {}
-                # Resolve content brief so triage knows what's available
-                if not session.triage_result and session.student_intent:
-                    try:
-                        from app.services.content.content_resolver import resolve_content, format_content_brief
-                        brief = await resolve_content(session.student_intent)
-                        triage_ctx["contentBrief"] = format_content_brief(brief)
-                        if not hasattr(session, '_content_brief'):
-                            session._content_brief = brief
-                    except Exception as e:
-                        slog.warning("Content resolve for triage failed: %s", e)
+                # Forward the low-signal reason so the prompt knows the
+                # student input is JUST a URL / empty / a single word and
+                # the tutor must NOT guess a topic.
+                _ls_reason = context_data.get("lowSignalIntentReason")
+                _ls_text = context_data.get("lowSignalIntentText")
+                if _ls_reason:
+                    triage_ctx["lowSignalReason"] = _ls_reason
+                if _ls_text:
+                    triage_ctx["lowSignalText"] = _ls_text
                 # Upcoming topics
                 if session.current_topics and session.current_topic_index >= 0:
                     upcoming = session.current_topics[session.current_topic_index:][:5]
@@ -2632,13 +2646,13 @@ async def _generate_for_turn(
 
             # Plan setup — emit PLAN_UPDATE if we already have one cached.
             # Otherwise the background planner spawned below will deliver one.
-            if is_session_start and not is_video_mode and session.current_plan:
+            if is_session_start and session.current_plan:
                 yield _sse({"type": "PLAN_UPDATE", "plan": session.current_plan, "sessionObjective": session.session_objective or "", "currentTopicIndex": session.current_topic_index})
 
             # ── Spawn planner BEFORE LLM call so it runs in parallel with the tutor ──
             # The planner takes 10-30s. By spawning before the tutor responds,
             # we give it the entire turn duration to complete.
-            if not is_video_mode and not session.current_plan:
+            if not session.current_plan:
                 _auto_spawn_planner_if_ready(session, runtime, context_data, slog)
 
             # Step 3: Assessment / delegation routing
@@ -2854,41 +2868,6 @@ async def _generate_for_turn(
                 context_data["_prefetchedContent"] = session.prefetched_content
                 session.prefetched_content = None  # one-shot: clear after use
 
-            # ── Auto-inject context for video follow-along ──
-            # Pre-fetch transcript + section content so tutor doesn't need tool calls
-            video_state_raw = context_data.get("videoState")
-            if video_state_raw:
-                try:
-                    import json as _vjson
-                    vs = _vjson.loads(video_state_raw) if isinstance(video_state_raw, str) else video_state_raw
-                    _vid_lesson = vs.get("lessonId")
-                    _vid_ts = vs.get("currentTimestamp", 0)
-                    _vid_section = vs.get("currentSectionIndex", 0)
-
-                    if _vid_lesson:
-                        import asyncio as _aio
-                        _fetch_tasks = []
-                        if _vid_ts > 0 and not context_data.get("_autoTranscript"):
-                            from app.tools.handlers import get_transcript_context as _gtc
-                            _fetch_tasks.append(_gtc(int(_vid_lesson), float(_vid_ts)))
-                        else:
-                            _fetch_tasks.append(_aio.sleep(0))
-
-                        if not context_data.get("_autoSectionContent"):
-                            from app.tools.handlers import get_section_content as _gsc
-                            _fetch_tasks.append(_gsc(int(_vid_lesson), int(_vid_section)))
-                        else:
-                            _fetch_tasks.append(_aio.sleep(0))
-
-                        results = await _aio.gather(*_fetch_tasks, return_exceptions=True)
-
-                        if not isinstance(results[0], (Exception, type(None))) and results[0]:
-                            context_data["_autoTranscript"] = results[0]
-                        if not isinstance(results[1], (Exception, type(None))) and results[1]:
-                            context_data["_autoSectionContent"] = results[1]
-                except Exception as _te:
-                    log.debug("Auto video context injection failed (ws): %s", _te)
-
             # ── DSA / SD / Mock mode detection ──────────────────────
             _sc_raw = context_data.get("sessionContext", "")
             try:
@@ -3035,6 +3014,30 @@ async def _generate_for_turn(
                         _problem_json[_ef] = _pd[_ef]
                 context_data["problemData"] = json.dumps(_problem_json, indent=2)
 
+            # ── Path context (cross-session memory) ────────────────
+            _path_id = _sc_obj.get("path_id") or _sc_obj.get("pathId")
+            _node_id = _sc_obj.get("node_id") or _sc_obj.get("nodeId")
+            if _path_id and _node_id:
+                # Load on first turn, refresh every 5 turns to pick up external changes
+                _should_load = (
+                    not getattr(session, '_path_context', None)
+                    or (session.assistant_turn_count > 0 and session.assistant_turn_count % 5 == 0)
+                )
+                if _should_load:
+                    try:
+                        from app.services.paths.context_builder import build_path_context
+                        session._path_context = await build_path_context(_path_id, _node_id)
+                        session._path_id = _path_id
+                        session._node_id = _node_id
+                        if session._path_context and not getattr(session, '_path_logged', False):
+                            slog.info("Path context loaded: %s node %s",
+                                      _path_id[:12], _node_id, extra={"event": "PATH_CONTEXT"})
+                            session._path_logged = True
+                    except Exception as _pe:
+                        slog.debug("Path context load failed: %s", _pe)
+                if getattr(session, '_path_context', None):
+                    context_data["pathContext"] = json.dumps(session._path_context, default=str)
+
             tutor_prompt = build_tutor_prompt({
                 **context_data,
                 "session_mode": session.session_mode,
@@ -3132,33 +3135,12 @@ async def _generate_for_turn(
             else:
                 _removed_tools |= {"run_code", "push_code", "draw_on_canvas"}
 
-            if is_video_mode:
-                # Determine if this is a NEW pause (fresh timestamp) or a follow-up at same spot
-                _vid_ts = 0
-                try:
-                    _vs_raw = context_data.get("videoState", "")
-                    _vs_parsed = json.loads(_vs_raw) if isinstance(_vs_raw, str) and _vs_raw else (_vs_raw if isinstance(_vs_raw, dict) else {})
-                    _vid_ts = int(_vs_parsed.get("currentTimestamp", 0))
-                    _is_youtube = "youtube" in str(_vs_parsed.get("videoUrl", "") or _vs_parsed.get("lessonTitle", "")).lower() or _vs_parsed.get("isYouTube", False)
-                except (json.JSONDecodeError, TypeError, AttributeError):
-                    _is_youtube = False
-
-                session._last_video_timestamp = _vid_ts
-                # Tools kept available for looking up OTHER sections/timestamps.
-                # Current section context is pre-injected (see prompt).
-
-                # capture_video_frame only works with custom player, not YouTube (cross-origin)
-                if _is_youtube:
-                    _removed_tools.add("capture_video_frame")
-
-                active_tools = [t for t in VIDEO_FOLLOW_TOOLS if t["name"] not in _removed_tools]
-            else:
-                active_tools = [t for t in TUTOR_TOOLS if t["name"] not in _removed_tools]
+            active_tools = [t for t in TUTOR_TOOLS if t["name"] not in _removed_tools]
 
             # Auto-spawn enrichment agents in background (turn 1 only)
             # These run in parallel with the tutor's first response.
             # Results are injected into context on turn 2+ via pop_completed().
-            if is_first_turn and not is_video_mode:
+            if is_first_turn:
                 _auto_spawn_enrichment(session, runtime, context_data, slog)
 
             # Step 6: Agentic loop (LLM stream → tool calls → repeat)

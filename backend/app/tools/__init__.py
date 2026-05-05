@@ -9,10 +9,7 @@ from .schemas import (
     ASSESSMENT_TOOLS,
     COMPLETE_ASSESSMENT_TOOL,
     HANDBACK_TO_TUTOR_TOOL,
-    VIDEO_FOLLOW_TOOLS,
-    VIDEO_CONTROL_TOOLS,
 )
-from .handlers import get_section_content, get_simulation_details, get_transcript_context, get_section_brief
 from .search_images import search_images
 from .web_search import web_search
 from .retrieval import (
@@ -36,9 +33,9 @@ async def execute_tutor_tool(
 ) -> str:
     """Execute a tool call. `context_data` (the turn's studentProfile +
     sessionContext) is threaded through so retrieval tools can resolve
-    user_id / course_id / collection_id without a globalling re-query."""
+    user_id / collection_id without re-querying."""
     try:
-        # ── Unified retrieval (task #11) ──
+        # ── Unified retrieval (BYO scopes only) ──
         if name == "search":
             return await search_tool(tool_input, context_data=context_data)
         elif name == "fetch":
@@ -61,10 +58,9 @@ async def execute_tutor_tool(
                 profile_str = ctx.get("studentProfile", "")
                 profile = _json.loads(profile_str) if isinstance(profile_str, str) and profile_str else (profile_str if isinstance(profile_str, dict) else {})
                 user_email = profile.get("userEmail") or profile.get("userId") or ""
-                course_id = profile.get("courseId") or profile.get("course_id") or ctx.get("courseId")
-                if course_id and user_email:
+                if user_email:
                     from app.services.student_model.service import hybrid_search_notes
-                    return await hybrid_search_notes(int(course_id), user_email, query)
+                    return await hybrid_search_notes(user_email, query)
             except Exception as e:
                 log.debug("query_knowledge failed: %s", e)
             return "No student knowledge records available."
@@ -77,18 +73,6 @@ async def execute_tutor_tool(
             return await search_images(tool_input["query"], tool_input.get("limit", 3))
         elif name == "web_search":
             return await web_search(tool_input["query"], tool_input.get("limit", 5))
-
-        # ── Video follow-along helpers (legacy, still used in video mode) ──
-        elif name == "get_transcript_context":
-            return await get_transcript_context(
-                int(tool_input["lesson_id"]), float(tool_input["timestamp"])
-            )
-        elif name == "get_section_brief":
-            return await get_section_brief(
-                int(tool_input["lesson_id"]), int(tool_input["section_index"])
-            )
-        elif name in ("resume_video", "seek_video"):
-            return "OK"  # control tools handled by chat.py SSE
 
         # ── DSA / System Design / Mock Interview tools ──
         elif name == "run_code":
@@ -131,4 +115,3 @@ async def execute_tutor_tool(
     except Exception:
         log.error("Tool %s failed", name, exc_info=True)
         return f"Tool {name} encountered an error. Try a different approach."
-

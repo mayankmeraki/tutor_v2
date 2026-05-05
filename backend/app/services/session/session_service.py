@@ -20,8 +20,8 @@ async def ensure_session_indexes():
     """Create indexes on frequently queried fields."""
     coll = _sessions()
     await coll.create_index("sessionId", unique=True)
-    await coll.create_index([("courseId", 1), ("studentName", 1)])
-    await coll.create_index([("courseId", 1), ("userEmail", 1)])
+    await coll.create_index([("studentName", 1)])
+    await coll.create_index([("userEmail", 1)])
     await coll.create_index("startedAt")
     # Index for /me/all — userEmail alone with startedAt sort
     await coll.create_index([("userEmail", 1), ("startedAt", -1)])
@@ -61,7 +61,6 @@ async def update_session(session_id: str, update: dict) -> dict | None:
 # Lightweight projection for landing page session cards
 _SESSION_CARD_FIELDS = {
     "sessionId": 1,
-    "courseId": 1,
     "studentName": 1,
     "userEmail": 1,
     "startedAt": 1,
@@ -85,12 +84,11 @@ _SESSION_CARD_FIELDS = {
 }
 
 
-async def get_sessions_for_student(course_id: int | None, student_name: str) -> list[dict]:
+async def get_sessions_for_student(student_name: str) -> list[dict]:
     """Return lightweight session cards for landing page — no heavy data."""
-    query = {"studentName": student_name}
-    if course_id is not None:
-        query["courseId"] = course_id
-    cursor = _sessions().find(query, _SESSION_CARD_FIELDS).sort("startedAt", -1).limit(50)
+    cursor = _sessions().find(
+        {"studentName": student_name}, _SESSION_CARD_FIELDS
+    ).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
@@ -98,12 +96,11 @@ async def get_sessions_for_student(course_id: int | None, student_name: str) -> 
     return docs
 
 
-async def get_sessions_for_user(course_id: int | None, user_email: str) -> list[dict]:
+async def get_sessions_for_user(user_email: str) -> list[dict]:
     """Return lightweight session cards for landing page — no heavy data."""
-    query = {"userEmail": user_email}
-    if course_id is not None:
-        query["courseId"] = course_id
-    cursor = _sessions().find(query, _SESSION_CARD_FIELDS).sort("startedAt", -1).limit(50)
+    cursor = _sessions().find(
+        {"userEmail": user_email}, _SESSION_CARD_FIELDS
+    ).sort("startedAt", -1).limit(50)
     docs = []
     async for doc in cursor:
         doc["_id"] = str(doc["_id"])
@@ -351,22 +348,21 @@ async def _enrich_sessions_with_headlines(sessions: list[dict]) -> list[dict]:
     return sessions
 
 
-async def get_sessions_with_headlines(course_id: int | None, student_name: str) -> list[dict]:
+async def get_sessions_with_headlines(student_name: str) -> list[dict]:
     """Return all sessions for a student with AI-generated headlines."""
-    sessions = await get_sessions_for_student(course_id, student_name)
+    sessions = await get_sessions_for_student(student_name)
     return await _enrich_sessions_with_headlines(sessions)
 
 
-async def get_sessions_with_headlines_by_email(course_id: int | None, user_email: str) -> list[dict]:
+async def get_sessions_with_headlines_by_email(user_email: str) -> list[dict]:
     """Return all sessions for a user (by email) with AI-generated headlines."""
-    sessions = await get_sessions_for_user(course_id, user_email)
+    sessions = await get_sessions_for_user(user_email)
     return await _enrich_sessions_with_headlines(sessions)
 
 
 # ─── Semantic Session Search ──────────────────────────────────
 
 async def search_sessions_semantic(
-    course_id: int | None,
     user_email: str,
     query: str,
     limit: int = 10,
@@ -384,8 +380,8 @@ async def search_sessions_semantic(
     if not query_lower:
         return []
 
-    # Load all sessions for this user+course
-    all_sessions = await get_sessions_for_user(course_id, user_email)
+    # Load all sessions for this user
+    all_sessions = await get_sessions_for_user(user_email)
     if not all_sessions:
         return []
 
@@ -425,7 +421,7 @@ async def search_sessions_semantic(
     # ── Vector matching (semantic — may fail gracefully) ──
     try:
         from app.services.knowledge.knowledge_state import vector_search_notes
-        vector_results = await vector_search_notes(course_id, user_email, query, limit=5)
+        vector_results = await vector_search_notes(user_email, query, limit=5)
 
         if vector_results:
             # Find which sessions covered these concepts
@@ -492,7 +488,6 @@ async def sync_backend_state(session_id: str, session) -> None:
         "sessionScope": session.session_scope,
         "scopeConcepts": session.scope_concepts,
         "activeScenario": session.active_scenario,
-        "videoState": session.video_state,
         "llmCostCents": session.llm_cost_cents,
         "llmTotalInputTokens": session.llm_total_input_tokens,
         "llmTotalOutputTokens": session.llm_total_output_tokens,
@@ -507,6 +502,9 @@ async def sync_backend_state(session_id: str, session) -> None:
         "assetRegistry": session.asset_registry,
         "messages": session.messages,
         "attachmentMeta": session.attachment_meta,
+        # Path context persistence (for session restore)
+        "pathId": getattr(session, '_path_id', None),
+        "nodeId": getattr(session, '_node_id', None),
         # DSA / SD / Mock Interview persistence
         "sessionMode": session.session_mode,
         "problemData": session.problem_data,

@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app.core.config import settings
 
-from app.api.routes import artifacts, auth, content, events, learning_tools, sessions
+from app.api.routes import artifacts, auth, events, sessions
 
 log = logging.getLogger(__name__)
 
@@ -41,6 +41,13 @@ async def lifespan(app: FastAPI):
         await ensure_session_indexes()
     except Exception as e:
         log.warning("Failed to ensure session indexes: %s", e)
+
+    # Ensure path indexes
+    from app.services.paths.path_service import ensure_path_indexes
+    try:
+        await ensure_path_indexes()
+    except Exception as e:
+        log.warning("Failed to ensure path indexes: %s", e)
 
     # Ensure BYO pipeline indexes
     try:
@@ -406,10 +413,15 @@ async def fix_animation(request: Request):
 # API routes
 app.include_router(auth.router)
 app.include_router(artifacts.router)
-app.include_router(content.router)
-app.include_router(learning_tools.router)
 app.include_router(sessions.router)
 app.include_router(events.router)
+
+# Learning paths
+try:
+    from app.api.routes.paths import router as paths_router
+    app.include_router(paths_router)
+except Exception as e:
+    log.warning("Paths routes not loaded: %s", e)
 
 # DSA & System Design problem API
 try:
@@ -584,7 +596,9 @@ async def submit_session_feedback(request: Request):
     doc = {
         "sessionId": body.get("sessionId", ""),
         "userEmail": user_email,
-        "score": body.get("score"),            # 1-5 emoji scale
+        "score": body.get("score"),            # NPS-mapped (1-10) for analytics
+        "scoreRaw": body.get("scoreRaw"),      # Display value (1-5)
+        "scaleMax": body.get("scaleMax", 5),   # Scale denominator
         "chips": body.get("chips", []),        # quick-select feedback tags
         "comment": body.get("comment", ""),    # freeform text
         "createdAt": datetime.now(timezone.utc),
@@ -652,9 +666,6 @@ _index_html = os.path.join(FRONTEND_DIR, "index.html")
 @app.get("/home/")
 @app.get("/dashboard")
 @app.get("/dashboard/")
-@app.get("/courses")
-@app.get("/courses/")
-@app.get("/courses/{course_id}")
 @app.get("/tutor")
 @app.get("/tutor/")
 @app.get("/session/{session_id}")
@@ -667,7 +678,7 @@ _index_html = os.path.join(FRONTEND_DIR, "index.html")
 @app.get("/mock/")
 @app.get("/for-business")
 @app.get("/for-business/")
-async def spa_fallback(session_id: str = "", course_id: str = "", slug: str = ""):
+async def spa_fallback(session_id: str = "", slug: str = ""):
     return FileResponse(_index_html, media_type="text/html")
 
 # Static files: frontend (must be last — catch-all mount)

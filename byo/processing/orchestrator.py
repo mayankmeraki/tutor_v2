@@ -325,8 +325,25 @@ async def _process_job(job: dict):
                        "step": step, "elapsed_ms": step_ms},
             )
 
-            # Save intermediate result
-            await _update_job(db, job_id, {"result": result, "step_index": i + 1})
+            # Save intermediate result — but strip large data to stay under MongoDB's 16MB limit.
+            # Chunks and segments are stored in their own collections, not in the job doc.
+            import sys as _sys
+            result_to_save = dict(result)
+            # Remove large arrays before saving to job doc
+            for _big_key in ("chunks", "segments", "embeddings", "text", "pages"):
+                if _big_key in result_to_save and isinstance(result_to_save[_big_key], (list, str)):
+                    if isinstance(result_to_save[_big_key], list) and len(result_to_save[_big_key]) > 50:
+                        result_to_save[_big_key + "_count"] = len(result_to_save[_big_key])
+                        del result_to_save[_big_key]
+                    elif isinstance(result_to_save[_big_key], str) and len(result_to_save[_big_key]) > 500000:
+                        result_to_save[_big_key + "_len"] = len(result_to_save[_big_key])
+                        del result_to_save[_big_key]
+            try:
+                await _update_job(db, job_id, {"result": result_to_save, "step_index": i + 1})
+            except Exception as _save_err:
+                # If still too large, save without result
+                log.warning("Job %s result too large to save (%s), saving step_index only", job_id[:8], _save_err)
+                await _update_job(db, job_id, {"step_index": i + 1})
 
         # Check if extraction actually produced content
         chunks = result.get("chunks", [])

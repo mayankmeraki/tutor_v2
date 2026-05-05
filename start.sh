@@ -31,4 +31,12 @@ fi
 
 echo ""
 echo "Starting server on http://localhost:3001 ..."
+
+# Default: run BYO worker embedded (in-process).
+# If you're running start_services.sh separately, set BYO_WORKER_EXTERNAL=true
+# to avoid running two workers:
+#   BYO_WORKER_EXTERNAL=true ./start.sh
+echo " BYO worker: ${BYO_WORKER_EXTERNAL:-embedded (set BYO_WORKER_EXTERNAL=true if running start_services.sh)}"
+echo ""
+
 exec uvicorn app.main:app --host 0.0.0.0 --port 3001 --app-dir .

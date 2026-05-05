@@ -1,0 +1,299 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Path Landing — Final</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  :root {
+    --bg: #0a0f1a; --bg2: #0d1220; --panel: #111827;
+    --border: rgba(255,255,255,.06); --border2: rgba(255,255,255,.1);
+    --text: rgba(255,255,255,.9); --text2: rgba(255,255,255,.5); --text3: rgba(255,255,255,.25);
+    --green: #34d399; --blue: #60a5fa; --purple: #a78bfa;
+    --orange: #fb923c; --gold: #fbbf24;
+  }
+  body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; height: 100vh; overflow: hidden; }
+
+  /* ── Layout: path left, chat right ── */
+  .layout { display: flex; height: 100vh; }
+  .path-col { flex: 1; overflow-y: auto; }
+  .chat-col { width: 340px; border-left: 1px solid var(--border); display: flex; flex-direction: column; background: var(--bg2); }
+
+  /* ── Top bar ── */
+  .topbar {
+    position: sticky; top: 0; z-index: 40; padding: 12px 20px;
+    background: rgba(10,15,26,.92); backdrop-filter: blur(12px);
+    border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 10px;
+  }
+  .topbar-back { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border); background: none; color: var(--text3); cursor: pointer; display: grid; place-items: center; font-size: 12px; }
+  .topbar-title { flex: 1; font-size: 13px; font-weight: 700; color: #fff; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .topbar-ring { width: 28px; height: 28px; position: relative; flex-shrink: 0; }
+  .topbar-ring svg { transform: rotate(-90deg); }
+  .topbar-ring-text { position: absolute; inset: 0; display: grid; place-items: center; font-size: 7px; font-weight: 800; color: var(--green); }
+  .topbar-frac { font-size: 13px; font-weight: 800; color: var(--green); flex-shrink: 0; }
+  .topbar-frac span { color: var(--text3); font-weight: 600; }
+
+  /* ── Path content ── */
+  .path-inner { max-width: 600px; margin: 0 auto; padding: 20px 24px 40px; }
+
+  /* Hero */
+  .hero {
+    padding: 20px 22px; border-radius: 14px; margin-bottom: 16px;
+    background: linear-gradient(135deg, rgba(52,211,153,.06), rgba(96,165,250,.03));
+    border: 1px solid rgba(52,211,153,.18);
+  }
+  .hero-top { display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .hero-badge { font-size: 8px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: rgba(52,211,153,.85); display: flex; align-items: center; gap: 5px; }
+  .hero-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--green); animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .hero-time { font-size: 11px; color: var(--text3); }
+  .hero-title { font-size: 18px; font-weight: 800; color: #fff; letter-spacing: -.3px; margin-bottom: 3px; }
+  .hero-sub { font-size: 11.5px; color: var(--text2); line-height: 1.5; margin-bottom: 12px; }
+  .hero-cal { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; padding: 8px 10px; border-radius: 8px; background: rgba(96,165,250,.03); border: 1px solid rgba(96,165,250,.08); }
+  .hero-cal-ic { font-size: 11px; color: var(--blue); flex-shrink: 0; }
+  .hero-cal input { flex: 1; background: none; border: none; color: #fff; font-size: 11px; font-family: inherit; outline: none; }
+  .hero-cal input::placeholder { color: rgba(96,165,250,.35); font-style: italic; }
+  .hero-cta { width: 100%; padding: 11px; border-radius: 10px; border: none; background: linear-gradient(135deg, var(--green), #22c584); color: #0a0f1a; font-size: 13px; font-weight: 700; cursor: pointer; font-family: inherit; }
+
+  /* Reflection banner */
+  .refl-banner {
+    margin-bottom: 14px; padding: 10px 12px; border-radius: 9px;
+    background: rgba(251,191,36,.04); border: 1px solid rgba(251,191,36,.12);
+    display: flex; align-items: flex-start; gap: 8px; font-size: 11px; color: rgba(251,191,36,.85); line-height: 1.5;
+  }
+  .refl-banner strong { color: #fff; }
+  .refl-dismiss { font-size: 10px; color: var(--text3); cursor: pointer; background: none; border: none; flex-shrink: 0; margin-top: -2px; }
+
+  /* Timeline */
+  .timeline { position: relative; padding-left: 24px; }
+  .timeline::before { content: ''; position: absolute; left: 9px; top: 0; bottom: 0; width: 2px; background: rgba(255,255,255,.04); }
+
+  .tl-phase { margin-bottom: 2px; }
+  .tl-phase-head { display: flex; align-items: center; gap: 6px; padding: 6px 0; cursor: pointer; user-select: none; position: relative; }
+  .tl-dot { position: absolute; left: -20px; width: 10px; height: 10px; border-radius: 50%; background: var(--bg); border: 2px solid rgba(255,255,255,.08); }
+  .tl-dot.done { border-color: var(--green); } .tl-dot.done::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--green); }
+  .tl-dot.active { border-color: var(--blue); } .tl-dot.active::after { content: ''; position: absolute; inset: 2px; border-radius: 50%; background: var(--blue); }
+  .tl-phase-label { font-size: 9px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--text3); }
+  .tl-phase-label.done { color: rgba(52,211,153,.45); } .tl-phase-label.active { color: rgba(96,165,250,.65); }
+  .tl-phase-meta { font-size: 9px; color: var(--text3); margin-left: auto; }
+  .tl-chevron { font-size: 8px; color: var(--text3); }
+
+  .tl-nodes { display: flex; flex-direction: column; gap: 3px; padding: 4px 0 6px; }
+  .tl-node { display: flex; align-items: center; gap: 8px; padding: 8px 10px; border-radius: 8px; background: rgba(255,255,255,.015); border: 1px solid var(--border); cursor: pointer; transition: border-color .1s; }
+  .tl-node:hover { border-color: rgba(96,165,250,.15); }
+  .tl-node.next { border-color: rgba(96,165,250,.2); background: rgba(96,165,250,.03); }
+  .tl-node.done { opacity: .6; } .tl-node.done:hover { opacity: .8; }
+  .tl-num { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 8px; font-weight: 700; flex-shrink: 0; background: rgba(255,255,255,.04); color: var(--text3); }
+  .tl-num.learn { background: rgba(52,211,153,.08); color: var(--green); }
+  .tl-num.drill { background: rgba(251,146,60,.08); color: var(--orange); }
+  .tl-num.quiz { background: rgba(167,139,250,.08); color: var(--purple); }
+  .tl-num.build { background: rgba(251,191,36,.08); color: var(--gold); }
+  .tl-num.done { background: rgba(52,211,153,.1); color: var(--green); }
+  .tl-info { flex: 1; min-width: 0; }
+  .tl-title { font-size: 11.5px; font-weight: 600; color: var(--text); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .tl-sub { font-size: 9px; color: var(--text3); margin-top: 1px; }
+  .tl-node.done .tl-title { text-decoration: line-through; color: var(--text2); }
+  .tl-right { display: flex; align-items: center; gap: 5px; flex-shrink: 0; }
+  .tl-time { font-size: 9px; color: var(--text3); }
+  .tag { font-size: 7px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase; padding: 2px 5px; border-radius: 3px; }
+  .tag-done { color: var(--green); background: rgba(52,211,153,.1); }
+  .tag-next { color: var(--blue); background: rgba(96,165,250,.1); }
+
+  /* ── Chat column ── */
+  .chat-head { padding: 12px 14px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; }
+  .chat-head-av { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, var(--green), #22c584); display: grid; place-items: center; font-size: 10px; font-weight: 800; color: #0a0f1a; flex-shrink: 0; }
+  .chat-head-title { font-size: 12px; font-weight: 700; color: #fff; }
+  .chat-head-sub { font-size: 9px; color: var(--text3); }
+
+  .chat-msgs { flex: 1; overflow-y: auto; padding: 14px 14px 10px; display: flex; flex-direction: column; gap: 10px; }
+
+  .msg { display: flex; gap: 8px; align-items: flex-start; }
+  .msg-av { width: 20px; height: 20px; border-radius: 50%; display: grid; place-items: center; font-size: 8px; font-weight: 800; flex-shrink: 0; margin-top: 2px; }
+  .msg-av-e { background: linear-gradient(135deg, var(--green), #22c584); color: #0a0f1a; }
+  .msg-text { font-size: 12px; color: rgba(255,255,255,.7); line-height: 1.6; }
+  .msg-text strong { color: #fff; font-weight: 600; }
+  .msg-user { justify-content: flex-end; }
+  .msg-user .msg-bubble { padding: 7px 11px; border-radius: 10px 10px 4px 10px; background: rgba(96,165,250,.1); border: 1px solid rgba(96,165,250,.12); font-size: 12px; color: #fff; max-width: 85%; }
+
+  .quick-actions { display: flex; flex-wrap: wrap; gap: 4px; padding-left: 28px; }
+  .qa-btn { font-size: 9.5px; padding: 5px 10px; border-radius: 7px; border: 1px solid var(--border); background: rgba(255,255,255,.02); color: var(--text2); cursor: pointer; font-family: inherit; transition: all .1s; }
+  .qa-btn:hover { color: #fff; border-color: rgba(96,165,250,.2); background: rgba(96,165,250,.04); }
+
+  .chat-input-wrap { padding: 10px 12px; border-top: 1px solid var(--border); }
+  .chat-row { display: flex; gap: 5px; align-items: center; }
+  .chat-icon { width: 28px; height: 28px; border-radius: 7px; border: 1px solid var(--border); background: none; color: var(--text3); cursor: pointer; display: grid; place-items: center; flex-shrink: 0; }
+  .chat-icon:hover { color: var(--text2); border-color: var(--border2); }
+  .chat-input { flex: 1; padding: 9px 12px; border-radius: 9px; border: 1px solid var(--border); background: rgba(255,255,255,.02); color: #fff; font-size: 11.5px; font-family: inherit; outline: none; }
+  .chat-input:focus { border-color: rgba(52,211,153,.15); }
+  .chat-send { width: 28px; height: 28px; border-radius: 7px; border: none; background: rgba(52,211,153,.12); color: var(--green); cursor: pointer; display: grid; place-items: center; flex-shrink: 0; }
+</style>
+</head>
+<body>
+
+<div class="layout">
+  <!-- ════ LEFT: Path ════ -->
+  <div class="path-col">
+    <div class="topbar">
+      <button class="topbar-back">&larr;</button>
+      <div class="topbar-title">ESP32 Firmware &mdash; From C to Wi-Fi Logger</div>
+      <div class="topbar-ring">
+        <svg width="28" height="28" viewBox="0 0 36 36">
+          <circle cx="18" cy="18" r="15" fill="none" stroke="rgba(255,255,255,.06)" stroke-width="3"/>
+          <circle cx="18" cy="18" r="15" fill="none" stroke="#34d399" stroke-width="3" stroke-dasharray="94.2" stroke-dashoffset="72.5" stroke-linecap="round"/>
+        </svg>
+        <div class="topbar-ring-text">23%</div>
+      </div>
+      <span class="topbar-frac">3<span>/13</span></span>
+    </div>
+
+    <div class="path-inner">
+
+      <!-- Hero -->
+      <div class="hero">
+        <div class="hero-top">
+          <div class="hero-badge"><div class="hero-dot"></div> Up next &middot; Drill</div>
+          <div class="hero-time">~25 min</div>
+        </div>
+        <div class="hero-title">GPIO Drills</div>
+        <div class="hero-sub">3 practice problems on register access, pin configuration, and basic interrupt setup.</div>
+        <div class="hero-cal">
+          <div class="hero-cal-ic">&#9998;</div>
+          <input type="text" placeholder="Optional: tell Euler what you know about GPIO...">
+        </div>
+        <button class="hero-cta">Start session 4 &rarr;</button>
+      </div>
+
+      <!-- Reflection -->
+      <div class="refl-banner">
+        <span>&#128161;</span>
+        <span>From session 3: <strong>Solid on register access.</strong> Volatile keyword was shaky &mdash; session 4 will reinforce it.</span>
+        <button class="refl-dismiss">&times;</button>
+      </div>
+
+      <!-- Timeline -->
+      <div class="timeline">
+        <!-- Phase 1: Done (collapsed) -->
+        <div class="tl-phase">
+          <div class="tl-phase-head" onclick="var n=this.nextElementSibling;n.style.display=n.style.display==='none'?'':'none'">
+            <div class="tl-dot done"></div>
+            <span class="tl-phase-label done">Phase 1 &middot; Foundations</span>
+            <span class="tl-phase-meta">3/3</span>
+            <span class="tl-chevron">&#9654;</span>
+          </div>
+          <div class="tl-nodes" style="display:none">
+            <div class="tl-node done"><div class="tl-num done">&#10003;</div><div class="tl-info"><div class="tl-title">C for embedded</div></div><div class="tl-right"><span class="tag tag-done">Done</span><span class="tl-time">30m</span></div></div>
+            <div class="tl-node done"><div class="tl-num done">&#10003;</div><div class="tl-info"><div class="tl-title">Bit manipulation</div></div><div class="tl-right"><span class="tag tag-done">Done</span><span class="tl-time">30m</span></div></div>
+            <div class="tl-node done"><div class="tl-num done">&#10003;</div><div class="tl-info"><div class="tl-title">Memory-mapped I/O</div></div><div class="tl-right"><span class="tag tag-done">Done</span><span class="tl-time">40m</span></div></div>
+          </div>
+        </div>
+
+        <!-- Phase 2: Current (open) -->
+        <div class="tl-phase">
+          <div class="tl-phase-head">
+            <div class="tl-dot active"></div>
+            <span class="tl-phase-label active">Phase 2 &middot; Talk to Hardware</span>
+            <span class="tl-phase-meta">0/4</span>
+            <span class="tl-chevron">&#9660;</span>
+          </div>
+          <div class="tl-nodes">
+            <div class="tl-node next"><div class="tl-num drill">4</div><div class="tl-info"><div class="tl-title">GPIO Drills</div><div class="tl-sub">register access, pin config</div></div><div class="tl-right"><span class="tag tag-next">Next</span><span class="tl-time">25m</span></div></div>
+            <div class="tl-node"><div class="tl-num build">&#9733;</div><div class="tl-info"><div class="tl-title">Blink an LED</div><div class="tl-sub">milestone</div></div><div class="tl-right"><span class="tl-time">45m</span></div></div>
+            <div class="tl-node"><div class="tl-num learn">6</div><div class="tl-info"><div class="tl-title">Interrupts (ISRs)</div></div><div class="tl-right"><span class="tl-time">35m</span></div></div>
+            <div class="tl-node"><div class="tl-num learn">7</div><div class="tl-info"><div class="tl-title">UART &rarr; laptop</div></div><div class="tl-right"><span class="tl-time">25m</span></div></div>
+          </div>
+        </div>
+
+        <!-- Phase 3: Future (collapsed) -->
+        <div class="tl-phase">
+          <div class="tl-phase-head" onclick="var n=this.nextElementSibling;n.style.display=n.style.display==='none'?'':'none'">
+            <div class="tl-dot"></div>
+            <span class="tl-phase-label">Phase 3 &middot; Build Your Project</span>
+            <span class="tl-phase-meta">3 sessions</span>
+            <span class="tl-chevron">&#9654;</span>
+          </div>
+          <div class="tl-nodes" style="display:none">
+            <div class="tl-node"><div class="tl-num quiz">?</div><div class="tl-info"><div class="tl-title">Quiz checkpoint</div></div><div class="tl-right"><span class="tl-time">10m</span></div></div>
+            <div class="tl-node"><div class="tl-num learn">9</div><div class="tl-info"><div class="tl-title">I2C &mdash; read sensor</div></div><div class="tl-right"><span class="tl-time">40m</span></div></div>
+            <div class="tl-node"><div class="tl-num build">&#9733;</div><div class="tl-info"><div class="tl-title">Temp logger v1</div><div class="tl-sub">milestone</div></div><div class="tl-right"><span class="tl-time">60m</span></div></div>
+          </div>
+        </div>
+
+        <!-- Phase 4: Future (collapsed) -->
+        <div class="tl-phase">
+          <div class="tl-phase-head" onclick="var n=this.nextElementSibling;n.style.display=n.style.display==='none'?'':'none'">
+            <div class="tl-dot"></div>
+            <span class="tl-phase-label">Phase 4 &middot; Stretch</span>
+            <span class="tl-phase-meta">3 sessions</span>
+            <span class="tl-chevron">&#9654;</span>
+          </div>
+          <div class="tl-nodes" style="display:none">
+            <div class="tl-node"><div class="tl-num learn">11</div><div class="tl-info"><div class="tl-title">Timers &amp; PWM</div></div><div class="tl-right"><span class="tl-time">30m</span></div></div>
+            <div class="tl-node"><div class="tl-num learn">12</div><div class="tl-info"><div class="tl-title">FreeRTOS basics</div></div><div class="tl-right"><span class="tl-time">40m</span></div></div>
+            <div class="tl-node"><div class="tl-num build">&#9733;</div><div class="tl-info"><div class="tl-title">Logger v2 (Wi-Fi + RTOS)</div><div class="tl-sub">capstone</div></div><div class="tl-right"><span class="tl-time">75m</span></div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ RIGHT: Chat ════ -->
+  <div class="chat-col">
+    <div class="chat-head">
+      <div class="chat-head-av">E</div>
+      <div>
+        <div class="chat-head-title">Euler</div>
+        <div class="chat-head-sub">Path advisor &middot; can adjust your plan</div>
+      </div>
+    </div>
+
+    <div class="chat-msgs">
+      <!-- Onboarding message -->
+      <div class="msg">
+        <div class="msg-av msg-av-e">E</div>
+        <div class="msg-text">
+          You're <strong>3 sessions in</strong> &mdash; foundations are done. GPIO drills are up next.
+          <br><br>
+          Need anything before you start?
+        </div>
+      </div>
+
+      <!-- Quick action chips -->
+      <div class="quick-actions">
+        <button class="qa-btn">Make it shorter</button>
+        <button class="qa-btn">More practice</button>
+        <button class="qa-btn">Skip GPIO</button>
+        <button class="qa-btn">What's the capstone?</button>
+      </div>
+
+      <!-- Example conversation -->
+      <div class="msg msg-user"><div class="msg-bubble">can we skip the stretch phase? I just need the core</div></div>
+
+      <div class="msg">
+        <div class="msg-av msg-av-e">E</div>
+        <div class="msg-text">
+          Done &mdash; dropped <strong>Phase 4</strong> (FreeRTOS + Logger v2). Your path is now <strong>10 sessions, ~5.5h</strong>. The temp logger v1 is your capstone.
+        </div>
+      </div>
+    </div>
+
+    <div class="chat-input-wrap">
+      <div class="chat-row">
+        <button class="chat-icon" title="Attach file">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21.44 11.05l-9.19 9.19a6 6 0 01-8.49-8.49l9.19-9.19a4 4 0 015.66 5.66l-9.2 9.19a2 2 0 01-2.83-2.83l8.49-8.48"/></svg>
+        </button>
+        <button class="chat-icon" title="Your study materials">
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        </button>
+        <input class="chat-input" placeholder="Ask Euler anything about your path...">
+        <button class="chat-send">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+</body>
+</html>

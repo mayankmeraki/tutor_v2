@@ -26,10 +26,68 @@ from __future__ import annotations
 import enum
 import json
 import logging
+import re
 import time
 from dataclasses import dataclass, field
 
 log = logging.getLogger(__name__)
+
+
+# ═══════════════════════════════════════════════════════════
+# Low-signal intent detection
+# ═══════════════════════════════════════════════════════════
+#
+# When the student's intent is JUST a URL, a single word, or empty, the tutor
+# must NOT pick a topic and start teaching — that is what produces the
+# "Networking Fundamentals" / "System Design Interview Prep" hallucination
+# we saw on YouTube link inputs. These cases must route to TRIAGE so the
+# tutor asks one short clarifying question instead.
+
+_URL_RE = re.compile(
+    r"""(?ix)
+    (?:^|\s)
+    (?:https?://|www\.)?
+    (?:
+        youtu\.be/[\w-]+
+      | youtube\.com/[\w/?=&%-]+
+      | [a-z0-9-]+(?:\.[a-z0-9-]+)+(?:/\S*)?
+    )
+    """
+)
+
+
+def _strip_urls(text: str) -> str:
+    return _URL_RE.sub(" ", text or "")
+
+
+def _meaningful_word_count(text: str) -> int:
+    cleaned = re.sub(r"[^\w\s]", " ", _strip_urls(text or ""))
+    return len([w for w in cleaned.split() if len(w) >= 2])
+
+
+def is_low_signal_intent(text: str) -> tuple[bool, str]:
+    """Return (is_low_signal, reason).
+
+    Low-signal means the model has no real topic to anchor on. We trigger
+    TRIAGE in that case so the tutor asks one clarifying question rather
+    than inventing a topic.
+    """
+    s = (text or "").strip()
+    if not s:
+        return True, "empty_intent"
+
+    only_url = bool(_URL_RE.fullmatch(s)) or (
+        bool(_URL_RE.search(s)) and _meaningful_word_count(s) < 2
+    )
+    if only_url:
+        if "youtu.be" in s.lower() or "youtube.com" in s.lower():
+            return True, "youtube_url_only"
+        return True, "url_only"
+
+    if _meaningful_word_count(s) < 2:
+        return True, "too_few_words"
+
+    return False, ""
 
 
 class SessionMode(str, enum.Enum):
@@ -111,6 +169,9 @@ class SessionBlueprint:
     mock_company: str = "generic"
     mock_timer_minutes: int = 45
     frozen_at: float = field(default_factory=time.time)
+    # Scope classification — used by frontend to decide whether to offer path creation
+    scope: str = "narrow"            # narrow | medium | broad
+    scope_confidence: float = 0.5    # 0.0–1.0
 
     def to_dict(self) -> dict:
         return {
@@ -124,6 +185,8 @@ class SessionBlueprint:
             "mock_company": self.mock_company,
             "mock_timer_minutes": self.mock_timer_minutes,
             "frozen_at": self.frozen_at,
+            "scope": self.scope,
+            "scope_confidence": self.scope_confidence,
         }
 
     @classmethod
@@ -141,6 +204,8 @@ class SessionBlueprint:
             mock_company=d.get("mock_company", "generic"),
             mock_timer_minutes=d.get("mock_timer_minutes", 45),
             frozen_at=d.get("frozen_at", time.time()),
+            scope=d.get("scope", "narrow"),
+            scope_confidence=d.get("scope_confidence", 0.5),
         )
 
 
@@ -165,9 +230,11 @@ Rules:
 - "mock exam" is general. "mock interview" is mock_interview.
 - If mock_interview, detect the company if mentioned: google, meta, amazon, microsoft. Default to "generic".
 - For interaction: "study" if student wants to learn/understand/be taught. "practice" if they want to solve/code/work independently.
+- For scope: "narrow" if the student wants one specific topic/problem (e.g. "explain quicksort", "solve two sum"). "broad" if it's a multi-session journey (e.g. "teach me embedded C", "prepare me for Google interviews", "I want to learn machine learning"). "medium" if it could go either way.
+- scope_confidence: 0.0-1.0 how confident you are about the scope classification.
 
 Respond with ONLY a JSON object, no other text:
-{"mode": "general|dsa|sd|mock_interview", "interaction": "study|practice", "company": "generic|google|meta|amazon|microsoft"}"""
+{"mode": "general|dsa|sd|mock_interview", "interaction": "study|practice", "company": "generic|google|meta|amazon|microsoft", "scope": "narrow|medium|broad", "scope_confidence": 0.85}"""
 
 
 async def _classify_with_haiku(text: str) -> dict:
@@ -220,6 +287,8 @@ def _build_from_mode(
     company: str = "generic",
     slug: str | None = None,
     timer: int = 45,
+    scope: str = "narrow",
+    scope_confidence: float = 0.5,
 ) -> SessionBlueprint:
     """Build a blueprint from a known mode (no classification needed)."""
     sections = list(CORE_SECTIONS)
@@ -248,6 +317,8 @@ def _build_from_mode(
         mock_company=company if mode == SessionMode.MOCK_INTERVIEW else "generic",
         mock_timer_minutes=timer,
         frozen_at=time.time(),
+        scope=scope,
+        scope_confidence=scope_confidence,
     )
 
 
@@ -303,6 +374,10 @@ async def classify_intent(
         interaction = Interaction.STUDY
 
     company = result.get("company", "generic") or "generic"
+    scope = result.get("scope", "narrow")
+    if scope not in ("narrow", "medium", "broad"):
+        scope = "narrow"
+    scope_confidence = float(result.get("scope_confidence", 0.5))
 
     return _build_from_mode(
         mode=mode,
@@ -310,6 +385,8 @@ async def classify_intent(
         company=company,
         slug=explicit_slug,
         timer=explicit_timer or 45,
+        scope=scope,
+        scope_confidence=scope_confidence,
     )
 
 

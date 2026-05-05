@@ -251,9 +251,9 @@ const SessionManager = (() => {
   // ─── Lifecycle ───────────────────────────────────────────
 
   async function createSession(courseId, studentName, intent, coursePosition, sessionNumber, scenario) {
+    // courseId / coursePosition are legacy PG-course params, ignored (kept in signature for callers).
     session = {
       sessionId: state.sessionId,
-      courseId,
       studentName,
       userEmail: state.userEmail || '',
       number: sessionNumber,
@@ -261,12 +261,7 @@ const SessionManager = (() => {
       startedAt: now(),
       endedAt: null,
       durationSec: 0,
-      intent: { raw: intent || '', scenario: scenario || 'course' },
-      coursePosition: coursePosition && coursePosition.lessonId ? {
-        startedAt: { lessonId: coursePosition.lessonId, sectionIndex: coursePosition.sectionIndex },
-        current: { lessonId: coursePosition.lessonId, sectionIndex: coursePosition.sectionIndex },
-        completedCourseSections: coursePosition.completedCourseSections || [],
-      } : null,
+      intent: { raw: intent || '', scenario: scenario || 'general' },
       plan: {},
       sections: [],
       transcript: [],
@@ -317,7 +312,6 @@ const SessionManager = (() => {
       transcript: session.transcript,
       sections: session.sections,
       metrics: session.metrics,
-      coursePosition: session.coursePosition,
       headline: session.headline || null,
       headlineDescription: session.headlineDescription || null,
       plan: session.plan,
@@ -376,18 +370,6 @@ const SessionManager = (() => {
         mockDifficulty: state.mockDifficulty || null,
       };
     }
-    if (state.video?.active || state.video?.lessonId || state._videoWatchAlong) {
-      payload.videoState = {
-        lessonId: state.video.lessonId,
-        lessonTitle: state.video.lessonTitle,
-        currentTimestamp: state.video.player?.currentTime || state.video.currentTimestamp || 0,
-        currentSectionIndex: state.video.currentSectionIndex,
-        sectionTitle: state.video.sectionTitle,
-        isPaused: state.video.isPaused,
-        lessonIndex: state.video.lessonIndex,
-      };
-    }
-
     // Fire-and-forget — network call runs in background, never blocks
     _saveInFlight = true;
     apiPatch(`/${session.sessionId}`, payload)
@@ -408,12 +390,12 @@ const SessionManager = (() => {
       });
   }
 
-  async function loadPreviousSessions(courseId, studentName) {
+  async function loadPreviousSessions(_courseId, studentName) {
     try {
       if (AuthManager.isLoggedIn()) {
-        return await apiGet(`/me/${courseId}`);
+        return await apiGet(`/me`);
       }
-      return await apiGet(`/student/${courseId}/${encodeURIComponent(studentName)}`);
+      return await apiGet(`/student/${encodeURIComponent(studentName)}`);
     } catch (e) {
       console.warn('Failed to load previous sessions:', e);
       return [];
@@ -435,7 +417,6 @@ const SessionManager = (() => {
       durationSec: session.durationSec, metrics: session.metrics,
       transcript: session.transcript, sections: session.sections,
       plan: session.plan,
-      coursePosition: session.coursePosition,
       summaries: session.summaries,
       generatedVisuals: state.generatedVisuals,
       spotlightHistory: state.spotlightHistory,
@@ -475,7 +456,6 @@ const SessionManager = (() => {
           transcript: session.transcript, sections: session.sections,
           metrics: session.metrics, durationSec: session.durationSec,
           plan: session.plan,
-          coursePosition: session.coursePosition,
           spotlightHistory: state.spotlightHistory,
           notebookSteps: state.notebookSteps,
           generatedVisuals: state.generatedVisuals,
@@ -500,15 +480,6 @@ const SessionManager = (() => {
           conceptNotes: state.assessment.conceptNotes,
           widgetLiveState: state.widget.liveState || {},
           activeBoardDrawContent: state.boardDraw.rawContent || null,
-          videoState: (state.video?.active || state.video?.lessonId || state._videoWatchAlong) ? {
-            lessonId: state.video.lessonId,
-            lessonTitle: state.video.lessonTitle,
-            currentTimestamp: state.video.player?.currentTime || state.video.currentTimestamp || 0,
-            currentSectionIndex: state.video.currentSectionIndex,
-            sectionTitle: state.video.sectionTitle,
-            isPaused: state.video.isPaused,
-            lessonIndex: state.video.lessonIndex,
-          } : null,
           teachingMode: state.teachingMode,
         }),
         keepalive: true,
@@ -929,134 +900,35 @@ const state = window._appState = {
 };
 
 // ═══════════════════════════════════════════════════════════
-// Module 3: Course Map (REST)
+// Module 3: Course Map / Concepts / Simulations — REMOVED
+//
+// The legacy Postgres course pipeline (courses / modules / lessons /
+// sections / video follow-along) is gone. The functions below are
+// kept as no-op stubs because they are still referenced from a few
+// startNewSession / continueSession code paths that have not yet
+// been fully untangled. They never make a network call.
 // ═══════════════════════════════════════════════════════════
 
-async function fetchJSON(path) {
-  const res = await fetch(`${state.apiUrl}/api/v1/content${path}`, {
-    headers: AuthManager.authHeaders()
-  });
-  if (!res.ok) throw new Error(`API ${res.status}: ${path}`);
-  return res.json();
+async function fetchJSON(_path) {
+  // Legacy /api/v1/content endpoints removed — return null so callers don't 404.
+  return null;
 }
 
-async function loadCourseMap(courseId) {
-  if (!courseId) return null;
-  const data = await fetchJSON(`/courses/${courseId}`);
-
-  // API returns { course, modules[], lessons[] } — reshape into nested format
-  // that buildCourseContext expects: { title, modules: [{ title, lessons: [{ sections }] }] }
-  const lessonsById = {};
-  for (const l of data.lessons || []) {
-    lessonsById[l.lesson_id] = { ...l, sections: [] };
-  }
-
-  // Fetch sections for each lesson in parallel
-  const sectionFetches = (data.lessons || []).map(async (l) => {
-    try {
-      const res = await fetch(`${state.apiUrl}/api/v1/content/lessons/${l.lesson_id}/sections`, {
-        headers: AuthManager.authHeaders(),
-      });
-      if (res.ok) {
-        const sections = await res.json();
-        lessonsById[l.lesson_id].sections = sections.map(s => ({
-          index: s.index,
-          title: s.title,
-          start_seconds: s.start_seconds,
-          end_seconds: s.end_seconds,
-        }));
-      }
-    } catch (e) {
-      console.warn(`Failed to fetch sections for lesson ${l.lesson_id}:`, e);
-    }
-  });
-  await Promise.all(sectionFetches);
-
-  const courseMap = {
-    title: data.course.title,
-    modules: (data.modules || []).map(mod => ({
-      title: mod.title,
-      lessons: (mod.lesson_ids || []).map(lid => lessonsById[lid]).filter(Boolean),
-    })),
-  };
-
-  state.courseMap = courseMap;
-  return courseMap;
+async function loadCourseMap(_courseId) {
+  state.courseMap = null;
+  return null;
 }
 
-async function fetchSimulations(courseId) {
-  if (!courseId) return;
-  try {
-    const res = await fetch(`${state.apiUrl}/api/v1/learning-tools/course/${courseId}`, {
-      headers: AuthManager.authHeaders(),
-    });
-    if (!res.ok) {
-      console.warn(`Failed to fetch simulations: ${res.status}`);
-      state.simulations = [];
-      return;
-    }
-    state.simulations = await res.json();
-  } catch (e) {
-    console.warn('Failed to fetch simulations:', e);
-    state.simulations = [];
-  }
+async function fetchSimulations(_courseId) {
+  state.simulations = [];
 }
 
-async function fetchConcepts(courseId) {
-  if (!courseId) return;
-  try {
-    const res = await fetch(`${state.apiUrl}/api/v1/content/courses/${courseId}/concepts`, {
-      headers: AuthManager.authHeaders(),
-    });
-    if (!res.ok) {
-      console.warn(`Failed to fetch concepts: ${res.status}`);
-      state.concepts = [];
-      return;
-    }
-    state.concepts = await res.json();
-  } catch (e) {
-    console.warn('Failed to fetch concepts:', e);
-    state.concepts = [];
-  }
+async function fetchConcepts(_courseId) {
+  state.concepts = [];
 }
 
 function buildCourseContext() {
-  const map = state.courseMap;
-  if (!map) return 'No course map loaded.';
-
-  const cp = state.checkpoint;
-  const courseTitle = map.title || (map.course && map.course.title) || 'Course';
-  const lines = [`${courseTitle}\n`];
-
-  for (const mod of (map.modules || [])) {
-    lines.push(`Module: ${mod.title}`);
-    const modLessons = mod.lessons || (map.lessons || []).filter(l => l.module_id === mod.id);
-    for (const lesson of modLessons) {
-      const lid = lesson.lesson_id || lesson.id;
-      const dur = (lesson.duration_seconds || lesson.duration) ? `${Math.round((lesson.duration_seconds || lesson.duration) / 60)} min` : '';
-      const isCurrent = lid === cp.currentLessonId;
-      const marker = isCurrent ? ' << CURRENT LESSON' : '';
-      const videoTag = lesson.video_url ? ` [video: ${lesson.video_url}]` : ' [no video]';
-      lines.push(`  Lesson ${lid}: ${lesson.title} (${dur})${videoTag}${marker}`);
-
-      // Only show sections for current lesson (keeps context compact)
-      if (isCurrent && lesson.sections) {
-        for (const sec of lesson.sections) {
-          const key = `${lid}:${sec.index}`;
-          const isDone = cp.completedSections.includes(key);
-          const isCurrentSec = sec.index === cp.currentSectionIndex;
-
-          const startFmt = formatTimestamp(sec.start_seconds);
-          const endFmt = formatTimestamp(sec.end_seconds);
-          const secMarker = isDone ? ' DONE' : isCurrentSec ? ' << CURRENT' : '';
-
-          lines.push(`    [${sec.index}] ${sec.title} [${startFmt}-${endFmt}]${secMarker}`);
-        }
-      }
-    }
-  }
-
-  return lines.join('\n');
+  return 'No course map loaded.';
 }
 
 function formatTimestamp(totalSeconds) {
@@ -1065,53 +937,8 @@ function formatTimestamp(totalSeconds) {
   return `${m}:${s.toString().padStart(2, '0')}`;
 }
 
-// ═══════════════════════════════════════════════════════════
-// Module 4: Course Progress Sidebar Renderer
-// ═══════════════════════════════════════════════════════════
-
 function renderCourseProgress() {
-  const container = $('#course-progress-list');
-  if (!container || !state.courseMap) return;
-
-  const cp = state.checkpoint;
-  let html = '';
-
-  for (const mod of state.courseMap.modules) {
-    html += `<div class="progress-module">`;
-    html += `<div class="progress-module-title">${escapeHtml(mod.title)}</div>`;
-
-    for (const lesson of mod.lessons) {
-      const isActiveLesson = lesson.lesson_id === cp.currentLessonId;
-      const allDone = lesson.sections.length > 0 &&
-        lesson.sections.every(s => cp.completedSections.includes(`${lesson.lesson_id}:${s.index}`));
-      const lessonClass = allDone ? 'completed' : isActiveLesson ? 'active' : '';
-      const icon = allDone ? '&#10003;' : isActiveLesson ? '&#9679;' : '&#9675;';
-
-      html += `<div class="progress-lesson ${lessonClass}">`;
-      html += `<div class="progress-lesson-title"><span class="lesson-icon">${icon}</span>${escapeHtml(lesson.title)}</div>`;
-
-      if (isActiveLesson || allDone) {
-        html += `<div class="progress-sections">`;
-        for (const sec of lesson.sections) {
-          const key = `${lesson.lesson_id}:${sec.index}`;
-          const isDone = cp.completedSections.includes(key);
-          const isCurrent = isActiveLesson && sec.index === cp.currentSectionIndex && !isDone;
-          const secClass = isDone ? 'completed' : isCurrent ? 'current' : '';
-          html += `<div class="progress-section ${secClass}">`;
-          html += `<span class="section-dot"></span>`;
-          html += `<span>${escapeHtml(sec.title)}</span>`;
-          html += `</div>`;
-        }
-        html += `</div>`;
-      }
-
-      html += `</div>`;
-    }
-
-    html += `</div>`;
-  }
-
-  container.innerHTML = html;
+  // Legacy course progress sidebar — no-op (no PG course map any more).
 }
 
 // ═══════════════════════════════════════════════════════════
@@ -2240,16 +2067,23 @@ function _wsKillTurn(reason) {
   turn._killed = true;
   _wsTurn = null;
 
-  // Stop ALL audio — the turn's tracked element + any orphaned Audio objects
+  // Stop ALL audio — tracked + orphaned + global state
   if (turn.audioEl) {
+    try { turn.audioEl.pause(); turn.audioEl.currentTime = 0; turn.audioEl.src = ''; turn.audioEl.onended = null; turn.audioEl.onerror = null; } catch (e) {}
     if (turn.audioEl._blobUrl) try { URL.revokeObjectURL(turn.audioEl._blobUrl); } catch (e) {}
-    try { turn.audioEl.pause(); turn.audioEl.src = ''; } catch (e) {}
     turn.audioEl = null;
   }
-  state.voiceCurrentAudio = null;
-  // Nuclear: pause every audio element on the page to kill orphans
+  if (state.voiceCurrentAudio) {
+    try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; state.voiceCurrentAudio.onended = null; } catch (e) {}
+    state.voiceCurrentAudio = null;
+  }
+  if (state._currentTTSAudio) {
+    try { state._currentTTSAudio.pause(); state._currentTTSAudio.src = ''; } catch (e) {}
+    state._currentTTSAudio = null;
+  }
+  // Nuclear: kill every audio element on the page to stop any orphan
   document.querySelectorAll('audio').forEach(a => {
-    try { a.pause(); a.src = ''; } catch (e) {}
+    try { a.pause(); a.currentTime = 0; a.src = ''; a.onended = null; } catch (e) {}
   });
 
   for (const b of Object.values(turn.beats)) {
@@ -2772,13 +2606,16 @@ async function _wsExecBeat(beat, beatNum, turn) {
     console.warn('[WS Exec] ⚠️ Beat #' + beatNum + ' has draw (' + drawCmds + ') but NO say — voice will be silent for this beat');
   }
 
-  // Wait for any previously playing audio to finish before starting this beat
-  // (prevents overlap when a no-say beat executes instantly between two say beats)
+  // Wait for any previously playing audio — but abort immediately if turn is killed
   if (!hasSay && turn.audioEl && !turn.audioEl.paused) {
     await new Promise(r => {
-      turn.audioEl.addEventListener('ended', r, { once: true });
-      setTimeout(r, 8000); // safety timeout
+      if (turn._killed || _wsTurn !== turn) { r(); return; }
+      const cleanup = () => { clearInterval(poll); r(); };
+      turn.audioEl.addEventListener('ended', cleanup, { once: true });
+      const poll = setInterval(() => { if (turn._killed || _wsTurn !== turn) cleanup(); }, 100);
+      setTimeout(cleanup, 8000);
     });
+    if (turn._killed || _wsTurn !== turn) return;
   }
 
   await Promise.race([
@@ -2803,11 +2640,22 @@ async function _wsPlayAudio(beat, beatNum, turn) {
     return;
   }
 
-  // Stop any previously playing audio from this turn (prevents overlap from timeout race)
+  // Stop any previously playing audio AGGRESSIVELY (prevents overlap)
   if (turn.audioEl) {
-    try { turn.audioEl.pause(); } catch (e) {}
+    try {
+      turn.audioEl.pause();
+      turn.audioEl.currentTime = 0;
+      turn.audioEl.src = '';        // Force release of audio resource
+      turn.audioEl.onended = null;  // Remove listener to prevent callbacks
+      turn.audioEl.onerror = null;
+    } catch (e) {}
     if (turn.audioEl._blobUrl) try { URL.revokeObjectURL(turn.audioEl._blobUrl); } catch (e) {}
     turn.audioEl = null;
+    state.voiceCurrentAudio = null;
+  }
+  // Also kill any orphaned global audio (belt-and-suspenders)
+  if (state.voiceCurrentAudio && state.voiceCurrentAudio !== turn.audioEl) {
+    try { state.voiceCurrentAudio.pause(); state.voiceCurrentAudio.src = ''; } catch(e) {}
     state.voiceCurrentAudio = null;
   }
 
@@ -2858,39 +2706,52 @@ async function _wsPlayAudio(beat, beatNum, turn) {
   state.voiceCurrentAudio = audio;
 
   await new Promise(resolve => {
+    let resolved = false;
     const done = (reason) => {
+      if (resolved) return;  // Prevent double-resolve
+      resolved = true;
       console.log(`[WS Audio] Beat #${beatNum} ended (${reason || 'done'})`);
       _stopCaptionHighlight();
       _lastCaptionText = '';
+      try { audio.onended = null; audio.onerror = null; } catch(e) {}
       URL.revokeObjectURL(url);
       if (turn.audioEl === audio) turn.audioEl = null;
       if (state.voiceCurrentAudio === audio) state.voiceCurrentAudio = null;
       resolve();
     };
-    audio.onended = () => done('ended');
-    audio.onerror = (e) => { console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
-    // Check turn is still active right before play
-    if (turn._killed || _wsTurn !== turn) { done('killed'); return; }
+
+    // Poll for turn death — resolves the promise if turn is killed externally
+    // This is the FIX for the overlap: .pause() alone doesn't trigger onended,
+    // so without this poll the promise hangs and the executor stalls
+    const killPoll = setInterval(() => {
+      if (turn._killed || _wsTurn !== turn) {
+        clearInterval(killPoll);
+        try { audio.pause(); audio.src = ''; } catch(e) {}
+        done('killed-poll');
+      }
+    }, 100);
+
+    audio.onended = () => { clearInterval(killPoll); done('ended'); };
+    audio.onerror = (e) => { clearInterval(killPoll); console.warn(`[WS Audio] Beat #${beatNum} error:`, e); done('error'); };
+
+    if (turn._killed || _wsTurn !== turn) { clearInterval(killPoll); done('killed'); return; }
     audio.play()
       .then(() => {
-        // Re-check after play starts — if killed between .play() and .then(), stop
-        if (turn._killed || _wsTurn !== turn) { try { audio.pause(); } catch(e){} done('killed-after-play'); return; }
+        if (turn._killed || _wsTurn !== turn) { clearInterval(killPoll); try { audio.pause(); audio.src = ''; } catch(e){} done('killed-after-play'); return; }
         console.log(`[WS Audio] Beat #${beatNum} playing`);
         _startCaptionHighlight(audio);
       })
       .catch((err) => {
         console.warn(`[WS Audio] Beat #${beatNum} play failed:`, err.message);
-        // Retry once — but check turn is still alive first
         setTimeout(() => {
-          if (turn._killed || _wsTurn !== turn) { done('killed-in-retry'); return; }
+          if (turn._killed || _wsTurn !== turn) { clearInterval(killPoll); done('killed-in-retry'); return; }
           audio.play()
             .then(() => {
-              if (turn._killed || _wsTurn !== turn) { try { audio.pause(); } catch(e){} done('killed-after-retry'); return; }
-              console.log(`[WS Audio] Beat #${beatNum} playing (retry)`);
+              if (turn._killed || _wsTurn !== turn) { clearInterval(killPoll); try { audio.pause(); audio.src = ''; } catch(e){} done('killed-after-retry'); return; }
               _startCaptionHighlight(audio);
             })
             .catch((err2) => {
-              console.error(`[WS Audio] Beat #${beatNum} autoplay blocked — skipping:`, err2.message);
+              clearInterval(killPoll);
               done('autoplay-blocked');
             });
         }, 200);
@@ -3438,6 +3299,15 @@ function buildContext() {
     }
   }
 
+  // Path context — inject pathId + nodeId when session is part of a path
+  if (typeof PathState !== 'undefined' && PathState.currentPathSession) {
+    _scObj.path_id = PathState.currentPathSession.pathId;
+    _scObj.node_id = PathState.currentPathSession.nodeId;
+  } else if (state._sessionPathContext) {
+    _scObj.path_id = state._sessionPathContext.pathId;
+    _scObj.node_id = state._sessionPathContext.nodeId;
+  }
+
   // Active UI panels — so Euler knows what's visible
   var _openPanels = [];
   if (document.getElementById('ws-code-pane')?.style.display === 'flex') _openPanels.push('code-editor');
@@ -3593,32 +3463,19 @@ function buildContext() {
     }
   }
 
-  // Course Concepts — REMOVED from per-turn context. Available via content_map tool.
-
-  // Context: Video State (if in video follow-along mode)
-  // NOTE: Course map is injected into the STATIC prompt block by the backend
-  // (cacheable across turns). Only dynamic state goes here.
+  // Context: Video State (BYO watch-along — student is paused on a video they uploaded)
   if (state.video && state.video.active) {
     const videoCtx = {
-      lessonId: state.video.lessonId,
-      lessonTitle: state.video.lessonTitle,
+      title: state.video.lessonTitle,
       currentTimestamp: state.video.currentTimestamp,
-      currentSectionIndex: state.video.currentSectionIndex,
-      sectionTitle: state.video.sectionTitle,
+      byoResourceId: state.video.byoResourceId || null,
+      byoCollectionId: state.video.byoCollectionId || null,
     };
-    // Include playlist and sections in videoState so backend can use them
-    if (state._videoPlaylist) {
-      videoCtx.playlist = state._videoPlaylist.map(l => ({ id: l.id, title: l.title }));
-    }
-    if (state.video.sections) {
-      videoCtx.sections = state.video.sections.map(s => ({ title: s.title, start: s.start_seconds, end: s.end_seconds }));
-    }
     items.push({ description: 'Video State', value: JSON.stringify(videoCtx) });
 
-    // Capture video frame if paused OR if agent requested capture
     if (state.video.isPaused || state.video._pendingFrame) {
       const frame = state.video._pendingFrame || vmCaptureFrame();
-      state.video._pendingFrame = null;  // clear after use
+      state.video._pendingFrame = null;
       if (frame) {
         items.push({
           description: 'Video Frame — screenshot of what student sees on the video',
@@ -4152,10 +4009,8 @@ function cleanupActiveSession() {
   // Clean up YouTube player
   if (state.video?._ytTimerInterval) { clearInterval(state.video._ytTimerInterval); state.video._ytTimerInterval = null; }
   if (state.video?._ytPlayer) { try { state.video._ytPlayer.destroy(); } catch(e) {} state.video._ytPlayer = null; }
-  state.video = { active: false, courseId: null, lessonId: null, lessonTitle: '', currentTimestamp: 0, currentSectionIndex: 0, sectionTitle: '', isPaused: false, player: null, sections: [], lessons: [], lessonIndex: 0 };
+  state.video = { active: false, lessonTitle: '', currentTimestamp: 0, isPaused: false, player: null, byoResourceId: null, byoCollectionId: null };
   state._videoWatchAlong = false;
-  state._videoPlaylist = null; state._videoPlaylistIndex = 0;
-  if (typeof _hideVideoPlaylist === 'function') _hideVideoPlaylist();
 
   // ── 8. Spotlight / notebook / simulation ──
   state.spotlightActive = false; state.spotlightInfo = null;
@@ -4306,9 +4161,17 @@ function cleanupActiveSession() {
   const chatStream = document.getElementById('euler-stream');
   if (chatStream) chatStream.innerHTML = '';
 
-  // ── 18. Clear session identity (last — everything above uses sessionId-independent cleanup) ──
+  // ── 18. Path: queue reflection (don't show overlay here — it fires during navigation) ──
+  if (typeof PathUI !== 'undefined' && PathState?.currentPathSession && state.sessionId) {
+    PathUI._queueReflection(PathState.currentPathSession.pathId, PathState.currentPathSession.nodeId, state.sessionId);
+  }
+  // Remove path breadcrumb
+  document.getElementById('path-session-bar')?.remove();
+
+  // ── 19. Clear session identity (last — everything above uses sessionId-independent cleanup) ──
   state.messages = [];
   state.sessionId = null;
+  state._sessionPathContext = null;
 }
 
 function handleAgentEvent(event) {
@@ -9055,7 +8918,7 @@ function deriveCheckpointFromSession(session) {
 
 // ─── Init & Screen Management ─────────────────────────────
 
-const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen', 'business-screen', 'dsa-screen', 'dsa-problem-screen'];
+const ALL_SCREENS = ['landing-screen', 'login-panel', 'browse-screen', 'course-screen', 'ondemand-screen', 'business-screen', 'dsa-screen', 'dsa-problem-screen', 'path-screen'];
 
 function _hideAllScreens() {
   ALL_SCREENS.forEach(id => {
@@ -9136,9 +8999,7 @@ function showScreen(screenName, param) {
         const timeGreeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
         browseGreeting.textContent = `${timeGreeting}, ${firstName}`;
       }
-      // Load home sections (sessions, courses, videos)
       _loadHomeSections();
-      _fetchCourses();
       // Check for pending prompt + attachments from landing page (saved before login redirect)
       {
         const pendingPrompt = sessionStorage.getItem('capacity_pending_prompt');
@@ -9255,64 +9116,9 @@ function updateCourseCardSelection() { /* no-op — old dashboard compat */ }
 
 // ─── Dynamic course loading ──────────────────────────────
 
-let _cachedCourses = null;
-const _COURSE_CACHE_KEY = 'capacity_courses';
-const _COURSE_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
-
-async function _fetchCourses() {
-  if (_cachedCourses) return _cachedCourses;
-
-  // Check sessionStorage first — instant on navigation
-  try {
-    const cached = sessionStorage.getItem(_COURSE_CACHE_KEY);
-    if (cached) {
-      const { data, ts } = JSON.parse(cached);
-      if (Date.now() - ts < _COURSE_CACHE_TTL) {
-        _cachedCourses = data;
-        return _cachedCourses;
-      }
-    }
-  } catch (e) { /* ignore */ }
-
-  try {
-    const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses`, {
-      headers: AuthManager.authHeaders(),
-    });
-    if (res.ok) {
-      _cachedCourses = await res.json();
-      try { sessionStorage.setItem(_COURSE_CACHE_KEY, JSON.stringify({ data: _cachedCourses, ts: Date.now() })); } catch (e) { /* quota */ }
-      return _cachedCourses;
-    }
-  } catch (e) { console.warn('Failed to fetch courses:', e); }
-  // Fallback static list (used when API is unavailable)
-  return [
-    { id: 2, title: 'MIT 8.04 Quantum Physics I', description: 'Wave mechanics, Schrodinger equation in one and three dimensions.', lesson_count: 24, module_count: 5, subject: 'Physics', thumbnail: 'https://img.youtube.com/vi/lZ3bPUKo5zc/hqdefault.jpg' },
-    { id: 7, title: 'Calculus 1: Pre-Calc to Differentiation', description: 'Complete calculus course from pre-calculus review through derivatives.', lesson_count: 15, module_count: 4, subject: 'Mathematics', thumbnail: 'https://img.youtube.com/vi/fYyARMqiaag/hqdefault.jpg' },
-    { id: 5, title: 'Electricity & Magnetism', description: 'Electric fields, Gauss\'s law, circuits, and magnetic fields.', lesson_count: 2, module_count: 1, subject: 'Physics', thumbnail: '' },
-    { id: 4, title: 'Quantum Mechanics', description: 'Operators, eigenvalues, measurement, and the hydrogen atom.', lesson_count: 4, module_count: 1, subject: 'Physics', thumbnail: '' },
-    { id: 3, title: 'Classical Mechanics', description: "Newton's laws, energy conservation, rotational dynamics.", lesson_count: 3, module_count: 1, subject: 'Physics', thumbnail: 'https://img.youtube.com/vi/oduZsA0Tk58/hqdefault.jpg' },
-  ];
-}
-
-function _courseThumbStyle(course) {
-  // Returns just the CSS value (no "background:" prefix — callers add that)
-  const thumb = (course.thumbnail || '').trim().replace(/^\s+/, '');
-  if (thumb && thumb.startsWith('http')) {
-    return `url('${thumb}') center/cover no-repeat, linear-gradient(135deg,#151530,#111113)`;
-  }
-  const s = (course.subject || course.title || '').toLowerCase();
-  if (s.includes('math')) return 'linear-gradient(135deg,#152015,#111113)';
-  if (s.includes('electr') || s.includes('magnet')) return 'linear-gradient(135deg,#251515,#111113)';
-  if (s.includes('computer') || s.includes('dsa')) return 'linear-gradient(135deg,#151520,#111113)';
-  return 'linear-gradient(135deg,#151530,#111113)';
-}
-
-function _courseTagClass(course) {
-  const s = (course.subject || '').toLowerCase();
-  if (s.includes('math')) return 'tag-math';
-  if (s.includes('computer')) return 'tag-cs';
-  return 'tag-physics';
-}
+// Legacy PG course catalog helpers (_fetchCourses, _courseThumbStyle, _courseTagClass,
+// _loadBrowseCourses, _skeletonCards course variant) removed — backend no longer
+// serves /api/v1/content/courses. BYO collections use a separate code path.
 
 function _guessSubject(title) {
   const t = (title || '').toLowerCase();
@@ -9322,53 +9128,10 @@ function _guessSubject(title) {
   return 'Course';
 }
 
+async function _loadBrowseCourses() { /* removed */ }
+function _filterBrowseCourses(_q) { /* removed */ }
 
-function _skeletonCards(n, container) {
-  container.innerHTML = Array.from({ length: n }, () =>
-    `<div class="ccard ccard-skeleton"><div class="ccard-thumb skeleton-pulse"></div><div class="ccard-body"><div class="skeleton-line w60"></div><div class="skeleton-line w90"></div></div></div>`
-  ).join('');
-}
-
-async function _loadBrowseCourses() {
-  const grid = document.getElementById('browse-courses-grid');
-  if (!grid) return;
-
-  // Show skeletons immediately
-  _skeletonCards(4, grid);
-
-  const courses = await _fetchCourses();
-  const countEl = document.getElementById('browse-course-count');
-  if (countEl) countEl.textContent = `${courses.length} courses`;
-
-  grid.innerHTML = courses.map(c => `
-    <div class="ccard" data-course-id="${c.id}">
-      <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
-
-        <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
-        <div class="meta"><span>${c.lesson_count || '?'} lessons</span><span>~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span></div>
-      </div>
-      <div class="ccard-body">
-        <h3>${c.title}</h3>
-        <p>${c.description || ''}</p>
-      </div>
-      <div class="ccard-cta">
-        <span class="ccard-lessons">${c.lesson_count || '?'} lessons &middot; ${c.subject || 'Course'}</span>
-        <span>Start learning &rarr;</span>
-      </div>
-    </div>
-  `).join('');
-  grid.querySelectorAll('.ccard').forEach(card => {
-    card.addEventListener('click', () => Router.navigate('/courses/' + card.dataset.courseId));
-  });
-
-  // Show "Show all" button if more than 3 courses
-  const showAllEl = document.getElementById('browse-show-all');
-  if (showAllEl) {
-    showAllEl.style.display = courses.length > 3 ? '' : 'none';
-  }
-}
-
-let _courseDetailData = null; // raw API data for current course detail
+let _courseDetailData = null; // legacy compat — never set
 
 // ═══════════════════════════════════════════════════════════════
 //   Euler — Home screen AI companion
@@ -9393,7 +9156,7 @@ function _initHomeTabs() {
       if (tab.dataset.homeTab === 'home') { _loadCollections(); _populateCollectionPicker(); }
       // Legacy compat
       if (tab.dataset.homeTab === 'content') { _loadByoMaterials(); try { _loadLearningAids(); } catch(e) {} }
-      if (tab.dataset.homeTab === 'explore') { try { _loadBrowseCourses(); _loadRecentSessions(); _loadMyVideos(); } catch(e) {} }
+      if (tab.dataset.homeTab === 'explore') { try { _loadRecentSessions(); _loadMyVideos(); } catch(e) {} }
       if (tab.dataset.homeTab === 'materials') { try { _loadByoMaterials(); _loadLearningAids(); } catch(e) {} }
     });
   });
@@ -9410,42 +9173,21 @@ function _initHomeTabs() {
 }
 
 function _loadHomeSections() {
-  // Show skeleton placeholders immediately, then load real data with staggered reveal
   _showHomeSkeletons();
   _loadHomeSessions();
-  _loadHomeVideos();
-  _loadHomeCourses();
-  // Collections are now inline on the main dashboard (no tab switch needed)
+  // _loadHomeVideos(); // Removed — videos are sessions or paths now
   _loadCollections();
   _populateCollectionPicker();
+  // Load path cards
+  if (typeof PathUI !== 'undefined') {
+    PathUI.renderHomeCards();
+  }
 }
 
 function _showHomeSkeletons() {
-  const sessSection = document.getElementById('home-sessions-section');
-  const sessRow = document.getElementById('home-sessions-row');
-  const vidSection = document.getElementById('home-videos-section');
-  const vidRow = document.getElementById('home-videos-row');
-  const courseSection = document.getElementById('home-courses-section');
-  const courseGrid = document.getElementById('home-courses-grid');
-
-  // Sessions skeleton
-  if (sessSection && sessRow) {
-    sessRow.innerHTML = Array(3).fill('<div class="skeleton-card"></div>').join('');
-    sessSection.style.display = '';
-    sessSection.style.opacity = '0.5';
-  }
-  // Videos skeleton
-  if (vidSection && vidRow) {
-    vidRow.innerHTML = Array(2).fill('<div class="skeleton-card"></div>').join('');
-    vidSection.style.display = '';
-    vidSection.style.opacity = '0.5';
-  }
-  // Courses skeleton
-  if (courseSection && courseGrid) {
-    courseGrid.innerHTML = Array(3).fill('<div class="skeleton-course"></div>').join('');
-    courseSection.style.display = '';
-    courseSection.style.opacity = '0.5';
-  }
+  // Just make the activity section visible — data populates it async
+  const actSection = document.getElementById('home-activity-section');
+  if (actSection) actSection.style.display = '';
 }
 
 function _revealHomeSection(section, delay) {
@@ -9457,169 +9199,174 @@ function _revealHomeSection(section, delay) {
 }
 
 async function _loadHomeSessions() {
+  // Legacy — still loads into hidden row for compat, but main UI is unified section
   const section = document.getElementById('home-sessions-section');
   const row = document.getElementById('home-sessions-row');
-  if (!section || !row) return;
+  if (row) row.innerHTML = '';
+  if (section) section.style.display = 'none';
+
+  // ── Unified activity section: paths + sessions merged ──
+  const actSection = document.getElementById('home-activity-section');
+  const actRow = document.getElementById('home-activity-row');
+  if (!actSection || !actRow) return;
 
   try {
-    const res = await fetch(`${state.apiUrl || ''}/api/v1/sessions/me/all`, { headers: AuthManager.authHeaders() });
-    if (!res.ok) { section.style.display = 'none'; return; }
-    const sessions = await res.json();
-    if (!sessions.length) { section.style.display = 'none'; return; }
+    // Fetch both in parallel
+    const [sessRes, pathsData] = await Promise.all([
+      fetch(`${state.apiUrl || ''}/api/v1/sessions/me/all`, { headers: AuthManager.authHeaders() }).then(r => r.ok ? r.json() : []).catch(() => []),
+      (typeof PathAPI !== 'undefined') ? PathAPI.list().catch(() => []) : [],
+    ]);
 
-    row.innerHTML = '';
-    for (const s of sessions.slice(0, 6)) {
-      row.appendChild(_buildSessionCard(s, !!s.courseId));
-    }
-    _revealHomeSection(section, 0);
-  } catch (e) { section.style.display = 'none'; }
-}
+    // Build unified card list
+    const cards = [];
 
-let _allCoursesCached = null;
-let _coursesExpanded = false;
-const _COURSES_COLLAPSED_COUNT = 4;
-const _COURSES_PAGE_SIZE = 12;
-let _coursesShownCount = 0;
-
-async function _loadHomeCourses() {
-  const section = document.getElementById('home-courses-section');
-  const grid = document.getElementById('home-courses-grid');
-  if (!section || !grid) return;
-
-  const courses = await _fetchCourses();
-  if (!courses || !courses.length) { section.style.display = 'none'; return; }
-  _allCoursesCached = courses;
-
-  const countEl = document.getElementById('home-course-count');
-  if (countEl) countEl.textContent = `(${courses.length})`;
-
-  _coursesExpanded = false;
-  _coursesShownCount = Math.min(_COURSES_PAGE_SIZE, courses.length);
-  _renderCourseCards(grid, courses.slice(0, _coursesShownCount));
-  // Lazy-load more courses on horizontal scroll
-  _wireCourseLazyScroll(grid);
-  _revealHomeSection(section, 150);
-}
-
-function _renderCourseCards(grid, courses) {
-  grid.innerHTML = courses.map(c => `
-    <div class="ccard" data-course-id="${c.id}">
-      <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
-        <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
-        <div class="meta"><span>${c.lesson_count || '?'} lessons</span><span>~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span></div>
-      </div>
-      <div class="ccard-body">
-        <h3>${c.title}</h3>
-        <p>${(c.description || '').slice(0, 100)}${(c.description || '').length > 100 ? '...' : ''}</p>
-      </div>
-    </div>
-  `).join('');
-  // Add "Load more" button if there are more courses
-  if (_coursesExpanded && _allCoursesCached && _coursesShownCount < _allCoursesCached.length) {
-    const remaining = _allCoursesCached.length - _coursesShownCount;
-    grid.insertAdjacentHTML('beforeend', `
-      <div class="ccard ccard-load-more" id="courses-load-more" style="display:flex;align-items:center;justify-content:center;cursor:pointer;border:1px dashed rgba(255,255,255,0.15);min-height:120px">
-        <span style="color:var(--text-dim);font-size:13px">Show ${Math.min(remaining, _COURSES_PAGE_SIZE)} more of ${remaining} remaining</span>
-      </div>
-    `);
-    document.getElementById('courses-load-more')?.addEventListener('click', _loadMoreCourses);
-  }
-  grid.querySelectorAll('.ccard[data-course-id]').forEach(card => {
-    card.addEventListener('click', () => Router.navigate('/courses/' + card.dataset.courseId));
-  });
-}
-
-function _loadMoreCourses() {
-  if (!_allCoursesCached || _coursesShownCount >= _allCoursesCached.length) return;
-  const grid = document.getElementById('home-courses-grid');
-  if (!grid) return;
-  const prevCount = _coursesShownCount;
-  _coursesShownCount = Math.min(_coursesShownCount + _COURSES_PAGE_SIZE, _allCoursesCached.length);
-  // Append new cards instead of re-rendering all
-  const newCourses = _allCoursesCached.slice(prevCount, _coursesShownCount);
-  const fragment = document.createDocumentFragment();
-  for (const c of newCourses) {
-    const card = document.createElement('div');
-    card.className = 'ccard';
-    card.dataset.courseId = c.id;
-    card.innerHTML = `
-      <div class="ccard-thumb" style="background:${_courseThumbStyle(c)}">
-        <span class="tag ${_courseTagClass(c)}">${c.subject || 'Course'}</span>
-        <div class="meta"><span>${c.lesson_count || '?'} lessons</span><span>~${Math.round((c.lesson_count || 1) * 1.3)} hrs</span></div>
-      </div>
-      <div class="ccard-body">
-        <h3>${c.title}</h3>
-        <p>${(c.description || '').slice(0, 100)}${(c.description || '').length > 100 ? '...' : ''}</p>
-      </div>`;
-    card.addEventListener('click', () => Router.navigate('/courses/' + c.id));
-    fragment.appendChild(card);
-  }
-  grid.appendChild(fragment);
-}
-
-function _wireCourseLazyScroll(grid) {
-  if (grid._lazyScrollWired) return;
-  grid._lazyScrollWired = true;
-  grid.addEventListener('scroll', () => {
-    if (!_allCoursesCached || _coursesShownCount >= _allCoursesCached.length) return;
-    // Load more when scrolled within 200px of the right edge
-    const { scrollLeft, scrollWidth, clientWidth } = grid;
-    if (scrollLeft + clientWidth >= scrollWidth - 200) {
-      _loadMoreCourses();
-    }
-  }, { passive: true });
-}
-
-window._toggleBrowseAll = function() {
-  if (!_allCoursesCached) return;
-  const grid = document.getElementById('home-courses-grid');
-  const btn = document.getElementById('browse-all-btn');
-  if (!grid) return;
-
-  const searchWrap = document.getElementById('home-course-search');
-  const searchInput = document.getElementById('home-course-search-input');
-
-  if (_coursesExpanded) {
-    // Collapse back to horizontal scroll row (paginated, lazy-loads on scroll)
-    _coursesExpanded = false;
-    _coursesShownCount = Math.min(_COURSES_PAGE_SIZE, _allCoursesCached.length);
-    grid.className = 'session-row';
-    if (searchWrap) searchWrap.style.display = 'none';
-    if (searchInput) searchInput.value = '';
-    _renderCourseCards(grid, _allCoursesCached.slice(0, _coursesShownCount));
-    _wireCourseLazyScroll(grid);
-    if (btn) btn.textContent = 'Browse all';
-  } else {
-    // Expand: wrapping grid with search + pagination
-    _coursesExpanded = true;
-    _coursesShownCount = Math.min(_COURSES_PAGE_SIZE, _allCoursesCached.length);
-    grid.className = 'c-grid';
-    if (searchWrap) searchWrap.style.display = 'block';
-    _renderCourseCards(grid, _allCoursesCached.slice(0, _coursesShownCount));
-    if (btn) btn.textContent = 'Show less';
-    // Wire search filtering
-    if (searchInput && !searchInput._wired) {
-      searchInput._wired = true;
-      let _t;
-      searchInput.addEventListener('input', () => {
-        clearTimeout(_t);
-        _t = setTimeout(() => {
-          const q = searchInput.value.toLowerCase().trim();
-          if (!q) {
-            _renderCourseCards(grid, _allCoursesCached.slice(0, _coursesShownCount));
-            return;
-          }
-          const filtered = _allCoursesCached.filter(c =>
-            (c.title || '').toLowerCase().includes(q) ||
-            (c.description || '').toLowerCase().includes(q) ||
-            (c.subject || '').toLowerCase().includes(q)
-          );
-          _renderCourseCards(grid, filtered);
-        }, 200);
+    // Path cards
+    for (const p of (pathsData || [])) {
+      const nodes = p.nodes || [];
+      const done = nodes.filter(n => n.status === 'completed').length;
+      const total = nodes.length;
+      const next = nodes.find(n => n.status === 'pending' || n.status === 'active');
+      cards.push({
+        type: 'path',
+        sortDate: p.createdAt,
+        id: p.pathId,
+        title: p.title,
+        subtitle: `${total} sessions · ${done}/${total} done`,
+        desc: p.description || '',
+        nextLabel: next ? `${next.title}` : 'Completed',
+        nextType: next ? next.type : null,
+        nextOrder: next ? next.order : null,
+        progress: total ? Math.round((done / total) * 100) : 0,
+        done, total,
+        status: p.status,
+        pathId: p.pathId,
+        nodeId: next?.nodeId,
+        ago: _timeAgo(p.createdAt),
       });
     }
+
+    // Session cards (exclude sessions that belong to a path — they're shown under the path)
+    const pathSessionIds = new Set();
+    for (const p of (pathsData || [])) {
+      for (const n of (p.nodes || [])) {
+        if (n.sessionId) pathSessionIds.add(n.sessionId);
+      }
+    }
+
+    for (const s of (sessRes || [])) {
+      if (pathSessionIds.has(s.sessionId)) continue; // skip — shown under path
+      const headline = s.headline || s.plan?.sessionObjective || s.intent?.raw || 'Session';
+      let desc = s.headlineDescription || '';
+      desc = desc.replace(/^Student\s+(learned|engaged|explored|studied|discovered|worked)\s+\w*\s*/i, '').trim();
+      if (desc.length > 120) desc = desc.slice(0, 120) + '...';
+      cards.push({
+        type: 'session',
+        sortDate: s.startedAt,
+        id: s.sessionId,
+        title: headline,
+        subtitle: s.durationSec ? `${Math.round(s.durationSec / 60)} min` : '',
+        desc,
+        status: s.status,
+        sessionId: s.sessionId,
+        ago: _timeAgo(s.startedAt),
+        mode: s.sessionMode || 'general',
+      });
+    }
+
+    // Sort by date descending
+    cards.sort((a, b) => new Date(b.sortDate || 0) - new Date(a.sortDate || 0));
+
+    if (!cards.length) { actSection.style.display = 'none'; return; }
+
+    // Store for filtering
+    window._homeActivityCards = cards;
+    _renderHomeActivity(cards);
+    _revealHomeSection(actSection, 0);
+  } catch (e) { console.warn('[Home] Activity load failed:', e); actSection.style.display = 'none'; }
+}
+
+function _renderHomeActivity(cards) {
+  const pathsWrap = document.getElementById('home-paths-wrap');
+  const pathsRow = document.getElementById('home-paths-hscroll');
+  const sessWrap = document.getElementById('home-sessions-wrap');
+  const sessRow = document.getElementById('home-sessions-hscroll');
+
+  const pathCards = cards.filter(c => c.type === 'path');
+  const sessCards = cards.filter(c => c.type === 'session');
+
+  // ── Path cards (horizontal scroll) ──
+  if (pathsWrap && pathsRow) {
+    if (pathCards.length) {
+      pathsWrap.style.display = '';
+      pathsRow.innerHTML = '';
+      for (const c of pathCards.slice(0, 8)) {
+        pathsRow.innerHTML += `
+          <div onclick="PathUI.openPathDetail('${_escHtml(c.pathId)}')" style="
+            min-width:280px;max-width:320px;padding:14px 16px;border-radius:11px;cursor:pointer;
+            background:linear-gradient(135deg,rgba(52,211,153,.04),rgba(96,165,250,.02));
+            border:1px solid rgba(52,211,153,.15);transition:all .12s;scroll-snap-align:start;flex-shrink:0;
+          ">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px">
+              <div style="font-size:8px;font-weight:700;letter-spacing:1px;text-transform:uppercase;
+                color:rgba(52,211,153,.7)">${c.ago}</div>
+              <span style="font-size:14px;font-weight:800;color:#34d399">${c.done}<span style="font-size:10px;color:rgba(255,255,255,.2)">/${c.total}</span></span>
+            </div>
+            <div style="font-size:13px;font-weight:700;color:#fff;margin-bottom:4px;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(c.title)}</div>
+            <div style="height:3px;border-radius:2px;background:rgba(255,255,255,.04);overflow:hidden;margin-bottom:8px">
+              <div style="height:100%;width:${c.progress}%;background:linear-gradient(90deg,#34d399,#22c584);border-radius:2px"></div>
+            </div>
+            ${c.nextLabel ? `<div style="display:flex;align-items:center;gap:6px">
+              <div style="width:18px;height:18px;border-radius:50%;background:rgba(52,211,153,.1);color:#34d399;
+                display:grid;place-items:center;font-size:8px;font-weight:700;flex-shrink:0">${c.nextOrder || '?'}</div>
+              <span style="font-size:10.5px;color:rgba(255,255,255,.5);flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(c.nextLabel)}</span>
+              <button onclick="event.stopPropagation();PathUI.continueNode('${_escHtml(c.pathId)}','${_escHtml(c.nodeId)}')" style="
+                padding:4px 10px;border-radius:6px;border:none;background:linear-gradient(135deg,#34d399,#22c584);
+                color:#0a0f1a;font-size:10px;font-weight:700;cursor:pointer;font-family:inherit;flex-shrink:0;
+              ">Continue &rarr;</button>
+            </div>` : ''}
+          </div>`;
+      }
+    } else {
+      pathsWrap.style.display = 'none';
+    }
   }
-};
+
+  // ── Session cards (horizontal scroll) ──
+  if (sessWrap && sessRow) {
+    if (sessCards.length) {
+      sessWrap.style.display = '';
+      sessRow.innerHTML = '';
+      for (const c of sessCards.slice(0, 10)) {
+        const modeLabel = { dsa: 'DSA', sd: 'System Design', mock_interview: 'Mock' }[c.mode] || '';
+        sessRow.innerHTML += `
+          <div onclick="Router.navigate('/session/${_escHtml(c.sessionId)}')" style="
+            min-width:220px;max-width:260px;padding:12px 14px;border-radius:11px;cursor:pointer;
+            background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);
+            transition:all .12s;scroll-snap-align:start;flex-shrink:0;
+          ">
+            <div style="display:flex;align-items:center;gap:5px;margin-bottom:4px">
+              ${modeLabel ? `<span style="font-size:8px;font-weight:600;color:rgba(96,165,250,.6)">${modeLabel}</span>` : ''}
+              <span style="font-size:9px;color:rgba(255,255,255,.2)">${c.ago}</span>
+              ${c.subtitle ? `<span style="font-size:9px;color:rgba(255,255,255,.2)">&middot; ${c.subtitle}</span>` : ''}
+            </div>
+            <div style="font-size:12px;font-weight:600;color:#fff;margin-bottom:3px;
+              display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${_escHtml(c.title)}</div>
+            ${c.desc ? `<div style="font-size:10px;color:rgba(255,255,255,.25);
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:4px">${_escHtml(c.desc)}</div>` : ''}
+            <div style="font-size:10px;color:rgba(52,211,153,.65);font-weight:600">
+              ${c.status === 'active' ? 'Continue' : 'Review'} &rarr;</div>
+          </div>`;
+      }
+    } else {
+      sessWrap.style.display = 'none';
+    }
+  }
+}
+
+// Legacy PG course grid (home + browse-all) removed.
+// Toggle is exposed as a no-op so any stray inline onclick handlers don't throw.
+window._toggleBrowseAll = function() {};
 
 async function _loadHomeVideos() {
   const section = document.getElementById('home-videos-section');
@@ -11379,6 +11126,8 @@ async function _openResourcePicker() {
   }
 }
 
+window._openResourcePicker = _openResourcePicker;
+
 function _closeResourcePicker() {
   const modal = document.getElementById('resource-picker-modal');
   if (modal) modal.style.display = 'none';
@@ -12228,73 +11977,8 @@ function _inlineMarkdown(text) {
 
 // ═══════════════════════════════════════════════════════════════
 
-function _renderEulerCourseCards(toolResult) {
-  // Extract course IDs and their matched lessons from tool result
-  const idMatches = toolResult.match(/id=(\d+)/g);
-  if (!idMatches || !_cachedCourses) return;
-
-  const ids = [...new Set(idMatches.map(m => parseInt(m.split('=')[1])))];
-  const courses = ids.map(id => _cachedCourses.find(c => c.id === id)).filter(Boolean);
-  if (!courses.length) return;
-
-  // Parse matched lessons per course: "Course: ... (id=X)\n  lesson:Y — Title"
-  const lessonsByCoursId = {};
-  const blocks = toolResult.split(/\nCourse[: ]/);
-  for (const block of blocks) {
-    const cidMatch = block.match(/id=(\d+)/);
-    if (!cidMatch) continue;
-    const cid = parseInt(cidMatch[1]);
-    const lessons = [];
-    const lessonMatches = block.matchAll(/lesson:(\d+)\s*[—–-]\s*(.+)/g);
-    for (const m of lessonMatches) {
-      lessons.push({ id: parseInt(m[1]), title: m[2].trim() });
-    }
-    if (lessons.length) lessonsByCoursId[cid] = lessons;
-  }
-
-  const container = document.getElementById('euler-messages');
-  if (!container) return;
-
-  const msg = document.createElement('div');
-  msg.className = 'euler-msg euler-msg-euler';
-  msg.innerHTML = `
-    <div class="euler-msg-row">
-      <div class="euler-msg-avatar" style="visibility:hidden">E</div>
-      <div class="euler-course-cards">
-        ${courses.map(c => {
-          const thumb = _courseThumbStyle(c);
-          const tag = c.subject || _guessSubject(c.title);
-          const matched = lessonsByCoursId[c.id] || [];
-          const lessonsHtml = matched.length
-            ? `<div class="euler-ccard-matches">
-                <div class="euler-ccard-matches-label">Matching lessons:</div>
-                ${matched.slice(0, 4).map(l =>
-                  `<div class="euler-ccard-match">
-                    <span class="euler-ccard-match-dot"></span>
-                    <span>${_escHtml(l.title)}</span>
-                  </div>`
-                ).join('')}
-                ${matched.length > 4 ? `<div class="euler-ccard-match-more">+${matched.length - 4} more</div>` : ''}
-              </div>`
-            : '';
-          return `<div class="euler-ccard" data-course-id="${c.id}" onclick="_eulerNavigateTo('/courses/${c.id}')">
-            <div class="euler-ccard-thumb" style="background:${thumb}">
-              <span class="euler-ccard-tag">${_escHtml(tag)}</span>
-              <span class="euler-ccard-lessons">${c.lesson_count || '?'} lessons</span>
-            </div>
-            <div class="euler-ccard-body">
-              <div class="euler-ccard-title">${_escHtml(c.title)}</div>
-              <div class="euler-ccard-desc">${_escHtml((c.description || '').slice(0, 100))}${(c.description || '').length > 100 ? '...' : ''}</div>
-            </div>
-            ${lessonsHtml}
-            <div class="euler-ccard-action">Explore course &rarr;</div>
-          </div>`;
-        }).join('')}
-      </div>
-    </div>`;
-  container.appendChild(msg);
-  msg.scrollIntoView({ behavior: 'smooth', block: 'end' });
-}
+// Legacy Euler "course cards" tool-result renderer — removed (no PG courses to match against).
+function _renderEulerCourseCards(_toolResult) { /* removed */ }
 
 window._eulerNavigateTo = function(target) {
   Router.navigate(target);
@@ -12422,501 +12106,32 @@ function _toast(msg, kind) {
 
 // ═══════════════════════════════════════════════════════════════
 
-function _filterBrowseCourses(query) {
-  const grid = document.getElementById('browse-courses-grid');
-  if (!grid) return;
-  const q = query.toLowerCase().trim();
-  const cards = grid.querySelectorAll('.ccard');
+// ═══════════════════════════════════════════════════════════
+// Legacy PG course detail screen + video follow-along (REMOVED)
+//
+// The whole flow that drove `#course-screen`, the lesson filmstrip,
+// the tutor/video mode picker, the YouTube `#vm-video-overlay`, and
+// the right-rail `#video-playlist` has been deleted along with its
+// backing /api/v1/content/courses endpoints.
+// Stubs are kept only where other surviving code-paths still try to
+// call them; everything else just no-ops.
+// ═══════════════════════════════════════════════════════════
 
-  if (!q) {
-    // Show all cards + hide the "no match" hint
-    cards.forEach(c => c.style.display = '');
-    const hint = document.getElementById('browse-no-match');
-    if (hint) hint.style.display = 'none';
-    return;
-  }
-
-  let visible = 0;
-  cards.forEach(card => {
-    const title = (card.querySelector('h3')?.textContent || '').toLowerCase();
-    const desc = (card.querySelector('p')?.textContent || '').toLowerCase();
-    const match = title.includes(q) || desc.includes(q) || q.split(' ').some(w => w.length > 2 && (title.includes(w) || desc.includes(w)));
-    card.style.display = match ? '' : 'none';
-    if (match) visible++;
-  });
-
-  // Show/create "no match" hint with on-demand CTA
-  let hint = document.getElementById('browse-no-match');
-  if (visible === 0) {
-    if (!hint) {
-      hint = document.createElement('div');
-      hint.id = 'browse-no-match';
-      hint.className = 'browse-no-match';
-      grid.parentElement.insertBefore(hint, grid.nextSibling);
-    }
-    hint.innerHTML = `
-      <p>No courses match "<strong>${q}</strong>"</p>
-      <button class="sc-btn sc-btn-sm sc-btn-accent" onclick="_startOnDemandSession('${q.replace(/'/g, "\\'")}')">
-        Let your tutor teach you this &rarr;
-      </button>
-      <p class="browse-no-match-sub">Your tutor can teach any topic — even without a structured course.</p>
-    `;
-    hint.style.display = '';
-  } else if (hint) {
-    hint.style.display = 'none';
-  }
+async function _loadCourseDetail(_courseId) {
+  Router.navigate('/home', { replace: true });
 }
 
-async function _loadCourseDetail(courseId) {
-  state.courseId = courseId;
-  const courseIdEl = document.getElementById('course-id');
-  if (courseIdEl) courseIdEl.value = courseId;
-
-  // Show skeleton while loading
-  const titleEl = document.getElementById('cd-title');
-  if (titleEl && !titleEl.textContent) titleEl.textContent = 'Loading...';
-  const filmstrip = document.getElementById('cd-filmstrip');
-  if (filmstrip) filmstrip.innerHTML = Array.from({ length: 6 }, () =>
-    `<div style="flex-shrink:0;width:160px;height:140px;border-radius:10px;background:rgba(255,255,255,.03);animation:skeletonShimmer 1.5s infinite"></div>`
-  ).join('');
-  const curEl = document.getElementById('cd-curriculum');
-
-  try {
-    // Check sessionStorage cache first
-    const cacheKey = `capacity_course_${courseId}`;
-    let data = null;
-    try {
-      const cached = sessionStorage.getItem(cacheKey);
-      if (cached) {
-        const { d, ts } = JSON.parse(cached);
-        if (Date.now() - ts < _COURSE_CACHE_TTL) data = d;
-      }
-    } catch (e) { /* ignore */ }
-
-    if (!data) {
-      const res = await fetch(`${state.apiUrl || ''}/api/v1/content/courses/${courseId}`, {
-        headers: AuthManager.authHeaders(),
-      });
-      if (!res.ok) throw new Error(`API ${res.status}`);
-      data = await res.json();
-      try { sessionStorage.setItem(cacheKey, JSON.stringify({ d: data, ts: Date.now() })); } catch (e) { /* quota */ }
-    }
-    _courseDetailData = data;
-
-    const course = data.course || {};
-    const modules = data.modules || [];
-    const lessons = data.lessons || [];
-
-    // Header
-    document.getElementById('cd-title').textContent = course.title || 'Course';
-    document.getElementById('cd-description').textContent = course.description || '';
-    document.getElementById('cd-lessons-count').textContent = lessons.length;
-    document.getElementById('cd-modules-count').textContent = modules.length;
-    const totalMin = lessons.reduce((s, l) => s + (l.duration || 50), 0);
-    document.getElementById('cd-hours').textContent = '~' + Math.round(totalMin / 60);
-
-    // Tag — use subject from API
-    const tagEl = document.getElementById('cd-tag');
-    if (tagEl) {
-      const subj = course.tags?.[0] || _guessSubject(course.title);
-      tagEl.textContent = subj;
-      tagEl.className = 'sc-tag ' + _courseTagClass({ subject: subj });
-    }
-
-    // Banner — use course thumbnail or gradient
-    const banner = document.getElementById('cd-banner');
-    if (banner) banner.style.background = _courseThumbStyle(course);
-
-    // ── Learning outcomes + metadata pills ──
-    const outcomesEl = document.getElementById('cd-outcomes');
-    if (outcomesEl) {
-      const pills = [];
-      // Difficulty badge
-      if (course.difficulty) pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;background:rgba(52,211,153,.08);color:var(--accent);font-weight:600">${course.difficulty}</span>`);
-      // Learning outcomes
-      const outcomes = course.learning_outcomes || [];
-      outcomes.slice(0, 5).forEach(o => pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${o}</span>`));
-      // Keywords from summary
-      if (!outcomes.length && course.course_summary_keywords) {
-        course.course_summary_keywords.slice(0, 5).forEach(k => pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${k}</span>`));
-      }
-      // Tags
-      if (pills.length < 3 && course.tags) {
-        course.tags.slice(0, 3).forEach(t => pills.push(`<span style="font-size:10px;padding:4px 10px;border-radius:6px;border:1px solid var(--border);color:var(--text-muted);background:rgba(255,255,255,.02)">${t}</span>`));
-      }
-      outcomesEl.innerHTML = pills.join('');
-    }
-    // Prerequisites
-    const prereqsEl = document.getElementById('cd-prereqs');
-    if (prereqsEl && course.prerequisites?.length) {
-      prereqsEl.innerHTML = '<span style="color:var(--text-muted)">Prerequisites:</span> ' + course.prerequisites.join(', ');
-    }
-    // Course summary as meta line
-    const metaLine = document.getElementById('cd-meta-line');
-    if (metaLine && course.course_summary) {
-      metaLine.textContent = course.course_summary.length > 120 ? course.course_summary.slice(0, 120) + '...' : course.course_summary;
-    }
-
-    // ── Filmstrip (horizontal scrollable lesson cards with selection) ──
-    const filmstrip = document.getElementById('cd-filmstrip');
-    const allLessons = lessons.sort((a, b) => (a.order || 0) - (b.order || 0));
-    const selectedLessons = new Set();
-
-    if (filmstrip) {
-      let num = 0;
-      filmstrip.innerHTML = '';
-      allLessons.forEach(l => {
-        num++;
-        const _num = num;
-        const thumb = _ytThumb(l.video_url);
-        const mod = modules.find(m => m.id === l.module_id);
-
-        const card = document.createElement('div');
-        card.dataset.lessonId = l.id;
-        card.style.cssText = 'flex-shrink:0;width:160px;cursor:pointer;border-radius:10px;border:2px solid rgba(255,255,255,.06);background:rgba(255,255,255,.02);overflow:hidden;transition:transform .25s cubic-bezier(.4,0,.2,1),border-color .2s,box-shadow .25s';
-
-        card.innerHTML = `
-          <div style="height:92px;background:${thumb ? `url(${thumb}) center/cover` : 'linear-gradient(135deg,#1a1d2e,#252a3a)'};position:relative;display:grid;place-items:center">
-            ${!thumb ? `<span style="font-size:22px;font-weight:700;color:rgba(255,255,255,.12)">${_num}</span>` : ''}
-            <span style="position:absolute;bottom:5px;right:6px;font-size:8px;background:rgba(0,0,0,.75);color:rgba(255,255,255,.8);padding:2px 6px;border-radius:3px">${l.duration || '?'}m</span>
-            <div style="position:absolute;top:5px;left:5px;width:20px;height:20px;border-radius:5px;display:grid;place-items:center;background:rgba(0,0,0,.5)"><svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2.5"><polygon points="5 3 19 12 5 21"/></svg></div>
-          </div>
-          <div style="padding:8px 10px 10px">
-            <div style="font-size:11px;font-weight:600;color:rgba(255,255,255,.85);line-height:1.3;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden">${l.title}</div>
-            <div style="font-size:9px;color:var(--text-dim);margin-top:3px">${mod ? mod.title : ''}</div>
-          </div>`;
-
-        // Hover: pop up + show detail panel below
-        card.addEventListener('mouseenter', () => {
-          card.style.transform = 'translateY(-5px)';
-          card.style.boxShadow = '0 10px 28px rgba(0,0,0,.4)';
-          card.style.borderColor = 'rgba(255,255,255,.12)';
-          _showLessonDetail(l, _num, thumb, mod);
-        });
-        card.addEventListener('mouseleave', () => {
-          if (!selectedLessons.has(l.id)) card.style.borderColor = 'rgba(255,255,255,.06)';
-          card.style.transform = '';
-          card.style.boxShadow = '';
-        });
-
-        // Click: start video follow-along with this lecture directly
-        card.addEventListener('click', () => {
-          _unlockAudio();
-          _startVideoFollowAlong(courseData.id, l, allLessons.map(ll => ll.id));
-        });
-
-        filmstrip.appendChild(card);
-      });
-    }
-
-    // ── Play button — starts video follow-along with selected (or all) lessons ──
-    const playBtn = document.getElementById('cd-play-btn');
-    if (playBtn) {
-      playBtn.onclick = () => {
-        _unlockAudio();
-        if (allLessons.length > 0) {
-          _startVideoFollowAlong(courseId, allLessons[0], allLessons.map(l => l.id));
-        }
-      };
-    }
-
-    // ── Full curriculum (modules > lessons) ──
-    const curEl = document.getElementById('cd-curriculum');
-    if (curEl) {
-      let lessonNum = 0;
-      curEl.innerHTML = modules.map(mod => {
-        const modLessons = allLessons.filter(l => l.module_id === mod.id);
-        return `
-          <div class="mod-block">
-            <div class="mod-head"><span>${mod.title}</span><span>${modLessons.length} lessons</span></div>
-            <div class="les-list">${modLessons.map(l => {
-              lessonNum++;
-              const thumb = _ytThumb(l.video_url);
-              const thumbHtml = thumb
-                ? `<div class="les-thumb"><img src="${thumb}" loading="lazy"><span class="les-thumb-dur">${l.duration || '?'}m</span></div>`
-                : `<div class="les-n">${lessonNum}</div>`;
-              return `<div class="les" data-lesson-id="${l.id}" data-lesson-title="${l.title}">
-                ${thumbHtml}
-                <div class="les-info"><h4>${l.title}</h4><span>${l.duration || '?'} min</span></div>
-                <span class="les-go">Start &rarr;</span>
-              </div>`;
-            }).join('')}</div>
-          </div>`;
-      }).join('');
-      curEl.querySelectorAll('.les').forEach(row => {
-        row.addEventListener('click', () => _startFromLesson(courseId, parseInt(row.dataset.lessonId), row.dataset.lessonTitle));
-      });
-    }
-
-  } catch (e) {
-    console.error('Failed to load course detail:', e);
-    document.getElementById('cd-title').textContent = 'Course not found';
-    document.getElementById('cd-description').textContent = 'This course doesn\'t exist or couldn\'t be loaded.';
-    // Auto-redirect after 2s
-    setTimeout(() => Router.navigate('/home'), 2000);
-  }
-}
-
-function _buildModeExpansions(modules, lessons) {
-  // Build lesson list HTML for both modes
-  let num = 0;
-  const lessonCheckboxes = lessons
-    .sort((a, b) => (a.order || 0) - (b.order || 0))
-    .map(l => {
-      num++;
-      const hasVideo = l.video_url ? ' <span class="les-video-badge">video</span>' : '';
-      return `<label class="mode-les-row">
-        <input type="checkbox" value="${l.id}" data-title="${l.title}" checked>
-        <span class="mode-les-num">${num}</span>
-        <span class="mode-les-title">${l.title}${hasVideo}</span>
-        <span class="mode-les-dur">${l.duration || '?'}m</span>
-      </label>`;
-    }).join('');
-
-  // Tutor mode expansion
-  const tutorExp = document.getElementById('mode-tutor-expand');
-  if (tutorExp) {
-    tutorExp.innerHTML = `
-      <div class="mode-intent-row">
-        <input type="text" class="mode-intent" id="mode-tutor-intent"
-          placeholder="What do you want to focus on? (optional)">
-      </div>
-      <div class="mode-les-header">
-        <span>Lessons to cover</span>
-        <button class="mode-les-toggle" onclick="this.closest('.mode-expand').querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=!c.checked)">Toggle all</button>
-      </div>
-      <div class="mode-les-list">${lessonCheckboxes}</div>`;
-  }
-
-  // Video mode expansion
-  const videoExp = document.getElementById('mode-video-expand');
-  if (videoExp) {
-    const videoLessons = lessons.filter(l => l.video_url);
-    if (videoLessons.length === 0) {
-      videoExp.innerHTML = `<p class="mode-no-video">No video lectures available for this course.</p>`;
-    } else {
-      let vNum = 0;
-      const videoCheckboxes = videoLessons
-        .sort((a, b) => (a.order || 0) - (b.order || 0))
-        .map(l => {
-          vNum++;
-          return `<label class="mode-les-row">
-            <input type="checkbox" value="${l.id}" data-title="${l.title}" checked>
-            <span class="mode-les-num">${vNum}</span>
-            <span class="mode-les-title">${l.title}</span>
-            <span class="mode-les-dur">${l.duration || '?'}m</span>
-          </label>`;
-        }).join('');
-      videoExp.innerHTML = `
-        <div class="mode-les-header">
-          <span>Lectures to watch</span>
-          <button class="mode-les-toggle" onclick="this.closest('.mode-expand').querySelectorAll('input[type=checkbox]').forEach(c=>c.checked=!c.checked)">Toggle all</button>
-        </div>
-        <div class="mode-les-list">${videoCheckboxes}</div>`;
-    }
-  }
-}
-
-function _getSelectedLessons(modeId) {
-  const expand = document.getElementById(modeId + '-expand');
-  if (!expand) return [];
-  return Array.from(expand.querySelectorAll('input[type=checkbox]:checked'))
-    .map(cb => ({ id: parseInt(cb.value), title: cb.dataset.title }));
-}
-
-async function _startFromLesson(courseId, lessonId, lessonTitle) {
-  const user = AuthManager.getUser();
-  if (!user) return Router.navigate('/login');
-
-  const videoMode = document.getElementById('mode-video');
-  const isVideo = videoMode?.classList.contains('on');
-
-  if (isVideo) {
-    vmStartVideoForLesson(courseId, lessonId);
-    return;
-  }
-
-  const courseIdEl = document.getElementById('course-id');
-  if (courseIdEl) courseIdEl.value = courseId;
-  await startNewSession(user.name, courseId, `Teach me: ${lessonTitle}`, 'course');
-}
-
-function _showLessonDetail(lesson, num, thumb, mod) {
-  const detail = document.getElementById('cd-lesson-detail');
-  if (!detail) return;
-  detail.style.display = 'block';
-  document.getElementById('cd-detail-title').textContent = lesson.title;
-  document.getElementById('cd-detail-desc').textContent = lesson.lesson_summary || lesson.title;
-  document.getElementById('cd-detail-duration').textContent = (lesson.duration || '?') + ' min';
-  document.getElementById('cd-detail-module').textContent = mod ? mod.title : '';
-  const img = document.getElementById('cd-detail-img');
-  const numEl = document.getElementById('cd-detail-num');
-  if (thumb) { img.src = thumb; img.style.display = 'block'; numEl.style.display = 'none'; }
-  else { img.style.display = 'none'; numEl.style.display = 'block'; numEl.textContent = num; }
-  // Watch button removed — Play button in hero handles all playback
-}
-
-async function _startVideoFollowAlong(courseId, firstLesson, lessonIds) {
-  const user = AuthManager.getUser();
-  if (!user) return Router.navigate('/login');
-  state._coursePlaylist = lessonIds;
-  state._coursePlaylistCourseId = courseId;
-
-  // Build playlist from course detail data — show ALL lessons
-  if (_courseDetailData) {
-    const allLessons = (_courseDetailData.lessons || [])
-      .sort((a, b) => (a.order || 0) - (b.order || 0));
-    const activeIdx = allLessons.findIndex(l => l.id === firstLesson.id);
-    if (allLessons.length > 0) {
-      setTimeout(() => _showVideoPlaylist(allLessons, activeIdx >= 0 ? activeIdx : 0), 800);
-    }
-  }
-
-  vmStartVideoForLesson(courseId, firstLesson.id);
-}
-
-function _startFromMode() {
-  const user = AuthManager.getUser();
-  if (!user) return Router.navigate('/login');
-  if (state._startingSession) return;
-  const courseId = state.courseId;
-
-  // Disable the button immediately
-  const btn = document.getElementById('cd-mode-start-btn');
-  if (btn) { btn.disabled = true; btn.textContent = 'Starting...'; }
-
-  const isTutor = document.getElementById('mode-tutor')?.classList.contains('on');
-  const scenario = isTutor ? 'course' : 'video_follow';
-  const modeId = isTutor ? 'mode-tutor' : 'mode-video';
-
-  const selected = _getSelectedLessons(modeId);
-  if (selected.length === 0) return;
-
-  // Build intent from selection
-  const intentInput = document.getElementById('mode-tutor-intent');
-  const customIntent = intentInput?.value?.trim();
-  let intent;
-  if (customIntent) {
-    intent = customIntent + ` (Lessons: ${selected.map(l => l.title).join(', ')})`;
-  } else if (selected.length === 1) {
-    intent = `Teach me: ${selected[0].title}`;
-  } else {
-    intent = `Teach me these lessons: ${selected.map(l => l.title).join(', ')}`;
-  }
-
-  const courseIdEl = document.getElementById('course-id');
-  if (courseIdEl) courseIdEl.value = courseId;
-
-  if (scenario === 'video_follow') {
-    // Video follow-along uses its own flow with custom video player
-    const firstLesson = selected[0];
-    if (firstLesson) {
-      // Show playlist sidebar after video loads
-      if (_courseDetailData) {
-        const allLessons = (_courseDetailData.lessons || [])
-          .sort((a, b) => (a.order || 0) - (b.order || 0));
-        if (allLessons.length > 0) {
-          const activeIdx = allLessons.findIndex(l => l.id === firstLesson.id);
-          setTimeout(() => _showVideoPlaylist(allLessons, activeIdx >= 0 ? activeIdx : 0), 800);
-        }
-      }
-      vmStartVideoForLesson(courseId, firstLesson.id);
-    }
-    return;
-  }
-
-  _hideVideoPlaylist();
-  startNewSession(user.name, courseId, intent, scenario);
-}
-
-// ─── Video playlist sidebar ──────────────────────────────
-
-function _ytThumb(videoUrl) {
-  if (!videoUrl) return '';
-  const m = videoUrl.match(/(?:embed\/|watch\?v=|youtu\.be\/)([a-zA-Z0-9_-]{11})/);
-  return m ? `https://img.youtube.com/vi/${m[1]}/mqdefault.jpg` : '';
-}
-
-const VPL_PAGE_SIZE = 50;
-
-function _renderVplItems(lessons, activeIndex, startIdx, count) {
-  const end = Math.min(startIdx + count, lessons.length);
-  let html = '';
-  for (let i = startIdx; i < end; i++) {
-    const l = lessons[i];
-    const cls = i === activeIndex ? 'vpl-item active' : (i < activeIndex ? 'vpl-item done' : 'vpl-item');
-    const thumb = _ytThumb(l.video_url);
-    const thumbHtml = thumb
-      ? `<div class="vpl-thumb"><img src="${thumb}" alt="" loading="lazy"><span class="vpl-dur">${l.duration || '?'}m</span>${i === activeIndex ? '<span class="vpl-playing-badge">NOW PLAYING</span>' : ''}</div>`
-      : `<div class="vpl-thumb vpl-thumb-empty"><span>${i + 1}</span></div>`;
-    html += `<div class="${cls}" data-vpl-idx="${i}" data-lesson-id="${l.id}">
-      ${thumbHtml}
-      <div class="vpl-item-info">
-        <div class="vpl-item-title">${l.title}</div>
-        <div class="vpl-item-meta">${l.duration || '?'} min${i < activeIndex ? ' &middot; Watched' : ''}</div>
-      </div>
-    </div>`;
-  }
-  return html;
-}
-
-function _showVideoPlaylist(lessons, activeIndex) {
-  const panel = document.getElementById('video-playlist');
-  const list = document.getElementById('vpl-list');
-  const count = document.getElementById('vpl-count');
-  if (!panel || !list) return;
-
-  panel.classList.remove('hidden');
-  if (count) count.textContent = `${lessons.length} lessons`;
-
-  state._videoPlaylist = lessons;
-  state._videoPlaylistIndex = activeIndex;
-  state._vplRendered = 0;
-
-  // Start from active item (show a couple before it + page after)
-  const startFrom = Math.max(0, activeIndex - 1);
-  const initialCount = Math.min(VPL_PAGE_SIZE, lessons.length - startFrom);
-  list.innerHTML = _renderVplItems(lessons, activeIndex, startFrom, initialCount);
-  state._vplRendered = startFrom + initialCount;
-
-  // Lazy load on scroll
-  list.onscroll = () => {
-    if (state._vplRendered >= lessons.length) return;
-    const { scrollTop, scrollHeight, clientHeight } = list;
-    if (scrollTop + clientHeight >= scrollHeight - 80) {
-      const batch = _renderVplItems(lessons, activeIndex, state._vplRendered, VPL_PAGE_SIZE);
-      list.insertAdjacentHTML('beforeend', batch);
-      state._vplRendered = Math.min(state._vplRendered + VPL_PAGE_SIZE, lessons.length);
-    }
-  };
-
-  // Click to switch lesson
-  list.onclick = (e) => {
-    const item = e.target.closest('.vpl-item');
-    if (!item) return;
-    const lessonId = parseInt(item.dataset.lessonId);
-    const idx = parseInt(item.dataset.vplIdx);
-    if (!lessonId || isNaN(idx)) return;
-    _unlockAudio();
-    state._videoPlaylistIndex = idx;
-    _showVideoPlaylist(lessons, idx);
-    const cid = state._coursePlaylistCourseId || state.video?.courseId || state.courseId;
-    if (cid) vmStartVideoForLesson(cid, lessonId);
-  };
-}
-
-function _hideVideoPlaylist() {
-  const panel = document.getElementById('video-playlist');
-  if (panel) panel.classList.add('hidden');
-}
-
-function _advanceVideoPlaylist() {
-  if (!state._videoPlaylist) return;
-  const next = (state._videoPlaylistIndex || 0) + 1;
-  if (next < state._videoPlaylist.length) {
-    _showVideoPlaylist(state._videoPlaylist, next);
-  }
-}
+function _buildModeExpansions(_modules, _lessons) { /* removed */ }
+function _getSelectedLessons(_modeId) { return []; }
+async function _startFromLesson(_courseId, _lessonId, _lessonTitle) { /* removed */ }
+function _showLessonDetail() { /* removed */ }
+async function _startVideoFollowAlong(_courseId, _firstLesson, _lessonIds) { /* removed */ }
+function _startFromMode() { /* removed */ }
+function _ytThumb(_url) { return ''; }
+function _renderVplItems(_lessons, _activeIndex, _startIdx, _count) { return ''; }
+function _showVideoPlaylist(_lessons, _activeIndex) { /* removed */ }
+function _hideVideoPlaylist() { /* removed */ }
+function _advanceVideoPlaylist() { /* removed */ }
 
 /** Fallback: fetch video resource from collection when resource_id is missing/invalid */
 async function _fetchVideoFromCollection(collectionId, fallbackResourceId) {
@@ -12963,7 +12178,22 @@ async function _startOnDemandSession(intentText) {
     });
     if (classifyRes.ok) {
       const bp = await classifyRes.json();
-      console.log('[Classify] Intent:', intentText.slice(0, 50), '→', bp.mode, bp.ui_layout);
+      console.log('[Classify] Intent:', intentText.slice(0, 50), '→', bp.mode, bp.ui_layout, 'scope:', bp.scope);
+
+      // Path hint: if scope is broad/medium, show the path suggestion
+      if (bp.scope && bp.scope !== 'narrow' && (bp.scope_confidence || 0) >= 0.6
+          && typeof PathUI !== 'undefined') {
+        _hideTransitionLoader();
+        const sendBtn = document.getElementById('euler-send-btn');
+        if (sendBtn) { sendBtn.disabled = false; sendBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg>'; }
+        const input = document.getElementById('euler-input');
+        if (input) { input.disabled = false; input.value = intentText; }
+        document.querySelectorAll('.euler-chip').forEach(c => { c.style.pointerEvents = ''; c.style.opacity = ''; });
+        state._startingSession = false;
+        PathUI.showScopeHint(intentText, bp);
+        return;
+      }
+
       if (bp.mode === 'dsa' || bp.mode === 'sd' || bp.mode === 'mock_interview') {
         state.studentIntent = intentText;
         state.dsaMode = bp.mode;
@@ -13539,9 +12769,14 @@ async function initSetup() {
 
 }
 
-async function startNewSession(name, courseId, intent, scenario) {
+async function startNewSession(name, courseId, intent, scenario, pathContext) {
   if (!name) return;
-  scenario = scenario || 'course';
+  // Legacy `courseId` param ignored (PG course flow removed). Default scenario is now 'general'.
+  scenario = scenario || 'general';
+  // Path context (optional) — { pathId, nodeId, nodeType }
+  if (pathContext) {
+    state._sessionPathContext = pathContext;
+  }
 
   // Block multiple clicks
   if (state._startingSession) return;
@@ -13570,23 +12805,11 @@ async function startNewSession(name, courseId, intent, scenario) {
 
   state.studentName = name;
   state.studentIntent = intent;
-  state.courseId = courseId;
+  state.courseId = null;
 
   showSessionPrep();
 
   try {
-    let courseMap = null;
-    if (state.courseId) {
-      updateSessionPrep('Loading course materials...');
-      courseMap = await loadCourseMap(state.courseId);
-      updateSessionPrep('Fetching simulations & concepts...');
-      await Promise.all([
-        fetchSimulations(state.courseId),
-        fetchConcepts(state.courseId),
-      ]);
-    }
-
-    // Course progress (only if course-based session)
     state.checkpoint = {
       currentLessonId: null,
       currentSectionIndex: 0,
@@ -13596,35 +12819,13 @@ async function startNewSession(name, courseId, intent, scenario) {
       lastPlanJSON: null,
     };
 
-    if (state.courseId && courseMap) {
-      updateSessionPrep('Checking your progress...');
-      const prevSessions = await SessionManager.loadPreviousSessions(state.courseId, state.studentName) || [];
-
-      const bestSession = prevSessions.reduce((best, s) => {
-        const completed = (s.coursePosition?.completedCourseSections || []).length;
-        const bestCompleted = (best?.coursePosition?.completedCourseSections || []).length;
-        return completed > bestCompleted ? s : best;
-      }, null);
-
-      const highestNumber = prevSessions.length > 0
-        ? Math.max(...prevSessions.map(s => s.number || 0))
-        : 0;
-
-      if (bestSession && bestSession.coursePosition &&
-          (bestSession.coursePosition.completedCourseSections || []).length > 0) {
-        const cp = deriveCheckpointFromSession(bestSession);
-        cp.sessionCount = highestNumber + 1;
-        state.checkpoint = cp;
-      } else {
-        const firstLesson = courseMap.modules?.[0]?.lessons?.[0];
-        state.checkpoint.currentLessonId = firstLesson?.lesson_id || null;
-        state.checkpoint.sessionCount = highestNumber + 1;
-      }
-    }
-
     updateSessionPrep('Organizing your lesson plan...');
-    console.log('[StartSession] showTeachingLayout with courseMap:', courseMap ? 'present' : 'null');
-    showTeachingLayout(courseMap);
+    showTeachingLayout(null);
+
+    // Render path breadcrumb if this is a path session
+    if (pathContext && typeof PathUI !== 'undefined') {
+      PathUI.renderBreadcrumb(pathContext.pathId, pathContext.nodeId);
+    }
 
     // Session state already fully reset by cleanupActiveSession() above.
     // Only set fields specific to new session setup:
@@ -13645,16 +12846,10 @@ async function startNewSession(name, courseId, intent, scenario) {
     connectAgentEvents();
 
     try {
-      const coursePosition = {
-        lessonId: state.checkpoint.currentLessonId,
-        sectionIndex: state.checkpoint.currentSectionIndex,
-        completedCourseSections: [...state.checkpoint.completedSections],
-      };
       await SessionManager.createSession(
-        state.courseId, state.studentName, state.studentIntent,
-        coursePosition, state.checkpoint.sessionCount, scenario,
+        null, state.studentName, state.studentIntent,
+        null, state.checkpoint.sessionCount, scenario,
       );
-      // Attach previous session summaries for AI context (course mode only)
       var _prevSessions = SessionManager.session?.previousSessions || [];
       if (_prevSessions.length > 0) {
         SessionManager.session.previousSessions = _prevSessions
@@ -13665,7 +12860,7 @@ async function startNewSession(name, courseId, intent, scenario) {
             number: ps.number || 0,
             date: ps.startedAt,
             objective: (ps.plan && ps.plan.sessionObjective) || '',
-            scenario: (ps.intent && ps.intent.scenario) || 'course',
+            scenario: (ps.intent && ps.intent.scenario) || 'general',
             sectionsCompleted: (ps.metrics && ps.metrics.sectionsCompleted) || 0,
             summary: (ps.summaries && ps.summaries.sessionSummary) || '',
           }));
@@ -13723,6 +12918,8 @@ OPENING INSTRUCTIONS:
       await wsWaitReady(5000);
     }
     console.log('[StartSession] WS ready, calling streamADK, trigger length:', trigger.length);
+    _hideTransitionLoader();
+    state._startingSession = false;
     await streamADK(trigger, true, true);
     console.log('[StartSession] streamADK returned');
   } catch (err) {
@@ -13780,9 +12977,28 @@ window.continueSession = async function(sessionId) {
     const boardFrames = boardFramesRes.frames || [];
 
     state.studentName = sessionData.studentName;
-    state.courseId = sessionData.courseId;
+    state.courseId = null;
     state.sessionId = sessionData.sessionId;
     state.studentIntent = (sessionData.intent && sessionData.intent.raw) || '';
+
+    // ── Path context restoration ──
+    // Check if this session belongs to a path (stored in backendState or session doc)
+    const _bs = sessionData.backendState || {};
+    const _pathId = _bs.path_id || _bs.pathId;
+    const _nodeId = _bs.node_id || _bs.nodeId;
+    if (_pathId && _nodeId && typeof PathState !== 'undefined') {
+      state._sessionPathContext = { pathId: _pathId, nodeId: _nodeId };
+      PathState.currentPathSession = { pathId: _pathId, nodeId: _nodeId };
+      // Load path data in background for breadcrumb
+      if (typeof PathAPI !== 'undefined') {
+        PathAPI.get(_pathId).then(path => {
+          if (path) {
+            PathState.activePath = path;
+            _insertPathBreadcrumb(_pathId, _nodeId);
+          }
+        }).catch(() => {});
+      }
+    }
 
     if (location.pathname !== '/session/' + sessionData.sessionId) {
       Router.navigate('/session/' + sessionData.sessionId, { skipHandler: true });
@@ -13791,19 +13007,11 @@ window.continueSession = async function(sessionId) {
     // Connect persistent SSE for agent events
     connectAgentEvents();
 
-    let courseMap = null;
-    if (state.courseId) {
-      courseMap = await loadCourseMap(state.courseId);
-      await Promise.all([
-        fetchSimulations(state.courseId),
-        fetchConcepts(state.courseId),
-      ]);
-    }
+    const courseMap = null;
 
-    // Derive checkpoint from session's course position
     state.checkpoint = deriveCheckpointFromSession(sessionData);
 
-    showTeachingLayout(courseMap, { skipBoardInit: true });
+    showTeachingLayout(null, { skipBoardInit: true });
 
     // Resume the SessionManager
     SessionManager.resumeSession(sessionData);
@@ -21240,53 +20448,13 @@ async function _nlDoSearch(query) {
   }
 }
 
-function _nlClickLesson(courseId, lessonId, title) {
-  _nlShowChoice(courseId, lessonId, title || 'this lesson');
-}
-
-function _nlClickCourse(courseId, title) {
-  _nlShowChoice(courseId, null, title || 'this course');
-}
-
-function _nlShowChoice(courseId, lessonId, title) {
-  const resultsEl = document.getElementById('nl-results');
-  const aiOption = document.getElementById('nl-ai-option');
-  if (aiOption) aiOption.style.display = 'none';
-
-  const courseIdInput = document.getElementById('course-id');
-  if (courseIdInput) courseIdInput.value = courseId;
-  state.courseId = courseId;
-  if (lessonId) state.checkpoint.currentLessonId = lessonId;
-
-  const escapedTitle = title.replace(/'/g, "\\'");
-
-  resultsEl.innerHTML = `
-    <div style="padding:20px 0;">
-      <div style="font-size:15px;font-weight:600;margin-bottom:16px;text-align:center">${title}</div>
-      <div style="display:flex;flex-direction:column;gap:8px;max-width:400px;margin:0 auto;">
-        <button class="nl-choice-btn nl-choice-video" onclick="_nlStartVideo(${courseId}, ${lessonId || 'null'})">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Watch the lecture video
-          <span style="font-size:11px;color:var(--text-dim);display:block;margin-top:2px">Pause anytime to ask the AI tutor</span>
-        </button>
-        <button class="nl-choice-btn nl-choice-tutor" onclick="_nlStartTutor(${courseId}, '${escapedTitle}')">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="18" height="18"><path d="M2 3h6a4 4 0 0 1 4 4v14a3 3 0 0 0-3-3H2z"/><path d="M22 3h-6a4 4 0 0 0-4 4v14a3 3 0 0 1 3-3h7z"/></svg>
-          Let AI tutor teach me
-          <span style="font-size:11px;color:var(--text-dim);display:block;margin-top:2px">Interactive board teaching, personalized to you</span>
-        </button>
-      </div>
-    </div>`;
-}
-
-function _nlStartVideo(courseId, lessonId) {
-  vmStartVideoForLesson(courseId, lessonId);
-}
-
-function _nlStartTutor(courseId, title) {
-  const input = document.getElementById('student-intent-first');
-  const intent = (input?.value || '').trim() || title || 'Teach me';
-  startNewSession(state.studentName, courseId, intent);
-}
+// Legacy NL search "course/lesson" hit handlers (PG content) — removed.
+// Stubs kept for any inline onclick refs in cached HTML.
+function _nlClickLesson() { /* removed */ }
+function _nlClickCourse() { /* removed */ }
+function _nlShowChoice() { /* removed */ }
+function _nlStartVideo() { /* removed */ }
+function _nlStartTutor() { /* removed */ }
 
 // Typing animation for search placeholder
 const _nlPhrases = [
@@ -21405,221 +20573,12 @@ function vmCaptureFrame() {
   }
 }
 
-// Called from search results when user picks "Watch the lecture video"
-async function vmStartVideoForLesson(courseId, lessonId) {
-  state.video.active = true;
-  state.video.courseId = courseId;
-  state.video.lessonId = lessonId;
-  state.teachingMode = 'voice'; // Voice mode so tutor speaks with <vb> beats
-
-  // Load course map
-  try {
-    const data = await fetchJSON(`/courses/${courseId}`);
-    state.courseMap = data;
-    state.courseId = courseId;
-    const lessons = [...(data.lessons || [])].sort((a, b) => a.module_id !== b.module_id ? a.module_id - b.module_id : a.order - b.order);
-    state.video.lessons = lessons;
-    const idx = lessons.findIndex(l => l.id === lessonId);
-    state.video.lessonIndex = idx >= 0 ? idx : 0;
-    const lesson = lessons[state.video.lessonIndex];
-    state.video.lessonTitle = lesson?.title || '';
-    state.video.lessonId = lesson?.id || lessonId;
-  } catch (e) { console.error('Failed to load course:', e); }
-
-  // Load sections
-  try {
-    state.video.sections = await fetch(`${state.apiUrl}/api/v1/content/lessons/${state.video.lessonId}/sections`, { headers: AuthManager.authHeaders() }).then(r => r.json()) || [];
-  } catch (e) { state.video.sections = []; }
-
-  // Show teaching layout (full-width board, no chat panel)
-  document.body.classList.add('video-mode');
-  _hideAllScreens();
-  document.getElementById('teaching-layout').classList.remove('hidden');
-  hidePlanSidebar(); // No plan sidebar in video mode
-  document.getElementById('teaching-layout').style.display = 'flex';
-
-  // Show the main voice bar — use it as the ONLY input (not vm-chat-wrap)
-  const voiceFloat = document.getElementById('voice-mic-float');
-  if (voiceFloat) voiceFloat.classList.remove('hidden');
-  // Hide the duplicate vm-chat input — voice bar handles everything
-  const vmChatWrap = document.getElementById('vm-chat-wrap');
-  if (vmChatWrap) vmChatWrap.classList.remove('vm-show');
-
-  // Create session silently
-  state.sessionId = generateId();
-  state.sessionStartTime = Date.now();
-  state.messages = [];
-  state.studentIntent = `Video follow-along: ${state.video.lessonTitle}`;
-  state.checkpoint.currentLessonId = state.video.lessonId;
-
-  try {
-    await SessionManager.createSession(courseId, state.studentName, state.studentIntent, { lessonId: state.video.lessonId, sectionIndex: 0, completedCourseSections: [] }, 1);
-  } catch (e) {}
-
-  Router.navigate(`/session/${state.sessionId}`, { replace: true, skipHandler: true });
-
-  // Initialize board with simple TA Session heading — tutor responds on first student message
-  const courseTitle = state.courseMap?.title || state.courseMap?.course?.title || 'Course';
-  const lessonTitle = state.video.lessonTitle || 'Lesson';
-
-  setTimeout(() => {
-    const spotlightContent = document.getElementById('spotlight-content');
-    if (!spotlightContent) { console.warn('Board panel not ready for init'); return; }
-
-    const spotlightTitle = document.getElementById('spotlight-title');
-    if (spotlightTitle) spotlightTitle.textContent = 'TA Session';
-    const badge = document.getElementById('spotlight-type-badge');
-    if (badge) badge.textContent = 'VIDEO';
-
-    state.boardDraw.active = false;
-    state.boardDraw.dismissed = false;
-    state.boardDraw.complete = false;
-    state.boardDraw.processedLines = 0;
-
-    const cmds = [
-      `{"cmd":"h1","text":"TA Session"}`,
-      `{"cmd":"gap","height":8}`,
-      `{"cmd":"text","text":"${lessonTitle.replace(/"/g, '\\"')}","color":"#5eead4"}`,
-      `{"cmd":"text","text":"${courseTitle.replace(/"/g, '\\"')}","color":"#9a9a9a"}`,
-      `{"cmd":"gap","height":24}`,
-      `{"cmd":"text","text":"Pause the video anytime to ask a question.","color":"#52525b"}`,
-    ];
-
-    const fakeTag = `<teaching-board-draw title="TA Session">\n${cmds.join('\n')}\n</teaching-board-draw>`;
-    bdProcessStreaming(fakeTag);
-  }, 600);
-
-  // Set up custom video player
-  const overlay = document.getElementById('vm-video-overlay');
-  overlay.classList.remove('hidden');
-  document.getElementById('vm-vid-wrap').classList.remove('vm-mini');
-
-  const box = overlay.querySelector('.vm-vid-box');
-  const lessonVideoUrl = state.video.lessons[state.video.lessonIndex]?.video_url;
-
-  // Create <video> element with Plyr controls
-  box.innerHTML = '<video id="vm-video-el" playsinline></video>';
-  const video = document.getElementById('vm-video-el');
-  video.style.cssText = 'width:100%;display:block;background:#000';
-
-  // Initialize Plyr for polished controls (play/pause, progress, speed, fullscreen)
-  let plyrInstance = null;
-  if (typeof Plyr !== 'undefined') {
-    plyrInstance = new Plyr(video, {
-      controls: ['play', 'progress', 'current-time', 'duration', 'mute', 'volume', 'settings', 'fullscreen'],
-      settings: ['speed'],
-      speed: { selected: 1, options: [0.5, 0.75, 1, 1.25, 1.5, 2] },
-      keyboard: { focused: true, global: false },
-      tooltips: { controls: true, seek: true },
-    });
-  }
-
-  // Get video source — YouTube embed or direct URL
-  const videoId = _extractYTVideoId(lessonVideoUrl);
-  if (videoId) {
-    // YouTube — use embed iframe (works everywhere, no yt-dlp needed)
-    // Try direct stream first (works locally with yt-dlp), fall back to YouTube player
-    let streamUrl = null;
-    try { streamUrl = await _getStreamUrl(lessonVideoUrl); } catch (e) {}
-
-    if (streamUrl) {
-      video.src = streamUrl;
-    } else {
-      // Use YouTube iframe player — more reliable than yt-dlp in prod
-      box.innerHTML = '';
-      const ytContainer = document.createElement('div');
-      ytContainer.id = 'yt-player-container';
-      ytContainer.style.cssText = 'width:100%;aspect-ratio:16/9;';
-      box.appendChild(ytContainer);
-      // Load YouTube IFrame API if not loaded
-      if (!window.YT || !window.YT.Player) {
-        const tag = document.createElement('script');
-        tag.src = 'https://www.youtube.com/iframe_api';
-        document.head.appendChild(tag);
-        await new Promise(resolve => {
-          window.onYouTubeIframeAPIReady = resolve;
-          setTimeout(resolve, 5000); // timeout fallback
-        });
-      }
-      if (window.YT && window.YT.Player) {
-        const ytPlayer = new YT.Player('yt-player-container', {
-          videoId: videoId,
-          playerVars: { autoplay: 1, modestbranding: 1, rel: 0, start: Math.floor(state.video.currentTimestamp || 0) },
-          events: {
-            onReady: (e) => {
-              state.video.player = {
-                get currentTime() { try { return e.target.getCurrentTime(); } catch(x) { return 0; } },
-                set currentTime(t) { try { e.target.seekTo(t, true); } catch(x) {} },
-                pause: () => { try { e.target.pauseVideo(); } catch(x) {} },
-                play: () => { try { e.target.playVideo(); } catch(x) {} },
-                get paused() { try { return e.target.getPlayerState() === 2; } catch(x) { return true; } },
-              };
-              state.video._ytPlayer = e.target;
-              // Sync timestamp periodically
-              state.video._ytTimerInterval = setInterval(() => {
-                try { state.video.currentTimestamp = e.target.getCurrentTime(); } catch(x) {}
-              }, 2000);
-            },
-            onStateChange: (e) => {
-              if (e.data === YT.PlayerState.PAUSED && state.video.active) {
-                state.video.currentTimestamp = e.target.getCurrentTime();
-                setTimeout(() => {
-                  try {
-                    if (e.target.getPlayerState() === YT.PlayerState.PAUSED && state.video.active) {
-                      _vmOnPause();
-                    }
-                  } catch(x) {}
-                }, 300);
-              } else if (e.data === YT.PlayerState.PLAYING && state.video.isPaused) {
-                _vmOnResume();
-              }
-            },
-          },
-        });
-      } else {
-        box.innerHTML = `<div style="width:100%;aspect-ratio:16/9;background:#111;display:flex;align-items:center;justify-content:center;color:var(--text-dim);font-size:14px">Video unavailable</div>`;
-        return;
-      }
-      // Skip the Plyr setup below since we're using YT player
-      overlay.classList.remove('hidden');
-      document.body.classList.add('video-mode');
-      return;
-    }
-  } else if (lessonVideoUrl) {
-    // Direct URL (MP4, HLS, etc.)
-    video.src = lessonVideoUrl;
-  } else {
-    box.innerHTML = '';
-    overlay.classList.add('hidden');
-    return;
-  }
-
-  // Store reference
-  state.video.player = video;
-
-  // Event listeners
-  // Track seeking state to avoid PiP on seek
-  let _isSeeking = false;
-  video.addEventListener('seeking', () => { _isSeeking = true; });
-  video.addEventListener('seeked', () => { setTimeout(() => { _isSeeking = false; }, 300); });
-
-  // Only trigger PiP on intentional pause (not seeking)
-  video.addEventListener('pause', () => {
-    if (!state.video.active || _isSeeking) return;
-    // Delay slightly — if a play event follows quickly (seeking), don't PiP
-    setTimeout(() => {
-      if (video.paused && !_isSeeking && state.video.active) _vmOnPause();
-    }, 200);
-  });
-  video.addEventListener('playing', () => { if (state.video.active && state.video.isPaused) _vmOnResume(); });
-  video.addEventListener('timeupdate', () => {
-    if (state.video.active && video.currentTime) {
-      state.video.currentTimestamp = video.currentTime;
-    }
-  });
-
-  // No auto-trigger — tutor responds when student pauses and sends a message
-  // Course context is in the static prompt block (backend), transcript auto-injected on pause
+// Legacy PG course follow-along player — removed.
+// (#vm-video-overlay markup is gone; the entry points _nlStartVideo /
+// course-detail playlist are also gone.) BYO video watch-along below
+// uses its own player and is preserved.
+async function vmStartVideoForLesson(_courseId, _lessonId) {
+  console.warn('[Legacy] vmStartVideoForLesson is no longer supported');
 }
 
 
