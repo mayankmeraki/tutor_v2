@@ -7944,8 +7944,8 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 /* Path screen fills viewport */
-#path-screen { height: 100vh; overflow: hidden; }
-#path-screen-content { height: 100%; }
+#path-screen { height: 100vh; overflow: hidden; min-height: 0 !important; }
+#path-screen-content { height: 100%; overflow: hidden; }
 
 /* Home horizontal scroll rows */
 #home-paths-hscroll::-webkit-scrollbar,

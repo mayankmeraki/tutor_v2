@@ -1301,10 +1301,12 @@ function _renderPathPage(path) {
     </div>`;
   }
 
+  container.style.height = '100%';
+  container.style.overflow = 'hidden';
   container.innerHTML = `
-    <div style="display:flex;height:100vh">
+    <div style="display:flex;height:100%;overflow:hidden">
       <!-- LEFT: Path timeline -->
-      <div style="flex:1;overflow-y:auto">
+      <div style="flex:1;overflow-y:auto;min-width:0">
         <!-- Topbar -->
         <div style="position:sticky;top:0;z-index:40;padding:12px 20px;background:rgba(10,15,26,.92);
           backdrop-filter:blur(12px);border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:center;gap:10px">
@@ -1360,7 +1362,7 @@ function _renderPathPage(path) {
       </div>
 
       <!-- RIGHT: Chat -->
-      <div style="width:300px;border-left:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;background:rgba(0,0,0,.12)">
+      <div style="width:300px;min-width:300px;flex-shrink:0;border-left:1px solid rgba(255,255,255,.05);display:flex;flex-direction:column;background:rgba(0,0,0,.12)">
         <div style="padding:12px 14px;border-bottom:1px solid rgba(255,255,255,.05);display:flex;align-items:center;gap:8px">
           <div style="width:24px;height:24px;border-radius:50%;background:linear-gradient(135deg,#34d399,#22c584);
             display:grid;place-items:center;font-size:10px;font-weight:800;color:#0a0f1a;flex-shrink:0">E</div>
@@ -2100,6 +2102,13 @@ const PathUI = {
     const isGo = goWords.some(w => msg.toLowerCase().includes(w)) && msg.length < 30;
 
     if (isGo) {
+      // Show building indicator on artifact immediately
+      const artEl = document.getElementById('wiz-artifact');
+      if (artEl) artEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px">
+        <div style="width:24px;height:24px;border:3px solid rgba(52,211,153,.15);border-top-color:#34d399;border-radius:50%;animation:spin .8s linear infinite"></div>
+        <div style="font-size:12px;color:rgba(255,255,255,.4)">Building your path...</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.2)">Researching curriculum &middot; designing sessions</div>
+      </div>`;
       await _wizSendToAgent(msg + '\n\n[The student wants you to create the path now. Call emit_path.]');
     } else {
       await _wizSendToAgent(msg);
