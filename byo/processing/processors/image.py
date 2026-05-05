@@ -87,8 +87,9 @@ class ImageProcessor(BaseProcessor):
                 if resp.status_code == 200:
                     return resp.json()["choices"][0]["message"]["content"]
 
-            return "[Image description unavailable]"
+            log.warning("Image description call returned non-200")
+            return ""  # Empty = won't be indexed
 
         except Exception as e:
             log.warning("Image description failed: %s", e)
-            return f"[Image — description failed: {str(e)[:50]}]"
+            return ""  # Empty = won't be indexed

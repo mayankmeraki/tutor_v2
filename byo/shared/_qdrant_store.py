@@ -161,6 +161,11 @@ class QdrantContentStore:
                 "image_refs": parent.get("image_refs") or [],
             }
 
+            # Skip garbage segments — placeholder image descriptions, empty content
+            _content = payload.get("segment_content", "")
+            if not _content or len(_content) < 20 or "[Image description unavailable]" in _content or "[Image —" in _content:
+                continue
+
             point_id = _to_uuid(s["segment_id"])
             points.append(PointStruct(id=point_id, vector=emb, payload=payload))
 
