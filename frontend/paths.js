@@ -14,6 +14,23 @@
 /* global state, AuthManager, Router, _showTransitionLoader, _hideTransitionLoader,
    _startOnDemandSession, startNewSession, _escHtml */
 
+// JS-string-safe escaper for use inside inline `onclick="..."` attributes.
+// `_escHtml` alone is NOT enough: the browser HTML-decodes the attribute
+// before evaluating the JS, so an entity like &#39; becomes a literal '
+// and breaks the JS string boundary. This helper escapes for JS first
+// (\, ', newlines), then HTML-escapes the dangerous attribute chars
+// that would otherwise close the attribute (", &, <, >).
+function _jsAttr(s) {
+  return String(s == null ? '' : s)
+    .replace(/\\/g, '\\\\')
+    .replace(/'/g, "\\'")
+    .replace(/\r?\n/g, '\\n')
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 // ── Markdown helper ──────────────────────────────────────────────
 // Parse and render path-node/path-phase tags from streaming text
 let _streamedNodes = [];
@@ -21,126 +38,284 @@ let _streamedPhase = 'General';
 let _streamedPhasePlanned = false;
 let _parsedUpTo = 0; // Track how much text we've already parsed
 
+// Strips both complete and in-progress path tags from displayed text.
+// Mid-stream we may be looking at half-typed `<path-node title="Var` and we
+// don't want that leaking into the chat bubble.
+function _stripPathTagsForDisplay(text) {
+  return text
+    .replace(/<path-(phase|node)\s+[^>]+\/>/g, '')   // complete tags
+    .replace(/<path-(phase|node)[^<]*$/g, '')        // tag opened but not yet closed
+    .trim();
+}
+
 function _parsePathTags(text) {
-  // Only parse NEW text beyond what we've already processed
+  // Only parse NEW text beyond what we've already processed.
   if (text.length <= _parsedUpTo) {
-    // Strip already-parsed tags from display
-    return text.replace(/<path-(phase|node)\s+[^>]+\/>/g, '').trim();
+    return _stripPathTagsForDisplay(text);
   }
-  const newPart = text.slice(_parsedUpTo);
-  _parsedUpTo = text.length;
 
-  let cleaned = text;
+  // CRITICAL: We must NOT advance _parsedUpTo past the start of an
+  // incomplete tag. Tokens stream in arbitrary chunks and a tag like
+  // `<path-phase name="..." />` is often split across 2-3 deltas.
+  // If we naively advance to text.length each call, the next call's
+  // newPart starts mid-tag (e.g. `ame="X" />`) and the regex no longer
+  // matches the `<path-` prefix — so we silently drop the tag and the
+  // card never appears. This was the root cause of "cards aren't
+  // streaming iteratively".
+  //
+  // Strategy: scan from _parsedUpTo onward. Process every COMPLETE
+  // self-closing path tag we find. Advance _parsedUpTo to the end of
+  // the last matched tag. If the tail contains an unfinished `<path-`
+  // start, leave _parsedUpTo at that boundary so the next chunk has a
+  // full tag to match.
+  const slice = text.slice(_parsedUpTo);
+  const tagRe = /<path-(phase|node)\s+([^>]*?)\/>/g;
+
+  let m;
+  let lastEnd = 0;
   let changed = false;
+  while ((m = tagRe.exec(slice)) !== null) {
+    const kind = m[1];
+    const attrs = m[2];
+    lastEnd = tagRe.lastIndex;
+    if (kind === 'phase') {
+      const nameMatch = attrs.match(/name="([^"]+)"/);
+      _streamedPhase = nameMatch ? nameMatch[1] : 'General';
+      _streamedPhasePlanned = /planned="true"/.test(attrs);
+      changed = true;
+    } else {
+      const get = (key) => {
+        const mm = attrs.match(new RegExp(`${key}="([^"]*)"`));
+        return mm ? mm[1] : '';
+      };
+      const node = {
+        title: get('title'),
+        type: get('type') || 'learn',
+        targetMin: parseInt(get('targetMin')) || 30,
+        topics: (get('topics') || '').split(',').map(t => t.trim()).filter(Boolean),
+        milestone: get('milestone') === 'true',
+        placeholder: get('placeholder') === 'true' || _streamedPhasePlanned,
+        phase: _streamedPhase,
+        order: _streamedNodes.length + 1,
+        nodeId: `ns${_streamedNodes.length + 1}`,
+        status: 'pending',
+      };
+      _streamedNodes.push(node);
+      _renderStreamedNode(node);
+      changed = true;
+    }
+  }
 
-  // Parse phases from new part only
-  newPart.replace(/<path-phase\s+([^>]+)\/>/g, (_, attrs) => {
-    const nameMatch = attrs.match(/name="([^"]+)"/);
-    _streamedPhase = nameMatch ? nameMatch[1] : 'General';
-    _streamedPhasePlanned = attrs.includes('planned="true"');
-    changed = true;
-    return '';
-  });
-
-  // Parse nodes from new part only
-  newPart.replace(/<path-node\s+([^>]+)\/>/g, (_, attrs) => {
-    const get = (key) => { const m = attrs.match(new RegExp(`${key}="([^"]+)"`)); return m ? m[1] : ''; };
-    const node = {
-      title: get('title'),
-      type: get('type') || 'learn',
-      targetMin: parseInt(get('targetMin')) || 30,
-      topics: (get('topics') || '').split(',').map(t => t.trim()).filter(Boolean),
-      milestone: get('milestone') === 'true',
-      placeholder: get('placeholder') === 'true' || _streamedPhasePlanned,
-      phase: _streamedPhase,
-      order: _streamedNodes.length + 1,
-      nodeId: `ns${_streamedNodes.length + 1}`,
-      status: 'pending',
-    };
-    _streamedNodes.push(node);
-    _renderStreamedNode(node);
-    changed = true;
-    return '';
-  });
+  // Tail handling — if there's a half-typed tag after the last match,
+  // park the cursor at its `<` so the next chunk completes it cleanly.
+  const tail = slice.slice(lastEnd);
+  const unfinishedAt = tail.indexOf('<path-');
+  if (unfinishedAt >= 0) {
+    _parsedUpTo += lastEnd + unfinishedAt;
+  } else {
+    _parsedUpTo = text.length;
+  }
 
   if (changed) {
     _saveStreamedNodes();
   }
 
-  // Always strip ALL path tags from display text
-  return text.replace(/<path-(phase|node)\s+[^>]+\/>/g, '').trim();
+  return _stripPathTagsForDisplay(text);
 }
 
+// Render a single streamed node onto the wizard artifact panel.
+// Visual matches _buildTimeline on the path page: phase header with green dot,
+// numbered circle, type-coloured tag, time on the right, subtopics in a
+// collapsible panel that's open ONLY on the very first node so the rest of
+// the path is browsable but not intimidating.
 function _renderStreamedNode(node) {
   const el = document.getElementById('wiz-artifact') || document.getElementById('path-artifact-panel');
   if (!el) return;
 
+  // First node — replace the "designing..." or empty placeholder with the
+  // streaming container (a header strip + phase list).
   if (_streamedNodes.length === 1) {
-    el.innerHTML = `<div id="wiz-streamed-nodes" style="padding:4px 0"></div>`;
+    el.innerHTML = `
+      <div style="padding:14px 16px 6px">
+        <div style="font-size:8px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;
+          color:rgba(52,211,153,.7);display:flex;align-items:center;gap:6px;margin-bottom:6px">
+          <span style="width:6px;height:6px;border-radius:50%;background:#34d399;
+            animation:wizPulse 1.4s ease-in-out infinite"></span>
+          Building your path
+          <span id="wiz-stream-count" style="margin-left:auto;font-size:9px;color:rgba(255,255,255,.3);
+            letter-spacing:0;text-transform:none;font-weight:600">1 session</span>
+        </div>
+      </div>
+      <div id="wiz-streamed-nodes" style="padding:4px 14px 16px"></div>`;
   }
 
   const container = document.getElementById('wiz-streamed-nodes') || el;
   const tc = { learn: '#34d399', drill: '#fb923c', quiz: '#a78bfa', build: '#fbbf24' }[node.type] || '#60a5fa';
 
-  // Phase header
+  // Phase grouping — track whether this node opens a new phase.
   const prevNode = _streamedNodes[_streamedNodes.length - 2];
   const isNewPhase = !prevNode || prevNode.phase !== node.phase;
-  const phaseCount = new Set(_streamedNodes.map(n => n.phase)).size;
-  const isFirstPhase = phaseCount <= 1;
+  const phaseIdx = new Set(_streamedNodes.map(n => n.phase)).size; // 1-based
+  const isFirstPhase = phaseIdx === 1;
 
   if (isNewPhase) {
-    const phId = `wiz-ph-${phaseCount}`;
-    container.innerHTML += `<div style="margin:${prevNode ? '14px' : '0'} 0 6px">
-      <div onclick="var e=document.getElementById('${phId}');if(e)e.style.display=e.style.display==='none'?'':'none'"
-        style="font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
-        color:rgba(255,255,255,.25);cursor:pointer;display:flex;align-items:center;gap:5px;
-        padding:4px 0;user-select:none">
-        <span style="width:8px;height:8px;border-radius:50%;background:rgba(52,211,153,.15);flex-shrink:0"></span>
-        ${_escHtml(node.phase)}
-        <span style="font-size:8px;color:rgba(255,255,255,.1);margin-left:auto">${isFirstPhase ? '&#9660;' : '&#9654;'}</span>
-      </div>
-      <div id="${phId}" style="${isFirstPhase ? '' : 'display:none'}"></div>
-    </div>`;
+    const phId = `wiz-ph-${phaseIdx}`;
+    container.insertAdjacentHTML('beforeend', `
+      <div style="margin:${prevNode ? '14px' : '0'} 0 4px;position:relative;padding-left:20px">
+        <div style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:rgba(255,255,255,.04);border-radius:1px"></div>
+        <div onclick="var e=document.getElementById('${phId}');var c=this.querySelector('.wiz-ph-chev');if(e){var open=e.style.display==='none';e.style.display=open?'':'none';if(c)c.textContent=open?'\\u25BE':'\\u25B8'}"
+          style="display:flex;align-items:center;gap:6px;padding:6px 0;cursor:pointer;user-select:none;position:relative">
+          <div style="position:absolute;left:-17px;width:10px;height:10px;border-radius:50%;
+            background:rgba(96,165,250,.18);border:2px solid #60a5fa;display:grid;place-items:center">
+            <span style="width:3px;height:3px;border-radius:50%;background:#60a5fa"></span>
+          </div>
+          <span style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+            color:rgba(96,165,250,.75)">Phase ${phaseIdx} &middot; ${_escHtml(node.phase)}</span>
+          <span class="wiz-ph-chev" style="margin-left:auto;font-size:9px;color:rgba(255,255,255,.2)">${isFirstPhase ? '\u25BE' : '\u25B8'}</span>
+        </div>
+        <div id="${phId}" style="display:flex;flex-direction:column;gap:3px;padding:2px 0 4px;${isFirstPhase ? '' : 'display:none'}"></div>
+      </div>`);
   }
 
-  const phContainer = document.getElementById(`wiz-ph-${phaseCount}`) || container;
+  const phContainer = document.getElementById(`wiz-ph-${phaseIdx}`) || container;
 
-  // Subtopics as vertical connected list
-  const topics = node.topics || [];
-  const topicHtml = topics.length ? `<div style="padding-left:28px;margin-top:4px">
-    ${topics.map(t => `<div style="display:flex;align-items:baseline;gap:6px;padding:2px 0">
-      <span style="width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.1);flex-shrink:0;margin-top:4px"></span>
-      <span style="font-size:10px;color:rgba(255,255,255,.3);line-height:1.4">${_escHtml(t)}</span>
-    </div>`).join('')}
-  </div>` : '';
+  // Update the running session counter.
+  const counter = document.getElementById('wiz-stream-count');
+  if (counter) counter.textContent = `${_streamedNodes.length} session${_streamedNodes.length === 1 ? '' : 's'}`;
 
+  // Placeholder phase node (greyed-out, dashed border, no topics).
   if (node.placeholder) {
-    phContainer.innerHTML += `<div style="padding:8px 10px;border-radius:8px;border:1px dashed rgba(255,255,255,.05);
-      margin-bottom:4px;opacity:.4;animation:scopeHintIn .2s ease">
-      <span style="font-size:11px;color:rgba(255,255,255,.3);font-style:italic">${_escHtml(node.title)}</span>
-    </div>`;
-  } else {
-    phContainer.innerHTML += `<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.015);
-      border:1px solid rgba(255,255,255,.04);margin-bottom:4px;animation:scopeHintIn .2s ease">
-      <div style="display:flex;align-items:center;gap:8px">
-        <div style="width:20px;height:20px;border-radius:50%;background:${tc}12;color:${tc};
-          display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0">${node.milestone ? '★' : node.order}</div>
-        <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8);flex:1">${_escHtml(node.title)}</span>
-        <span style="font-size:9px;color:rgba(255,255,255,.15);flex-shrink:0">${node.targetMin}m</span>
-      </div>
-      ${topicHtml}
-    </div>`;
+    phContainer.insertAdjacentHTML('beforeend', `
+      <div style="padding:8px 10px;border-radius:7px;background:rgba(255,255,255,.01);
+        border:1px dashed rgba(255,255,255,.06);opacity:.55;animation:wizCardIn .25s ease">
+        <div style="display:flex;align-items:center;gap:7px">
+          <div style="width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.03);
+            color:rgba(255,255,255,.18);display:grid;place-items:center;font-size:8px;flex-shrink:0">~</div>
+          <span style="font-size:11px;color:rgba(255,255,255,.32);flex:1;font-style:italic">${_escHtml(node.title)}</span>
+        </div>
+      </div>`);
+    el.scrollTop = el.scrollHeight;
+    return;
   }
+
+  // Real node — collapsible card. Open only the very first node.
+  const isFirstNode = _streamedNodes.length === 1;
+  const expandId = `wiz-expand-${node.nodeId || _streamedNodes.length}`;
+  const topics = (node.topics || []).slice(0, 5);
+  // Per-subtopic action label: matches the parent card's type so a "drill"
+  // node's subtopics show "Drill" buttons, "build" → "Build", etc. Most are
+  // "Learn", which reads well for the common case.
+  const actLabel = { learn: 'Learn', drill: 'Drill', quiz: 'Quiz', build: 'Build' }[node.type] || 'Start';
+  const _pid = _jsAttr(PathState.activePath?.pathId || '');
+  const _nid = _jsAttr(node.nodeId || `ns${_streamedNodes.length}`);
+  const topicsHtml = topics.length ? `
+    <div style="padding-left:28px;margin-top:6px;position:relative">
+      <div style="position:absolute;left:30px;top:6px;bottom:6px;width:1px;background:rgba(255,255,255,.04)"></div>
+      ${topics.map(t => `<div style="display:flex;align-items:center;gap:7px;padding:3px 0;position:relative" onclick="event.stopPropagation()">
+        <span style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.12);flex-shrink:0;z-index:1"></span>
+        <span style="font-size:10.5px;color:rgba(255,255,255,.38);line-height:1.3;flex:1">${_escHtml(t)}</span>
+        <button onclick="event.stopPropagation();PathUI._startAtSubtopic('${_pid}','${_nid}','${_jsAttr(t)}')"
+          style="padding:2px 8px;border-radius:4px;border:1px solid rgba(52,211,153,.2);
+          background:rgba(52,211,153,.06);color:rgba(52,211,153,.75);font-size:8.5px;font-weight:600;
+          cursor:pointer;font-family:inherit;flex-shrink:0;transition:background .1s,color .1s"
+          onmouseenter="this.style.background='rgba(52,211,153,.14)';this.style.color='#34d399'"
+          onmouseleave="this.style.background='rgba(52,211,153,.06)';this.style.color='rgba(52,211,153,.75)'">${actLabel} &rarr;</button>
+      </div>`).join('')}
+    </div>` : `<div style="padding:6px 0 2px 28px;font-size:10px;color:rgba(255,255,255,.18);font-style:italic">No subtopics yet…</div>`;
+
+  phContainer.insertAdjacentHTML('beforeend', `
+    <div style="border-radius:8px;background:rgba(255,255,255,.018);border:1px solid rgba(255,255,255,.05);
+      overflow:hidden;animation:wizCardIn .22s ease;transition:border-color .12s"
+      onmouseenter="this.style.borderColor='rgba(96,165,250,.14)'"
+      onmouseleave="this.style.borderColor='rgba(255,255,255,.05)'">
+      <div onclick="var ex=document.getElementById('${expandId}');var c=this.querySelector('.wiz-card-chev');if(ex){var open=ex.style.display==='none';ex.style.display=open?'':'none';if(c)c.textContent=open?'\\u25BE':'\\u25B8'}"
+        style="padding:9px 11px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none">
+        <div style="width:20px;height:20px;border-radius:50%;background:${tc}1f;color:${tc};
+          display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0">${node.milestone ? '\u2605' : (node.order || _streamedNodes.length)}</div>
+        <span style="font-size:12px;font-weight:600;color:#fff;flex:1;
+          white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(node.title)}</span>
+        <span style="font-size:7px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+          color:${tc};background:${tc}14;padding:2px 6px;border-radius:3px;flex-shrink:0">${_escHtml(node.type)}</span>
+        <span style="font-size:9px;color:rgba(255,255,255,.18);flex-shrink:0">${node.targetMin}m</span>
+        <span class="wiz-card-chev" style="font-size:9px;color:rgba(255,255,255,.2);flex-shrink:0">${isFirstNode ? '\u25BE' : '\u25B8'}</span>
+      </div>
+      <div id="${expandId}" style="display:${isFirstNode ? '' : 'none'};padding:0 11px 10px">
+        ${topicsHtml}
+      </div>
+    </div>`);
+
+  // Keep the "still building…" pulse parked at the bottom of the list
+  // so the user always sees the path is in motion. The pulse is removed
+  // when the stream ends (in _wizSendToAgent end handler).
+  _ensureStreamingPulse();
 
   el.scrollTop = el.scrollHeight;
 }
 
-async function _saveStreamedNodes() {
+// Inserts (or moves) a pulsing placeholder card at the bottom of the
+// streaming list to signal "more cards coming". Called after every new
+// streamed card. Removed by _clearStreamingPulse() when the stream ends.
+function _ensureStreamingPulse() {
+  const container = document.getElementById('wiz-streamed-nodes');
+  if (!container) return;
+  let pulse = document.getElementById('wiz-stream-pulse');
+  if (!pulse) {
+    pulse = document.createElement('div');
+    pulse.id = 'wiz-stream-pulse';
+    pulse.style.cssText = `padding:9px 11px;border-radius:8px;
+      background:rgba(255,255,255,.012);border:1px dashed rgba(96,165,250,.14);
+      display:flex;align-items:center;gap:8px;margin-top:6px;
+      animation:wizPulse 1.6s ease-in-out infinite`;
+    pulse.innerHTML = `
+      <div style="display:flex;gap:3px;align-items:center;flex-shrink:0">
+        <span style="width:5px;height:5px;border-radius:50%;background:#60a5fa;
+          animation:wizDot 1.2s ease-in-out infinite"></span>
+        <span style="width:5px;height:5px;border-radius:50%;background:#60a5fa;
+          animation:wizDot 1.2s ease-in-out .15s infinite"></span>
+        <span style="width:5px;height:5px;border-radius:50%;background:#60a5fa;
+          animation:wizDot 1.2s ease-in-out .3s infinite"></span>
+      </div>
+      <span style="font-size:10.5px;color:rgba(96,165,250,.65);font-weight:600;letter-spacing:.2px">
+        Streaming next session<span class="wiz-pulse-dots">…</span></span>`;
+  }
+  // Always re-append so it stays at the bottom of the list.
+  container.appendChild(pulse);
+}
+
+function _clearStreamingPulse() {
+  document.getElementById('wiz-stream-pulse')?.remove();
+}
+
+// Inject the "Finalize path →" button. ONLY called after the LLM stream
+// has fully ended AND the path has at least 2 nodes — otherwise we'd be
+// nudging the student toward a finalize when there's nothing to finalize.
+// Idempotent — if the button already exists, this is a no-op.
+function _showWizFinalizeAffordance(pathId) {
+  const el = document.getElementById('wiz-artifact');
+  if (!el) return;
+  if (el.querySelector('.wiz-finalize')) return;
+  const nodes = PathState.activePath?.nodes || [];
+  if (nodes.length < 2) return;
+  el.insertAdjacentHTML('beforeend', `
+    <div class="wiz-finalize" style="margin:14px 14px 16px;text-align:center;animation:wizCardIn .25s ease">
+      <div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:6px;
+        letter-spacing:.4px">Path is ready &mdash; keep chatting to refine, or:</div>
+      <button onclick="PathUI.closeWizard();PathUI.openPathDetail('${_jsAttr(pathId)}')" style="
+        width:100%;padding:11px;border-radius:9px;border:none;
+        background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;
+        font-size:12px;font-weight:700;cursor:pointer;font-family:inherit;
+        box-shadow:0 4px 12px rgba(52,211,153,.18)">Finalize path &rarr;</button>
+    </div>`);
+}
+
+// Actual save body — called by both the debounced timer and by closeWizard()
+// to flush pending nodes synchronously before tearing down the wizard.
+async function _flushStreamedNodes() {
   const path = PathState.activePath;
   if (!path || !_streamedNodes.length) return;
-  // Debounce — save after 500ms of no new nodes
-  if (_saveStreamedNodes._timer) clearTimeout(_saveStreamedNodes._timer);
-  _saveStreamedNodes._timer = setTimeout(async () => {
+  // In-flight guard so debounce + flush can't double-write
+  if (_flushStreamedNodes._inFlight) return _flushStreamedNodes._inFlight;
+  _flushStreamedNodes._inFlight = (async () => {
     try {
       const nodes = _streamedNodes.map((n, i) => ({...n, nodeId: `n${i+1}`, order: i+1}));
       await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}`, {
@@ -150,14 +325,12 @@ async function _saveStreamedNodes() {
           title: path.title || PathState.wizardData.intent || 'Learning path',
         }),
       });
-      // Save nodes directly
       const fullPath = await PathAPI.get(path.pathId);
       if (fullPath && (!fullPath.nodes || !fullPath.nodes.length)) {
         await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}`, {
           method: 'PATCH', headers: _pathHeaders(),
           body: JSON.stringify({ status: 'active' }),
         });
-        // Use the reorder endpoint to set nodes (or create via add)
         for (const n of nodes) {
           await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}/nodes/add`, {
             method: 'POST', headers: _pathHeaders(),
@@ -166,26 +339,36 @@ async function _saveStreamedNodes() {
         }
       }
       PathState.activePath = await PathAPI.get(path.pathId);
-      if (PathState.activePath?.nodes?.length) {
-        // Show finalize button
-        const el = document.getElementById('wiz-artifact');
-        if (el && !el.querySelector('.wiz-finalize')) {
-          el.innerHTML += `<div class="wiz-finalize" style="margin-top:10px;text-align:center">
-            <div style="font-size:9px;color:rgba(255,255,255,.2);margin-bottom:4px">Keep chatting to adjust, or:</div>
-            <button onclick="PathUI.closeWizard();PathUI.openPathDetail('${_escHtml(path.pathId)}')" style="
-              padding:9px 20px;border-radius:8px;border:none;background:linear-gradient(135deg,#34d399,#22c584);
-              color:#0a0f1a;font-size:11px;font-weight:700;cursor:pointer;font-family:inherit">Finalize path &rarr;</button>
-          </div>`;
-        }
-      }
+      // NOTE: We deliberately DO NOT inject the "Finalize path" button
+      // here. _flushStreamedNodes fires on an 800ms debounce after the
+      // last tag, which means it can fire DURING the stream (between
+      // phases or while the agent pauses mid-thought). Finalize must
+      // only appear once the LLM stream has fully ended. The
+      // _wizSendToAgent end handler is responsible for that — see
+      // _showWizFinalizeAffordance() for the actual injection.
     } catch(e) { console.warn('[Path] Save streamed nodes failed:', e); }
-  }, 800);
+    finally { _flushStreamedNodes._inFlight = null; }
+  })();
+  return _flushStreamedNodes._inFlight;
 }
+
+async function _saveStreamedNodes() {
+  const path = PathState.activePath;
+  if (!path || !_streamedNodes.length) return;
+  if (_saveStreamedNodes._timer) clearTimeout(_saveStreamedNodes._timer);
+  _saveStreamedNodes._timer = setTimeout(_flushStreamedNodes, 800);
+}
+
+let _pathTagsEnabled = false; // Only true during wizard streaming
 
 function _md(text) {
   if (!text) return '';
-  // Parse path tags first (renders nodes on artifact)
-  text = _parsePathTags(text);
+  // Parse path tags only during active wizard streaming — otherwise just strip them
+  if (_pathTagsEnabled) {
+    text = _parsePathTags(text);
+  } else {
+    text = text.replace(/<path-(phase|node)\s+[^>]+\/>/g, '');
+  }
   // Strip leaked tool call XML/JSON
   text = text.replace(/<function_calls>[\s\S]*?<\/function_calls>/g, '');
   text = text.replace(/<invoke[\s\S]*?<\/invoke>/g, '');
@@ -584,9 +767,11 @@ function _renderWizardStep(stepIndex) {
 let _wizTurnId = 0; // Unique per-turn ID to avoid duplicate DOM issues
 
 function _startWizardChat() {
-  // Expand modal to split: chat left + artifact preview right
+  // Expand modal to split: chat left + artifact preview right.
+  // Wider modal + viewport-relative height → far more vertical real estate
+  // for the artifact panel so all phases are visible / scrollable.
   const card = document.querySelector('.path-wizard-card');
-  if (card) { card.style.maxWidth = '820px'; card.style.maxHeight = '85vh'; }
+  if (card) { card.style.maxWidth = '1040px'; card.style.maxHeight = '90vh'; }
 
   const body = document.getElementById('path-wizard-body');
   const footer = document.getElementById('path-wizard-footer');
@@ -598,12 +783,17 @@ function _startWizardChat() {
     .join(', ');
 
   body.style.padding = '0';
+  // Take over the body's scroll behaviour — the inner panels each manage
+  // their own scrolling, so the body itself shouldn't scroll (otherwise
+  // we get nested scrollbars and the artifact panel can't grow tall).
+  body.style.overflow = 'hidden';
+  body.style.minHeight = '0';
   body.innerHTML = `
-    <div style="display:flex;height:420px">
+    <div style="display:flex;height:100%;min-height:480px">
       <!-- Chat side -->
-      <div style="width:360px;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.05)">
-        <div id="wiz-msgs" style="flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px"></div>
-        <div style="padding:8px 12px;border-top:1px solid rgba(255,255,255,.04);display:flex;gap:5px;align-items:center">
+      <div style="width:380px;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.05);min-width:0">
+        <div id="wiz-msgs" style="flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0"></div>
+        <div style="padding:8px 12px;border-top:1px solid rgba(255,255,255,.04);display:flex;gap:5px;align-items:center;flex-shrink:0">
           <input id="wiz-input" type="text" placeholder="Tell Euler more, or say &quot;go&quot; to create..."
             onkeydown="if(event.key==='Enter'&&!event.shiftKey)PathUI._sendWizardChat()"
             style="flex:1;padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.05);
@@ -616,8 +806,12 @@ function _startWizardChat() {
             <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M12 5l7 7-7 7"/></svg></button>
         </div>
       </div>
-      <!-- Artifact preview side -->
-      <div id="wiz-artifact" style="flex:1;overflow-y:auto;padding:16px;background:rgba(0,0,0,.1)">
+      <!-- Artifact preview side. flex:1 lets it take remaining width.
+           overflow-y:auto + min-height:0 are required so flex children
+           actually scroll instead of overflowing the modal. The 60px
+           padding-bottom keeps the final card from sitting flush
+           against the gradient gradient or the bottom edge. -->
+      <div id="wiz-artifact" style="flex:1;overflow-y:auto;padding:14px 14px 60px;background:rgba(0,0,0,.1);min-height:0;min-width:0">
         <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;opacity:.4">
           <div style="font-size:24px;margin-bottom:8px">&#128218;</div>
           <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.4)">Your path will build here</div>
@@ -635,6 +829,10 @@ function _startWizardChat() {
   _streamedPhase = 'General';
   _streamedPhasePlanned = false;
   _parsedUpTo = 0;
+  _pathTagsEnabled = true;  // Enable tag parsing during wizard
+  // Don't swap to "Designing..." here — the agent's first reply is usually
+  // a follow-up question, not a build. The artifact placeholder stays until
+  // the stream actually emits a <path- tag (handled in _wizSendToAgent).
   _createDraftPath().then(() => {
     _wizSendToAgent(
       `I want to learn: "${PathState.wizardData.intent}". Here's what I told you: ${answers || 'nothing specific yet'}.`
@@ -649,6 +847,65 @@ function _wizAddUserMsg(text) {
     <div style="padding:7px 11px;border-radius:10px 10px 3px 10px;background:rgba(96,165,250,.1);
       border:1px solid rgba(96,165,250,.1);font-size:12px;color:#fff;max-width:85%">${_escHtml(text)}</div></div>`;
   el.scrollTop = el.scrollHeight;
+}
+
+// Shown when the agent's response claimed it built a path but emitted no
+// tags and saved nothing — i.e. it described a path in prose. Without this,
+// the artifact panel stays stuck on "Designing..." forever. Gives the
+// student a one-click way to recover.
+function _showWizBuildFailed() {
+  const el = document.getElementById('wiz-artifact');
+  if (!el) return;
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+      height:100%;text-align:center;padding:24px;gap:12px;animation:wizCardIn .25s ease">
+      <div style="width:42px;height:42px;border-radius:50%;background:rgba(251,191,36,.1);
+        border:1px solid rgba(251,191,36,.25);display:grid;place-items:center;font-size:18px">!</div>
+      <div>
+        <div style="font-size:12.5px;font-weight:700;color:#fff;margin-bottom:4px">Path didn't build</div>
+        <div style="font-size:10.5px;color:rgba(255,255,255,.4);line-height:1.5;max-width:240px">
+          Euler described the plan in chat but didn't emit the cards. Tap below to retry.
+        </div>
+      </div>
+      <button onclick="(function(){var i=document.getElementById('wiz-input');if(i){i.value='build it now — emit the path-node tags this time';}PathUI._sendWizardChat();})()"
+        style="padding:9px 18px;border-radius:8px;border:none;
+        background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;
+        font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;
+        box-shadow:0 3px 10px rgba(52,211,153,.18)">Build it now &rarr;</button>
+    </div>`;
+}
+
+// Shows a "designing your plan…" stage on the artifact panel while the agent
+// thinks. Bridges the silent gap between user-send and first card streaming
+// in. Replaced automatically when nodes begin streaming.
+function _showWizDesigningStage() {
+  const el = document.getElementById('wiz-artifact');
+  if (!el) return;
+  // Don't clobber if cards have already started streaming.
+  if (document.getElementById('wiz-streamed-nodes')) return;
+  el.innerHTML = `
+    <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;
+      height:100%;text-align:center;padding:20px;gap:14px;animation:wizCardIn .25s ease">
+      <div style="position:relative;width:46px;height:46px">
+        <div style="position:absolute;inset:0;border-radius:50%;
+          background:radial-gradient(circle,rgba(52,211,153,.18) 0%,transparent 70%);
+          animation:wizPulse 1.6s ease-in-out infinite"></div>
+        <div style="position:absolute;inset:8px;border-radius:50%;
+          background:linear-gradient(135deg,#34d399,#22c584);
+          display:grid;place-items:center;font-size:13px;font-weight:800;color:#0a0f1a">E</div>
+      </div>
+      <div>
+        <div style="font-size:12.5px;font-weight:700;color:#fff;margin-bottom:3px">Designing your plan</div>
+        <div style="font-size:10px;color:rgba(255,255,255,.35);line-height:1.5;max-width:220px">
+          Researching the curriculum and laying out your sessions —<br>cards will stream in here as they're ready
+        </div>
+      </div>
+      <div style="display:flex;gap:4px;margin-top:2px">
+        <span style="width:5px;height:5px;border-radius:50%;background:rgba(52,211,153,.6);animation:wizDot 1.2s ease-in-out infinite"></span>
+        <span style="width:5px;height:5px;border-radius:50%;background:rgba(52,211,153,.6);animation:wizDot 1.2s ease-in-out .15s infinite"></span>
+        <span style="width:5px;height:5px;border-radius:50%;background:rgba(52,211,153,.6);animation:wizDot 1.2s ease-in-out .3s infinite"></span>
+      </div>
+    </div>`;
 }
 
 function _wizAddAgentBubble() {
@@ -669,7 +926,8 @@ function _wizAddAgentBubble() {
   return id;
 }
 
-async function _wizSendToAgent(msg) {
+async function _wizSendToAgent(msg, opts) {
+  opts = opts || {};
   const path = PathState.activePath;
   if (!path) return;
   const turnId = _wizAddAgentBubble();
@@ -678,6 +936,16 @@ async function _wizSendToAgent(msg) {
   const scroll = () => { const el = document.getElementById('wiz-msgs'); if (el) el.scrollTop = el.scrollHeight; };
   // We'll track a running text element that tool calls interrupt
   let _curTextId = 0;
+  // Reset the inline-tag parser cursor per turn — agentText is fresh per turn,
+  // so _parsedUpTo from a previous turn would short-circuit parsing of new
+  // <path-node> tags and silently drop them.
+  _parsedUpTo = 0;
+  // Track whether we've seen a path tag in THIS turn so we only flip the
+  // artifact panel to the designing-stage indicator the first time.
+  let _pathTagSeenThisTurn = false;
+  // How many nodes existed before this turn — used to detect "agent claimed
+  // a build but emitted no tags" failure mode at the end of the turn.
+  const _nodesBeforeTurn = _streamedNodes.length;
 
   // Show stop button, hide send
   const stopBtn = document.getElementById('wiz-stop-btn');
@@ -717,6 +985,15 @@ async function _wizSendToAgent(msg) {
             if (ev.type === 'agent_text') {
               agentText += ev.text;
               const se = statusEl(); if (se) se.style.display = 'none';
+              // The instant the agent starts a path tag, swap the artifact
+              // placeholder to the designing-stage indicator. _renderStreamedNode
+              // takes over once a complete tag parses. Without this, the panel
+              // stays on the empty "your path will build here" until the FIRST
+              // complete <path-node /> arrives, which can be 1-2 seconds late.
+              if (!_pathTagSeenThisTurn && /<path-(phase|node)\b/.test(agentText)) {
+                _pathTagSeenThisTurn = true;
+                if (!document.getElementById('wiz-streamed-nodes')) _showWizDesigningStage();
+              }
               // Append to current text span (or create one)
               let span = document.getElementById(`wiz-tspan-${turnId}-${_curTextId}`);
               if (!span) {
@@ -731,10 +1008,28 @@ async function _wizSendToAgent(msg) {
               const st = document.getElementById(`wiz-status-text-${turnId}`);
               if (st) st.textContent = ev.message;
 
+            } else if (ev.type === 'stream_reset') {
+              // Backend told us the previous text was a hallucination — wipe
+              // the agent bubble's accumulated prose so the retry stream
+              // doesn't show alongside the failed claim. We also reset the
+              // parser cursor and bump the text-span id so new tokens go to
+              // a fresh container.
+              agentText = '';
+              _parsedUpTo = 0;
+              _curTextId++;
+              const ce = contentEl();
+              if (ce) {
+                // Remove any text spans we already rendered for this turn,
+                // but keep the small "Re-emitting cards…" status pill the
+                // following 'status' event will paint into wiz-status-text.
+                ce.querySelectorAll('[id^="wiz-tspan-' + turnId + '-"]').forEach(n => n.remove());
+              }
+              const se = statusEl(); if (se) se.style.display = '';
+
             } else if (ev.type === 'tool_call') {
               const se = statusEl(); if (se) se.style.display = 'none';
               // Insert tool call INLINE after current text
-              _curTextId++; agentText = ''; // new text span after this tool call
+              _curTextId++; agentText = ''; _parsedUpTo = 0; // new text span after this tool call
               const ce = contentEl();
               if (ce) {
                 ce.insertAdjacentHTML('beforeend', `<div class="wiz-tc" style="display:flex;align-items:center;gap:6px;
@@ -755,12 +1050,21 @@ async function _wizSendToAgent(msg) {
               }
 
             } else if (ev.type === 'artifact_update' || ev.type === 'refine_ready') {
-              // Path was created or modified — load and render artifact
+              // Path was created or modified by a TOOL (emit_path / add_node /
+              // modify_node / delete_node). For tool-driven edits we want to
+              // refresh, BUT if a streaming view is currently building cards
+              // via inline tags, we must NOT clobber it — server may not yet
+              // have the in-flight streamed nodes (debounced save).
               try {
                 const updated = await PathAPI.get(ev.pathId || path.pathId);
                 if (updated?.nodes?.length) {
+                  const streamingContainer = document.getElementById('wiz-streamed-nodes');
+                  const streamedCount = _streamedNodes.length;
+                  const serverCount = updated.nodes.length;
                   PathState.activePath = updated;
-                  _renderWizArtifact(updated);
+                  if (!streamingContainer || serverCount > streamedCount) {
+                    _renderWizArtifact(updated);
+                  }
                   // Mark all remaining spinners as done
                   const ce = contentEl();
                   if (ce) ce.querySelectorAll('.wiz-tc span').forEach(sp => {
@@ -792,17 +1096,78 @@ async function _wizSendToAgent(msg) {
     }
     scroll();
 
-    // Also try loading path one final time in case we missed an event
+    // The LLM stream has fully ended at this point. Two cleanups:
+    //   1. Drop the "Streaming next session…" pulse — no more cards
+    //      are coming.
+    //   2. Make sure any debounced flush actually completes BEFORE we
+    //      decide whether to render the Finalize button. Otherwise we
+    //      can miss the last 1-2 nodes that haven't been flushed yet.
+    _clearStreamingPulse();
+    if (_streamedNodes.length) {
+      try { await _flushStreamedNodes(); } catch(e) {}
+    }
+
+    // Also try loading path one final time in case we missed an event.
+    // CRITICAL: if a streaming view already exists with rendered cards,
+    // we must NOT call _renderWizArtifact — it does `el.innerHTML = …`
+    // which would wipe out the streamed cards. Only fall back to the
+    // legacy renderer when (a) there is no streaming container at all
+    // (so likely the legacy emit_path tool flow), or (b) the server
+    // somehow has *more* nodes than we streamed locally and is worth
+    // refreshing from.
+    let finalDoc = null;
     try {
-      const final = await PathAPI.get(path.pathId);
-      if (final?.nodes?.length && !document.getElementById('wiz-artifact')?.querySelector('button')) {
-        PathState.activePath = final;
-        _renderWizArtifact(final);
+      finalDoc = await PathAPI.get(path.pathId);
+      const streamingContainer = document.getElementById('wiz-streamed-nodes');
+      const streamedCount = _streamedNodes.length;
+      const serverCount = finalDoc?.nodes?.length || 0;
+      const shouldFallback = serverCount > 0 && (!streamingContainer || serverCount > streamedCount);
+      if (shouldFallback) {
+        PathState.activePath = finalDoc;
+        _renderWizArtifact(finalDoc);
+      } else if (serverCount > 0) {
+        // Just sync the in-memory state without redrawing.
+        PathState.activePath = finalDoc;
       }
     } catch(e) {}
 
+    // Show the Finalize affordance ONLY now that the stream is done
+    // and the path has at least 2 saved nodes. _showWizFinalizeAffordance
+    // is itself a no-op if it's already on screen, so chained turns
+    // won't re-add it.
+    if (finalDoc?.nodes?.length >= 2) {
+      _showWizFinalizeAffordance(path.pathId);
+    }
+
+    // Hallucination recovery — only meaningful when:
+    //   1. The user actually asked us to build this turn (isBuildIntent).
+    //      Q&A chats casually mention "session", "phase", "your path" all
+    //      the time and used to false-trigger this error.
+    //   2. We rendered ZERO cards this turn AND the server still has none.
+    //   3. The artifact panel is still showing the designing-stage spinner
+    //      (i.e. it's empty). If finalDoc has nodes from a prior turn, the
+    //      user is iterating on an existing path — never show "build failed".
+    //   4. The reply contained an unmistakable "I just built it" phrase
+    //      (not loose word-matches that occur in normal chat).
+    const noNewNodes = _streamedNodes.length === _nodesBeforeTurn;
+    const noServerNodes = !(finalDoc?.nodes?.length);
+    const artifactStillEmpty = !document.getElementById('wiz-streamed-nodes');
+    const definitiveBuildClaim = /(here'?s your path|i'?ve (built|created|put together|laid out)|(\d+\s+sessions?\s+(across|in)\s+\d+\s+phases?))/i.test(agentText || '');
+    if (
+      opts.isBuildIntent
+      && noNewNodes
+      && noServerNodes
+      && artifactStillEmpty
+      && definitiveBuildClaim
+    ) {
+      _showWizBuildFailed();
+    }
+
     setTimeout(() => document.getElementById('wiz-input')?.focus(), 200);
   } catch (e) {
+    // Stream died — kill the pulse so the user isn't stuck staring at
+    // a forever-spinning "Streaming next session…" indicator.
+    _clearStreamingPulse();
     if (e.name === 'AbortError') {
       const se = statusEl(); if (se) se.innerHTML = `<span style="font-size:10px;color:rgba(255,255,255,.3)">Stopped</span>`;
     } else {
@@ -816,15 +1181,20 @@ async function _wizSendToAgent(msg) {
   if (sendBtn2) sendBtn2.style.display = 'grid';
 }
 
+// Render the wizard artifact AFTER emit_path completes (path is fully saved).
+// Uses the SAME card design as _renderStreamedNode / _buildTimeline so the
+// finalized view feels continuous with the streaming view — no jarring style
+// shift when generation ends.
 function _renderWizArtifact(path) {
   const el = document.getElementById('wiz-artifact');
   if (!el) return;
   const nodes = path.nodes || [];
+  if (!nodes.length) return;
   const totalMin = nodes.reduce((s, n) => s + (n.targetMin || 30), 0);
   const hours = (totalMin / 60).toFixed(1).replace('.0', '');
   const milestones = nodes.filter(n => n.milestone).length;
 
-  // Group by phase
+  // Group by phase.
   const phases = [];
   let cur = null;
   for (const n of nodes) {
@@ -834,51 +1204,97 @@ function _renderWizArtifact(path) {
   }
 
   let phHtml = '';
-  for (const p of phases) {
-    phHtml += `<div style="margin-bottom:10px">
-      <div style="font-size:7.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
-        color:rgba(255,255,255,.2);margin-bottom:4px">${_escHtml(p.name)} &middot; ${p.nodes.length} sessions</div>`;
-    for (const n of p.nodes) {
-      const tc = { learn: '#34d399', drill: '#fb923c', quiz: '#a78bfa', build: '#fbbf24' }[n.type] || '#60a5fa';
-      const nTopics = (n.topics || []).slice(0, 5);
-      const ntDots = nTopics.length ? nTopics.map(t =>
-        `<div style="display:flex;align-items:center;gap:4px;padding:0.5px 0"><div style="width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,.1);flex-shrink:0"></div><span style="font-size:7.5px;color:rgba(255,255,255,.2)">${_escHtml(t)}</span></div>`).join('') : '';
-      phHtml += `<div style="padding:5px 7px;border-radius:6px;background:rgba(255,255,255,.02);
-        border:1px solid rgba(255,255,255,.03);margin-bottom:3px">
-        <div style="display:flex;align-items:center;gap:6px">
-          <div style="width:16px;height:16px;border-radius:50%;background:${tc}15;color:${tc};
-            display:grid;place-items:center;font-size:7px;font-weight:700;flex-shrink:0">${n.milestone ? '★' : (n.order || '')}</div>
-          <span style="font-size:10px;font-weight:600;color:rgba(255,255,255,.75);flex:1;
-            white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(n.title)}</span>
-          <span style="font-size:8px;color:rgba(255,255,255,.15);flex-shrink:0">${n.targetMin}m</span>
+  phases.forEach((p, pi) => {
+    const isFirstPhase = pi === 0;
+    const phId = `wiz-final-ph-${pi}`;
+    phHtml += `
+      <div style="margin:${pi ? '14px' : '0'} 0 4px;position:relative;padding-left:20px">
+        <div style="position:absolute;left:7px;top:0;bottom:0;width:2px;background:rgba(255,255,255,.04);border-radius:1px"></div>
+        <div onclick="var e=document.getElementById('${phId}');var c=this.querySelector('.wiz-ph-chev');if(e){var open=e.style.display==='none';e.style.display=open?'':'none';if(c)c.textContent=open?'\\u25BE':'\\u25B8'}"
+          style="display:flex;align-items:center;gap:6px;padding:6px 0;cursor:pointer;user-select:none;position:relative">
+          <div style="position:absolute;left:-17px;width:10px;height:10px;border-radius:50%;
+            background:rgba(96,165,250,.18);border:2px solid #60a5fa;display:grid;place-items:center">
+            <span style="width:3px;height:3px;border-radius:50%;background:#60a5fa"></span>
+          </div>
+          <span style="font-size:9px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
+            color:rgba(96,165,250,.75)">Phase ${pi + 1} &middot; ${_escHtml(p.name)}</span>
+          <span style="font-size:9px;color:rgba(255,255,255,.2);margin-left:6px">${p.nodes.length}</span>
+          <span class="wiz-ph-chev" style="margin-left:auto;font-size:9px;color:rgba(255,255,255,.2)">${isFirstPhase ? '\u25BE' : '\u25B8'}</span>
         </div>
-        ${ntDots ? `<div style="padding-left:22px;margin-top:2px">${ntDots}</div>` : ''}
-      </div>`;
-    }
-    phHtml += '</div>';
-  }
+        <div id="${phId}" style="display:${isFirstPhase ? 'flex' : 'none'};flex-direction:column;gap:3px;padding:2px 0 4px">`;
+    p.nodes.forEach((n, ni) => {
+      const tc = { learn: '#34d399', drill: '#fb923c', quiz: '#a78bfa', build: '#fbbf24' }[n.type] || '#60a5fa';
+      const isFirstNode = isFirstPhase && ni === 0;
+      const expandId = `wiz-final-expand-${n.nodeId || `${pi}-${ni}`}`;
+      const topics = (n.topics || []).slice(0, 5);
+      const actLabel = { learn: 'Learn', drill: 'Drill', quiz: 'Quiz', build: 'Build' }[n.type] || 'Start';
+      const _pid = _jsAttr(path.pathId);
+      const _nid = _jsAttr(n.nodeId || `n${pi}-${ni}`);
+      const topicsHtml = topics.length ? `
+        <div style="padding-left:28px;margin-top:6px;position:relative">
+          <div style="position:absolute;left:30px;top:6px;bottom:6px;width:1px;background:rgba(255,255,255,.04)"></div>
+          ${topics.map(t => `<div style="display:flex;align-items:center;gap:7px;padding:3px 0;position:relative" onclick="event.stopPropagation()">
+            <span style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.12);flex-shrink:0;z-index:1"></span>
+            <span style="font-size:10.5px;color:rgba(255,255,255,.38);line-height:1.3;flex:1">${_escHtml(t)}</span>
+            <button onclick="event.stopPropagation();PathUI._startAtSubtopic('${_pid}','${_nid}','${_jsAttr(t)}')"
+              style="padding:2px 8px;border-radius:4px;border:1px solid rgba(52,211,153,.2);
+              background:rgba(52,211,153,.06);color:rgba(52,211,153,.75);font-size:8.5px;font-weight:600;
+              cursor:pointer;font-family:inherit;flex-shrink:0;transition:background .1s,color .1s"
+              onmouseenter="this.style.background='rgba(52,211,153,.14)';this.style.color='#34d399'"
+              onmouseleave="this.style.background='rgba(52,211,153,.06)';this.style.color='rgba(52,211,153,.75)'">${actLabel} &rarr;</button>
+          </div>`).join('')}
+        </div>` : '';
+      phHtml += `
+        <div style="border-radius:8px;background:rgba(255,255,255,.018);border:1px solid rgba(255,255,255,.05);
+          overflow:hidden;transition:border-color .12s"
+          onmouseenter="this.style.borderColor='rgba(96,165,250,.14)'"
+          onmouseleave="this.style.borderColor='rgba(255,255,255,.05)'">
+          <div onclick="var ex=document.getElementById('${expandId}');var c=this.querySelector('.wiz-card-chev');if(ex){var open=ex.style.display==='none';ex.style.display=open?'':'none';if(c)c.textContent=open?'\\u25BE':'\\u25B8'}"
+            style="padding:9px 11px;cursor:pointer;display:flex;align-items:center;gap:8px;user-select:none">
+            <div style="width:20px;height:20px;border-radius:50%;background:${tc}1f;color:${tc};
+              display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0">${n.milestone ? '\u2605' : (n.order || (ni + 1))}</div>
+            <span style="font-size:12px;font-weight:600;color:#fff;flex:1;
+              white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_escHtml(n.title)}</span>
+            <span style="font-size:7px;font-weight:700;letter-spacing:.4px;text-transform:uppercase;
+              color:${tc};background:${tc}14;padding:2px 6px;border-radius:3px;flex-shrink:0">${_escHtml(n.type)}</span>
+            <span style="font-size:9px;color:rgba(255,255,255,.18);flex-shrink:0">${n.targetMin}m</span>
+            <span class="wiz-card-chev" style="font-size:9px;color:rgba(255,255,255,.2);flex-shrink:0">${isFirstNode ? '\u25BE' : '\u25B8'}</span>
+          </div>
+          <div id="${expandId}" style="display:${isFirstNode ? '' : 'none'};padding:0 11px 10px">
+            ${topicsHtml || `<div style="padding:6px 0 2px 28px;font-size:10px;color:rgba(255,255,255,.18);font-style:italic">No subtopics</div>`}
+          </div>
+        </div>`;
+    });
+    phHtml += `</div></div>`;
+  });
 
   el.innerHTML = `
-    <div style="font-size:8px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(52,211,153,.6);margin-bottom:4px">Your path</div>
-    <div style="font-size:13px;font-weight:800;color:#fff;margin-bottom:2px">${_escHtml(path.title)}</div>
-    <div style="font-size:9.5px;color:rgba(255,255,255,.3);margin-bottom:8px;line-height:1.4">${_escHtml(path.description)}</div>
-    <div style="display:flex;gap:12px;font-size:9px;color:rgba(255,255,255,.25);margin-bottom:8px">
-      <span><strong style="color:#fff">${nodes.length}</strong> sessions</span>
-      <span><strong style="color:#fff">~${hours}h</strong></span>
-      <span><strong style="color:#fff">${milestones}</strong> milestones</span>
+    <div style="padding:14px 16px 0">
+      <div style="font-size:8px;font-weight:700;letter-spacing:1.2px;text-transform:uppercase;
+        color:rgba(52,211,153,.7);margin-bottom:4px;display:flex;align-items:center;gap:6px">
+        <span style="width:6px;height:6px;border-radius:50%;background:#34d399"></span>
+        Your path
+      </div>
+      <div style="font-size:14px;font-weight:800;color:#fff;letter-spacing:-.2px;margin-bottom:3px;line-height:1.3">${_escHtml(path.title)}</div>
+      ${path.description ? `<div style="font-size:10.5px;color:rgba(255,255,255,.4);margin-bottom:8px;line-height:1.5">${_escHtml(path.description)}</div>` : ''}
+      <div style="display:flex;gap:14px;font-size:9.5px;color:rgba(255,255,255,.3);margin-bottom:12px;padding-bottom:10px;border-bottom:1px solid rgba(255,255,255,.04)">
+        <span><strong style="color:#fff;font-weight:700">${nodes.length}</strong> sessions</span>
+        <span><strong style="color:#fff;font-weight:700">~${hours}h</strong></span>
+        <span><strong style="color:#fff;font-weight:700">${milestones}</strong> milestones</span>
+      </div>
     </div>
-    <div style="height:3px;border-radius:2px;background:rgba(255,255,255,.04);margin-bottom:12px">
-      <div style="height:100%;width:0%;background:#34d399;border-radius:2px"></div>
+    <div style="padding:0 14px 60px">${phHtml}</div>
+    <div style="padding:10px 14px 14px;position:sticky;bottom:0;background:linear-gradient(180deg,rgba(10,15,26,.0),rgba(10,15,26,.92) 50%);backdrop-filter:blur(2px)">
+      <button onclick="PathUI.closeWizard();PathUI.openPathDetail('${_escHtml(path.pathId)}')" style="
+        width:100%;padding:10px;border-radius:9px;border:none;
+        background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;
+        font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;
+        box-shadow:0 4px 12px rgba(52,211,153,.15)">
+        Finalize path &rarr;</button>
+      <div style="font-size:9px;color:rgba(255,255,255,.22);text-align:center;margin-top:5px">
+        Or keep chatting to adjust
+      </div>
     </div>
-    ${phHtml}
-    <div style="font-size:9px;color:rgba(255,255,255,.2);text-align:center;margin-top:8px">
-      Keep chatting on the left to adjust &middot; or finalize below
-    </div>
-    <button onclick="PathUI.closeWizard();PathUI.openPathDetail('${_escHtml(path.pathId)}')" style="
-      width:100%;padding:10px;border-radius:8px;border:none;margin-top:6px;
-      background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;
-      font-size:12px;font-weight:700;cursor:pointer;font-family:inherit">
-      Finalize path &rarr;</button>
   `;
 }
 
@@ -1443,7 +1859,7 @@ function _buildTimeline(path, nodes, next) {
     if (phases[i].nodes.some(n => next && n.nodeId === next.nodeId)) { activePhaseIdx = i; break; }
   }
 
-  const _pid = _escHtml(path.pathId);
+  const _pid = _jsAttr(path.pathId);
   let html = '<div style="position:relative;padding-left:24px">';
   html += '<div style="position:absolute;left:9px;top:0;bottom:0;width:2px;background:rgba(255,255,255,.04);border-radius:1px"></div>';
 
@@ -1478,7 +1894,7 @@ function _buildTimeline(path, nodes, next) {
         <div style="display:flex;flex-direction:column;gap:3px;padding:4px 0 6px">`;
 
     for (const n of p.nodes) {
-      const _nid = _escHtml(n.nodeId);
+      const _nid = _jsAttr(n.nodeId);
       const isDone = n.status === 'completed';
       const isNext = next && n.nodeId === next.nodeId;
       const tc = { learn: '#34d399', drill: '#fb923c', quiz: '#a78bfa', build: '#fbbf24' }[n.type] || '#60a5fa';
@@ -1504,21 +1920,32 @@ function _buildTimeline(path, nodes, next) {
             <div style="width:18px;height:18px;border-radius:50%;background:rgba(255,255,255,.03);color:rgba(255,255,255,.15);
               display:grid;place-items:center;font-size:8px;flex-shrink:0">~</div>
             <span style="font-size:11px;color:rgba(255,255,255,.3);flex:1;font-style:italic">${_escHtml(n.title)}</span>
-            <button onclick="event.stopPropagation();PathUI._planPhase('${_pid}','${_escHtml(n.phase || '')}')"
+            <button onclick="event.stopPropagation();PathUI._planPhase('${_pid}','${_jsAttr(n.phase || '')}')"
               style="font-size:8px;padding:2px 8px;border-radius:4px;border:1px solid rgba(96,165,250,.15);
               background:rgba(96,165,250,.05);color:rgba(96,165,250,.6);cursor:pointer;font-family:inherit;flex-shrink:0">Plan</button>
           </div></div>`;
         continue;
       }
 
-      const expandId = `tl-expand-${_nid}`;
+      const expandId = `tl-expand-${n.nodeId}`;
+      const noteInputId = `tl-note-${n.nodeId}`;
       const topics = (n.topics || []).slice(0, 5);
+      const actLabel = { learn: 'Learn', drill: 'Drill', quiz: 'Quiz', build: 'Build' }[n.type] || 'Start';
 
-      // Collapsed: title + number only. Expanded: subtopics + start button
+      // Parse the focus subtopic out of "Start from: X" notes so we can
+      // both highlight that subtopic AND avoid showing "Start from: X" as
+      // a generic note pill (it's better surfaced as a chip on the topic).
+      const rawNote = (n.studentNote || '').trim();
+      const focusMatch = rawNote.match(/^Start from:\s*(.+)$/i);
+      const focusSubtopic = focusMatch ? focusMatch[1].trim() : '';
+      const displayNote = focusSubtopic ? '' : rawNote;
+      const hasNote = !!rawNote;
+
+      // Collapsed: title + number only. Expanded: subtopics + note + start button
       html += `<div style="border-radius:8px;background:${bg};border:1px solid ${borderColor};
         transition:border-color .12s;${isDone ? 'opacity:.5;' : ''}overflow:hidden;margin-bottom:4px"
-        onmouseenter="this.style.borderColor='rgba(96,165,250,.12)';this.querySelectorAll('.subtopic-start').forEach(b=>b.style.opacity='1')"
-        onmouseleave="this.style.borderColor='${borderColor}';this.querySelectorAll('.subtopic-start').forEach(b=>b.style.opacity='0')"
+        onmouseenter="this.style.borderColor='rgba(96,165,250,.12)'"
+        onmouseleave="this.style.borderColor='${borderColor}'">
 
         <div onclick="var ex=document.getElementById('${expandId}');if(ex)ex.style.display=ex.style.display==='none'?'':'none'"
           style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px">
@@ -1526,32 +1953,57 @@ function _buildTimeline(path, nodes, next) {
             flex-shrink:0;background:${numBg};color:${numColor}">${isDone ? '&#10003;' : (n.milestone ? '&#9733;' : (n.order || ''))}</div>
           <div style="flex:1;min-width:0">
             <div style="font-size:13px;font-weight:600;color:${isDone ? 'rgba(255,255,255,.4)' : '#fff'};
-              ${isDone ? 'text-decoration:line-through;' : ''}">${_escHtml(n.title)}</div>
+              ${isDone ? 'text-decoration:line-through;' : ''};display:flex;align-items:center;gap:6px">
+              <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${_escHtml(n.title)}</span>
+              ${hasNote ? `<span title="You added context for Euler" style="width:5px;height:5px;border-radius:50%;
+                background:#60a5fa;flex-shrink:0;box-shadow:0 0 6px rgba(96,165,250,.5)"></span>` : ''}
+            </div>
           </div>
           ${tag}
           <span style="font-size:9px;color:rgba(255,255,255,.12);flex-shrink:0">${n.targetMin}m</span>
         </div>
 
         <div id="${expandId}" style="display:${isNext ? '' : 'none'};padding:0 12px 12px">
+          ${displayNote ? `<div style="margin:0 0 10px 30px;padding:7px 10px;border-radius:6px;
+            background:rgba(96,165,250,.06);border:1px solid rgba(96,165,250,.16);
+            display:flex;align-items:flex-start;gap:6px" onclick="event.stopPropagation()">
+            <span style="font-size:9px;color:#60a5fa;font-weight:700;letter-spacing:.4px;
+              text-transform:uppercase;flex-shrink:0;margin-top:1px">Note</span>
+            <span style="font-size:11px;color:rgba(255,255,255,.75);flex:1;line-height:1.4">${_escHtml(displayNote)}</span>
+            <button onclick="event.stopPropagation();var i=document.getElementById('${noteInputId}');if(i){i.style.display='block';i.focus();this.parentElement.style.display='none'}"
+              style="font-size:8.5px;padding:2px 7px;border-radius:4px;border:1px solid rgba(96,165,250,.2);
+              background:transparent;color:rgba(96,165,250,.7);cursor:pointer;font-family:inherit;flex-shrink:0">Edit</button>
+          </div>` : ''}
           ${topics.length ? `<div style="padding-left:30px;margin-bottom:8px;position:relative">
             <div style="position:absolute;left:32px;top:8px;bottom:8px;width:1px;background:rgba(255,255,255,.04)"></div>
-            ${topics.map((t, ti) => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;position:relative"
+            ${topics.map((t, ti) => {
+              const isFocus = focusSubtopic && t.toLowerCase() === focusSubtopic.toLowerCase();
+              return `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;position:relative"
               onclick="event.stopPropagation()">
-              <span style="width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.1);flex-shrink:0;z-index:1"></span>
-              <span style="font-size:11.5px;color:rgba(255,255,255,.4);flex:1;line-height:1.3">${_escHtml(t)}</span>
-              <button onclick="PathUI._startAtSubtopic('${_pid}','${_nid}','${_escHtml(t)}')"
-                style="padding:3px 10px;border-radius:5px;border:1px solid rgba(52,211,153,.15);
-                background:rgba(52,211,153,.04);color:rgba(52,211,153,.6);font-size:9px;font-weight:600;
-                cursor:pointer;font-family:inherit;flex-shrink:0;opacity:0;transition:opacity .1s"
-                onmouseenter="this.style.opacity='1'" class="subtopic-start">Start</button>
-            </div>`).join('')}
+              <span style="width:6px;height:6px;border-radius:50%;background:${isFocus ? '#60a5fa' : 'rgba(255,255,255,.1)'};
+                flex-shrink:0;z-index:1${isFocus ? ';box-shadow:0 0 6px rgba(96,165,250,.6)' : ''}"></span>
+              <span style="font-size:11.5px;color:${isFocus ? '#fff' : 'rgba(255,255,255,.4)'};flex:1;line-height:1.3;
+                font-weight:${isFocus ? '600' : '400'}">${_escHtml(t)}${isFocus ? `<span style="font-size:8px;font-weight:700;
+                color:#60a5fa;background:rgba(96,165,250,.12);padding:1px 5px;border-radius:3px;margin-left:6px;
+                letter-spacing:.4px;text-transform:uppercase">Focus</span>` : ''}</span>
+              <button onclick="PathUI._startAtSubtopic('${_pid}','${_nid}','${_jsAttr(t)}')"
+                style="padding:3px 10px;border-radius:5px;border:1px solid rgba(52,211,153,.2);
+                background:rgba(52,211,153,.06);color:rgba(52,211,153,.75);font-size:9px;font-weight:600;
+                cursor:pointer;font-family:inherit;flex-shrink:0;transition:opacity .1s,background .1s,color .1s"
+                onmouseenter="this.style.background='rgba(52,211,153,.12)';this.style.color='#34d399'"
+                onmouseleave="this.style.background='rgba(52,211,153,.06)';this.style.color='rgba(52,211,153,.75)'"
+                class="subtopic-start">${actLabel} &rarr;</button>
+            </div>`;
+            }).join('')}
           </div>` : ''}
           <div style="padding-left:30px">
-            <input type="text" value="${_escHtml(n.studentNote || '')}" placeholder="Optional — add context to calibrate Euler, e.g. &quot;I know basics of this&quot;"
+            <input id="${noteInputId}" type="text" value="${_escHtml(displayNote)}"
+              placeholder="${displayNote ? 'Edit note for Euler' : '+ Add a note for Euler — e.g. \\&quot;I know basics already, push deeper\\&quot;'}"
               onblur="PathUI._saveNodeNote('${_pid}','${_nid}',this.value)" onkeydown="if(event.key==='Enter')this.blur()"
               onclick="event.stopPropagation()"
-              style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.04);
-              background:rgba(255,255,255,.015);color:#fff;font-size:10.5px;font-family:inherit;outline:none">
+              style="display:${displayNote ? 'none' : 'block'};width:100%;padding:6px 10px;border-radius:6px;
+              border:1px dashed rgba(255,255,255,.06);background:transparent;color:rgba(255,255,255,.7);
+              font-size:10.5px;font-family:inherit;outline:none">
           </div>
         </div>
       </div>`;
@@ -2035,8 +2487,28 @@ const PathUI = {
   },
 
   closeWizard() {
+    // Flush any pending streamed nodes BEFORE tearing down so users don't
+    // lose work if they close the wizard during the 800ms debounce window.
+    if (_saveStreamedNodes._timer) {
+      clearTimeout(_saveStreamedNodes._timer);
+      _saveStreamedNodes._timer = null;
+      // Fire-and-forget — closing the modal shouldn't block on the network,
+      // but the request goes out before the user can navigate away.
+      try { _flushStreamedNodes(); } catch(e) { console.warn('[Path] flush on close:', e); }
+    }
     document.getElementById('path-wizard-modal')?.remove();
     PathState.wizardData = {};
+    _pathTagsEnabled = false;  // Stop parsing tags outside wizard
+    // Refresh the home activity row (paths + sessions) so the path the student
+    // just built shows up in "Continuing" cards. Without this, closing the
+    // wizard leaves the home displaying stale data and the user wonders where
+    // their path went. Brief head-start to let any in-flight saves settle.
+    setTimeout(() => {
+      try {
+        if (typeof _loadHomeSections === 'function') _loadHomeSections();
+        else if (typeof _loadHomeSessions === 'function') _loadHomeSessions();
+      } catch(e) {}
+    }, 350);
   },
 
   _selectWizardChip(stepIndex, value) {
@@ -2057,14 +2529,58 @@ const PathUI = {
   },
 
   async _startAtSubtopic(pathId, nodeId, subtopic) {
-    // Start session at a specific subtopic within a chapter
+    // Start session at a specific subtopic within a chapter.
+    // Two channels carry the focus to Euler:
+    //   1. studentNote — persisted on the path doc, surfaced via path context
+    //      (read on turn 1 + every 5th turn from MongoDB).
+    //   2. opening trigger — baked directly into the system prompt via
+    //      continueNode(focusSubtopic), so the tutor sees it from message 1.
+    //
+    // CRITICAL — node ID translation. Three different ID schemes can reach
+    // this function:
+    //   • `n1`, `n2`, …  — saved server-side IDs (from path.nodes)
+    //   • `ns1`, `ns2`, … — synthetic streaming IDs used while the wizard
+    //     is still emitting cards. They turn into `n{N}` when the streamed
+    //     nodes flush to the server.
+    //   • Hand-typed IDs from refine tools (rare).
+    // The streaming case used to silently fail because find() returned
+    // nothing for `ns1`. We now flush first, then translate by index.
+
+    // 1) If we have unflushed streamed nodes, flush them synchronously so
+    //    the server has stable IDs before we try to start.
+    if (typeof _flushStreamedNodes === 'function' && Array.isArray(_streamedNodes) && _streamedNodes.length) {
+      try { await _flushStreamedNodes(); } catch(e) { console.warn('[Path] flush before start failed:', e); }
+    }
+
+    // 2) Always reload the path so we have fresh server IDs.
+    try { PathState.activePath = await PathAPI.get(pathId); } catch(e) {}
     const path = PathState.activePath;
-    if (!path) return;
-    const node = (path.nodes || []).find(n => n.nodeId === nodeId);
-    if (!node) return;
-    // Save the subtopic as the student note so tutor starts there
-    await this._saveNodeNote(pathId, nodeId, `Start from: ${subtopic}`);
-    await this.continueNode(pathId, nodeId);
+    if (!path || !Array.isArray(path.nodes)) {
+      console.warn('[Path] No nodes loaded for', pathId);
+      return;
+    }
+
+    // 3) Resolve nodeId. Try direct match first; if it's a streaming ID
+    //    (ns{N}) translate by index since flush assigns n1..nN in order.
+    let node = path.nodes.find(n => n.nodeId === nodeId);
+    let resolvedNodeId = nodeId;
+    if (!node && /^ns\d+$/.test(String(nodeId))) {
+      const idx = parseInt(String(nodeId).slice(2), 10) - 1;
+      if (idx >= 0 && idx < path.nodes.length) {
+        node = path.nodes[idx];
+        resolvedNodeId = node.nodeId;
+      }
+    }
+    if (!node) {
+      console.warn('[Path] Could not resolve node', nodeId, 'on path', pathId);
+      return;
+    }
+
+    const focus = (subtopic || '').trim();
+    if (focus) {
+      try { await this._saveNodeNote(pathId, resolvedNodeId, `Start from: ${focus}`); } catch(e) {}
+    }
+    await this.continueNode(pathId, resolvedNodeId, focus);
   },
 
   async _planPhase(pathId, phaseName) {
@@ -2095,21 +2611,22 @@ const PathUI = {
 
     _wizAddUserMsg(msg);
 
-    // If user says "go"/"create"/"yes" — tell agent to create the path
+    // If user says "go"/"create"/"yes"/etc., they want a path NOW — show the
+    // designing-stage indicator on the artifact panel immediately. Otherwise
+    // (regular Q&A chat) leave the placeholder alone and only swap to the
+    // designing stage when we actually detect a <path- tag in the stream.
     const goWords = ['go', 'create', 'yes', 'start', 'build', 'do it', 'looks good', 'let\'s go', 'ready'];
     const isGo = goWords.some(w => msg.toLowerCase().includes(w)) && msg.length < 30;
+    const isBuildIntent = isGo && !PathState.activePath?.nodes?.length;
 
-    if (isGo) {
-      // Show building indicator on artifact immediately
-      const artEl = document.getElementById('wiz-artifact');
-      if (artEl) artEl.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;gap:10px">
-        <div style="width:24px;height:24px;border:3px solid rgba(52,211,153,.15);border-top-color:#34d399;border-radius:50%;animation:spin .8s linear infinite"></div>
-        <div style="font-size:12px;color:rgba(255,255,255,.4)">Building your path...</div>
-        <div style="font-size:10px;color:rgba(255,255,255,.2)">Researching curriculum &middot; designing sessions</div>
-      </div>`;
-      await _wizSendToAgent(msg + '\n\n[The student wants you to create the path now. Call emit_path.]');
+    if (isBuildIntent) {
+      _showWizDesigningStage();
+      await _wizSendToAgent(
+        msg + '\n\n[The student wants to build now. Emit `<path-phase>` and `<path-node>` tags inline in your reply — DO NOT just describe the path in prose. The UI renders cards from those tags only.]',
+        { isBuildIntent: true }
+      );
     } else {
-      await _wizSendToAgent(msg);
+      await _wizSendToAgent(msg, { isBuildIntent: false });
     }
   },
 
@@ -2126,9 +2643,15 @@ const PathUI = {
     await this.openPathDetail(pathId);
   },
 
-  async continueNode(pathId, nodeId) {
+  async continueNode(pathId, nodeId, focusSubtopic) {
     // Close any open path detail modal
     document.getElementById('path-detail-modal')?.remove();
+
+    // If streamed nodes haven't been flushed (e.g. user clicked the
+    // big "Start" button mid-build), flush them first so server has IDs.
+    if (typeof _flushStreamedNodes === 'function' && Array.isArray(_streamedNodes) && _streamedNodes.length) {
+      try { await _flushStreamedNodes(); } catch(e) {}
+    }
 
     // Load path if needed
     if (!PathState.activePath || PathState.activePath.pathId !== pathId) {
@@ -2136,9 +2659,18 @@ const PathUI = {
     }
 
     const path = PathState.activePath;
-    if (!path) return;
+    if (!path || !Array.isArray(path.nodes)) return;
 
-    const node = path.nodes.find(n => n.nodeId === nodeId);
+    // Resolve streaming-ID (ns{N}) → saved-ID (n{N}) by index — see
+    // _startAtSubtopic for full rationale.
+    let node = path.nodes.find(n => n.nodeId === nodeId);
+    if (!node && /^ns\d+$/.test(String(nodeId))) {
+      const idx = parseInt(String(nodeId).slice(2), 10) - 1;
+      if (idx >= 0 && idx < path.nodes.length) {
+        node = path.nodes[idx];
+        nodeId = node.nodeId;
+      }
+    }
     if (!node) return;
 
     // Store path session context
@@ -2147,18 +2679,29 @@ const PathUI = {
     // Mark node as active (don't generate a separate sessionId — startNewSession does that)
     try { await PathAPI.startNode(pathId, nodeId, null); } catch(e) { console.warn('[Path] startNode failed:', e); }
 
-    // Build a clear, specific intent so triage doesn't misclassify
-    // Include path title + node title + topics for grounding
+    // If caller didn't pass a subtopic explicitly, fall back to whatever was
+    // saved on the node (the path-page Continue button doesn't pass one, but
+    // the user may still have a "Start from: X" note from a prior click).
+    let focus = (focusSubtopic || '').trim();
+    if (!focus) {
+      const m = (node.studentNote || '').match(/^Start from:\s*(.+)$/i);
+      if (m) focus = m[1].trim();
+    }
+
+    // Build a clear, specific intent so triage doesn't misclassify.
+    // Path title + node title + topics for grounding; focus subtopic
+    // (if any) makes the tutor's first move concrete.
     const topics = (node.topics || []).join(', ');
-    const intentText = `Teach me: ${node.title}` +
-      (topics ? ` (covering: ${topics})` : '') +
-      ` — this is session ${node.order || '?'} of my "${path.title}" learning path.`;
+    let intentText = `Teach me: ${node.title}`;
+    if (focus) intentText += ` — start with "${focus}"`;
+    if (topics) intentText += ` (covering: ${topics})`;
+    intentText += ` — this is session ${node.order || '?'} of my "${path.title}" learning path.`;
 
     const user = AuthManager.getUser();
     if (!user) return;
 
     state.studentIntent = intentText;
-    state._sessionPathContext = { pathId, nodeId };
+    state._sessionPathContext = { pathId, nodeId, focusSubtopic: focus || null };
 
     // Start session with path context — the pathContext ensures the tutor
     // gets full path notes, prior strengths/gaps, and node-type instructions
@@ -2166,6 +2709,7 @@ const PathUI = {
       pathId,
       nodeId,
       nodeType: node.type,
+      focusSubtopic: focus || null,
     });
 
     // Link the generated session ID back to the path node
