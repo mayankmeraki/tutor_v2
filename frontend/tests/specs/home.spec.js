@@ -110,47 +110,12 @@ test.describe('Home / Browse Screen', () => {
     }
   });
 
-  // ──────────── Course Grid ────────────
-
-  test('course grid loads courses', async ({ page }) => {
-    const grid = page.locator(SEL.home.coursesGrid);
-    await page.waitForTimeout(3000);
-    if (await grid.isVisible()) {
-      const cards = grid.locator('.ccard');
-      const count = await cards.count();
-      expect(count).toBeGreaterThan(0);
-    }
-  });
-
-  test('clicking a course card navigates to course detail', async ({ page }) => {
-    const grid = page.locator(SEL.home.coursesGrid);
-    await page.waitForTimeout(3000);
-    if (await grid.isVisible()) {
-      const card = grid.locator('.ccard').first();
-      if (await card.isVisible()) {
-        await card.click();
-        await page.waitForTimeout(2000);
-        expect(page.url()).toContain('/courses/');
-        await expect(page.locator(SEL.screens.course)).toBeVisible();
-      }
-    }
-  });
-
   // ──────────── Sessions Row ────────────
 
   test('sessions section loads if user has sessions', async ({ page }) => {
     await page.waitForTimeout(3000);
     const section = page.locator(SEL.home.sessionsSection);
     // may or may not be visible depending on user data
-    const isVisible = await section.isVisible();
-    expect(typeof isVisible).toBe('boolean');
-  });
-
-  // ──────────── Videos Row ────────────
-
-  test('videos section loads', async ({ page }) => {
-    await page.waitForTimeout(3000);
-    const section = page.locator(SEL.home.videosSection);
     const isVisible = await section.isVisible();
     expect(typeof isVisible).toBe('boolean');
   });

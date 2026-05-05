@@ -7,7 +7,8 @@ try:
     from dotenv import load_dotenv
     _env_path = Path(__file__).resolve().parent.parent.parent / ".env"
     if _env_path.exists():
-        load_dotenv(_env_path, override=False)
+        # Prefer values in backend/.env over inherited shell exports (e.g. old MONGODB_URI).
+        load_dotenv(_env_path, override=True)
 except ImportError:
     pass
 

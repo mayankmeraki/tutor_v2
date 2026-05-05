@@ -59,12 +59,6 @@ test.describe('Navigation & Routing', () => {
       await expect(page.locator(SEL.screens.browse)).toBeVisible();
     });
 
-    test('/courses shows browse screen', async ({ page }) => {
-      await page.goto('/courses');
-      await page.waitForTimeout(1000);
-      await expect(page.locator(SEL.screens.browse)).toBeVisible();
-    });
-
     test('/tutor shows browse screen', async ({ page }) => {
       await page.goto('/tutor');
       await page.waitForTimeout(1000);
@@ -81,43 +75,6 @@ test.describe('Navigation & Routing', () => {
   // ──────────── Browser History ────────────
 
   test.describe('Browser History (Back/Forward)', () => {
-    test('back from course detail returns to home', async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-      const grid = page.locator(SEL.home.coursesGrid);
-      const card = grid.locator('.ccard').first();
-      if (await card.isVisible()) {
-        await card.click();
-        await page.waitForURL('**/courses/**', { timeout: 10_000 });
-        await expect(page.locator(SEL.screens.course)).toBeVisible();
-
-        await page.goBack();
-        await page.waitForTimeout(2000);
-        expect(page.url()).toContain('/home');
-        await expect(page.locator(SEL.screens.browse)).toBeVisible();
-      }
-    });
-
-    test('forward after back restores course page', async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-      const grid = page.locator(SEL.home.coursesGrid);
-      const card = grid.locator('.ccard').first();
-      if (await card.isVisible()) {
-        await card.click();
-        await page.waitForURL('**/courses/**', { timeout: 10_000 });
-        const courseUrl = page.url();
-
-        await page.goBack();
-        await page.waitForTimeout(1500);
-
-        await page.goForward();
-        await page.waitForTimeout(1500);
-        expect(page.url()).toBe(courseUrl);
-        await expect(page.locator(SEL.screens.course)).toBeVisible();
-      }
-    });
-
     test('back from login returns to landing', async ({ page }) => {
       await page.evaluate(() => localStorage.clear());
       await page.goto('/');
@@ -139,7 +96,7 @@ test.describe('Navigation & Routing', () => {
       await login(page);
       const screenIds = [
         SEL.screens.landing, SEL.screens.business, SEL.screens.login,
-        SEL.screens.course, SEL.screens.ondemand,
+        SEL.screens.ondemand,
       ];
       for (const sel of screenIds) {
         const el = page.locator(sel);
@@ -148,17 +105,6 @@ test.describe('Navigation & Routing', () => {
       await expect(page.locator(SEL.screens.browse)).toBeVisible();
     });
 
-    test('navigating to course hides browse', async ({ page }) => {
-      await login(page);
-      await page.waitForTimeout(3000);
-      const card = page.locator(SEL.home.coursesGrid + ' .ccard').first();
-      if (await card.isVisible()) {
-        await card.click();
-        await page.waitForURL('**/courses/**', { timeout: 10_000 });
-        await expect(page.locator(SEL.screens.browse)).toBeHidden();
-        await expect(page.locator(SEL.screens.course)).toBeVisible();
-      }
-    });
   });
 
   // ──────────── Popstate Cleanup ────────────
@@ -181,15 +127,11 @@ test.describe('Navigation & Routing', () => {
   // ──────────── Direct URL Access ────────────
 
   test.describe('Direct URL Access', () => {
-    test('authenticated user can access /courses/:id directly', async ({ page }) => {
+    test('authenticated user accesses /home directly', async ({ page }) => {
       await login(page);
-      await page.goto('/courses/1');
-      await page.waitForTimeout(3000);
-      const course = page.locator(SEL.screens.course);
-      const browse = page.locator(SEL.screens.browse);
-      const isCourse = await course.isVisible();
-      const isBrowse = await browse.isVisible();
-      expect(isCourse || isBrowse).toBeTruthy();
+      await page.goto('/home');
+      await page.waitForTimeout(2000);
+      await expect(page.locator(SEL.screens.browse)).toBeVisible();
     });
   });
 });

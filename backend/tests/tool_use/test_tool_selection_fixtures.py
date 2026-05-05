@@ -197,45 +197,6 @@ async def test_scenario_student_asks_what_do_i_have(seeded, fake_db):
     assert "Calvin Cycle Lecture.mp4" in out
 
 
-async def test_scenario_tutor_wants_specific_course_section(seeded, fake_db, monkeypatch):
-    """'Now teach section 2 of lesson 3 of the course.'
-
-    Expected: fetch(ref='lesson:3:section:2') — routed to course adapter.
-    Success: the course adapter is invoked with that ref.
-    """
-    invocations: list[str] = []
-
-    class StubAdapter:
-        async def content_read(self, ref):
-            invocations.append(ref)
-            return (
-                f"Section: Entanglement Basics\n"
-                f"Timestamps: 5:30 - 9:12\n"
-                f"Summary: Introduces EPR pairs."
-            )
-
-    async def _stub_get_adapter(context_data=None):
-        return StubAdapter()
-
-    import app.tools.retrieval as retrieval_mod
-    monkeypatch.setattr(retrieval_mod, "_get_course_adapter", _stub_get_adapter)
-
-    out = await execute_tutor_tool(
-        "fetch",
-        {"ref": "lesson:3:section:2"},
-        context_data={
-            "studentProfile": json.dumps({
-                "courseId": 1,
-                "userEmail": seeded["user_id"],
-            })
-        },
-    )
-    assert invocations == ["lesson:3:section:2"], (
-        "lesson ref was not dispatched to course adapter"
-    )
-    assert "Entanglement Basics" in out
-
-
 async def test_scenario_tutor_wants_preview_before_committing(seeded, fake_db):
     """'Quick preview of this chunk before I decide to fetch it in full.'
 
@@ -275,34 +236,23 @@ async def test_scenario_cross_user_content_across_collection(seeded, fake_db):
     )
 
 
-async def test_scenario_byo_and_course_both_hit_simultaneously(seeded, fake_db, monkeypatch):
-    """'Find something about photosynthesis across course + my notes.'
+async def test_scenario_byo_search_finds_uploaded_content(seeded, fake_db):
+    """'Find something about photosynthesis in my uploaded materials.'
 
-    Expected: search(scope='both', ...) fans out in parallel; the output
-    carries both halves with clear section headers.
+    Expected: search(scope='collection', ...) returns BYO chunks for the
+    student's uploaded content with chunk: refs the tutor can fetch.
     """
-    # Stub the course search to return a small static list
-    async def _fake_course_search(query, limit=5):
-        return [{
-            "lessonId": 4,
-            "type": "lesson",
-            "title": "Photosynthesis Overview",
-            "description": "Light + dark reactions.",
-        }]
-
-    import app.services.content.content_service as cs_mod
-    monkeypatch.setattr(cs_mod, "search_content", _fake_course_search)
-
     out = await execute_tutor_tool(
         "search",
         {
             "query": "photosynthesis",
-            "scope": "both",
+            "scope": "collection",
             "collection_id": seeded["collection_id"],
             "k": 3,
         },
         context_data=_ctx(seeded["user_id"], seeded["collection_id"]),
     )
-    assert "From your uploaded materials" in out
-    assert "From course" in out
-    assert "lesson:4" in out, "course hit should include lesson: ref"
+    assert isinstance(out, str)
+    assert "chunk:" in out, (
+        f"search should surface chunk refs from BYO content:\n{out}"
+    )

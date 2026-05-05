@@ -81,11 +81,6 @@ class TestParseVoiceBeatAttrs:
         b = parse_beat_attrs('simulation="double-slit" say="Watch"')
         assert b["simulation"] == "double-slit"
 
-    def test_video(self):
-        b = parse_beat_attrs('video-lesson="intro" video-start="10" video-end="30"')
-        assert b["videoLesson"] == "intro"
-        assert b["videoStart"] == "10"
-
     def test_empty_attrs(self):
         b = parse_beat_attrs("")
         assert b == {}

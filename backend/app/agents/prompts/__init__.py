@@ -282,6 +282,25 @@ def _inject_path_context(parts: list[str], context_data: dict):
     total_nodes = path_context.get("totalNodes", 0)
     completed = path_context.get("completedCount", 0)
 
+    # ── Focus subtopic resolution ──────────────────────────────────
+    # Three sources, in order of priority:
+    #   1. Live `focusSubtopic` (per-turn, set by FE when student clicked
+    #      a specific Learn → button)
+    #   2. `currentNode.studentNote` parsed for "Start from: X"
+    #   3. None
+    import re as _re
+    focus_subtopic = (path_context.get("focusSubtopic") or "").strip()
+    student_note_raw = (cur.get("studentNote") or "").strip()
+    if not focus_subtopic and student_note_raw:
+        _m = _re.match(r"^\s*Start from:\s*(.+)$", student_note_raw, _re.IGNORECASE)
+        if _m:
+            focus_subtopic = _m.group(1).strip()
+    # The "general" note is whatever's left after we've extracted the
+    # "Start from: X" directive (so we don't double-surface it).
+    student_note_general = "" if (
+        student_note_raw.lower().startswith("start from:") and focus_subtopic
+    ) else student_note_raw
+
     parts.append("\n═══════════════════════════════════════════════════")
     parts.append(" PATH CONTEXT — this session is part of a structured learning path")
     parts.append("═══════════════════════════════════════════════════\n")
@@ -289,13 +308,73 @@ def _inject_path_context(parts: list[str], context_data: dict):
     parts.append(f"Description: {path_context.get('description', '')}")
     parts.append(f"Current node: {node_order}/{total_nodes} — \"{node_title}\" ({node_type})")
     parts.append(f"Progress: {completed}/{total_nodes} completed")
+
+    # ── Subtopic list — mark focus + which were already covered ─────
+    # "Covered" = appeared as a strength tag/concept in a prior reflection
+    # for this same node. (Gaps are still incomplete by definition.)
+    prior_for_subtopics = path_context.get("priorNotes", {}) or {}
+    _covered_terms: set[str] = set()
+    cur_node_id = cur.get("nodeId")
+    for _s in prior_for_subtopics.get("strengths", []):
+        if _s.get("nodeId") == cur_node_id:
+            _concept = (_s.get("concept") or "").strip().lower()
+            if _concept:
+                _covered_terms.add(_concept)
+            for _tag in (_s.get("tags") or []):
+                _t = str(_tag).strip().lower()
+                if _t:
+                    _covered_terms.add(_t)
+
+    def _is_covered(topic: str) -> bool:
+        t = (topic or "").strip().lower()
+        if not t:
+            return False
+        if t in _covered_terms:
+            return True
+        # Loose token match — handles "gradient descent" matching tag "gradient_descent"
+        norm = t.replace("_", " ").replace("-", " ")
+        return any(
+            norm == c.replace("_", " ").replace("-", " ")
+            or norm in c.replace("_", " ").replace("-", " ")
+            or c.replace("_", " ").replace("-", " ") in norm
+            for c in _covered_terms
+        )
+
     if node_topics:
-        parts.append(f"This node covers: {', '.join(node_topics)}")
+        _topic_lines = []
+        _focus_lower = focus_subtopic.lower() if focus_subtopic else ""
+        for t in node_topics:
+            tag = ""
+            if focus_subtopic and t.strip().lower() == _focus_lower:
+                tag = " ← FOCUS (start here)"
+            elif _is_covered(t):
+                tag = " ✓ (covered in prior session — light-touch only)"
+            _topic_lines.append(f"  • {t}{tag}")
+        parts.append("This node covers:")
+        parts.extend(_topic_lines)
+    elif focus_subtopic:
+        parts.append(f"FOCUS: \"{focus_subtopic}\"")
+
+    # Strong directive when a specific subtopic was clicked
+    if focus_subtopic:
+        parts.append("")
+        parts.append(
+            f"⚡ STUDENT CLICKED \"{focus_subtopic}\" — START THERE."
+        )
+        parts.append(
+            "  • Open the session on this subtopic specifically."
+        )
+        parts.append(
+            "  • Other topics in this node are fair game later, but lead with this one."
+        )
+        parts.append(
+            "  • If the focus is one slice of a broader concept, say so explicitly: "
+            "\"You picked X — let's go deep on that. We'll come back to Y, Z after.\""
+        )
 
     # Student's self-reported calibration note for THIS node
-    student_note = cur.get("studentNote", "")
-    if student_note:
-        parts.append(f"\nSTUDENT'S OWN NOTE FOR THIS NODE: \"{student_note}\"")
+    if student_note_general:
+        parts.append(f"\nSTUDENT'S OWN NOTE FOR THIS NODE: \"{student_note_general}\"")
         parts.append("  → Honor this. If they say they know X, skip it. If they want practice, give problems.")
 
     # Wizard context

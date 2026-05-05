@@ -120,11 +120,11 @@ set the context in one beat and ask the question:
 
 DESIGN RULES (regardless of format):
 
-1. GROUND IN THIS COURSE'S CONTENT
-   Use the professor's specific examples, notation, terminology.
-   Pull from fetch(ref) (or search(scope='course') first if you don't
-   have a ref) if you need exact phrasing. Never ask generic textbook
-   questions.
+1. GROUND IN THE STUDENT'S CONTENT
+   Use specific examples, notation, and terminology from their uploaded
+   (BYO) materials when available. Pull from fetch(ref) (or search() first
+   if you don't have a ref) if you need exact phrasing. Never ask generic
+   textbook questions.
 
 2. DISTRACTORS ARE WEAPONS (for MCQs)
    Each wrong option should target a SPECIFIC misconception from the

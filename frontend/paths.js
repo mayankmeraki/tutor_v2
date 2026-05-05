@@ -37,6 +37,18 @@ let _streamedNodes = [];
 let _streamedPhase = 'General';
 let _streamedPhasePlanned = false;
 let _parsedUpTo = 0; // Track how much text we've already parsed
+// How many of `_streamedNodes` have been persisted to the server. Used
+// to make flushes idempotent — once we've saved nodes 1..N, subsequent
+// flushes are a no-op until N+1 arrives. This is critical when the user
+// iterates with TOOLS (add_node / modify_node) after the initial build:
+// the tool changes the server-side path, but `_streamedNodes` is stale.
+// Without this guard, the Learn button (which calls _flushStreamedNodes
+// before navigating) would PATCH-overwrite the server with the stale
+// array, undoing the tool's edit.
+let _savedCount = 0;
+// Which path the streamed nodes belong to. Prevents cross-path
+// contamination if the user navigates between paths inside the wizard.
+let _streamedPathId = null;
 
 // Strips both complete and in-progress path tags from displayed text.
 // Mid-stream we may be looking at half-typed `<path-node title="Var` and we
@@ -290,6 +302,12 @@ function _clearStreamingPulse() {
 // has fully ended AND the path has at least 2 nodes — otherwise we'd be
 // nudging the student toward a finalize when there's nothing to finalize.
 // Idempotent — if the button already exists, this is a no-op.
+//
+// The button is sticky-positioned so it stays visible as the user scrolls
+// through long paths. _renderWizArtifact also calls this at the end of
+// its render to keep the affordance unified (single source of truth) and
+// avoid the duplicate-button bug we used to hit when both functions
+// injected their own copy.
 function _showWizFinalizeAffordance(pathId) {
   const el = document.getElementById('wiz-artifact');
   if (!el) return;
@@ -297,8 +315,11 @@ function _showWizFinalizeAffordance(pathId) {
   const nodes = PathState.activePath?.nodes || [];
   if (nodes.length < 2) return;
   el.insertAdjacentHTML('beforeend', `
-    <div class="wiz-finalize" style="margin:14px 14px 16px;text-align:center;animation:wizCardIn .25s ease">
-      <div style="font-size:9px;color:rgba(255,255,255,.25);margin-bottom:6px;
+    <div class="wiz-finalize" style="position:sticky;bottom:0;margin:14px -14px -60px;
+      padding:10px 14px 14px;text-align:center;animation:wizCardIn .25s ease;
+      background:linear-gradient(180deg,rgba(10,15,26,0),rgba(10,15,26,.92) 50%);
+      backdrop-filter:blur(2px)">
+      <div style="font-size:9px;color:rgba(255,255,255,.3);margin-bottom:6px;
         letter-spacing:.4px">Path is ready &mdash; keep chatting to refine, or:</div>
       <button onclick="PathUI.closeWizard();PathUI.openPathDetail('${_jsAttr(pathId)}')" style="
         width:100%;padding:11px;border-radius:9px;border:none;
@@ -313,31 +334,67 @@ function _showWizFinalizeAffordance(pathId) {
 async function _flushStreamedNodes() {
   const path = PathState.activePath;
   if (!path || !_streamedNodes.length) return;
+
+  // Tag the streamed array with the path it belongs to. If the user
+  // navigated mid-flight to a different path, abort — flushing path A's
+  // nodes onto path B would scramble both. Reset the array on mismatch.
+  if (_streamedPathId && _streamedPathId !== path.pathId) {
+    console.warn('[Path] Streamed nodes belong to a different path, dropping');
+    _streamedNodes = [];
+    _savedCount = 0;
+    return;
+  }
+  _streamedPathId = path.pathId;
+
+  // Idempotent guard: skip if we've already persisted everything we have
+  // AND the agent isn't midway through a tool-driven edit. This is the
+  // critical fix — after the initial build, _streamedNodes still holds
+  // every streamed node. If the user then asks the agent to add a session
+  // (server-side via add_node tool), our stale array would otherwise
+  // overwrite that edit on the next flush trigger (e.g. clicking Learn).
+  if (_savedCount >= _streamedNodes.length) return;
+
   // In-flight guard so debounce + flush can't double-write
   if (_flushStreamedNodes._inFlight) return _flushStreamedNodes._inFlight;
   _flushStreamedNodes._inFlight = (async () => {
     try {
-      const nodes = _streamedNodes.map((n, i) => ({...n, nodeId: `n${i+1}`, order: i+1}));
-      await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}`, {
+      // Bulk-replace the path's nodes with the full streamed list. Using
+      // PATCH (which the backend now accepts a `nodes` field on) means the
+      // server is always in sync with what the client has rendered — no
+      // matter how many flushes have already run.
+      //
+      // Why bulk-replace instead of append? Each /nodes/add call generates
+      // a fresh `n_add_xxxxxx` id, throwing off our `n{i}`/`ns{i}` ↔ index
+      // alignment and breaking the Learn buttons (the user clicks `ns2`
+      // but the server only has `n_add_a4f3` etc, so resolution by index
+      // succeeds but resolution by id fails forever).
+      const snapshot = _streamedNodes.slice();
+      const nodes = snapshot.map((n, i) => ({
+        ...n,
+        nodeId: `n${i + 1}`,
+        order: i + 1,
+        status: n.status || 'pending',
+        sessionId: n.sessionId || null,
+        milestone: !!n.milestone,
+        topics: Array.isArray(n.topics) ? n.topics : [],
+        studentNote: n.studentNote || '',
+      }));
+
+      const res = await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}`, {
         method: 'PATCH', headers: _pathHeaders(),
         body: JSON.stringify({
           status: 'active',
           title: path.title || PathState.wizardData.intent || 'Learning path',
+          nodes,
         }),
       });
-      const fullPath = await PathAPI.get(path.pathId);
-      if (fullPath && (!fullPath.nodes || !fullPath.nodes.length)) {
-        await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}`, {
-          method: 'PATCH', headers: _pathHeaders(),
-          body: JSON.stringify({ status: 'active' }),
-        });
-        for (const n of nodes) {
-          await fetch(`${state.apiUrl || ''}/api/v1/paths/${path.pathId}/nodes/add`, {
-            method: 'POST', headers: _pathHeaders(),
-            body: JSON.stringify(n),
-          });
-        }
+
+      if (res.ok) {
+        // Mark this batch as saved so a follow-up flush is a no-op until
+        // genuinely-new tags push more entries onto _streamedNodes.
+        _savedCount = snapshot.length;
       }
+
       PathState.activePath = await PathAPI.get(path.pathId);
       // NOTE: We deliberately DO NOT inject the "Finalize path" button
       // here. _flushStreamedNodes fires on an 800ms debounce after the
@@ -770,8 +827,16 @@ function _startWizardChat() {
   // Expand modal to split: chat left + artifact preview right.
   // Wider modal + viewport-relative height → far more vertical real estate
   // for the artifact panel so all phases are visible / scrollable.
+  // We anchor the card to a fixed height (clamped between a minimum and
+  // 90vh) so the modal doesn't collapse to a single message when chat is
+  // sparse, and doesn't overflow the viewport when chat is busy.
   const card = document.querySelector('.path-wizard-card');
-  if (card) { card.style.maxWidth = '1040px'; card.style.maxHeight = '90vh'; }
+  if (card) {
+    card.style.maxWidth = '1040px';
+    card.style.height = 'min(720px, 90vh)';
+    card.style.maxHeight = '90vh';
+    card.style.minHeight = '420px';
+  }
 
   const body = document.getElementById('path-wizard-body');
   const footer = document.getElementById('path-wizard-footer');
@@ -789,15 +854,23 @@ function _startWizardChat() {
   body.style.overflow = 'hidden';
   body.style.minHeight = '0';
   body.innerHTML = `
-    <div style="display:flex;height:100%;min-height:480px">
-      <!-- Chat side -->
-      <div style="width:380px;display:flex;flex-direction:column;border-right:1px solid rgba(255,255,255,.05);min-width:0">
-        <div id="wiz-msgs" style="flex:1;overflow-y:auto;padding:12px 14px;display:flex;flex-direction:column;gap:10px;min-height:0"></div>
-        <div style="padding:8px 12px;border-top:1px solid rgba(255,255,255,.04);display:flex;gap:5px;align-items:center;flex-shrink:0">
+    <div style="display:flex;height:100%;min-height:0;overflow:hidden">
+      <!-- Chat side. Uses CSS grid (1fr / auto rows) instead of flex
+           because flex's interaction with overflow & min-height can
+           push fixed-height children off-screen on shorter viewports;
+           grid is unambiguous: the messages take all remaining space,
+           the input row sits at exactly its own height, always. -->
+      <div style="width:380px;display:grid;grid-template-rows:1fr auto;
+        border-right:1px solid rgba(255,255,255,.05);min-width:0;min-height:0;
+        overflow:hidden">
+        <div id="wiz-msgs" style="overflow-y:auto;padding:12px 14px;
+          display:flex;flex-direction:column;gap:10px;min-height:0"></div>
+        <div style="padding:10px 12px;border-top:1px solid rgba(255,255,255,.06);
+          background:rgba(15,23,42,.6);display:flex;gap:5px;align-items:center">
           <input id="wiz-input" type="text" placeholder="Tell Euler more, or say &quot;go&quot; to create..."
             onkeydown="if(event.key==='Enter'&&!event.shiftKey)PathUI._sendWizardChat()"
-            style="flex:1;padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.05);
-            background:rgba(255,255,255,.02);color:#fff;font-size:11.5px;font-family:inherit;outline:none">
+            style="flex:1;padding:9px 11px;border-radius:8px;border:1px solid rgba(255,255,255,.08);
+            background:rgba(255,255,255,.04);color:#fff;font-size:11.5px;font-family:inherit;outline:none">
           <button id="wiz-stop-btn" onclick="PathUI._stopWizard()" title="Stop" style="display:none;width:28px;height:28px;
             border-radius:7px;border:1px solid rgba(248,113,113,.15);background:rgba(248,113,113,.06);
             color:rgba(248,113,113,.6);cursor:pointer;place-items:center;flex-shrink:0;font-size:10px">&#9632;</button>
@@ -829,6 +902,8 @@ function _startWizardChat() {
   _streamedPhase = 'General';
   _streamedPhasePlanned = false;
   _parsedUpTo = 0;
+  _savedCount = 0;
+  _streamedPathId = null;
   _pathTagsEnabled = true;  // Enable tag parsing during wizard
   // Don't swap to "Designing..." here — the agent's first reply is usually
   // a follow-up question, not a build. The artifact placeholder stays until
@@ -1050,29 +1125,56 @@ async function _wizSendToAgent(msg, opts) {
               }
 
             } else if (ev.type === 'artifact_update' || ev.type === 'refine_ready') {
-              // Path was created or modified by a TOOL (emit_path / add_node /
-              // modify_node / delete_node). For tool-driven edits we want to
-              // refresh, BUT if a streaming view is currently building cards
-              // via inline tags, we must NOT clobber it — server may not yet
-              // have the in-flight streamed nodes (debounced save).
+              // `artifact_update` fires after a TOOL changed the path
+              // (emit_path / add_node / modify_node / delete_node).
+              // `refine_ready` fires at the END of EVERY turn — including
+              // Mode A turns where the agent only asked a follow-up
+              // question and nothing changed. So we have to be careful:
+              //   - Mode A on fresh path  → updated.nodes is empty AND
+              //     _streamedNodes is empty → DO NOTHING (keep the
+              //     "Your path will build here" placeholder).
+              //   - Tool added/modified nodes → re-render artifact.
+              //   - Tool deleted ALL nodes of a built path → show
+              //     "Path is empty / Tell Euler to rebuild it".
               try {
                 const updated = await PathAPI.get(ev.pathId || path.pathId);
-                if (updated?.nodes?.length) {
-                  const streamingContainer = document.getElementById('wiz-streamed-nodes');
-                  const streamedCount = _streamedNodes.length;
-                  const serverCount = updated.nodes.length;
+                const serverCount = updated?.nodes?.length || 0;
+
+                if (serverCount > 0) {
                   PathState.activePath = updated;
-                  if (!streamingContainer || serverCount > streamedCount) {
-                    _renderWizArtifact(updated);
+                  _renderWizArtifact(updated);
+                  // Re-sync local bookkeeping with the server's truth so a
+                  // follow-up flush (e.g. Learn-button navigation) doesn't
+                  // PATCH the server back to a pre-tool state.
+                  _streamedNodes = updated.nodes.map(n => ({...n}));
+                  _savedCount = _streamedNodes.length;
+                  _streamedPathId = updated.pathId;
+                } else if (_streamedNodes.length > 0) {
+                  // Built path was just emptied (delete-all) — show
+                  // empty-state. Gated on _streamedNodes.length>0 so
+                  // fresh wizard sessions never see this.
+                  PathState.activePath = updated;
+                  _streamedNodes = [];
+                  _savedCount = 0;
+                  _streamedPathId = updated?.pathId || _streamedPathId;
+                  const el = document.getElementById('wiz-artifact');
+                  if (el) {
+                    el.innerHTML = `<div style="display:flex;flex-direction:column;align-items:center;
+                      justify-content:center;height:100%;text-align:center;opacity:.5;padding:24px">
+                      <div style="font-size:11px;color:rgba(255,255,255,.5);font-weight:600">Path is empty</div>
+                      <div style="font-size:10px;color:rgba(255,255,255,.3);margin-top:4px">
+                        Tell Euler to rebuild it.</div></div>`;
                   }
-                  // Mark all remaining spinners as done
-                  const ce = contentEl();
-                  if (ce) ce.querySelectorAll('.wiz-tc span').forEach(sp => {
-                    if (sp.style.animation !== 'none') sp.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#34d399;flex-shrink:0;animation:none;border:none';
-                  });
-                  // Hide status
-                  const se = statusEl(); if (se) se.style.display = 'none';
                 }
+                // Mode A and "nothing changed" cases fall through here
+                // without touching the artifact pane. We still want to
+                // mark spinner pills done and hide the status row so the
+                // chat doesn't sit on "Thinking..." forever.
+                const ce = contentEl();
+                if (ce) ce.querySelectorAll('.wiz-tc span').forEach(sp => {
+                  if (sp.style.animation !== 'none') sp.style.cssText = 'width:8px;height:8px;border-radius:50%;background:#34d399;flex-shrink:0;animation:none;border:none';
+                });
+                const se = statusEl(); if (se) se.style.display = 'none';
               } catch(e2) {}
             }
           } catch(e) {}
@@ -1284,18 +1386,11 @@ function _renderWizArtifact(path) {
       </div>
     </div>
     <div style="padding:0 14px 60px">${phHtml}</div>
-    <div style="padding:10px 14px 14px;position:sticky;bottom:0;background:linear-gradient(180deg,rgba(10,15,26,.0),rgba(10,15,26,.92) 50%);backdrop-filter:blur(2px)">
-      <button onclick="PathUI.closeWizard();PathUI.openPathDetail('${_escHtml(path.pathId)}')" style="
-        width:100%;padding:10px;border-radius:9px;border:none;
-        background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;
-        font-size:11.5px;font-weight:700;cursor:pointer;font-family:inherit;
-        box-shadow:0 4px 12px rgba(52,211,153,.15)">
-        Finalize path &rarr;</button>
-      <div style="font-size:9px;color:rgba(255,255,255,.22);text-align:center;margin-top:5px">
-        Or keep chatting to adjust
-      </div>
-    </div>
   `;
+  // The Finalize CTA is injected by _showWizFinalizeAffordance — single
+  // source of truth so we never double-render the button when both this
+  // function AND the stream-end handler want to surface it.
+  _showWizFinalizeAffordance(path.pathId);
 }
 
 function _openWizardChat() {
@@ -2489,9 +2584,15 @@ const PathUI = {
   closeWizard() {
     // Flush any pending streamed nodes BEFORE tearing down so users don't
     // lose work if they close the wizard during the 800ms debounce window.
+    // _flushStreamedNodes is now idempotent (no-op when _savedCount is
+    // already up to _streamedNodes.length) so calling it unconditionally
+    // is safe and lets us catch the rare case where the timer wasn't
+    // armed but new tags slipped in just before close.
     if (_saveStreamedNodes._timer) {
       clearTimeout(_saveStreamedNodes._timer);
       _saveStreamedNodes._timer = null;
+    }
+    if (_streamedNodes.length > _savedCount) {
       // Fire-and-forget — closing the modal shouldn't block on the network,
       // but the request goes out before the user can navigate away.
       try { _flushStreamedNodes(); } catch(e) { console.warn('[Path] flush on close:', e); }
@@ -2499,6 +2600,13 @@ const PathUI = {
     document.getElementById('path-wizard-modal')?.remove();
     PathState.wizardData = {};
     _pathTagsEnabled = false;  // Stop parsing tags outside wizard
+    // Reset wizard-only bookkeeping so a future wizard session starts
+    // clean. _streamedNodes itself is reset by _startWizardChat when a
+    // new wizard begins, but if the user opens an UNRELATED path detail
+    // page first, lingering state could trigger a stale flush.
+    _streamedNodes = [];
+    _savedCount = 0;
+    _streamedPathId = null;
     // Refresh the home activity row (paths + sessions) so the path the student
     // just built shows up in "Continuing" cards. Without this, closing the
     // wizard leaves the home displaying stale data and the user wonders where

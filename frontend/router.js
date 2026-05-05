@@ -4,8 +4,7 @@
    Routes:
      /             Landing page (visitors). Logged-in → /home
      /login        Sign in / Create account
-     /home         Browse courses + continue learning (logged-in home)
-     /courses/:id  Course detail page
+     /home         Logged-in home (browse + continue learning)
      /tutor        On-demand tutor (free-form intent)
      /session/:id  Active teaching session
      /dashboard    Back-compat alias for /home
@@ -16,10 +15,8 @@ const Router = (() => {
     { path: '/',              title: 'Capacity',               auth: false, handler: handleLanding },
     { path: '/login',         title: 'Sign In — Capacity',     auth: false, handler: handleLogin },
     { path: '/home',          title: 'Home — Capacity',        auth: true,  handler: handleHome },
-    { path: '/courses/:id',   title: 'Course — Capacity',      auth: true,  handler: handleCourse },
     { path: '/tutor',         title: 'Tutor — Capacity',       auth: true,  handler: handleTutor },
     { path: '/dashboard',     title: 'Home — Capacity',        auth: true,  handler: handleHome },
-    { path: '/courses',       title: 'Home — Capacity',        auth: true,  handler: handleHome },
     { path: '/session/:id',   title: 'Session — Capacity',     auth: true,  handler: handleSession },
     { path: '/session',       title: 'Home — Capacity',        auth: true,  handler: () => navigate('/home', { replace: true }) },
     { path: '/for-business',  title: 'For Institutions — Euler', auth: false, handler: handleBusiness },
@@ -85,8 +82,6 @@ const Router = (() => {
   function handleLogin() { showLoginPanel(); }
 
   function handleHome() { showScreen('browse'); }
-
-  function handleCourse(params) { showScreen('course', params.id); }
 
   function handleTutor() { showScreen('browse'); }
 

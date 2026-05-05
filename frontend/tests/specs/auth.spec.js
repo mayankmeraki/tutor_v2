@@ -131,14 +131,6 @@ test.describe('Authentication', () => {
       expect(url.endsWith('/') || url.includes('/login')).toBeTruthy();
     });
 
-    test('/courses/1 redirects when not logged in', async ({ page }) => {
-      await page.evaluate(() => localStorage.clear());
-      await page.goto('/courses/1');
-      await page.waitForTimeout(2000);
-      const url = page.url();
-      expect(url.endsWith('/') || url.includes('/login')).toBeTruthy();
-    });
-
     test('/session redirects when not logged in', async ({ page }) => {
       await page.evaluate(() => localStorage.clear());
       await page.goto('/session');

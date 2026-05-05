@@ -5,10 +5,9 @@ Covers execute_tutor_tool for each unified retrieval tool:
 
 Every scenario verifies the OUTPUT is always a string (contract: the
 tutor never sees an exception; bad inputs come back as informative
-strings it can course-correct on).
+strings the model can correct on).
 
 Routing:
-  - lesson:/sim: refs go to the course adapter
   - chunk:/segment:/resource: refs go to BYO service
 """
 
@@ -118,15 +117,15 @@ async def test_search_missing_user_id_returns_error_string(fake_db):
     assert "user" in out.lower(), f"expected user_id error, got: {out!r}"
 
 
-async def test_search_routes_course_scope_without_crashing(fake_db):
-    """scope='course' without a course should degrade gracefully."""
+async def test_search_unknown_scope_returns_error_string(fake_db):
+    """Unknown scope should degrade gracefully into a string error."""
     out = await execute_tutor_tool(
         "search",
         {"query": "entanglement", "scope": "course", "k": 2},
         context_data={},
     )
     assert isinstance(out, str)
-    # Either "no results" style or error — just must not raise.
+    assert "unknown" in out.lower() or "scope" in out.lower()
 
 
 # ── fetch ─────────────────────────────────────────────────────────────────
@@ -163,30 +162,15 @@ async def test_fetch_byo_missing_user_id_returns_error_string(fake_db):
     assert "user" in out.lower()
 
 
-async def test_fetch_routes_course_refs_to_adapter(fake_db, monkeypatch):
-    """lesson:<id>:section:<idx> must go to the course adapter, not BYO."""
-    calls: list[str] = []
-
-    class StubAdapter:
-        async def content_read(self, ref):
-            calls.append(ref)
-            return f"COURSE:{ref}"
-
-    async def _stub_get_adapter(context_data=None):
-        return StubAdapter()
-
-    import app.tools.retrieval as retrieval_mod
-    monkeypatch.setattr(retrieval_mod, "_get_course_adapter", _stub_get_adapter)
-
+async def test_fetch_lesson_ref_returns_unknown_format_error(fake_db):
+    """lesson: refs are no longer supported — must return an error string."""
     out = await execute_tutor_tool(
         "fetch",
         {"ref": "lesson:3:section:2"},
-        context_data={"studentProfile": json.dumps({"courseId": 1, "userEmail": "u"})},
+        context_data={"studentProfile": json.dumps({"userEmail": "u"})},
     )
     assert isinstance(out, str)
-    assert calls == ["lesson:3:section:2"], (
-        "lesson: ref was not routed to the course adapter"
-    )
+    assert "unknown ref" in out.lower() or "error" in out.lower()
 
 
 # ── peek ──────────────────────────────────────────────────────────────────

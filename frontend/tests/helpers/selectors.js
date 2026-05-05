@@ -10,7 +10,6 @@ export const SEL = {
     business: '#business-screen',
     login: '#login-panel',
     browse: '#browse-screen',
-    course: '#course-screen',
     ondemand: '#ondemand-screen',
     teaching: '#teaching-layout',
   },
@@ -53,28 +52,10 @@ export const SEL = {
     tabStuff: '[data-home-tab="stuff"]',
     sessionsSection: '#home-sessions-section',
     sessionsRow: '#home-sessions-row',
-    coursesSection: '#home-courses-section',
-    coursesGrid: '#home-courses-grid',
     videosSection: '#home-videos-section',
     videosRow: '#home-videos-row',
     collectionsBtn: '#btn-new-collection',
     collectionsList: '#collections-list',
-  },
-
-  // ─── Course Detail ──────────────────────────────────────
-  course: {
-    backBtn: '#cd-back',
-    title: '#cd-title',
-    description: '#cd-description',
-    playBtn: '#cd-play-btn',
-    lessonsCount: '#cd-lessons-count',
-    modulesCount: '#cd-modules-count',
-    hours: '#cd-hours',
-    filmstrip: '#cd-filmstrip',
-    lessonDetail: '#cd-lesson-detail',
-    detailTitle: '#cd-detail-title',
-    banner: '#cd-banner',
-    tag: '#cd-tag',
   },
 
   // ─── Teaching Layout ────────────────────────────────────
@@ -111,20 +92,6 @@ export const SEL = {
     hand: '#voice-hand-cursor',
     progress: '#vb-progress',
     status: '#vb-status',
-  },
-
-  // ─── Video Follow-Along ─────────────────────────────────
-  video: {
-    overlay: '#vm-video-overlay',
-    closeBtn: '#vm-close-btn',
-    vidWrap: '#vm-vid-wrap',
-    chatWrap: '#vm-chat-wrap',
-    chatInput: '#vm-chat-input',
-    sendBtn: '#vm-send-btn',
-    stopBtn: '#vm-stop-btn',
-    playlist: '#video-playlist',
-    playlistList: '#vpl-list',
-    playlistCount: '#vpl-count',
   },
 
   // ─── Plan ───────────────────────────────────────────────

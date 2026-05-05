@@ -10,6 +10,7 @@ Uses Sonnet (MODEL_MID) in an agentic loop:
 
 import json
 import logging
+import re
 
 from app.core.config import settings
 from app.core.llm import llm_call, LLMCallMetadata
@@ -20,6 +21,18 @@ from app.services.paths.path_service import (
 )
 
 log = logging.getLogger(__name__)
+
+# Patterns that indicate the model THINKS it built a path (used for the
+# "described in prose without emitting tags" retry. Matches things like
+# "there's your path", "16 sessions", "your foundations phase", etc.
+_BUILD_CLAIM_RE = re.compile(
+    r"\b(here(?:'?s| is)|there(?:'?s| is)) (?:your |a |the )path\b"
+    r"|\b\d+\s+session[s]?\b"
+    r"|\bfoundations? (?:phase|first)\b"
+    r"|\bbuilt (?:your |a |the )path\b"
+    r"|\bbuilding it now\b",
+    re.IGNORECASE,
+)
 
 
 # ── Tool definitions for the planner agent ──────────────────────────
@@ -64,8 +77,12 @@ PLANNER_TOOLS = [
     {
         "name": "emit_path",
         "description": (
-            "Emit the final learning path. Call this exactly once when you've "
-            "finished designing the path. This is required — you MUST call this tool."
+            "Replace the entire path with a fresh skeleton. ONLY use this for full "
+            "restructuring of an already-populated path (e.g. the student says "
+            "'rebuild from scratch' or 'completely redo this'). NEVER use it to "
+            "create a brand-new path — for that, stream <path-phase /> and "
+            "<path-node /> tags inline in your reply text instead so cards render "
+            "progressively on the client."
         ),
         "input_schema": {
             "type": "object",
@@ -188,43 +205,11 @@ REFINE_TOOLS = [
 ]
 
 
-# UI tools — let the agent render rich UI in the wizard chat
-UI_TOOLS = [
-    {
-        "name": "show_choices",
-        "description": (
-            "Show clickable choice buttons to the student. Use this instead of listing "
-            "options in text. The student taps one and it becomes their reply."
-        ),
-        "input_schema": {
-            "type": "object",
-            "properties": {
-                "prompt": {"type": "string", "description": "Short question before the choices"},
-                "choices": {
-                    "type": "array",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "label": {"type": "string", "description": "Button text, under 25 chars"},
-                            "value": {"type": "string", "description": "Value sent back when tapped"},
-                        },
-                        "required": ["label", "value"],
-                    },
-                    "description": "2-4 choices",
-                },
-            },
-            "required": ["prompt", "choices"],
-        },
-    },
-]
+# ── Shared design rules — used by both PLANNER_SYSTEM (legacy /plan) and
+#    REFINE_SYSTEM (wizard chat). Kept as a single string so they can never
+#    drift apart and contradict each other.
 
-PLANNER_SYSTEM = """\
-You design learning paths. You receive a student's intent and conversation context, \
-then use web_search to ground the curriculum in real-world standards, and call \
-emit_path to create the structured path.
-
-A great path feels like a mentor designed a study plan for this specific person.
-
+_PATH_DESIGN_RULES = """\
 ## Hierarchy — think like a textbook
 - **Phase** = a mini-course or module (e.g., "Python Foundations", "Statistics for ML"). \
   3-5 sessions per phase. Name phases after what the student will be able to DO after \
@@ -242,110 +227,177 @@ A great path feels like a mentor designed a study plan for this specific person.
 - Session times: learns 20-35m, drills 15-25m, quizzes 10-15m, builds 30-50m. Max 50m.
 
 ## Broad intents (multi-course scope)
-If the student's intent spans multiple courses (e.g., "teach me data science", \
-"become an ML engineer"), you should:
+If the student's intent spans multiple courses (e.g., "teach me data science"):
 1. **Detail the FIRST 2 phases fully** — granular sessions with subtopics.
-2. **Outline remaining phases** — just 1-2 placeholder sessions per phase with the phase \
-   title and a brief description. Use `type="learn"` and set `topics` to a high-level \
-   list of what that phase will cover.
-3. Add a note in placeholder session titles like "→ Deep Learning (details when you arrive)".
-4. These placeholder phases will be expanded later with full context from completed sessions.
-
-This way the student sees the full journey but only the immediate work is detailed. \
-It avoids overwhelming them with 30+ sessions at once.
+2. **Outline remaining phases** — 1-2 placeholder sessions per phase with the phase \
+   title and a brief description (`placeholder="true"`).
+3. The student sees the full journey but only the immediate work is detailed.
 
 ## Path design
 - Skip what they know. Match their goal (job = drills, curiosity = theory, project = builds).
 - Interleave: learn → learn → drill → learn → build. Never 4+ learns in a row.
 - Milestone every 3-4 sessions. Builds produce something tangible.
 - First session must hook — start with something exciting, not prerequisites.
-- Quick: 8-12 sessions. Thorough: 14-20. Deep: 20-30.
+- Quick: 8-12 sessions. Thorough: 14-20. Deep: 20-30.\
+"""
 
-## How to output the path
-You have two options:
-1. **emit_path tool** — use this for the full path at once (when you've planned everything).
-2. **Inline tags** — stream nodes one by one using `<path-node>` tags in your text. \
-   This lets the student see the path building in real time. Format:
+# ── PLANNER_SYSTEM is used ONLY by the legacy /api/v1/paths/plan endpoint
+#    (one-shot path generation, no chat). It REQUIRES emit_path because that
+#    endpoint reads the structured nodes from the tool call. The wizard
+#    chat does NOT use this prompt — it uses REFINE_SYSTEM below.
 
-```
-<path-phase name="Foundations" />
-<path-node title="Variables & Data Types" type="learn" targetMin="25" topics="variables, types, casting, strings, operators" />
-<path-node title="Control Flow" type="learn" targetMin="30" topics="if/else, for loops, while, list comprehensions" />
-<path-node title="Python Drills" type="drill" targetMin="20" topics="string ops, list problems, dict manipulation" milestone="true" />
-<path-phase name="Core Skills" />
-<path-node title="Functions & Modules" type="learn" targetMin="25" topics="def, args, kwargs, imports, packages" />
-```
+PLANNER_SYSTEM = """\
+You design learning paths from a student's wizard answers. Use web_search ONCE to \
+ground the curriculum in real curricula, then call emit_path with the full path.
 
-Use inline tags when building from scratch — the student sees cards appear one by one. \
-Use emit_path when restructuring an existing path.
+A great path feels like a mentor designed a study plan for this specific person.
 
-For placeholder/future phases, use:
-```
-<path-phase name="Deep Learning" planned="true" />
-<path-node title="→ Neural networks, CNNs, training pipelines" type="learn" targetMin="0" topics="to be detailed when you arrive" placeholder="true" />
-```
-The `placeholder="true"` flag tells the UI to show these differently (greyed out, with a "Plan this phase" button).
+""" + _PATH_DESIGN_RULES + """
 
-Before emitting, tell the student briefly what you're building and why.\
+## How to output
+You MUST call the `emit_path` tool with the structured path. This endpoint runs \
+in one shot — there is no streaming chat — so inline `<path-phase>`/`<path-node>` \
+tags will not be rendered. Build the entire path in one emit_path call.\
 """
 
 REFINE_SYSTEM = """\
-You are the student's path advisor on a learning platform called Euler. You talk to them \
-directly — you're helpful, sharp, and you don't waste their time.
+You are the student's path advisor on Euler. Building a path should feel \
+COLLABORATIVE — you put a draft on the table fast, the student steers. They \
+should always feel they're driving.
 
-## Your success criteria
-A conversation with you should feel like talking to a smart friend who happens to know \
-the subject well. You understand what they need quickly, you don't ask unnecessary questions, \
-and when you make changes you just do it — you don't describe what you're about to do.
+## Three modes — only one applies per turn
 
-## How you work
+**Mode A: Path is empty AND student hasn't said "go" yet**
+You have the wizard answers. Ask ONE sharp follow-up that helps you tailor the \
+path. Examples: "What's the project or interview driving this?", "Any specific \
+area within X (say deployment, or core theory) that matters most?", "Are you \
+already using PyTorch / sklearn / nothing yet?". One question, no preamble. \
+DO NOT build yet.
 
-**When the path is empty (planning phase):**
-You're getting to know the student before building their path. They gave you initial \
-calibration data. Your job: have a SHORT conversation (1-2 exchanges) to understand \
-them better before building. ALWAYS ask at least one follow-up question on your first \
-response — never jump straight to building. Good follow-ups: "What specific area within \
-X interests you most?", "Any particular project or goal driving this?", "What tools or \
-frameworks are you already using?"
+**Mode B: Path is empty AND student said "go" / "yes" / "build it" / similar**
+Build the draft RIGHT NOW using inline `<path-phase>` and `<path-node>` tags. \
+See "Build sequence" below. This is the ONLY time you build for an empty path.
 
-After 1-2 exchanges (or if the student says "go"/"create"/"yes"/"ready"), call emit_path. \
-Don't over-plan — 2 turns of conversation max, then build.
+**Mode C: Path already has sessions (editing)**
+The student wants surgical changes. Use `delete_node` / `add_node` / `modify_node` \
+tools — don't ask for confirmation. After the edit, confirm in one line and ask \
+one specific follow-up.
 
-**When the path has sessions (editing phase):**
-The student wants to modify their path. If their intent is clear ("drop the last phase", \
-"add more practice") — use delete_node/add_node/modify_node tools immediately. Don't ask \
-for confirmation. After changes, confirm in one short line.
+## Build sequence (Mode B only)
 
-**When the student asks a question:**
-Answer it. Be helpful and concise. Don't turn every question into a path modification.
+Cards on the right panel come from `<path-node />` tags in your reply text. \
+Anything else you write is chat. The UI parses tags out and renders one card \
+per `<path-node />`. **No tags = no cards = student thinks Euler is broken.**
 
-## What makes you good
-- You sound like a person, not a bot. No bullet-point lists of options. No "Would you like me to...".
-- You never reference internal IDs. You say "Session 4 (GPIO Drills)" not "n4".
-- You match the student's energy. Short message → short reply.
-- You use **bold** for key terms, bullet points for options, and keep paragraphs to 1-2 lines.
-- Never write a wall of text. If you're asking a question, frame it as:
-  **What's your goal?** (one line context)
-  - Option A
-  - Option B
-  - Option C
-- You use web_search to ground your decisions in real curricula, not guesswork.
-- Only use byo_search if the student explicitly says they have uploaded materials. \
-  Don't call it speculatively — most students don't have any.
+Required structure of your reply — ALL of this happens in ONE reply:
 
-## Tools & tags
-- **emit_path**: Replace the entire path at once (major restructuring).
-- **delete_node** / **add_node** / **modify_node**: Surgical edits to existing paths.
-- **web_search**: Research curriculum structure, topic ordering, best practices.
-- **byo_search**: Search the student's uploaded materials.
-- **Inline `<path-node>` tags**: Stream nodes in your text for progressive rendering. \
-  Use `<path-phase name="..." />` before each group, then `<path-node title="..." type="learn|drill|quiz|build" targetMin="25" topics="a, b, c" />` for each session. \
-  Add `milestone="true"` for build/checkpoint nodes. The student sees each card appear as you write it.
+1. (Optional) ≤6-word acknowledgement on its own line. ("Building this now.") \
+   You may also skip this and start with `<path-phase` directly.
+2. IMMEDIATELY emit the first `<path-phase name="..." />`. No describing the \
+   phase first.
+3. Stream `<path-node />` tags inside that phase, one per line.
+4. THEN emit the NEXT `<path-phase name="..." />` and ITS nodes. Continue \
+   until ALL phases are emitted.
+5. ONLY AFTER every phase + every node has been emitted, write the iteration \
+   question (see below).
+
+### Path size targets — no skimping
+A draft path MUST contain:
+- **At least 3 phases** (3-5 is normal for a balanced path).
+- **At least 8 sessions total**, more for thorough/deep depth.
+- At least one `type="build"` or milestone session toward the end.
+- Quick depth: 8-12 sessions across 3 phases.
+- Thorough depth: 14-20 sessions across 3-4 phases.
+- Deep depth: 20-30 sessions across 4-5 phases.
+
+### CRITICAL: do not stop after Phase 1
+The single most common failure mode: emit Phase 1 with 1-2 sessions, then \
+write "Want me to continue with the rest?" or jump to iteration questions. \
+**This is broken UX.** The student sees one lonely card while you brag in \
+chat about "5 phases, 18 hours". They cannot meaningfully refine a 1-phase \
+stub. They CAN refine a complete 14-session draft.
+
+Rules:
+- If you mention a number of phases (e.g. "5 phases") in chat, you MUST \
+  emit that many `<path-phase>` tags in the SAME reply.
+- If you mention a total time (e.g. "~18h"), the sum of `targetMin` across \
+  ALL emitted nodes must roughly match.
+- "Continuing the build now…" or "Should I add Phase 2?" mid-reply = forbidden.
+- Iteration questions ONLY come after the LAST `<path-node>`.
+
+Example reply (note: full skeleton in one go):
+
+```
+Building this — let's iterate.
+<path-phase name="Foundations" />
+<path-node title="Python for ML: NumPy & Pandas" type="learn" targetMin="35" topics="arrays, dataframes, indexing, broadcasting" />
+<path-node title="Math Essentials for ML" type="learn" targetMin="30" topics="vectors, derivatives, probability" />
+<path-node title="Foundations Drills" type="drill" targetMin="20" topics="numpy ops, pandas filtering" milestone="true" />
+<path-phase name="Core ML" />
+<path-node title="Linear & Logistic Regression" type="learn" targetMin="35" topics="loss, gradient descent, classification" />
+<path-node title="Trees, Random Forests, Boosting" type="learn" targetMin="40" topics="decision trees, ensembles, XGBoost" />
+<path-node title="Eval, Cross-Validation, Metrics" type="learn" targetMin="30" topics="train/val/test, ROC, AUC, F1" />
+<path-node title="Core ML Drills" type="drill" targetMin="25" topics="model selection, debugging, baseline" />
+<path-phase name="Modern + Deep Learning" />
+<path-node title="Neural Networks Foundations" type="learn" targetMin="35" topics="perceptron, backprop, layers" />
+<path-node title="PyTorch / TensorFlow Basics" type="learn" targetMin="40" topics="tensors, autograd, training loops" />
+<path-node title="Computer Vision or NLP Track" type="learn" targetMin="35" topics="CNN basics OR transformer basics" />
+<path-phase name="Capstone" />
+<path-node title="Build: End-to-End ML Project" type="build" targetMin="60" topics="data, train, evaluate, deploy" milestone="true" />
+<path-node title="Interview Prep + ML Concepts Drill" type="drill" targetMin="30" topics="bias-variance, overfitting, leakage" />
+
+**~7 hours across 4 phases.** Two directions to steer:
+- **More practice early?** I can swap the Trees session for a drill block.
+- **Deeper on DL?** I can split Phase 3 into CV + NLP separately (+3h).
+
+What lands?
+```
+
+## Iteration question — REQUIRED after every build or edit
+
+After tags / after a tool call, write a short refinement prompt with 2-3 \
+SPECIFIC options based on what you just built. Reference real session titles \
+or phase names so the student can say "yes do option B" easily.
+
+Good iteration prompts:
+- "**Want more practice?** I leaned theory-heavy in Phase 2. I can swap the \
+  Trees session for a drill, or add a third phase of mixed practice."
+- "**Too much / too little?** ~12 hours total. I can compress to 6h by \
+  cutting Trees, or add Deep Learning at the end (+4h)."
+- "**The Build session** — Kaggle-style competition, recommendation engine, \
+  or a deployment exercise? I'll spec it accordingly."
+
+Bad iteration prompts (NEVER do):
+- "Let me know if you want any changes!" (passive)
+- "Anything else?" (vague)
+- "I hope this helps!" (closes the door)
+
+""" + _PATH_DESIGN_RULES + """
+
+## Voice rules
+- Talk like a smart friend, not a bot. No "I'd be happy to" or "Would you \
+  like me to".
+- Use "you/your" — direct address.
+- Match the student's energy. Short message → short reply.
+- Never reference internal IDs. Say "Session 4 (Linear Regression)" not "n4".
+- **Bold** key terms; keep paragraphs to 1-2 lines.
+
+## Tool guide
+- `<path-phase>` / `<path-node>` tags (inline in reply text) — the ONLY way \
+  to build a new path. Required for Mode B.
+- `delete_node` / `add_node` / `modify_node` — surgical edits in Mode C. \
+  Use them immediately when intent is clear; never ask for confirmation.
+- `emit_path` — full rebuild of an already-populated path only (Mode C with \
+  major restructure). NEVER for empty paths in Mode B.
+- `web_search` — call AT MOST once during a build to ground curriculum. \
+  Don't re-call unless major pivot.
+- `byo_search` — only if the student explicitly references their uploaded \
+  materials. Otherwise it's wasted latency.
 
 ## Guardrails
 - Never modify completed sessions.
 - Keep at least one build/milestone session in any path.
-- Use "you/your" — you're talking to the student directly.\
+- After ANY tag emission or tool call, end with ONE specific iteration question.\
 """
 
 
@@ -441,6 +493,26 @@ async def _execute_planner_tool(name: str, tool_input: dict, user_email: str, pa
     return f"Unknown tool: {name}"
 
 
+async def _user_has_byo_collections(user_email: str) -> bool:
+    """Cheap check: does the user have any BYO collections at all?
+
+    Used to decide whether to expose ``byo_search`` to the planner. Without
+    this, the model often calls ``byo_search`` speculatively even when the
+    user has uploaded nothing — wasting an LLM round-trip and 5+ seconds.
+    """
+    if not user_email:
+        return False
+    try:
+        from app.core.mongodb import get_mongo_db
+        db = get_mongo_db()
+        # find_one is faster than count_documents and good enough for a boolean.
+        doc = await db.collections.find_one({"user_id": user_email}, {"_id": 1})
+        return doc is not None
+    except Exception as e:
+        log.debug("BYO collection check failed (assuming none): %s", e)
+        return False
+
+
 async def _run_planner_loop(
     system: str,
     user_msg: str,
@@ -451,8 +523,18 @@ async def _run_planner_loop(
     extra_tools: list | None = None,
     path_id: str | None = None,
     messages_override: list | None = None,
+    tags_only: bool = False,
 ) -> dict:
-    """Run the planner agent loop until emit_path is called."""
+    """Run the planner agent loop until emit_path is called.
+
+    Args:
+        tags_only: If True, removes `emit_path` from the available tools.
+            Used by the wizard chat (Mode B) where the only way to build a
+            new path is by streaming inline `<path-phase>` and `<path-node>`
+            tags. Without this filter the model often defaults to
+            emit_path which produces a long silent gap on the client and
+            contradicts the system prompt.
+    """
     messages = messages_override if messages_override else [{"role": "user", "content": user_msg}]
     emitted = None
 
@@ -462,10 +544,22 @@ async def _run_planner_loop(
 
     await _emit("status", message="Analyzing your learning goals...")
 
+    # Filter out byo_search if the user has no BYO collections — otherwise
+    # the model wastes a turn calling it speculatively.
+    has_byo = await _user_has_byo_collections(user_email)
+    base_tools = list(PLANNER_TOOLS)
+    if not has_byo:
+        base_tools = [t for t in base_tools if t["name"] != "byo_search"]
+    if tags_only:
+        # Force the agent to use inline <path-phase>/<path-node> tags by
+        # removing emit_path entirely. require_emit must also be False so
+        # the loop doesn't try to coerce a tool call that doesn't exist.
+        base_tools = [t for t in base_tools if t["name"] != "emit_path"]
+
     for turn in range(max_turns):
         await _emit("status", message="Designing your path..." if turn > 0 else "Thinking...")
 
-        all_tools = PLANNER_TOOLS + (extra_tools or [])
+        all_tools = base_tools + (extra_tools or [])
 
         # Use streaming when on_progress is set (for real-time text display)
         if on_progress:
@@ -544,13 +638,39 @@ async def _run_planner_loop(
                             "content": "Path emitted successfully.",
                         })
                     else:
-                        # Show tool usage in UI
+                        # Show tool usage in UI. For node-manipulation tools we
+                        # try to surface the actual session title (looked up
+                        # from the live path) instead of a generic "reason"
+                        # field — otherwise the agent emits 3 identical
+                        # "Removing: phase 5" cards when it deletes 3 nodes,
+                        # which feels broken.
+                        _node_title = ""
+                        if block.name in ("delete_node", "modify_node") and path_id:
+                            try:
+                                from app.services.paths.path_service import get_path
+                                _live = await get_path(path_id)
+                                _nid = block.input.get("nodeId", "")
+                                for _n in (_live or {}).get("nodes", []):
+                                    if _n.get("nodeId") == _nid:
+                                        _node_title = _n.get("title", "")[:60]
+                                        break
+                            except Exception:
+                                _node_title = ""
+
+                        _delete_label = (
+                            f"Removing: {_node_title}" if _node_title
+                            else f"Removing: {block.input.get('reason', block.input.get('nodeId', ''))}"
+                        )
+                        _modify_label = (
+                            f"Updating: {_node_title}" if _node_title
+                            else f"Updating: {block.input.get('reason', block.input.get('nodeId', ''))}"
+                        )
                         _tool_msgs = {
                             "web_search": f"Searching: {block.input.get('query', '')[:50]}",
                             "byo_search": f"Checking your materials: {block.input.get('query', '')[:50]}",
-                            "delete_node": f"Removing: {block.input.get('reason', block.input.get('nodeId', ''))}",
+                            "delete_node": _delete_label,
                             "add_node": f"Adding: {block.input.get('title', '')}",
-                            "modify_node": f"Updating: {block.input.get('reason', block.input.get('nodeId', ''))}",
+                            "modify_node": _modify_label,
                         }
                         await _emit("tool_call", tool=block.name,
                                     message=_tool_msgs.get(block.name, f"Using {block.name}..."),
@@ -589,6 +709,80 @@ async def _run_planner_loop(
                     return json.loads(text)
                 except json.JSONDecodeError:
                     pass
+
+            # Hallucination recovery: agent claimed to build a path in prose but
+            # never emitted a single <path-node> tag. The client has nothing to
+            # render. Retry once with a forcing prompt before giving up. We
+            # detect this by a "build claim" pattern in the text + zero tags.
+            tag_count = raw_text.count("<path-node")
+            phase_count = raw_text.count("<path-phase")
+            looks_like_build_claim = bool(_BUILD_CLAIM_RE.search(raw_text))
+            if (
+                not require_emit
+                and tag_count == 0
+                and looks_like_build_claim
+                and turn < max_turns - 1
+            ):
+                log.info("Planner agent described path in prose without tags — forcing retry")
+                messages.append({"role": "assistant", "content": raw_text})
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        "Your previous reply described the path in prose but didn't "
+                        "emit any <path-node> tags, so the UI has nothing to render. "
+                        "Re-do that reply now: emit the literal `<path-phase name=\"...\" />` "
+                        "and `<path-node title=\"...\" type=\"...\" targetMin=\"...\" "
+                        "topics=\"...\" />` tags — one tag per session. No prose "
+                        "describing the path. Tags only."
+                    ),
+                })
+                # Tell the client to discard the failed prose from the chat
+                # bubble — otherwise the user sees "There's your path — N
+                # sessions" leftover in chat alongside the actual cards.
+                await _emit("stream_reset", reason="retry_after_no_tags")
+                await _emit("status", message="Building cards now…")
+                continue
+
+            # Skimpy build recovery: tags_only mode is on, the agent emitted
+            # SOME tags but far fewer than a real path needs (e.g. 1 phase /
+            # 1 session, then jumped straight to "here's your path, want to
+            # adjust X?"). The client UI shows a single lonely card while
+            # the chat brags about "5 phases, 18h". Continue building.
+            #
+            # Note: we do NOT stream_reset here. The 1-2 tags already
+            # rendered on the client are valid; we just want to append more.
+            if (
+                not require_emit
+                and tags_only
+                and turn < max_turns - 1
+                and (tag_count < 6 or phase_count < 2)
+                and tag_count > 0
+            ):
+                log.info(
+                    "Planner agent emitted skimpy path (%d nodes, %d phases) — forcing continuation",
+                    tag_count, phase_count,
+                )
+                messages.append({"role": "assistant", "content": raw_text})
+                missing = []
+                if phase_count < 2:
+                    missing.append(f"at least 2 phases (you only emitted {phase_count})")
+                if tag_count < 6:
+                    missing.append(f"at least 6 sessions (you only emitted {tag_count})")
+                missing_str = " and ".join(missing)
+                messages.append({
+                    "role": "user",
+                    "content": (
+                        f"You stopped early. A real path needs {missing_str}. "
+                        "Continue the build NOW: emit additional `<path-phase />` and "
+                        "`<path-node />` tags directly — keep the same momentum, "
+                        "don't repeat what you already emitted. Cover the rest of the "
+                        "topic so the path actually delivers on what you promised. "
+                        "After the path is fully built (all phases + sessions), THEN "
+                        "ask one specific iteration question. Tags first, prose after."
+                    ),
+                })
+                await _emit("status", message="Building more sessions…")
+                continue
 
             # If emit_path is not required, return the text as a chat response
             if not require_emit:
@@ -809,6 +1003,7 @@ async def refine_path(path_id: str, user_message: str, on_progress=None) -> dict
         messages_for_llm.append({"role": "user", "content": user_message})
 
     current_nodes = path.get("nodes", [])
+    is_new_path = not current_nodes
 
     result = await _run_planner_loop(
         system=REFINE_SYSTEM,
@@ -816,7 +1011,13 @@ async def refine_path(path_id: str, user_message: str, on_progress=None) -> dict
         user_email=path.get("userId", ""),
         on_progress=on_progress,
         require_emit=False,
-        extra_tools=REFINE_TOOLS if current_nodes else [],
+        # When the path is empty, ONLY surgical-edit tools make no sense
+        # and emit_path is forbidden by REFINE_SYSTEM. Pass an empty extras
+        # list and tags_only=True so the model is forced down the streaming
+        # tag path. When the path has sessions, surface delete/add/modify
+        # for surgical edits.
+        extra_tools=[] if is_new_path else REFINE_TOOLS,
+        tags_only=is_new_path,
         path_id=path_id,
         messages_override=messages_for_llm,
     )

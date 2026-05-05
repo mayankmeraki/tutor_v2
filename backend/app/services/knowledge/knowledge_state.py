@@ -1,17 +1,17 @@
 """Student concept mastery — freehand notes per student.
 
 One MongoDB document per student. Contains:
-- Global profile (course-independent): learning style, pace, preferences
-- Concept notes (tagged with courseId metadata): mastery observations
+- Global profile: learning style, pace, preferences
+- Concept notes: mastery observations
 
 Collection: student_concept_mastery (in tutor_v2 database)
 Vector index: student_concept_mastery_vectors (flat, for Atlas Vector Search)
 
 Document schema:
     _id:           mastery_{safeEmail}
-    userEmail:      str
-    profile:       {text, updatedAt}              # global, cross-course
-    notes:         [{text, tags, courseId, sessionId, lesson, at}]
+    userEmail:     str
+    profile:       {text, updatedAt}
+    notes:         [{text, tags, sessionId, lesson, at}]
     lastUpdated:   ISO datetime
 """
 
@@ -30,13 +30,14 @@ def _collection():
     """Source of truth: one doc per student with notes array + profile."""
     return get_tutor_db()["student_concept_mastery"]
 
+
 def _index_collection():
     """Flat materialized index for vector search — one doc per concept."""
     return get_tutor_db()["student_concept_mastery_vectors"]
 
 
-def _doc_id(course_id: int, user_email: str) -> str:
-    """Document ID — per student (not per course). courseId is metadata on notes."""
+def _doc_id(user_email: str) -> str:
+    """Document ID — per student."""
     safe_email = user_email.lower().replace(".", "_dot_").replace("@", "_at_")
     return f"mastery_{safe_email}"
 
@@ -48,13 +49,12 @@ def _normalize_tag(tag: str) -> str:
     """Normalize a single tag: lowercase, spaces→underscores, strip special chars."""
     import re
     t = str(tag).strip().lower()
-    t = re.sub(r'[^a-z0-9_\-]', '_', t)  # replace non-alphanumeric with underscore
-    t = re.sub(r'_+', '_', t)  # collapse multiple underscores
+    t = re.sub(r'[^a-z0-9_\-]', '_', t)
+    t = re.sub(r'_+', '_', t)
     return t.strip('_') or '_uncategorized'
 
 
 def _normalize_tags(tags) -> list[str]:
-    """Convert tags to a normalized list of strings."""
     if isinstance(tags, str):
         return [_normalize_tag(t) for t in tags.replace(",", " ").split() if t.strip()]
     if isinstance(tags, list):
@@ -63,7 +63,6 @@ def _normalize_tags(tags) -> list[str]:
 
 
 async def upsert_concept_note(
-    course_id: int,
     user_email: str,
     session_id: str,
     concepts: list[str],
@@ -75,22 +74,19 @@ async def upsert_concept_note(
 ) -> dict:
     """Upsert a freehand note by concept overlap.
 
-    - _profile notes update the global profile (course-independent)
-    - Concept notes are tagged with courseId metadata
+    - _profile notes update the global profile
     - Matching: find existing note sharing ≥1 tag, replace it
     - One note per concept cluster — bounded growth
     """
     col = _collection()
-    doc_id = _doc_id(course_id, user_email)
+    doc_id = _doc_id(user_email)
     now = datetime.now(timezone.utc).isoformat()
 
-    # Normalize tags
     concepts = [_normalize_tag(c) for c in concepts if c]
     if not concepts:
         concepts = ["_uncategorized"]
     primary = concepts[0]
 
-    # Handle global profile separately
     if primary == "_profile":
         await col.update_one(
             {"_id": doc_id},
@@ -106,21 +102,16 @@ async def upsert_concept_note(
         log.info("Profile updated: %s (%d chars)", user_email, len(note_text))
         return {"action": "profile_updated", "primary_concept": "_profile"}
 
-    # Build concept note with courseId metadata + structured adaptation fields.
-    # blooms/approach_tried/approach_worked enable data-driven teaching:
-    # the override compiler can query "what approaches worked for this student
-    # on this concept" instead of relying on freehand text parsing.
     new_note = {
         "text": note_text,
         "tags": concepts,
-        "courseId": course_id,
         "sessionId": session_id,
         "at": now,
     }
     if blooms:
-        new_note["blooms"] = blooms.lower()  # remember|understand|apply|analyze|evaluate|create
+        new_note["blooms"] = blooms.lower()
     if approach_tried:
-        new_note["approach_tried"] = approach_tried  # worked_example|socratic|visual|algebraic|simulation
+        new_note["approach_tried"] = approach_tried
     if approach_worked is not None:
         new_note["approach_worked"] = approach_worked
     if lesson:
@@ -132,7 +123,6 @@ async def upsert_concept_note(
     if doc:
         notes = doc.get("notes", [])
 
-        # Find best matching existing note (most tag overlap)
         best_idx = -1
         best_overlap = 0
         for i, existing in enumerate(notes):
@@ -158,9 +148,7 @@ async def upsert_concept_note(
         )
 
         if old_primary and old_primary != primary:
-            asyncio.create_task(_delete_vector_index_entry(
-                course_id, user_email, old_primary
-            ))
+            asyncio.create_task(_delete_vector_index_entry(user_email, old_primary))
     else:
         await col.update_one(
             {"_id": doc_id},
@@ -172,12 +160,11 @@ async def upsert_concept_note(
         )
         action = "created"
 
-    log.info("Mastery note %s: %s/%d [%s] (%d chars)",
-             action, user_email, course_id, primary, len(note_text))
+    log.info("Mastery note %s: %s [%s] (%d chars)",
+             action, user_email, primary, len(note_text))
 
-    # Sync to vector index in background
     asyncio.create_task(_sync_note_to_vector_index(
-        course_id, user_email, note_text, concepts, session_id
+        user_email, note_text, concepts, session_id
     ))
 
     return {"action": action, "primary_concept": primary}
@@ -185,40 +172,33 @@ async def upsert_concept_note(
 
 # ─── Vector Index Sync ─────────────────────────────────────────────
 
-async def _delete_vector_index_entry(
-    course_id: int, user_email: str, primary_tag: str
-) -> None:
-    """Delete an orphaned vector index entry (background task)."""
+
+async def _delete_vector_index_entry(user_email: str, primary_tag: str) -> None:
     try:
-        doc_id = f"{user_email}:{course_id}:{primary_tag}"
+        doc_id = f"{user_email}:{primary_tag}"
         await _index_collection().delete_one({"_id": doc_id})
         log.debug("Deleted orphaned vector entry: %s", doc_id)
     except Exception as e:
         log.warning("Failed to delete orphaned vector entry: %s", e)
 
+
 async def _sync_note_to_vector_index(
-    course_id: int,
     user_email: str,
     note_text: str,
     tags: list[str],
     session_id: str,
 ) -> None:
-    """Sync a note to the flat vector index (student_note_index).
-
-    Generates embedding via OpenRouter, then upserts into the flat collection.
-    Runs as background task — non-blocking.
-    """
+    """Sync a note to the flat vector index. Background task — non-blocking."""
     try:
         from app.services.content.embedding_service import generate_embedding, get_embedding_metadata
 
-        # Retry embedding up to 2 times
         embedding = None
         for attempt in range(2):
             embedding = await generate_embedding(note_text)
             if embedding:
                 break
             if attempt == 0:
-                await asyncio.sleep(1)  # brief wait before retry
+                await asyncio.sleep(1)
         if not embedding:
             log.warning("Vector sync skipped — embedding failed after retries: %s", tags[:2])
             return
@@ -226,16 +206,14 @@ async def _sync_note_to_vector_index(
         now = datetime.now(timezone.utc).isoformat()
         meta = get_embedding_metadata()
 
-        # Upsert by (studentEmail, courseId, primary tag) — one vector per concept cluster
         primary_tag = tags[0] if tags else "_uncategorized"
-        doc_id = f"{user_email}:{course_id}:{primary_tag}"
+        doc_id = f"{user_email}:{primary_tag}"
 
         await _index_collection().update_one(
             {"_id": doc_id},
             {"$set": {
                 "studentEmail": user_email,
-                "courseId": course_id,
-                "noteText": note_text[:2000],  # truncate for storage
+                "noteText": note_text[:2000],
                 "tags": tags,
                 "embedding": embedding,
                 "embeddingModel": meta["model"],
@@ -245,34 +223,19 @@ async def _sync_note_to_vector_index(
             }},
             upsert=True,
         )
-        log.debug("Vector index synced: %s/%d/%s", user_email, course_id, primary_tag)
+        log.debug("Vector index synced: %s/%s", user_email, primary_tag)
 
     except Exception as e:
         log.warning("Vector index sync failed: %s", e)
 
 
 async def vector_search_notes(
-    course_id: int,
     user_email: str,
     query: str,
     limit: int = 5,
     threshold: float = 0.72,
 ) -> list[dict]:
-    """Search student notes using MongoDB Atlas Vector Search.
-
-    Returns notes semantically similar to the query, filtered by student+course.
-    Uses cosine similarity with a threshold to reject noise.
-
-    Args:
-        course_id: Course to search within
-        user_email: Student's email
-        query: Natural language search query
-        limit: Max results to return
-        threshold: Minimum similarity score (0-1). Higher = stricter.
-
-    Returns:
-        List of {noteText, tags, score, updatedAt} dicts, sorted by relevance.
-    """
+    """Search student notes using MongoDB Atlas Vector Search."""
     try:
         from app.services.content.embedding_service import generate_embedding
 
@@ -280,50 +243,30 @@ async def vector_search_notes(
         if not query_embedding:
             return []
 
-        # MongoDB Atlas Vector Search aggregation
         pipeline = [
             {
                 "$vectorSearch": {
                     "index": "mastery_vector_index",
                     "path": "embedding",
                     "queryVector": query_embedding,
-                    "numCandidates": limit * 4,  # over-fetch then filter
+                    "numCandidates": limit * 4,
                     "limit": limit * 2,
                     "filter": {
                         "studentEmail": user_email,
-                        "courseId": course_id,
                     },
                 }
             },
-            {
-                "$addFields": {
-                    "score": {"$meta": "vectorSearchScore"},
-                }
-            },
-            {
-                "$match": {
-                    "score": {"$gte": threshold},
-                }
-            },
-            {
-                "$limit": limit,
-            },
-            {
-                "$project": {
-                    "_id": 0,
-                    "noteText": 1,
-                    "tags": 1,
-                    "score": 1,
-                    "updatedAt": 1,
-                }
-            },
+            {"$addFields": {"score": {"$meta": "vectorSearchScore"}}},
+            {"$match": {"score": {"$gte": threshold}}},
+            {"$limit": limit},
+            {"$project": {"_id": 0, "noteText": 1, "tags": 1, "score": 1, "updatedAt": 1}},
         ]
 
         cursor = _index_collection().aggregate(pipeline)
         results = await cursor.to_list(limit)
 
-        log.info("Vector search: %s/%d query='%s' → %d results (threshold=%.2f)",
-                 user_email, course_id, query[:50], len(results), threshold)
+        log.info("Vector search: %s query='%s' → %d results (threshold=%.2f)",
+                 user_email, query[:50], len(results), threshold)
 
         return results
 
@@ -333,23 +276,18 @@ async def vector_search_notes(
 
 
 async def hybrid_search_notes(
-    course_id: int,
     user_email: str,
     query: str,
     limit: int = 5,
 ) -> str:
-    """Hybrid search: vector search + text search, deduplicated and merged.
+    """Hybrid search: vector + text, deduplicated.
 
     Returns formatted string for tutor context injection.
     Falls back to text-only search if vector search fails.
     """
-    # Try vector search first
-    vector_results = await vector_search_notes(course_id, user_email, query, limit)
+    vector_results = await vector_search_notes(user_email, query, limit)
+    text_results = await search_notes(user_email, query)
 
-    # Also do text search (existing method)
-    text_results = await search_notes(course_id, user_email, query)
-
-    # If vector search returned results, format them
     if vector_results:
         lines = [f"Found {len(vector_results)} relevant notes:"]
         seen_tags = set()
@@ -368,22 +306,13 @@ async def hybrid_search_notes(
 
         return "\n".join(lines)
 
-    # Fallback to text search
     return text_results
 
 
-async def search_notes(
-    course_id: int,
-    user_email: str,
-    query: str,
-) -> str:
-    """Search student knowledge notes by substring matching.
-
-    Case-insensitive search across note text and tags.
-    Returns matching notes formatted for the tutor, most relevant first.
-    """
+async def search_notes(user_email: str, query: str) -> str:
+    """Search student knowledge notes by substring matching."""
     col = _collection()
-    doc_id = _doc_id(course_id, user_email)
+    doc_id = _doc_id(user_email)
     doc = await col.find_one({"_id": doc_id})
 
     if not doc:
@@ -404,13 +333,9 @@ async def search_notes(
         tags_lower = [t.lower() for t in tags]
 
         score = 0
-
-        # Score: query terms found in text
         for term in query_terms:
             if term in text_lower:
                 score += 2
-
-        # Score: tag matches (bonus)
         for term in query_terms:
             for tag in tags_lower:
                 if term in tag:
@@ -422,7 +347,6 @@ async def search_notes(
     if not matches:
         return f"No notes matching '{query}' found."
 
-    # Sort by relevance descending, then by recency (index) descending
     matches.sort(key=lambda x: (-x[0], -x[1]))
 
     lines = [f"Found {len(matches)} note{'s' if len(matches) != 1 else ''} matching '{query}':"]
@@ -431,11 +355,9 @@ async def search_notes(
         tags = note.get("tags", [])
         at = note.get("at", "")
 
-        # Truncate long notes for display
         display_text = text if len(text) <= 200 else text[:200] + "..."
         tags_str = f" [{', '.join(tags)}]" if tags else ""
 
-        # Format timestamp
         time_str = ""
         if at:
             try:
@@ -455,43 +377,29 @@ async def search_notes(
     return "\n".join(lines)
 
 
-async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
-    """Return a structured student briefing for system prompt injection.
-
-    Groups notes by profile vs concept, presenting an actionable overview.
-    Returns None if no notes exist.
-    """
+async def get_knowledge_summary(user_email: str) -> str | None:
+    """Return a structured student briefing for system prompt injection."""
     col = _collection()
-    doc_id = _doc_id(course_id, user_email)
+    doc_id = _doc_id(user_email)
     doc = await col.find_one({"_id": doc_id})
 
     if not doc:
         return None
 
-    # NOTE: doc.summary cache removed — was never populated, always stale.
-    # Always format fresh from notes.
-
-    # Global profile (course-independent)
     profile = doc.get("profile")
     profile_text = profile.get("text") if isinstance(profile, dict) else None
 
-    # Concept notes — filter by courseId if provided, show all otherwise
     notes = doc.get("notes", [])
     concept_entries = []
     for note in notes:
         tags = _normalize_tags(note.get("tags", []))
         text = note.get("text", "")
         primary = tags[0] if tags else ""
-        note_course = note.get("courseId")
 
         if not primary or primary.startswith("_"):
             continue
-        # Show notes from this course + notes with no course (universal)
-        if course_id and note_course and note_course != course_id:
-            continue
         snippet = text if len(text) <= 150 else text[:150] + "..."
-        course_tag = f" [course:{note_course}]" if note_course and note_course != course_id else ""
-        concept_entries.append(f"  {primary}: {snippet}{course_tag}")
+        concept_entries.append(f"  {primary}: {snippet}")
 
     if not profile_text and not concept_entries:
         return None
@@ -506,12 +414,10 @@ async def get_knowledge_summary(course_id: int, user_email: str) -> str | None:
     return "\n".join(parts) if parts else None
 
 
-# ─── Legacy compatibility ──────────────────────────────────────────
-
-async def get_or_init_knowledge_state(course_id: int, student_name: str) -> dict:
+async def get_or_init_knowledge_state(user_email: str) -> dict:
     """Load student mastery state. Returns empty structure if none exists."""
     col = _collection()
-    doc_id = _doc_id(course_id, student_name)
+    doc_id = _doc_id(user_email)
     doc = await col.find_one({"_id": doc_id})
     if doc:
         return doc
@@ -534,9 +440,7 @@ def format_knowledge_state(knowledge_state: dict) -> str:
         lines.append("")
 
     if notes:
-        # Group notes by concept — count occurrences (times observed)
-        # and keep the MOST RECENT note as the snippet.
-        concept_groups = {}  # primary → {count, latest_text, latest_at, tags, lesson}
+        concept_groups = {}
         for note in notes:
             tags = _normalize_tags(note.get("tags", []))
             text = note.get("text", "")
@@ -555,7 +459,6 @@ def format_knowledge_state(knowledge_state: dict) -> str:
                 }
             else:
                 existing["count"] += 1
-                # Keep the most recent note as the displayed snippet
                 if at > existing["latest_at"]:
                     existing["latest_text"] = text
                     existing["latest_at"] = at
@@ -564,7 +467,6 @@ def format_knowledge_state(knowledge_state: dict) -> str:
 
         if concept_groups:
             lines.append(f"[Student Concept Mastery — {len(concept_groups)} concepts]")
-            # Sort by count desc so revisited concepts are top of mind
             sorted_concepts = sorted(
                 concept_groups.items(),
                 key=lambda kv: (-kv[1]["count"], kv[0]),
@@ -575,8 +477,6 @@ def format_knowledge_state(knowledge_state: dict) -> str:
                 other_tags = [t for t in data["tags"] if t != concept]
                 related = f" (also: {', '.join(other_tags)})" if other_tags else ""
                 lesson = f" [L:{data['lesson']}]" if data.get("lesson") else ""
-                # Show times-observed counter — critical for "don't repeat
-                # the same approach if seen 2+ times" rule
                 count = data["count"]
                 if count == 1:
                     counter = ""
@@ -594,27 +494,21 @@ def format_knowledge_state(knowledge_state: dict) -> str:
 
 # ─── Backfill / Reindex ──────────────────────────────────────────
 
-async def backfill_vector_index(dry_run: bool = False) -> dict:
-    """Scan all concept_states docs, generate embeddings for notes missing from vector index.
 
-    - Skips notes that already have a matching vector doc (by doc_id)
-    - Removes orphaned vector docs that no longer match any source note
-    - Returns stats: {total_notes, synced, skipped, orphans_removed, errors}
-    """
+async def backfill_vector_index(dry_run: bool = False) -> dict:
+    """Scan all mastery docs, generate embeddings for notes missing from vector index."""
     from app.services.content.embedding_service import generate_embedding, get_embedding_metadata
 
     col = _collection()
     idx = _index_collection()
     stats = {"total_notes": 0, "synced": 0, "skipped": 0, "orphans_removed": 0, "errors": 0}
 
-    # Collect all valid vector doc_ids from source
     valid_vector_ids = set()
 
     cursor = col.find({})
     async for doc in cursor:
-        course_id = doc.get("courseId")
         user_email = doc.get("userEmail")
-        if not course_id or not user_email:
+        if not user_email:
             continue
 
         notes = doc.get("notes", [])
@@ -626,10 +520,9 @@ async def backfill_vector_index(dry_run: bool = False) -> dict:
                 continue
 
             stats["total_notes"] += 1
-            vector_id = f"{user_email}:{course_id}:{primary}"
+            vector_id = f"{user_email}:{primary}"
             valid_vector_ids.add(vector_id)
 
-            # Check if vector doc already exists
             existing = await idx.find_one({"_id": vector_id}, {"_id": 1})
             if existing:
                 stats["skipped"] += 1
@@ -639,7 +532,6 @@ async def backfill_vector_index(dry_run: bool = False) -> dict:
                 stats["synced"] += 1
                 continue
 
-            # Generate embedding and upsert
             try:
                 embedding = await generate_embedding(text)
                 if not embedding:
@@ -653,7 +545,6 @@ async def backfill_vector_index(dry_run: bool = False) -> dict:
                     {"_id": vector_id},
                     {"$set": {
                         "studentEmail": user_email,
-                        "courseId": course_id,
                         "noteText": text[:2000],
                         "tags": tags,
                         "embedding": embedding,
@@ -665,13 +556,12 @@ async def backfill_vector_index(dry_run: bool = False) -> dict:
                     upsert=True,
                 )
                 stats["synced"] += 1
-                log.info("Backfilled vector: %s/%d/%s", user_email, course_id, primary)
+                log.info("Backfilled vector: %s/%s", user_email, primary)
 
             except Exception as e:
                 stats["errors"] += 1
                 log.warning("Backfill failed for %s: %s", vector_id, e)
 
-    # Clean orphaned vector docs
     if not dry_run:
         orphan_cursor = idx.find({}, {"_id": 1})
         async for vdoc in orphan_cursor:

@@ -57,7 +57,7 @@ test.describe('Teaching Session', () => {
       await startOnDemandSession(page);
     });
 
-    test('top bar is visible with course title', async ({ page }) => {
+    test('top bar is visible with session title', async ({ page }) => {
       const topBar = page.locator(SEL.teaching.topBar);
       if (await topBar.isVisible()) {
         await expect(topBar).toBeVisible();

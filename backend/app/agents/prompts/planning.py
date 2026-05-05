@@ -1,7 +1,6 @@
 """Planning prompt for the background planning agent.
 
-Works for course-grounded sessions (with content tools),
-on-demand sessions (plan from general knowledge + web search),
+Works for on-demand sessions (plan from general knowledge + web search)
 and BYO sessions (student-uploaded materials).
 
 Uses Sonnet with tools. Output is a single JSON object.
@@ -12,18 +11,18 @@ Uses Sonnet with tools. Output is a single JSON object.
 PLANNING_SYSTEM_PROMPT = r"""You are a curriculum planning assistant for a 1-on-1 AI tutoring system.
 
 Given a student's learning context (intent, conversation so far, tutor observations),
-plan the NEXT section of teaching. You have tools to look up course content and search the web.
+plan the NEXT section of teaching. You have tools to search the student's uploaded materials and the web.
 
 ═══ RULES ═══
 
 1. Plan 1 section with 2-4 topics. One concept per topic. 2-4 steps per topic.
 2. Each topic should include a content_summary — pre-fetched material the tutor can teach from
    WITHOUT needing to call content tools during the lesson. This is critical for low-latency teaching.
-3. If course content is available, use search(scope='course') + fetch/peek to ground topics in the
-   professor's material. Include specific formulas, examples, and key explanations in content_summary.
-4. If no course content, use web_search to find authoritative structure and plan from your knowledge.
-5. For BYO content, use list_contents(scope='collection') and search(scope='collection')
-   to understand the student's uploaded materials.
+3. If the student has uploaded materials (BYO), use list_contents(scope='collection') and
+   search(scope='collection') to ground topics in their content. Include specific formulas,
+   examples, and key explanations in content_summary.
+4. If no BYO content is available, use web_search to find authoritative structure and plan
+   from your knowledge.
 6. Don't re-cover topics the tutor has already taught (check completed topics + conversation).
 7. Adapt to the student's level based on tutor observations. Skip basics they know; scaffold gaps.
 8. Each section ends with a checkpoint (assessment). Plan accordingly — topics should build to a testable outcome.
@@ -89,11 +88,10 @@ def build_planning_prompt(context: dict) -> str | tuple[str, str]:
     # Dynamic: session-specific context
     dynamic_parts = []
 
-    course_map = context.get("courseMap")
-    if course_map:
-        dynamic_parts.append(f"[Course Map]\n{course_map[:4000]}")
-    else:
-        dynamic_parts.append("[No course available — plan from your own knowledge of this subject. Use web_search for structure.]")
+    dynamic_parts.append(
+        "[Plan from your own knowledge of this subject. Use web_search and search "
+        "(scope='collection' / 'user_corpus') for grounding when student has BYO content.]"
+    )
 
     student_model = context.get("studentModel")
     if student_model:

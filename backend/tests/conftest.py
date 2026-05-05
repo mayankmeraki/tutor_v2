@@ -196,10 +196,9 @@ async def test_session(test_client: httpx.AsyncClient):
     """Create a test session and return its data."""
     session_data = {
         "sessionId": "test-session-001",
-        "courseId": 1,
         "studentName": "Test User",
         "userEmail": "test@example.com",
-        "intent": {"raw": "learn physics", "scenario": "course"},
+        "intent": {"raw": "learn physics", "scenario": "general"},
         "sections": [],
         "transcript": [],
         "startedAt": datetime.now(timezone.utc).isoformat(),

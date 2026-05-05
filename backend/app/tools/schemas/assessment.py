@@ -112,7 +112,7 @@ ASSESSMENT_TOOLS = [
     if t["name"] in (
         "search_images", "web_search",
         "query_knowledge", "update_student_model",
-        # Unified retrieval — replaces content_read/content_peek/byo_read/byo_list/get_section_content
+        # Unified retrieval (BYO)
         "search", "fetch", "peek",
     )
 ] + [COMPLETE_ASSESSMENT_TOOL, HANDBACK_TO_TUTOR_TOOL]

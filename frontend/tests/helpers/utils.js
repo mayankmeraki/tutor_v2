@@ -14,7 +14,7 @@ async function waitForScreen(page, screenSelector, timeout = 10_000) {
  */
 async function assertOneScreenVisible(page, expectedId) {
   const screens = ['#landing-screen', '#business-screen', '#login-panel',
-                   '#browse-screen', '#course-screen', '#ondemand-screen'];
+                   '#browse-screen', '#ondemand-screen'];
   for (const sel of screens) {
     const el = page.locator(sel);
     if (sel === expectedId) {

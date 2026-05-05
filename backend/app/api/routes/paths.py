@@ -164,12 +164,37 @@ async def get(path_id: str, user: dict = Depends(get_optional_user)):
 
 @router.patch("/{path_id}")
 async def patch(path_id: str, request: Request, user: dict = Depends(get_optional_user)):
-    """Partial update (title, description, status)."""
+    """Partial update (title, description, status, nodes).
+
+    `nodes` is allowed because the wizard's streaming flow needs to
+    bulk-replace the node array as more sessions arrive — using
+    /nodes/add per node would generate fresh `n_add_xxxx` ids that
+    don't match the client's `n{i}` ids and can't be re-synced safely.
+    """
     body = await request.json()
-    allowed = {"title", "description", "status"}
+    allowed = {"title", "description", "status", "nodes"}
     update = {k: v for k, v in body.items() if k in allowed}
     if not update:
         raise HTTPException(status_code=400, detail="Nothing to update")
+
+    # Light validation + normalisation for the nodes array — required
+    # fields, stable order numbering, default sessionId/status.
+    if "nodes" in update:
+        nodes = update["nodes"]
+        if not isinstance(nodes, list):
+            raise HTTPException(status_code=400, detail="nodes must be a list")
+        for i, n in enumerate(nodes):
+            if not isinstance(n, dict):
+                raise HTTPException(status_code=400, detail=f"node {i} must be an object")
+            n.setdefault("nodeId", f"n{i+1}")
+            n["order"] = i + 1
+            n.setdefault("status", "pending")
+            n.setdefault("sessionId", None)
+            n.setdefault("milestone", False)
+            n.setdefault("topics", [])
+            n.setdefault("studentNote", "")
+        update["nodes"] = nodes
+
     doc = await update_path(path_id, update)
     if not doc:
         raise HTTPException(status_code=404, detail="Path not found")

@@ -220,17 +220,6 @@ def parse_beat_attrs(attr_str: str) -> dict[str, Any]:
     if sim:
         beat['simulation'] = sim
 
-    # video
-    vl = _attr(attr_str, 'video-lesson')
-    if vl:
-        beat['videoLesson'] = vl
-    vs = _attr(attr_str, 'video-start')
-    if vs:
-        beat['videoStart'] = vs
-    ve = _attr(attr_str, 'video-end')
-    if ve:
-        beat['videoEnd'] = ve
-
     # image
     img_src = _attr(attr_str, 'image-src')
     if img_src:

@@ -9,10 +9,9 @@ class TestCreateSession:
     async def test_create_session(self, test_client: httpx.AsyncClient):
         resp = await test_client.post("/api/v1/sessions", json={
             "sessionId": "sess-create-001",
-            "courseId": 1,
             "studentName": "Alice",
             "userEmail": "alice@example.com",
-            "intent": {"raw": "study waves", "scenario": "course"},
+            "intent": {"raw": "study waves", "scenario": "general"},
             "sections": [],
             "transcript": [],
             "startedAt": datetime.now(timezone.utc).isoformat(),
@@ -24,7 +23,6 @@ class TestCreateSession:
 
     async def test_create_session_missing_id(self, test_client: httpx.AsyncClient):
         resp = await test_client.post("/api/v1/sessions", json={
-            "courseId": 1,
             "studentName": "Bob",
         })
         assert resp.status_code == 400
@@ -71,17 +69,17 @@ class TestGetMySessions:
         # Create a session tied to the authenticated user's email
         await test_client.post("/api/v1/sessions", json={
             "sessionId": "my-sess-001",
-            "courseId": 42,
             "studentName": "Test User",
             "userEmail": "test@example.com",
-            "intent": {"raw": "review", "scenario": "course"},
+            "intent": {"raw": "review", "scenario": "general"},
             "sections": [],
             "transcript": [],
             "startedAt": datetime.now(timezone.utc).isoformat(),
         })
 
+        # Legacy URL pattern still supported — course_id segment is ignored
         resp = await test_client.get(
-            "/api/v1/sessions/me/42",
+            "/api/v1/sessions/me/null",
             headers=auth_headers,
         )
         assert resp.status_code == 200
@@ -92,7 +90,7 @@ class TestGetMySessions:
 
     async def test_get_my_sessions_empty(self, test_client: httpx.AsyncClient, auth_headers):
         resp = await test_client.get(
-            "/api/v1/sessions/me/999",
+            "/api/v1/sessions/me/null",
             headers=auth_headers,
         )
         assert resp.status_code == 200

@@ -7947,6 +7947,20 @@ textarea.fb-input { margin-bottom:10px; min-height:100px }
 #path-screen { height: 100vh; overflow: hidden; min-height: 0 !important; }
 #path-screen-content { height: 100%; overflow: hidden; }
 
+/* Wizard streaming animations */
+@keyframes wizCardIn {
+  from { opacity: 0; transform: translateY(4px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes wizPulse {
+  0%, 100% { opacity: .5; transform: scale(1); }
+  50%      { opacity: 1;  transform: scale(1.15); }
+}
+@keyframes wizDot {
+  0%, 80%, 100% { opacity: .25; transform: translateY(0); }
+  40%           { opacity: 1;   transform: translateY(-3px); }
+}
+
 /* Home horizontal scroll rows */
 #home-paths-hscroll::-webkit-scrollbar,
 #home-sessions-hscroll::-webkit-scrollbar { display: none; }

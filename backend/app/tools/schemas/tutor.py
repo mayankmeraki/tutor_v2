@@ -1,36 +1,27 @@
-"""Tutor tool schemas — unified retrieval + external content + sim control.
+"""Tutor tool schemas — unified retrieval over BYO content + external + sim control.
 
-Retrieval surface is consolidated (task #11):
+Retrieval surface (BYO-only — courses are retired):
   - search / fetch / peek / nearby / list_contents
-    These work across BOTH course content and BYO (student-uploaded) content.
-    Scope routing is explicit — tutor picks `scope` per call.
-  - web_search / search_images — external, non-course content.
+    These work over student-uploaded (BYO) content.
+  - web_search / search_images — external content.
   - control_simulation — UI control, not retrieval.
-
-Removed (do NOT re-add without coordination):
-  byo_read, byo_list, byo_transcript_context  → fold into search/fetch/nearby
-  content_read, content_peek, content_search  → replaced by fetch/peek/search
-  get_section_content, get_simulation_details → replaced by fetch
 
 The student-model + triage tools (query_knowledge, update_student_model,
 complete_triage) are kept untouched — they are not part of retrieval.
 """
 
 TUTOR_TOOLS = [
-    # ─────────────────────── UNIFIED RETRIEVAL ───────────────────────
+    # ─────────────────────── UNIFIED RETRIEVAL (BYO) ───────────────────────
     {
         "name": "search",
         "description": (
-            "Semantic search across course + student-uploaded (BYO) content. "
+            "Semantic search across the student's uploaded (BYO) content. "
             "USE THIS FIRST before asking the student to clarify — grounding beats "
-            "interrogation. Cheapest way to find the right material for what the "
-            "student is asking. Returns a list of refs you can pass to fetch/peek/nearby.\n"
+            "interrogation. Returns a list of refs you can pass to fetch/peek/nearby.\n"
             "Scope routing:\n"
-            "  'course'      — Capacity course (requires a course in context)\n"
             "  'collection'  — one BYO collection (pass collection_id)\n"
             "  'resource'    — a single BYO resource (pass resource_id)\n"
             "  'user_corpus' — all of this student's BYO materials\n"
-            "  'both'        — course + student's collection, merged by score\n"
             "Note: search is MORE EXPENSIVE than fetch (runs dense + sparse + rerank). "
             "Use fetch when you already know the ref."
         ),
@@ -43,12 +34,12 @@ TUTOR_TOOLS = [
                 },
                 "scope": {
                     "type": "string",
-                    "enum": ["collection", "resource", "user_corpus", "course", "both"],
-                    "description": "Where to search. Default 'both' if BYO collection is in session context, else 'course'.",
+                    "enum": ["collection", "resource", "user_corpus"],
+                    "description": "Where to search. Default 'collection' if a BYO collection is in session context, else 'user_corpus'.",
                 },
                 "collection_id": {
                     "type": "string",
-                    "description": "BYO collection id (from session context). Required for scope='collection' or 'both'.",
+                    "description": "BYO collection id (from session context). Required for scope='collection'.",
                 },
                 "resource_id": {
                     "type": "string",
@@ -73,19 +64,16 @@ TUTOR_TOOLS = [
             "Resolve a ref to its full content with citation. CHEAP — one lookup, "
             "no ranking. Use when you already have a ref from search/peek/plan.\n"
             "Ref formats:\n"
-            "  lesson:ID:section:IDX  — a course section (transcript + key points)\n"
-            "  lesson:ID              — a whole course lesson (overview + first section)\n"
-            "  sim:ID                 — a simulation (controls + AI context + entry URL)\n"
-            "  chunk:ID               — a BYO parent chunk (~800 tokens of content)\n"
-            "  segment:ID             — a BYO child segment (resolves to its parent)\n"
-            "  resource:ID            — a BYO resource (its first chunk as entry point)"
+            "  chunk:ID    — a BYO parent chunk (~800 tokens of content)\n"
+            "  segment:ID  — a BYO child segment (resolves to its parent)\n"
+            "  resource:ID — a BYO resource (its first chunk as entry point)"
         ),
         "input_schema": {
             "type": "object",
             "properties": {
                 "ref": {
                     "type": "string",
-                    "description": 'Content ref — e.g. "lesson:3:section:2", "chunk:abc123", "sim:dbl-slit".',
+                    "description": 'Content ref — e.g. "chunk:abc123", "resource:xyz".',
                 },
             },
             "required": ["ref"],
@@ -95,7 +83,7 @@ TUTOR_TOOLS = [
         "name": "peek",
         "description": (
             "Cheap summary of a ref (~100 tokens). Title + key points + anchor. "
-            "Use for planning, or to pick the right section/chunk before calling fetch. "
+            "Use for planning, or to pick the right chunk before calling fetch. "
             "Accepts the same ref formats as fetch."
         ),
         "input_schema": {
@@ -103,7 +91,7 @@ TUTOR_TOOLS = [
             "properties": {
                 "ref": {
                     "type": "string",
-                    "description": 'Content ref — e.g. "lesson:3", "lesson:3:section:2", "chunk:abc123", "resource:xyz".',
+                    "description": 'Content ref — e.g. "chunk:abc123", "resource:xyz".',
                 },
             },
             "required": ["ref"],
@@ -114,7 +102,6 @@ TUTOR_TOOLS = [
         "description": (
             "Deterministic anchor walk around a ref. NOT semantic — returns neighbours "
             "in the source order. Use for 'what came just before/after this' questions.\n"
-            "  Course sections → ±window sections in the same lesson.\n"
             "  BYO video/audio → ±window minutes around the chunk's timestamp.\n"
             "  BYO PDF/slides  → ±window pages around the chunk's page.\n"
             "  BYO text/code   → ±window adjacent chunks by index.\n"
@@ -126,11 +113,11 @@ TUTOR_TOOLS = [
             "properties": {
                 "ref": {
                     "type": "string",
-                    "description": "Ref to walk from — lesson:ID:section:IDX, chunk:ID, segment:ID, resource:ID.",
+                    "description": "Ref to walk from — chunk:ID, segment:ID, resource:ID.",
                 },
                 "window": {
                     "type": "number",
-                    "description": "Neighbour radius. Default 1. Units depend on modality (sections / pages / minutes / chunks).",
+                    "description": "Neighbour radius. Default 1. Units depend on modality (pages / minutes / chunks).",
                 },
             },
             "required": ["ref"],
@@ -142,7 +129,6 @@ TUTOR_TOOLS = [
             "Inventory of what's available in a scope WITHOUT a query. Returns refs "
             "you can fetch/peek. Use when the student says 'what do I have?' or you "
             "want to pick a starting point without guessing.\n"
-            "  scope='course'      → lessons/sections tree\n"
             "  scope='collection'  → resources in a BYO collection (pass collection_id)\n"
             "  scope='user_corpus' → resources across all of student's BYO collections"
         ),
@@ -151,7 +137,7 @@ TUTOR_TOOLS = [
             "properties": {
                 "scope": {
                     "type": "string",
-                    "enum": ["collection", "user_corpus", "course"],
+                    "enum": ["collection", "user_corpus"],
                     "description": "Which inventory to list.",
                 },
                 "collection_id": {
@@ -161,7 +147,7 @@ TUTOR_TOOLS = [
                 "group_by": {
                     "type": "string",
                     "enum": ["resource", "modality", "topic", "none"],
-                    "description": "How to group results (BYO only). Default 'resource'.",
+                    "description": "How to group results. Default 'resource'.",
                 },
             },
             "required": ["scope"],
@@ -193,11 +179,10 @@ TUTOR_TOOLS = [
     {
         "name": "web_search",
         "description": (
-            "Search the web for supplementary information not available in course materials. "
+            "Search the web for supplementary information beyond your training data. "
             "Returns summaries and URLs from general web sources. "
-            "Use when: you need a real-world example, current data, a diagram/image not in Wikimedia, "
-            "a formula derivation, historical context, or any information beyond what the course provides. "
-            "Prefer course materials first — use this to supplement, not replace."
+            "Use when: you need a real-world example, current data, a diagram/image, "
+            "a formula derivation, historical context, or any information not already in context."
         ),
         "input_schema": {
             "type": "object",
@@ -589,7 +574,7 @@ TUTOR_TOOLS = [
                 "content_refs": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "Specific lesson/section refs to use (from search results)",
+                    "description": "Specific BYO refs to use (from search results)",
                 },
             },
             "required": ["diagnosed_gaps", "student_level", "recommended_start"],

@@ -38,17 +38,6 @@ test.describe('Error Handling & Edge Cases', () => {
   // ──────────── Network Errors ────────────
 
   test.describe('Network Resilience', () => {
-    test('app handles API timeout gracefully on home', async ({ page }) => {
-      await login(page);
-      await page.route('**/api/v1/content/courses*', route => {
-        route.abort('timedout');
-      });
-      await page.goto('/home');
-      await page.waitForTimeout(5000);
-      const browse = page.locator(SEL.screens.browse);
-      await expect(browse).toBeVisible();
-    });
-
     test('app handles chat API failure gracefully', async ({ page }) => {
       await login(page);
       await page.route('**/api/chat*', route => {
@@ -60,21 +49,6 @@ test.describe('Error Handling & Edge Cases', () => {
       // should not crash — may show error or stay on same page
       const url = page.url();
       expect(url).toBeTruthy();
-    });
-
-    test('app handles course API 404 gracefully', async ({ page }) => {
-      await login(page);
-      await page.route('**/api/v1/content/course-map/999*', route => {
-        route.fulfill({ status: 404, body: JSON.stringify({ detail: 'Not found' }) });
-      });
-      await page.goto('/courses/999');
-      await page.waitForTimeout(5000);
-      // should redirect to home or show error
-      const browse = page.locator(SEL.screens.browse);
-      const course = page.locator(SEL.screens.course);
-      const isBrowse = await browse.isVisible();
-      const isCourse = await course.isVisible();
-      expect(isBrowse || isCourse || page.url().includes('/home')).toBeTruthy();
     });
   });
 
@@ -167,21 +141,6 @@ test.describe('Error Handling & Edge Cases', () => {
       expect(criticalErrors.length).toBe(0);
     });
 
-    test('course page loads without uncaught errors', async ({ page }) => {
-      const errors = [];
-      page.on('pageerror', err => errors.push(err.message));
-      await login(page);
-      await page.waitForTimeout(3000);
-      const card = page.locator(SEL.home.coursesGrid + ' .ccard').first();
-      if (await card.isVisible()) {
-        await card.click();
-        await page.waitForTimeout(5000);
-        const criticalErrors = errors.filter(e =>
-          !e.includes('ResizeObserver') && !e.includes('Non-Error promise rejection')
-        );
-        expect(criticalErrors.length).toBe(0);
-      }
-    });
   });
 
   // ──────────── Rapid Navigation ────────────
@@ -193,8 +152,6 @@ test.describe('Error Handling & Edge Cases', () => {
 
       for (let i = 0; i < 5; i++) {
         await page.goto('/home');
-        await page.waitForTimeout(300);
-        await page.goto('/courses');
         await page.waitForTimeout(300);
         await page.goto('/tutor');
         await page.waitForTimeout(300);

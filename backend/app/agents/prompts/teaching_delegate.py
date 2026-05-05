@@ -26,11 +26,10 @@ def build_delegation_prompt(
         TAGS_PROMPT,
     ]
 
-    # Add relevant course context (lighter than full Tutor)
-    parts.append("\n═══ COURSE CONTEXT ═══\n")
+    # Add relevant context (lighter than full Tutor)
+    parts.append("\n═══ SESSION CONTEXT ═══\n")
     for key, label in [
-        ("courseMap", "Course Map"),
-        ("concepts", "Course Concepts"),
+        ("concepts", "Concepts"),
         ("simulations", "Available Simulations"),
         ("activeSimulation", "Active Simulation State"),
     ]:

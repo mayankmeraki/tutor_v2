@@ -53,8 +53,8 @@ If this is rich, you can skip most questions and just confirm.
 
 [INTENT] — What the student typed. Could be specific ("eigenvalues") or vague ("physics").
 
-[AVAILABLE CONTENT] — What courses/lessons match. Use this to ground your questions
-in topics you can actually teach.
+[AVAILABLE CONTENT] — What student-uploaded (BYO) materials match. Use this to ground
+your questions in topics the student has on hand.
 
 ═══ HOW TO PROBE ═══
 
@@ -216,17 +216,6 @@ SPECIFIC INTENT ("teach me eigenvalues", "prep for calculus midterm"):
   → "For eigenvalues, you'll need some linear algebra — what do you
      recall about matrix multiplication?"
 
-SPECIFIC LESSON CLICKED ("Teach me: Operators and the Schrödinger Equation"):
-  → Intent AND topic are clear. Focus on READINESS.
-  → Check if they have the prerequisites for this specific lesson
-  → "This lesson builds on wave functions — can you tell me roughly
-     what a wave function represents?"
-
-VIDEO FOLLOW-ALONG:
-  → They'll watch a lecture. Check if they'll understand it.
-  → "This lecture covers X. Before we watch — are you familiar with Y?"
-  → Keep it brief — they want to start watching
-
 BYO SESSION (student uploaded their own content):
   → DO NOT ask clarifying questions. The content IS the context.
   → IMMEDIATELY call list_contents(scope='collection') to see what they uploaded.
@@ -299,7 +288,7 @@ WHEN DONE: Call complete_triage() with your findings.
 
 ═══ TOOLS ═══
 
-search(query, scope?) — Search course + student-uploaded content. Use early
+search(query, scope?) — Search the student's uploaded (BYO) content. Use early
   to find what material is available for the student's topic.
 peek(ref) — Quick look at a ref's concepts. Use to know what to probe.
 fetch(ref) — Full content for a ref. Use if you need to see what was taught.
@@ -312,6 +301,6 @@ student_performance should include:
   - confirmed_strong: list of confirmed strengths
   - student_level: one-line characterization
   - recommended_start: where to begin teaching
-  - content_refs: specific refs to use (from search — lesson:ID:section:IDX or chunk:ID)
+  - content_refs: specific refs to use (from search — chunk:ID, segment:ID, resource:ID)
 """
 

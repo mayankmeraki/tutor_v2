@@ -1,101 +1,111 @@
-"""Web search tool — DuckDuckGo instant answers + HTML search fallback.
+"""Web search via OpenRouter's ``openrouter:web_search`` server tool.
 
-Provides the tutor and sub-agents with general web search capability
-for supplementary information not found in course materials.
+The tutor and sub-agents already get web search for free at the
+chat-completion layer: ``_convert_tools_openrouter`` rewrites a
+``web_search`` tool entry into the ``openrouter:web_search`` server
+tool, so when the model decides to call it the search runs server-side
+(Exa-backed by default) and never round-trips through us.
+
+This module exists for the few backend code paths that want to perform
+a search *outside* of a tutor/agent loop (e.g. ``prefetch_context`` in
+the teaching pipeline). It issues a small chat-completion to a cheap
+model with the same server tool enabled and returns the model's cited
+summary. No DuckDuckGo HTML scraping anywhere.
 """
 
-import logging
-import re
+from __future__ import annotations
 
-import httpx
+import logging
+
+from app.core.config import settings
 
 logger = logging.getLogger(__name__)
 
-_TAG_RE = re.compile(r"<[^>]+>")
+
+_SYSTEM_PROMPT = (
+    "You are a research assistant. The user gives you a query — call the "
+    "openrouter:web_search tool, then return a concise factual summary of "
+    "what you found. Include 2-5 inline source URLs in markdown link form. "
+    "Never invent facts; only report what the search returned. Keep the "
+    "answer under ~250 words."
+)
 
 
-async def web_search(query: str, limit: int = 5) -> str:
-    """Search the web for educational content.
+async def web_search(query, limit: int = 5) -> str:
+    """Search the web for educational / factual content.
 
-    Uses DuckDuckGo instant answer API first (fast, structured).
-    Falls back to DuckDuckGo HTML search for broader results.
-    Returns a concise summary of top results.
+    Args:
+        query: Search query string. Also accepts a ``{"query": ..., "limit": ...}``
+            dict for backwards compatibility with one legacy call site.
+        limit: Max results per search call (1-10).
+
+    Returns:
+        Cited summary, or a short error string on failure.
     """
-    limit = max(1, min(limit, 8))
+    # Backwards-compat: legacy call site passes a dict positionally.
+    if isinstance(query, dict):
+        limit = int(query.get("limit", limit) or limit)
+        query = query.get("query", "")
+
+    query = (query or "").strip()
+    if not query:
+        return "Web search: empty query."
+
+    limit = max(1, min(int(limit), 10))
     logger.debug("web_search query=%r limit=%d", query, limit)
 
-    results: list[str] = []
+    api_key = getattr(settings, "OPENROUTER_API_KEY", "") or ""
+    if not api_key:
+        return "Web search unavailable: OPENROUTER_API_KEY not configured."
 
     try:
-        async with httpx.AsyncClient(timeout=10, follow_redirects=True) as client:
-            # ── Phase 1: DuckDuckGo Instant Answer API ──
-            resp = await client.get(
-                "https://api.duckduckgo.com/",
-                params={"q": query, "format": "json", "no_html": "1", "skip_disambig": "1"},
-            )
-            data = resp.json()
+        import openai
 
-            # Abstract (Wikipedia-style summary)
-            abstract = data.get("AbstractText", "").strip()
-            if abstract:
-                source = data.get("AbstractSource", "")
-                url = data.get("AbstractURL", "")
-                results.append(
-                    f"**Summary** ({source}):\n{abstract[:600]}"
-                    + (f"\nSource: {url}" if url else "")
-                )
-
-            # Related topics
-            for topic in (data.get("RelatedTopics") or [])[:4]:
-                text = topic.get("Text", "").strip()
-                url = topic.get("FirstURL", "")
-                if text and len(results) < limit:
-                    results.append(f"- {text[:250]}" + (f"\n  URL: {url}" if url else ""))
-
-            # Always try HTML search too — instant answer only covers
-            # Wikipedia-style topics, not educational/technical queries.
-            # ── Phase 2: DuckDuckGo HTML search ──
-            resp = await client.get(
-                "https://html.duckduckgo.com/html/",
-                params={"q": query},
-                headers={"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"},
-            )
-            html = resp.text
-
-            # Parse result snippets from HTML
-            # DuckDuckGo HTML results are in <a class="result__a"> and <a class="result__snippet">
-            snippet_pattern = re.compile(
-                r'class="result__a"[^>]*href="([^"]*)"[^>]*>(.*?)</a>.*?'
-                r'class="result__snippet"[^>]*>(.*?)</(?:a|td)',
-                re.DOTALL,
-            )
-            for match in snippet_pattern.finditer(html):
-                if len(results) >= limit:
-                    break
-                url = match.group(1).strip()
-                title = _TAG_RE.sub("", match.group(2)).strip()
-                snippet = _TAG_RE.sub("", match.group(3)).strip()
-                if title and snippet:
-                    # DuckDuckGo HTML wraps URLs in a redirect — extract the real URL
-                    if "uddg=" in url:
-                        real_url_match = re.search(r"uddg=([^&]+)", url)
-                        if real_url_match:
-                            from urllib.parse import unquote
-                            url = unquote(real_url_match.group(1))
-                    results.append(f"**{title}**\n{snippet[:300]}\nURL: {url}")
-
-    except (httpx.TimeoutException, httpx.ConnectError, httpx.NetworkError) as e:
-        # Network failures are non-fatal — caller continues without web results
-        logger.warning("web_search timeout/network: %s (query=%r)", type(e).__name__, query)
-        if not results:
-            return f"Web search unavailable (network timeout). Use other knowledge sources."
+        client = openai.AsyncOpenAI(
+            base_url="https://openrouter.ai/api/v1",
+            api_key=api_key,
+            default_headers={
+                "HTTP-Referer": "https://capacity.app",
+                "X-Title": "Capacity Tutor",
+            },
+        )
+        # MODEL_FAST is cheap + fast (Haiku via OpenRouter). Any model that
+        # supports tool calling works — the actual searching is done by
+        # OpenRouter, the model just orchestrates and summarises.
+        model = getattr(settings, "MODEL_FAST", "anthropic/claude-haiku-4.5")
+        resp = await client.chat.completions.create(
+            model=model,
+            messages=[
+                {"role": "system", "content": _SYSTEM_PROMPT},
+                {"role": "user", "content": query},
+            ],
+            tools=[
+                {
+                    "type": "openrouter:web_search",
+                    "parameters": {
+                        "max_results": limit,
+                        "search_context_size": "medium",
+                    },
+                }
+            ],
+            max_tokens=900,
+            timeout=20,
+        )
+        text = (resp.choices[0].message.content or "").strip()
+        usage = getattr(resp, "usage", None)
+        searches = 0
+        if usage is not None:
+            stu = getattr(usage, "server_tool_use", None)
+            if stu is not None:
+                searches = getattr(stu, "web_search_requests", 0) or 0
+        if not text:
+            logger.warning("web_search query=%r returned empty body", query)
+            return f'No web results found for "{query}".'
+        logger.info(
+            "web_search query=%r returned %d chars, %d underlying searches",
+            query, len(text), searches,
+        )
+        return f'Web search results for "{query}":\n\n{text[:4000]}'
     except Exception as e:
-        logger.error("web_search failed query=%r", query, exc_info=True)
-        if not results:
-            return f"Web search failed: {e}. Try a different query or use course materials."
-
-    if results:
-        logger.info("web_search query=%r returned %d results (HTML fallback)", query, len(results))
-        return f"Web search results for \"{query}\":\n\n" + "\n\n".join(results)
-    logger.warning("web_search query=%r returned no results", query)
-    return f"No web results found for \"{query}\". Try rephrasing or using course materials."
+        logger.warning("web_search failed query=%r: %s", query, e, exc_info=True)
+        return f"Web search failed: {e}"

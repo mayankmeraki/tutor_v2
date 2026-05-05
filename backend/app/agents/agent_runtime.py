@@ -358,18 +358,13 @@ class AgentRuntime:
         from app.agents.prompts import build_planning_prompt
 
         planning_prompt = build_planning_prompt(context)
-        has_course = "courseMap" in context and context.get("courseMap")
 
-        # Build tool list — planner uses the unified retrieval surface.
+        # Build tool list — planner uses the unified retrieval surface (BYO).
         from app.tools import TUTOR_TOOLS
         planner_tool_names = {
             "search", "fetch", "peek", "list_contents",
             "web_search", "query_knowledge",
         }
-        if not has_course:
-            # Course-specific refs won't resolve; we still leave search/list
-            # available (they route to BYO/user_corpus by scope).
-            pass
         planner_tools = [t for t in TUTOR_TOOLS if t["name"] in planner_tool_names]
 
         messages: list[dict] = [{"role": "user", "content": f"<task>\n{task.instructions}\n</task>"}]
@@ -425,33 +420,11 @@ class AgentRuntime:
 
         raise RuntimeError("Planning agent failed to produce valid JSON plan")
 
-    @staticmethod
-    def _extract_course_id_from_context(context: dict) -> int | None:
-        """Try to extract course_id from context data."""
-        # Try direct field
-        cid = context.get("courseId") or context.get("course_id")
-        if cid:
-            try:
-                return int(cid)
-            except (ValueError, TypeError):
-                pass
-        # Try from sessionContext
-        sc = context.get("sessionContext", "")
-        if sc and isinstance(sc, str):
-            try:
-                sc_data = json.loads(sc)
-                cid = sc_data.get("courseId") or sc_data.get("course_id")
-                if cid:
-                    return int(cid)
-            except (json.JSONDecodeError, ValueError, TypeError):
-                pass
-        return None
-
     async def _execute_planning_tool(self, tool_name: str, tool_input: dict, context: dict) -> str:
         """Execute a tool call from the planning agent.
 
         Routes through the unified tool dispatcher, threading the session
-        context so retrieval tools can resolve user_id / course_id.
+        context so retrieval tools can resolve user_id / collection_id.
         """
         try:
             from app.tools import execute_tutor_tool
@@ -478,8 +451,8 @@ class AgentRuntime:
             f"Be concise and structured. Output what the Tutor needs, nothing more.",
         ]
 
-        # Include relevant course/content context
-        for key in ("courseMap", "concepts", "simulations"):
+        # Include relevant context
+        for key in ("concepts", "simulations"):
             val = context.get(key)
             if val:
                 system_parts.append(f"\n[{key}]\n{val}")
@@ -554,8 +527,8 @@ class AgentRuntime:
             "If no enrichment is needed, output: (no enrichment needed)"
         )
 
-        # Add course + BYO context
-        for key in ("courseMap", "concepts", "sessionContext"):
+        # Add BYO context
+        for key in ("concepts", "sessionContext"):
             val = context.get(key)
             if val:
                 system_prompt += f"\n\n[{key}]\n{val[:2000]}"
@@ -695,7 +668,7 @@ class AgentRuntime:
             "completely different but whose underlying skeleton is the same "
             "concept. The student should NOT see the connection at first.\n\n"
             "USE TOOLS to find non-obvious applications. Don't invent from "
-            "your weights alone — use web_search and search (scope='course' or 'both') to find "
+            "your weights alone — use web_search and search (scope='collection' or 'user_corpus') to find "
             "real, vivid, surprising uses of the concept.\n\n"
             "OUTPUT: Reply with ONE valid JSON object matching the schema "
             "below. No prose before or after. No markdown code fences.\n\n"
@@ -721,8 +694,8 @@ class AgentRuntime:
             "}"
         )
 
-        # Provide course context if available
-        for key in ("courseMap", "concepts"):
+        # Provide concept context if available
+        for key in ("concepts",):
             val = context.get(key)
             if val:
                 system_prompt += f"\n\n[{key}]\n{str(val)[:1500]}"
@@ -930,8 +903,8 @@ class AgentRuntime:
             "Make it engaging, educational, and physically accurate.",
         ]
 
-        # Include relevant course context
-        for key in ("courseMap", "concepts"):
+        # Include relevant context
+        for key in ("concepts",):
             val = context.get(key)
             if val:
                 system_parts.append(f"\n[{key}]\n{val}")

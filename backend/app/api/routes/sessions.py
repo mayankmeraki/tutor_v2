@@ -47,7 +47,7 @@ async def create(request: Request, user: dict = Depends(get_optional_user)):
     if not session_id:
         raise HTTPException(status_code=400, detail="sessionId is required")
     doc = await create_session(body)
-    log.info("Session created: %s (student=%s, course=%s)", session_id, body.get("studentName"), body.get("courseId"))
+    log.info("Session created: %s (student=%s)", session_id, body.get("studentName"))
     return doc
 
 
@@ -65,7 +65,7 @@ async def all_my_sessions(user: dict = Depends(get_optional_user)):
     cursor = db["sessions"].find(
         {"userEmail": user["email"]},
         {f: 1 for f in [
-            "sessionId", "courseId", "studentName", "startedAt", "status",
+            "sessionId", "studentName", "startedAt", "status",
             "headline", "headlineDescription", "intent", "durationSec",
             "metrics", "sections", "plan.sessionObjective",
             "backendState.sessionMode", "backendState.mockPhase",
@@ -84,34 +84,12 @@ async def all_my_sessions(user: dict = Depends(get_optional_user)):
     # Enrich headlines (non-blocking — uses cached or fallback, fires bg tasks)
     docs = await _enrich_sessions_with_headlines(docs)
 
-    # Attach course names — use a simple in-memory cache + parallel fetch
-    course_ids = list({d["courseId"] for d in docs if d.get("courseId")})
-    course_names = {}
-    if course_ids:
-        try:
-            from app.services.content.content_service import get_course_title_cached
-            # Fetch all course names in parallel
-            results = await asyncio.gather(
-                *[get_course_title_cached(cid) for cid in course_ids[:10]],
-                return_exceptions=True,
-            )
-            for cid, name in zip(course_ids[:10], results):
-                if isinstance(name, str) and name:
-                    course_names[cid] = name
-        except Exception as e:
-            log.warning("Failed to fetch course names: %s", e)
-
-    for d in docs:
-        cid = d.get("courseId")
-        if cid and cid in course_names:
-            d["courseName"] = course_names[cid]
-
     return docs
 
 
 @router.get("/search/all")
 async def search_all(q: str = "", user: dict = Depends(get_optional_user)):
-    """Search sessions across all courses for the authenticated user."""
+    """Search sessions for the authenticated user."""
     if not q or len(q.strip()) < 2:
         return []
     import re as _re
@@ -129,7 +107,7 @@ async def search_all(q: str = "", user: dict = Depends(get_optional_user)):
             ],
         },
         {f: 1 for f in [
-            "sessionId", "courseId", "studentName", "startedAt", "status",
+            "sessionId", "studentName", "startedAt", "status",
             "headline", "headlineDescription", "intent", "durationSec",
             "backendState.sessionMode", "backendState.mockPhase",
             "backendState.mockCompany", "backendState.problemData.name",
@@ -144,35 +122,34 @@ async def search_all(q: str = "", user: dict = Depends(get_optional_user)):
     return docs
 
 
-@router.get("/me/{course_id}")
-async def my_sessions(course_id: str, user: dict = Depends(get_optional_user)):
-    """Get all sessions for the authenticated user. course_id is optional (legacy)."""
-    cid = int(course_id) if course_id and course_id != "null" else None
-    docs = await get_sessions_for_user(cid, user["email"])
-    return docs
+# Legacy compatibility — frontend still calls /me/{course_id} and
+# /me/{course_id}/with-headlines. The course_id path segment is ignored.
 
-
-@router.get("/me/{course_id}/with-headlines")
+@router.get("/me/{course_id:path}/with-headlines")
 async def my_sessions_with_headlines(course_id: str, user: dict = Depends(get_optional_user)):
     """Get all sessions for the authenticated user with AI headlines."""
-    cid = int(course_id) if course_id and course_id != "null" else None
-    docs = await get_sessions_with_headlines_by_email(cid, user["email"])
+    docs = await get_sessions_with_headlines_by_email(user["email"])
     return docs
 
 
-@router.get("/student/{course_id}/{student_name}")
-async def student_sessions(course_id: str, student_name: str, user: dict = Depends(get_optional_user)):
-    """Get all sessions for a student, newest first."""
-    cid = int(course_id) if course_id and course_id != "null" else None
-    docs = await get_sessions_for_student(cid, student_name)
+@router.get("/me/{course_id:path}")
+async def my_sessions(course_id: str, user: dict = Depends(get_optional_user)):
+    """Get all sessions for the authenticated user. course_id is ignored (legacy)."""
+    docs = await get_sessions_for_user(user["email"])
     return docs
 
 
 @router.get("/student/{course_id}/{student_name}/with-headlines")
 async def student_sessions_with_headlines(course_id: str, student_name: str, user: dict = Depends(get_optional_user)):
     """Get all sessions for a student with AI-generated headlines."""
-    cid = int(course_id) if course_id and course_id != "null" else None
-    docs = await get_sessions_with_headlines(cid, student_name)
+    docs = await get_sessions_with_headlines(student_name)
+    return docs
+
+
+@router.get("/student/{course_id}/{student_name}")
+async def student_sessions(course_id: str, student_name: str, user: dict = Depends(get_optional_user)):
+    """Get all sessions for a student, newest first."""
+    docs = await get_sessions_for_student(student_name)
     return docs
 
 
@@ -181,8 +158,7 @@ async def search(course_id: str, q: str = "", user: dict = Depends(get_optional_
     """Semantic search across sessions."""
     if not q or len(q.strip()) < 2:
         return []
-    cid = int(course_id) if course_id and course_id != "null" else None
-    results = await search_sessions_semantic(cid, user["email"], q.strip())
+    results = await search_sessions_semantic(user["email"], q.strip())
     return results
 
 

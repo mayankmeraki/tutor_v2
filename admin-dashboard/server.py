@@ -6,12 +6,16 @@ Usage:
     python server.py                         # defaults: port 4000
     python server.py --port 4001
 
-Reads MONGODB_URI from ../backend/.env (via dotenv) or environment variables.
+Reads MONGODB_URI and MONGODB_DB from ../backend/.env, then optional ./.env here.
+Use Capacity Atlas + myprofessor for production Seek users; DASHBOARD_MONGODB_URI
+can override the URI for this process only.
 """
 
 import asyncio
+import hashlib
 import json
 import os
+import re
 import sys
 import time
 import threading
@@ -23,30 +27,100 @@ from urllib.parse import urlparse
 import certifi
 from motor.motor_asyncio import AsyncIOMotorClient
 
-# ── Config — load from backend .env ─────────────────────────────────
+# ── Config — load backend .env, then admin-dashboard/.env (override) ─
 
 _BACKEND_ENV = os.path.join(os.path.dirname(__file__), "..", "backend", ".env")
+_ADMIN_ENV = os.path.join(os.path.dirname(__file__), ".env")
+
+
+def _parse_env_file(path: str, override: bool) -> None:
+    if not os.path.exists(path):
+        return
+    with open(path) as _f:
+        for _line in _f:
+            _line = _line.strip()
+            if _line and not _line.startswith("#") and "=" in _line:
+                _k, _v = _line.split("=", 1)
+                _k, _v = _k.strip(), _v.strip().strip('"').strip("'")
+                if not _k:
+                    continue
+                if override or _k not in os.environ:
+                    os.environ[_k] = _v
+
 
 try:
     from dotenv import load_dotenv
-    load_dotenv(_BACKEND_ENV, override=False)
+    # Admin dashboard must follow repo .env: shell-exported MONGODB_URI (old cluster)
+    # would otherwise win if we used override=False.
+    load_dotenv(_BACKEND_ENV, override=True)
+    load_dotenv(_ADMIN_ENV, override=True)
 except ImportError:
-    # Fallback: parse .env manually if python-dotenv not installed
-    if os.path.exists(_BACKEND_ENV):
-        with open(_BACKEND_ENV) as _f:
-            for _line in _f:
-                _line = _line.strip()
-                if _line and not _line.startswith("#") and "=" in _line:
-                    _k, _v = _line.split("=", 1)
-                    _k, _v = _k.strip(), _v.strip().strip('"').strip("'")
-                    if _k and _v and _k not in os.environ:
-                        os.environ[_k] = _v
+    _parse_env_file(_BACKEND_ENV, override=True)
+    _parse_env_file(_ADMIN_ENV, override=True)
 
-MONGO_URI = os.environ.get("MONGODB_URI", "")
+MONGO_URI = (os.environ.get("DASHBOARD_MONGODB_URI") or os.environ.get("MONGODB_URI", "")).strip()
 if not MONGO_URI:
-    sys.exit("MONGODB_URI not set. Ensure ../backend/.env exists or set the env var.")
+    sys.exit(
+        "No Mongo URI: set DASHBOARD_MONGODB_URI or MONGODB_URI "
+        "(admin-dashboard/.env or ../backend/.env)."
+    )
+
+# Same DB name as backend (e.g. myprofessor on Capacity Atlas, tutor_v2 elsewhere)
+MONGO_DB_NAME = os.environ.get("MONGODB_DB", "tutor_v2").strip() or "tutor_v2"
 
 PORT = int(os.environ.get("DASHBOARD_PORT", "4000"))
+
+
+def _qs_first(qs: dict, key: str, default: str = "") -> str:
+    vals = qs.get(key) or []
+    if not vals:
+        return default
+    v = vals[0]
+    return str(v) if v is not None else default
+
+
+def parse_email_filter_parts(qs: dict) -> tuple[str, str, list[str]]:
+    """From query string: domain (e.g. seekcapacity.com), substring contains, comma-separated excludes."""
+    domain = _qs_first(qs, "domain").strip().lower()
+    if domain.startswith("@"):
+        domain = domain[1:]
+    contains = _qs_first(qs, "email_contains").strip()
+    exclude_raw = _qs_first(qs, "email_exclude").strip()
+    exclude_parts = [s.strip() for s in exclude_raw.split(",") if s.strip()]
+    return domain, contains, exclude_parts
+
+
+def filter_fingerprint_parts(domain: str, contains: str, exclude_parts: list[str]) -> str:
+    if not domain and not contains and not exclude_parts:
+        return "all"
+    raw = f"{domain}|{contains}|{','.join(exclude_parts)}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:16]
+
+
+def email_match_for_field(field: str, domain: str, contains: str, exclude_parts: list[str]):
+    """Mongo fragment for one field (userEmail on sessions, email on users). None = no constraint."""
+    parts: list[dict] = []
+    if domain:
+        parts.append({field: {"$regex": re.escape("@" + domain) + "$", "$options": "i"}})
+    if contains:
+        parts.append({field: {"$regex": re.escape(contains), "$options": "i"}})
+    for seg in exclude_parts:
+        parts.append({field: {"$not": {"$regex": re.escape(seg), "$options": "i"}}})
+    if not parts:
+        return None
+    if len(parts) == 1:
+        return parts[0]
+    return {"$and": parts}
+
+
+def merge_mongo_filters(*parts: dict | None) -> dict:
+    fs = [p for p in parts if p]
+    if not fs:
+        return {}
+    if len(fs) == 1:
+        return fs[0]
+    return {"$and": fs}
+
 
 # Max gap between two consecutive messages that still counts as "active"
 INTERACTION_GAP_CAP_SEC = 300  # 5 minutes
@@ -69,7 +143,7 @@ def get_client():
     return _client
 
 def get_db():
-    return get_client()["tutor_v2"]
+    return get_client()[MONGO_DB_NAME]
 
 
 async def ensure_indexes():
@@ -97,12 +171,14 @@ async def ensure_indexes():
 
 _cache: dict[str, tuple[float, object]] = {}
 _cache_lock = threading.Lock()
-CACHE_TTL = 60  # seconds — long enough that browse-around sessions stay cached
+CACHE_TTL = 60  # seconds — stats/users/analytics
+CACHE_TTL_SESSIONS = 12  # shorter: session list should feel up to date when switching tabs / refreshing
 
 def cache_get(key: str):
+    ttl = CACHE_TTL_SESSIONS if key.startswith("sessions_") else CACHE_TTL
     with _cache_lock:
         entry = _cache.get(key)
-        if entry and (time.time() - entry[0]) < CACHE_TTL:
+        if entry and (time.time() - entry[0]) < ttl:
             return entry[1]
     return None
 
@@ -130,6 +206,20 @@ def _parse_ts(raw) -> float | None:
     # Gap larger than this → treat as session paused (tab left open, resumed
     # later). The next message starts a new active period.
 ACTIVE_PERIOD_GAP_SEC = 15 * 60  # 15 minutes
+
+
+def _shorten_text(text: str, n: int = 140) -> str:
+    """Collapse whitespace + truncate a long string with an ellipsis on a word boundary."""
+    if not text:
+        return ""
+    s = re.sub(r"\s+", " ", str(text)).strip()
+    if len(s) <= n:
+        return s
+    cut = s[: n - 1]
+    sp = cut.rfind(" ")
+    if sp > int(n * 0.6):
+        cut = cut[:sp]
+    return cut + "\u2026"
 
 
 def compute_interaction_time(transcript: list) -> dict:
@@ -188,15 +278,36 @@ def compute_interaction_time(transcript: list) -> dict:
 
 # ── API handlers ────────────────────────────────────────────────────
 
-async def fetch_stats():
-    cached = cache_get("stats")
+def _mongo_stats_meta() -> dict:
+    """Non-sensitive cluster identity for /api/stats (so DevTools can confirm the active URI)."""
+    return {
+        "mongoHost": urlparse(MONGO_URI).hostname or "",
+        "mongoDb": MONGO_DB_NAME,
+    }
+
+
+async def fetch_stats(qs: dict | None = None):
+    qs = qs or {}
+    domain, contains, exclude_parts = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
+    cache_key = f"stats_{fp}"
+    cached = cache_get(cache_key)
     if cached:
-        return cached
+        out = dict(cached)
+        out.update(_mongo_stats_meta())
+        return out
     db = get_db()
-    total_users = await db.users.count_documents({})
-    total_sessions = await db.sessions.count_documents({})
-    active_sessions = await db.sessions.count_documents({"status": "active"})
-    external_sessions = await db.sessions.count_documents({"userEmail": {"$ne": "mayank@test.com"}})
+    sess_email = email_match_for_field("userEmail", domain, contains, exclude_parts)
+    user_email = email_match_for_field("email", domain, contains, exclude_parts)
+
+    total_users = await db.users.count_documents(user_email or {})
+    total_sessions = await db.sessions.count_documents(sess_email or {})
+    active_sessions = await db.sessions.count_documents(
+        merge_mongo_filters(sess_email, {"status": "active"})
+    )
+    external_sessions = await db.sessions.count_documents(
+        merge_mongo_filters(sess_email, {"userEmail": {"$ne": "mayank@test.com"}})
+    )
 
     # Cost aggregation via MongoDB $group (pushes math to the DB)
     # createdAt is stored as an ISO string, so we compare lexically with .isoformat()
@@ -204,9 +315,10 @@ async def fetch_stats():
     today_start = now.replace(hour=0, minute=0, second=0, microsecond=0).isoformat()
     month_start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0).isoformat()
 
-    async def _sum_cost(match_stage: dict) -> dict:
+    async def _sum_cost(date_match: dict) -> dict:
+        merged = merge_mongo_filters(sess_email, date_match)
         pipeline = [
-            {"$match": match_stage},
+            {"$match": merged},
             {"$group": {
                 "_id": None,
                 "llm": {"$sum": {"$ifNull": ["$backendState.llmCostCents", 0]}},
@@ -233,32 +345,49 @@ async def fetch_stats():
         "costMonthCents": cost_month["llm"] + cost_month["tts"],
         "costTodayCents": cost_today["llm"] + cost_today["tts"],
         "ts": datetime.now(timezone.utc).isoformat(),
+        "filters": {
+            "active": bool(domain or contains or exclude_parts),
+            "domain": domain,
+            "email_contains": contains,
+            "email_exclude": ",".join(exclude_parts),
+        },
     }
-    cache_set("stats", result)
+    result.update(_mongo_stats_meta())
+    cache_set(cache_key, result)
     return result
 
 
-async def fetch_users():
+async def fetch_users(qs: dict | None = None):
     """Optimized user-aggregation:
       1. Mongo $group — counts/costs/per-session min/max timestamps (server-side, fast)
       2. For "outlier" sessions (span > 4h, suggesting tab-open) pull transcript
          timestamps and refine via active-period split. ~5% of sessions.
       3. For normal sessions, span ≈ active (continuous interaction).
     """
-    cached = cache_get("users")
+    qs = qs or {}
+    domain, contains, exclude_parts = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
+    cached = cache_get(f"users_{fp}")
     if cached:
         return cached
     db = get_db()
     OUTLIER_GAP_SEC = 4 * 3600  # 4 hours — sessions with span>this need refinement
 
+    sess_email = email_match_for_field("userEmail", domain, contains, exclude_parts)
+    user_email = email_match_for_field("email", domain, contains, exclude_parts)
+
     # Single aggregation: counts + costs + min/max timestamp per session, then
     # group by user. We sum span-from-min/max here and tag outlier sessions for
     # later refinement.
     users_fut = db.users.find(
-        {}, {"name": 1, "email": 1, "createdAt": 1}
+        user_email or {},
+        {"name": 1, "email": 1, "createdAt": 1},
     ).sort("createdAt", -1).to_list(length=500)
 
-    sessions_agg_fut = db.sessions.aggregate([
+    agg_pipeline: list = []
+    if sess_email:
+        agg_pipeline.append({"$match": sess_email})
+    agg_pipeline.extend([
         # Compute per-session min/max timestamp (uses indexed transcript.timestamp)
         {"$addFields": {
             "_minTs": {"$min": "$transcript.timestamp"},
@@ -302,7 +431,8 @@ async def fetch_users():
                 }
             },
         }},
-    ], allowDiskUse=True).to_list(length=1000)
+    ])
+    sessions_agg_fut = db.sessions.aggregate(agg_pipeline, allowDiskUse=True).to_list(length=1000)
 
     users, agg = await asyncio.gather(users_fut, sessions_agg_fut)
     session_map = {a["_id"]: a for a in agg}
@@ -365,15 +495,18 @@ async def fetch_users():
             "totalLlmCents": round(llm_c, 2),
             "totalTtsCents": round(tts_c, 2),
         })
-    cache_set("users", result)
+    cache_set(f"users_{fp}", result)
     return result
 
 
-async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
+async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict | None = None):
     """Paginated sessions list. Default 50/page; supports search filter on
     userEmail / studentName / title / intent.
     """
-    cache_key = f"sessions_{limit}_{offset}_{q.lower()}"
+    qs = qs or {}
+    domain, contains, exclude_parts = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
+    cache_key = f"sessions_v4_{limit}_{offset}_{q.lower()}_{fp}"
     cached = cache_get(cache_key)
     if cached:
         return cached
@@ -384,7 +517,6 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
     if q:
         ql = q.strip()
         if ql:
-            import re
             # Case-insensitive substring across the relevant fields
             qre = re.compile(re.escape(ql), re.IGNORECASE)
             match = {"$or": [
@@ -395,8 +527,14 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
                 {"intent.raw": qre},
             ]}
 
+    sess_email = email_match_for_field("userEmail", domain, contains, exclude_parts)
+    if sess_email and match:
+        match = {"$and": [match, sess_email]}
+    elif sess_email:
+        match = sess_email
+
     # Get total count (cached separately so we don't recount each page)
-    count_key = f"sessions_count_{q.lower()}"
+    count_key = f"sessions_count_{q.lower()}_{fp}"
     cached_count = cache_get(count_key)
     if cached_count is None:
         total = await db.sessions.count_documents(match)
@@ -404,14 +542,21 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
     else:
         total = cached_count
 
-    # Pull transcript timestamps (small) so we can compute true active time
+    # Pull a small slice of transcript so we can compute active time AND show
+    # what the user actually typed without opening the modal. Content is bounded
+    # by the per-row truncation below so it stays cheap on the wire.
     sessions = await db.sessions.find(
         match,
         {
             "userEmail": 1, "studentName": 1, "title": 1, "headline": 1,
             "createdAt": 1, "durationSec": 1, "metrics": 1, "intent": 1,
-            "status": 1, "teachingMode": 1, "courseId": 1,
-            "transcript.timestamp": 1,
+            "status": 1, "teachingMode": 1,
+            "transcript": {"$slice": 12},
+            "backendState.sessionMode": 1,
+            "backendState.studentIntent": 1,
+            "backendState.problemData.name": 1,
+            "backendState.problemData.slug": 1,
+            "backendState.problemData.difficulty": 1,
             "backendState.llmCostCents": 1,
             "backendState.ttsCostCents": 1,
             "backendState.llmCallCount": 1,
@@ -430,12 +575,43 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
         bs = s.get("backendState") or {}
         llm_c = bs.get("llmCostCents") or 0
         tts_c = bs.get("ttsCostCents") or 0
-        timing = compute_interaction_time(s.get("transcript", []))
+        transcript_slice = s.get("transcript", []) or []
+        timing = compute_interaction_time(transcript_slice)
+        pd = bs.get("problemData") if isinstance(bs.get("problemData"), dict) else {}
+
+        first_user_msg = ""
+        user_msg_count = 0
+        for turn in transcript_slice:
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role", turn.get("speaker", ""))).lower()
+            if role not in ("user", "student"):
+                continue
+            content = _flatten_message_content(
+                turn.get("content", turn.get("text", turn.get("message", ""))),
+                cap=400,
+            )
+            if not content or content.startswith("[SYSTEM]"):
+                continue
+            user_msg_count += 1
+            if not first_user_msg:
+                first_user_msg = content[:280]
+            if user_msg_count >= 6:
+                break
+
+        raw_title = s.get("title") or s.get("headline") or "(no title)"
         result.append({
             "_id": str(s.get("_id", "")),
             "user": s.get("studentName", "?"),
             "email": s.get("userEmail", ""),
-            "title": s.get("title") or s.get("headline") or "(no title)",
+            "title": _shorten_text(raw_title, 140),
+            "titleFull": _shorten_text(raw_title, 4000),
+            "sessionMode": bs.get("sessionMode") or "general",
+            "studentIntent": (bs.get("studentIntent") or "")[:280],
+            "firstUserMsg": first_user_msg,
+            "problemSlug": (pd.get("slug") or "")[:120],
+            "problemName": (pd.get("name") or "")[:120],
+            "problemDifficulty": (pd.get("difficulty") or "")[:32],
             "createdAt": str(s.get("createdAt", ""))[:19],
             "durationRaw": dur,
             "activeSec": timing["activeSec"],   # active periods (not tab-open)
@@ -447,7 +623,6 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
             "status": s.get("status", "?"),
             "intent": raw_intent[:120],
             "mode": s.get("teachingMode", ""),
-            "courseId": s.get("courseId", ""),
             "costCents": round(llm_c + tts_c, 2),
             "llmCents": round(llm_c, 2),
             "ttsCents": round(tts_c, 2),
@@ -467,13 +642,19 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = ""):
     return response
 
 
-async def fetch_analytics(days: int = 30):
+async def fetch_analytics(days: int = 30, qs: dict | None = None):
     """Time-series + aggregates for the Analytics tab."""
-    cached = cache_get(f"analytics_{days}")
+    qs = qs or {}
+    domain, contains, exclude_parts = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
+    cache_key = f"analytics_{days}_{fp}"
+    cached = cache_get(cache_key)
     if cached:
         return cached
     db = get_db()
     now = datetime.now(timezone.utc)
+    sess_f = email_match_for_field("userEmail", domain, contains, exclude_parts)
+    user_f = email_match_for_field("email", domain, contains, exclude_parts)
 
     def _iso(dt: datetime) -> str:
         return dt.isoformat()
@@ -484,8 +665,9 @@ async def fetch_analytics(days: int = 30):
     month_ago = _iso(now - datetime_timedelta(days=30))
 
     # ── Signups per day (last N days) — substring on string createdAt ──
+    signup_match = merge_mongo_filters({"createdAt": {"$gte": since}}, user_f)
     signup_pipeline = [
-        {"$match": {"createdAt": {"$gte": since}}},
+        {"$match": signup_match},
         {"$group": {
             "_id": {"$substrCP": ["$createdAt", 0, 10]},  # YYYY-MM-DD from ISO string
             "count": {"$sum": 1},
@@ -498,8 +680,9 @@ async def fetch_analytics(days: int = 30):
     ]
 
     # ── Sessions per day ──
+    sess_day_match = merge_mongo_filters({"createdAt": {"$gte": since}}, sess_f)
     sess_pipeline = [
-        {"$match": {"createdAt": {"$gte": since}}},
+        {"$match": sess_day_match},
         {"$group": {
             "_id": {"$substrCP": ["$createdAt", 0, 10]},
             "count": {"$sum": 1},
@@ -517,15 +700,12 @@ async def fetch_analytics(days: int = 30):
     ]
 
     # ── DAU/WAU/MAU (unique users ACTIVE in window — not just session-creators) ──
-    # A user counts as active if any of their session transcripts contains a
-    # message timestamp inside the window. createdAt-only counted misses
-    # users who started a session earlier and are still actively using it.
     async def _unique_active_users(gte_iso: str) -> int:
         pipeline = [
-            # Find sessions with at least one message inside the window.
-            # transcript.timestamp is an array field — Mongo's elemMatch-like
-            # implicit semantics on dotted paths picks any element matching.
-            {"$match": {"transcript.timestamp": {"$gte": gte_iso}}},
+            {"$match": merge_mongo_filters(
+                {"transcript.timestamp": {"$gte": gte_iso}},
+                sess_f,
+            )},
             {"$group": {"_id": "$userEmail"}},
         ]
         users = set()
@@ -539,22 +719,21 @@ async def fetch_analytics(days: int = 30):
 
     # ── Mode split (voice vs text) ──
     mode_pipeline = [
-        {"$match": {"createdAt": {"$gte": since}}},
+        {"$match": sess_day_match},
         {"$group": {"_id": "$teachingMode", "count": {"$sum": 1}}},
     ]
     mode_split = {r["_id"] or "unknown": r["count"] async for r in db.sessions.aggregate(mode_pipeline)}
 
     # ── Status breakdown ──
     status_pipeline = [
-        {"$match": {"createdAt": {"$gte": since}}},
+        {"$match": sess_day_match},
         {"$group": {"_id": "$status", "count": {"$sum": 1}}},
     ]
     status_breakdown = {r["_id"] or "unknown": r["count"] async for r in db.sessions.aggregate(status_pipeline)}
 
     # ── Top topics (from intent.raw / headline / title, whichever populated) ──
     topic_pipeline = [
-        {"$match": {"createdAt": {"$gte": since}}},
-        # Prefer intent.raw → headline → title
+        {"$match": sess_day_match},
         {"$addFields": {
             "_topic": {"$ifNull": [
                 "$intent.raw",
@@ -577,7 +756,7 @@ async def fetch_analytics(days: int = 30):
 
     # ── Aggregate averages ──
     avg_pipeline = [
-        {"$match": {"createdAt": {"$gte": since}}},
+        {"$match": sess_day_match},
         {"$group": {
             "_id": None,
             "sessions": {"$sum": 1},
@@ -604,16 +783,22 @@ async def fetch_analytics(days: int = 30):
 
     # ── Return rate: cohort → returned in next window ──
     async def _return_rate(cohort_start_iso: str, cohort_end_iso: str, return_since_iso: str) -> dict:
-        cohort = await db.sessions.distinct("userEmail", {
-            "createdAt": {"$gte": cohort_start_iso, "$lt": cohort_end_iso},
-        })
+        cohort_q = merge_mongo_filters(
+            {"createdAt": {"$gte": cohort_start_iso, "$lt": cohort_end_iso}},
+            sess_f,
+        )
+        cohort = await db.sessions.distinct("userEmail", cohort_q)
         cohort = {u for u in cohort if u}
         if not cohort:
             return {"cohort": 0, "returned": 0, "rate": 0}
-        returned = await db.sessions.distinct("userEmail", {
-            "userEmail": {"$in": list(cohort)},
-            "createdAt": {"$gte": return_since_iso},
-        })
+        returned_q = merge_mongo_filters(
+            {
+                "userEmail": {"$in": list(cohort)},
+                "createdAt": {"$gte": return_since_iso},
+            },
+            sess_f,
+        )
+        returned = await db.sessions.distinct("userEmail", returned_q)
         returned = {u for u in returned if u}
         rate = len(returned) / len(cohort) * 100 if cohort else 0
         return {"cohort": len(cohort), "returned": len(returned), "rate": round(rate, 1)}
@@ -638,8 +823,14 @@ async def fetch_analytics(days: int = 30):
         "returnRate1d": ret_1d,
         "returnRate7d": ret_7d,
         "returnRate30d": ret_30d,
+        "filters": {
+            "active": bool(domain or contains or exclude_parts),
+            "domain": domain,
+            "email_contains": contains,
+            "email_exclude": ",".join(exclude_parts),
+        },
     }
-    cache_set(f"analytics_{days}", result)
+    cache_set(cache_key, result)
     return result
 
 
@@ -699,32 +890,43 @@ async def fetch_feedback():
 
 
 async def fetch_session_detail(session_id: str):
-    """Per-session details with perTurnCosts and model breakdown."""
-    cached = cache_get(f"detail_{session_id}")
+    """Per-session details: costs + full visibility (intent, DSA/SD, blueprint, inputs)."""
+    cache_key = f"detail_v3_{session_id}"
+    cached = cache_get(cache_key)
     if cached:
         return cached
     from bson import ObjectId
     db = get_db()
     s = None
+    proj = {
+        "backendState": 1,
+        "intent": 1,
+        "headline": 1,
+        "title": 1,
+        "teachingMode": 1,
+        "status": 1,
+        "metrics": 1,
+        "dsaState": 1,
+        "userEmail": 1,
+        "studentName": 1,
+        "transcript": {"$slice": -80},
+    }
     try:
-        s = await db.sessions.find_one(
-            {"_id": ObjectId(session_id)},
-            {"backendState.perTurnCosts": 1,
-             "backendState.llmCostCents": 1,
-             "backendState.ttsCostCents": 1,
-             "backendState.llmCallCount": 1,
-             "backendState.llmTotalInputTokens": 1,
-             "backendState.llmTotalOutputTokens": 1,
-             "backendState.ttsCharCount": 1,
-             "title": 1, "userEmail": 1, "studentName": 1},
-        )
+        s = await db.sessions.find_one({"_id": ObjectId(session_id)}, proj)
     except Exception:
         pass
     if not s:
+        try:
+            s = await db.sessions.find_one({"sessionId": session_id}, proj)
+        except Exception:
+            s = None
+    if not s:
         return {"error": "not found"}
     bs = s.get("backendState") or {}
+    raw_title_d = s.get("title") or s.get("headline") or ""
     result = {
-        "title": s.get("title", ""),
+        "title": _shorten_text(raw_title_d, 200),
+        "titleFull": _shorten_text(raw_title_d, 8000),
         "user": s.get("studentName", ""),
         "email": s.get("userEmail", ""),
         "llmCents": round(bs.get("llmCostCents") or 0, 2),
@@ -735,8 +937,9 @@ async def fetch_session_detail(session_id: str):
         "outputTokens": bs.get("llmTotalOutputTokens") or 0,
         "ttsChars": bs.get("ttsCharCount") or 0,
         "perTurnCosts": bs.get("perTurnCosts") or [],
+        "sessionInsight": _build_session_insight(s),
     }
-    cache_set(f"detail_{session_id}", result)
+    cache_set(cache_key, result)
     return result
 
 
@@ -780,9 +983,132 @@ async def fetch_transcript(session_id: str):
     return result
 
 
-# ── Replay data ─────────────────────────────────────────────────────
+def _flatten_message_content(content, cap: int = 12000) -> str:
+    """Turn transcript / message content into a single string (truncated)."""
+    if content is None:
+        return ""
+    if isinstance(content, str):
+        t = content
+    elif isinstance(content, list):
+        parts = []
+        for block in content:
+            if isinstance(block, dict) and block.get("type") == "text":
+                parts.append(str(block.get("text", "")))
+            elif isinstance(block, str):
+                parts.append(block)
+        t = " ".join(parts)
+    else:
+        t = str(content)
+    t = t.strip()
+    if len(t) > cap:
+        return t[:cap] + "\n… [truncated]"
+    return t
 
-import re
+
+def _sanitize_dsa_state(d: dict | None) -> dict | None:
+    if not d or not isinstance(d, dict):
+        return None
+    out = dict(d)
+    code = out.get("code")
+    if isinstance(code, str) and len(code) > 16000:
+        out["code"] = code[:16000] + "\n… [truncated]"
+    for k in ("canvasJSON", "lldCanvasJSON"):
+        v = out.get(k)
+        if isinstance(v, str) and len(v) > 4000:
+            out[k] = v[:4000] + "… [truncated]"
+    tr = out.get("testResults")
+    if isinstance(tr, dict) and len(json.dumps(tr, default=str)) > 8000:
+        out["testResults"] = {"_truncated": True, "summary": str(tr.get("summary", tr))[:2000]}
+    return out
+
+
+def _blueprint_summary(bp: dict | None) -> dict | None:
+    if not bp or not isinstance(bp, dict):
+        return None
+    return {
+        "mode": bp.get("mode"),
+        "interaction": bp.get("interaction"),
+        "ui_layout": bp.get("ui_layout"),
+        "problem_slug": bp.get("problem_slug"),
+        "mock_company": bp.get("mock_company"),
+        "mock_timer_minutes": bp.get("mock_timer_minutes"),
+        "tools_enable": bp.get("tools_enable"),
+        "tools_disable": bp.get("tools_disable"),
+        "prompt_sections_count": len(bp.get("prompt_sections") or []),
+    }
+
+
+def _problem_data_summary(pd) -> dict | None:
+    if not pd or not isinstance(pd, dict):
+        return None
+    return {
+        "name": pd.get("name"),
+        "slug": pd.get("slug"),
+        "difficulty": pd.get("difficulty"),
+        "num": pd.get("num"),
+    }
+
+
+def _build_session_insight(doc: dict) -> dict:
+    """Structured view of what the student did (intent, DSA/SD, blueprint, inputs)."""
+    bs = doc.get("backendState") or {}
+    intent = doc.get("intent") or {}
+    intent_raw = intent.get("raw", "") if isinstance(intent, dict) else str(intent)
+    transcript = doc.get("transcript") or []
+    recent_user_lines: list[str] = []
+    for turn in transcript[-30:]:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", turn.get("speaker", ""))).lower()
+        if role not in ("user", "student"):
+            continue
+        line = _flatten_message_content(
+            turn.get("content", turn.get("text", turn.get("message", ""))),
+            cap=4000,
+        )
+        if line and not line.startswith("[SYSTEM]"):
+            recent_user_lines.append(line[:4000])
+    tail = recent_user_lines[-8:]  # last 8 user-visible inputs in window
+
+    msgs = bs.get("messages") or []
+    msg_tail = []
+    if isinstance(msgs, list):
+        for m in msgs[-25:]:
+            if not isinstance(m, dict):
+                continue
+            role = m.get("role", "?")
+            msg_tail.append({
+                "role": role,
+                "content": _flatten_message_content(m.get("content"), cap=6000),
+            })
+
+    return {
+        "intentRaw": _shorten_text(intent_raw, 4000),
+        "headline": _shorten_text(doc.get("headline") or doc.get("title") or "", 240),
+        "sessionTeachingMode": doc.get("teachingMode") or "",
+        "sessionStatus": doc.get("status") or "",
+        "backendSessionMode": bs.get("sessionMode") or "general",
+        "studentIntent": (bs.get("studentIntent") or "")[:4000],
+        "phase": bs.get("phase"),
+        "blueprint": _blueprint_summary(bs.get("blueprint")),
+        "problemData": _problem_data_summary(bs.get("problemData")),
+        "dsaState": _sanitize_dsa_state(doc.get("dsaState")),
+        "codeCanvas": {
+            "hasCodeState": bool(bs.get("codeState")),
+            "hasCanvasState": bool(bs.get("canvasState")),
+        },
+        "mock": {
+            "phase": bs.get("mockPhase"),
+            "company": bs.get("mockCompany"),
+            "hintsUsed": bs.get("mockHintsUsed"),
+        },
+        "recentUserInputs": tail,
+        "serverMessageTail": msg_tail,
+        "metrics": doc.get("metrics") if isinstance(doc.get("metrics"), dict) else {},
+    }
+
+
+# ── Replay data ─────────────────────────────────────────────────────
 
 def _parse_vb_beats(text: str) -> list[dict]:
     """Parse <vb draw='...' say="..." /> tags from assistant content into steps."""
@@ -916,6 +1242,435 @@ async def fetch_replay(session_id: str):
     return result
 
 
+# ── Follow-up email (Resend) ─────────────────────────────────────────
+
+RESEND_API_URL = "https://api.resend.com/emails"
+
+# Default From: address. Resend requires a verified sender domain. The free
+# default `onboarding@resend.dev` works without verification but goes to spam
+# more often. Override via FOLLOWUP_FROM in env once a domain is verified.
+FOLLOWUP_FROM_DEFAULT = "myprofessor.live <onboarding@resend.dev>"
+
+
+def _short(text: str, n: int = 240) -> str:
+    s = (text or "").strip().replace("\n", " ")
+    return s if len(s) <= n else s[: n - 1] + "\u2026"
+
+
+def _build_followup_draft(doc: dict) -> dict:
+    """Compose a short, kind follow-up email based on a session document.
+
+    Returns: { to, fromEmail, subject, text, html, meta }
+    """
+    bs = doc.get("backendState") or {}
+    intent = doc.get("intent") or {}
+    intent_raw = intent.get("raw", "") if isinstance(intent, dict) else str(intent)
+    transcript = doc.get("transcript") or []
+
+    student_name = doc.get("studentName") or ""
+    first_name = (student_name.split(" ")[0] if student_name else "").strip() or "there"
+
+    user_lines: list[str] = []
+    for turn in transcript:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", turn.get("speaker", ""))).lower()
+        if role not in ("user", "student"):
+            continue
+        line = _flatten_message_content(
+            turn.get("content", turn.get("text", turn.get("message", ""))),
+            cap=400,
+        )
+        if line and not line.startswith("[SYSTEM]"):
+            user_lines.append(line)
+
+    first_user = _short(user_lines[0] if user_lines else (intent_raw or bs.get("studentIntent") or ""), 220)
+    last_user = _short(user_lines[-1] if user_lines else "", 220)
+
+    pd = bs.get("problemData") if isinstance(bs.get("problemData"), dict) else {}
+    problem_name = pd.get("name") or ""
+    problem_slug = pd.get("slug") or ""
+    session_mode = bs.get("sessionMode") or "general"
+
+    metrics = doc.get("metrics") if isinstance(doc.get("metrics"), dict) else {}
+    turns = metrics.get("totalTurns") or 0
+    duration_sec = doc.get("durationSec") or 0
+
+    short_session = (turns and turns <= 3) or (duration_sec and duration_sec < 180)
+
+    topic_label = problem_name or problem_slug or doc.get("title") or doc.get("headline") or ""
+    topic_phrase = f" while working on {topic_label}" if topic_label else ""
+
+    if short_session:
+        subject = "Quick check-in from myprofessor.live"
+        opener = (
+            f"Hi {first_name},\n\n"
+            f"I am writing from myprofessor.live, and I noticed your session ended "
+            f"pretty quickly{topic_phrase}. I wanted to reach out personally before "
+            f"assuming the worst."
+        )
+    else:
+        subject = "Following up on your myprofessor.live session"
+        opener = (
+            f"Hi {first_name},\n\n"
+            f"Thanks for spending time on myprofessor.live today"
+            f"{topic_phrase}. I wanted to make sure it actually moved you forward."
+        )
+
+    context_lines: list[str] = []
+    if first_user:
+        context_lines.append(f"You started with: \u201C{first_user}\u201D")
+    if last_user and last_user != first_user:
+        context_lines.append(f"You ended on: \u201C{last_user}\u201D")
+    context_block = "\n".join(context_lines)
+
+    ask = (
+        "Could you reply with one line on what was missing? For example:\n"
+        "  - tutor explanation / pace\n"
+        "  - the problem or topic that was picked\n"
+        "  - voice, latency, or UI issues\n"
+        "  - something else\n\n"
+        "Whatever you say goes straight to me. If you are open to it, I will personally "
+        "set up a free, redo session and make sure it actually helps."
+    )
+
+    sign_off = "\n\nThanks for trying it,\n\u2014 The myprofessor.live team"
+
+    text_body = "\n\n".join([opener] + ([context_block] if context_block else []) + [ask]) + sign_off
+
+    def _p(s: str) -> str:
+        return s.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+
+    html_parts = [f"<p>{_p(opener).replace(chr(10), '<br>')}</p>"]
+    if context_block:
+        html_parts.append(
+            "<blockquote style=\"border-left:3px solid #ccc;margin:0;padding:6px 12px;color:#444;font-style:italic\">"
+            + _p(context_block).replace("\n", "<br>")
+            + "</blockquote>"
+        )
+    html_parts.append(
+        "<p>Could you reply with one line on what was missing? For example:</p>"
+        "<ul>"
+        "<li>tutor explanation / pace</li>"
+        "<li>the problem or topic that was picked</li>"
+        "<li>voice, latency, or UI issues</li>"
+        "<li>something else</li>"
+        "</ul>"
+        "<p>Whatever you say goes straight to me. If you are open to it, I will personally set up a "
+        "free, redo session and make sure it actually helps.</p>"
+        "<p>Thanks for trying it,<br>\u2014 The myprofessor.live team</p>"
+    )
+    html_body = "".join(html_parts)
+
+    return {
+        "to": (doc.get("userEmail") or "").strip(),
+        "fromEmail": os.environ.get("FOLLOWUP_FROM", FOLLOWUP_FROM_DEFAULT),
+        "subject": subject,
+        "text": text_body,
+        "html": html_body,
+        "meta": {
+            "studentName": student_name,
+            "sessionMode": session_mode,
+            "problemSlug": problem_slug,
+            "problemName": problem_name,
+            "turns": turns,
+            "durationSec": duration_sec,
+            "shortSession": bool(short_session),
+        },
+    }
+
+
+async def fetch_followup_draft(session_id: str) -> dict:
+    from bson import ObjectId
+    db = get_db()
+    proj = {
+        "userEmail": 1, "studentName": 1, "title": 1, "headline": 1,
+        "intent": 1, "metrics": 1, "durationSec": 1,
+        "backendState.sessionMode": 1,
+        "backendState.studentIntent": 1,
+        "backendState.problemData": 1,
+        "transcript": {"$slice": 30},
+    }
+    s = None
+    try:
+        s = await db.sessions.find_one({"_id": ObjectId(session_id)}, proj)
+    except Exception:
+        pass
+    if not s:
+        s = await db.sessions.find_one({"sessionId": session_id}, proj)
+    if not s:
+        return {"error": "session not found"}
+    draft = _build_followup_draft(s)
+    return draft
+
+
+async def log_followup_send(payload: dict) -> None:
+    """Persist a record of follow-ups so we don't double-email a student."""
+    db = get_db()
+    try:
+        await db.followup_emails.insert_one(payload)
+    except Exception as e:
+        sys.stderr.write(f"  [followup] log insert failed: {e}\n")
+        sys.stderr.flush()
+
+
+OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
+
+
+def _build_session_brief(s: dict) -> str:
+    """Compact, model-friendly description of a single session for AI prompts."""
+    bs = s.get("backendState") or {}
+    intent = s.get("intent") or {}
+    intent_raw = intent.get("raw", "") if isinstance(intent, dict) else str(intent)
+    pd = bs.get("problemData") if isinstance(bs.get("problemData"), dict) else {}
+    metrics = s.get("metrics") if isinstance(s.get("metrics"), dict) else {}
+    transcript = s.get("transcript") or []
+
+    user_lines: list[str] = []
+    for turn in transcript:
+        if not isinstance(turn, dict):
+            continue
+        role = str(turn.get("role", turn.get("speaker", ""))).lower()
+        if role not in ("user", "student"):
+            continue
+        line = _flatten_message_content(
+            turn.get("content", turn.get("text", turn.get("message", ""))),
+            cap=400,
+        )
+        if line and not line.startswith("[SYSTEM]"):
+            user_lines.append(line[:400])
+
+    duration_sec = s.get("durationSec") or 0
+    turns = metrics.get("totalTurns") or 0
+
+    lines = [
+        f"Student name: {s.get('studentName') or '(unknown)'}",
+        f"Email: {s.get('userEmail') or '(unknown)'}",
+        f"Topic / title: {_shorten_text(s.get('title') or s.get('headline') or '', 240)}",
+        f"Initial intent (raw): {_shorten_text(intent_raw, 600)}",
+        f"Backend session mode: {bs.get('sessionMode') or 'general'}",
+        f"Problem name: {pd.get('name') or ''}",
+        f"Problem slug: {pd.get('slug') or ''}",
+        f"Difficulty: {pd.get('difficulty') or ''}",
+        f"Turns: {turns}",
+        f"Duration (sec): {duration_sec}",
+        f"Status: {s.get('status') or '?'}",
+    ]
+    if user_lines:
+        joined = "\n".join(f"  - {ln}" for ln in user_lines[:8])
+        lines.append("Recent user messages (oldest first):\n" + joined)
+    return "\n".join(lines)
+
+
+def _ai_compose_email(session_brief: str, instruction: str = "",
+                      current_subject: str = "", current_body: str = "") -> dict:
+    """Call OpenRouter to generate or refine a follow-up email.
+
+    Returns: { ok: bool, subject?: str, text?: str, error?: str }
+    """
+    api_key = os.environ.get("OPENROUTER_API_KEY", "").strip()
+    if not api_key:
+        return {"ok": False, "error": "OPENROUTER_API_KEY not set in backend/.env"}
+    model = os.environ.get("FOLLOWUP_MODEL") or os.environ.get("TUTOR_MODEL") \
+        or "anthropic/claude-sonnet-4"
+
+    system = (
+        "You are a thoughtful product founder writing a personal follow-up email "
+        "to a student who used myprofessor.live (an AI tutor product). "
+        "Goals: be warm, specific (cite what they actually said/did when known), "
+        "short (5-9 sentences), no marketing fluff, no emojis. Ask one focused "
+        "question about why the session was short or unsatisfying, and offer a "
+        "free redo. Sign off as 'The myprofessor.live team'.\n\n"
+        "Return ONLY valid JSON of the form:\n"
+        "{\"subject\": \"...\", \"text\": \"plain text body, with \\n line breaks\"}\n"
+        "No other text outside the JSON object."
+    )
+    if instruction or current_body:
+        user_prompt = (
+            "Refine the existing email below using the operator's instruction. "
+            "Keep it grounded in the session evidence; do not invent facts.\n\n"
+            f"Session evidence:\n{session_brief}\n\n"
+            f"Operator instruction (apply this):\n{instruction or '(no extra instruction)'}\n\n"
+            f"Current subject:\n{current_subject}\n\n"
+            f"Current body:\n{current_body}\n"
+        )
+    else:
+        user_prompt = (
+            "Write the first draft of the follow-up email based on this session evidence. "
+            "If the session was very short (a couple of turns or under 3 min), tone is "
+            "apologetic and curious about why. If it was longer, tone is grateful and "
+            "asks for one piece of feedback.\n\n"
+            f"Session evidence:\n{session_brief}\n"
+        )
+
+    payload = {
+        "model": model,
+        "max_tokens": 900,
+        "temperature": 0.4,
+        "messages": [
+            {"role": "system", "content": system},
+            {"role": "user", "content": user_prompt},
+        ],
+    }
+
+    import urllib.request as _ur
+    import urllib.error as _ue
+    body = json.dumps(payload).encode("utf-8")
+    req = _ur.Request(
+        OPENROUTER_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+            "HTTP-Referer": "https://myprofessor.live/admin",
+            "X-Title": "myprofessor.live admin",
+        },
+    )
+    try:
+        with _ur.urlopen(req, timeout=45) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+    except _ue.HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = ""
+        return {"ok": False, "error": f"OpenRouter HTTP {e.code}: {err_body[:400]}"}
+    except Exception as e:
+        return {"ok": False, "error": f"OpenRouter call failed: {e}"}
+
+    try:
+        data = json.loads(raw)
+    except Exception:
+        return {"ok": False, "error": f"OpenRouter returned non-JSON: {raw[:300]}"}
+
+    try:
+        content = data["choices"][0]["message"]["content"]
+    except (KeyError, IndexError, TypeError):
+        return {"ok": False, "error": f"OpenRouter response missing content: {str(data)[:400]}"}
+
+    content = (content or "").strip()
+    # Strip ```json ... ``` fences if the model added them.
+    if content.startswith("```"):
+        content = re.sub(r"^```(?:json)?\s*", "", content)
+        content = re.sub(r"\s*```$", "", content)
+
+    parsed = None
+    try:
+        parsed = json.loads(content)
+    except Exception:
+        m = re.search(r"\{[\s\S]*\}", content)
+        if m:
+            try:
+                parsed = json.loads(m.group(0))
+            except Exception:
+                parsed = None
+
+    if not isinstance(parsed, dict):
+        return {"ok": False, "error": "AI response was not parseable JSON",
+                "raw": content[:600]}
+
+    subject = (parsed.get("subject") or "").strip()
+    text = (parsed.get("text") or parsed.get("body") or "").strip()
+    if not subject or not text:
+        return {"ok": False, "error": "AI response missing subject or text"}
+    return {"ok": True, "subject": subject, "text": text, "model": model}
+
+
+async def fetch_ai_followup(session_id: str, instruction: str = "",
+                            current_subject: str = "",
+                            current_body: str = "") -> dict:
+    from bson import ObjectId
+    db = get_db()
+    proj = {
+        "userEmail": 1, "studentName": 1, "title": 1, "headline": 1,
+        "intent": 1, "metrics": 1, "durationSec": 1, "status": 1,
+        "backendState.sessionMode": 1,
+        "backendState.studentIntent": 1,
+        "backendState.problemData": 1,
+        "transcript": {"$slice": 30},
+    }
+    s = None
+    try:
+        s = await db.sessions.find_one({"_id": ObjectId(session_id)}, proj)
+    except Exception:
+        pass
+    if not s:
+        s = await db.sessions.find_one({"sessionId": session_id}, proj)
+    if not s:
+        return {"ok": False, "error": "session not found"}
+
+    brief = _build_session_brief(s)
+
+    # Run the blocking HTTP call in a thread so the event loop is not stuck.
+    loop = asyncio.get_event_loop()
+    result = await loop.run_in_executor(
+        None,
+        lambda: _ai_compose_email(
+            brief,
+            instruction=instruction,
+            current_subject=current_subject,
+            current_body=current_body,
+        ),
+    )
+    if result.get("ok"):
+        result["to"] = (s.get("userEmail") or "").strip()
+        result["fromEmail"] = os.environ.get("FOLLOWUP_FROM", FOLLOWUP_FROM_DEFAULT)
+    return result
+
+
+def send_followup_email(to: str, subject: str, html: str, text: str,
+                        from_email: str | None = None,
+                        reply_to: str | None = None) -> dict:
+    """Send via Resend HTTP API using stdlib only. Runs in a worker thread."""
+    api_key = os.environ.get("RESEND_API_KEY", "").strip()
+    if not api_key:
+        return {"ok": False, "error": "RESEND_API_KEY not set in backend/.env"}
+    if not to or "@" not in to:
+        return {"ok": False, "error": "Invalid recipient address"}
+    if not subject or not (text or html):
+        return {"ok": False, "error": "Subject and body are required"}
+
+    payload = {
+        "from": from_email or os.environ.get("FOLLOWUP_FROM", FOLLOWUP_FROM_DEFAULT),
+        "to": [to],
+        "subject": subject,
+        "html": html or f"<pre>{text}</pre>",
+        "text": text or "",
+    }
+    if reply_to:
+        payload["reply_to"] = reply_to
+
+    import urllib.request as _ur
+    import urllib.error as _ue
+    body = json.dumps(payload).encode("utf-8")
+    req = _ur.Request(
+        RESEND_API_URL,
+        data=body,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+    )
+    try:
+        with _ur.urlopen(req, timeout=12) as resp:
+            raw = resp.read().decode("utf-8", errors="replace")
+            try:
+                data = json.loads(raw)
+            except Exception:
+                data = {"raw": raw}
+            return {"ok": True, "status": resp.status, "data": data}
+    except _ue.HTTPError as e:
+        try:
+            err_body = e.read().decode("utf-8", errors="replace")
+        except Exception:
+            err_body = ""
+        return {"ok": False, "error": f"Resend HTTP {e.code}: {err_body[:400]}"}
+    except Exception as e:
+        return {"ok": False, "error": f"Resend send failed: {e}"}
+
+
 # ── HTTP server ─────────────────────────────────────────────────────
 
 # Dedicated async event loop running in a background thread
@@ -984,21 +1739,25 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif path.startswith("/replay/"):
                 self._html(REPLAY_HTML)
             elif path == "/api/stats":
-                self._json(run_async(fetch_stats()))
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed.query or "")
+                self._json(run_async(fetch_stats(qs)))
             elif path == "/api/users":
-                self._json(run_async(fetch_users()))
+                from urllib.parse import parse_qs
+                qs = parse_qs(parsed.query or "")
+                self._json(run_async(fetch_users(qs)))
             elif path == "/api/sessions":
                 from urllib.parse import parse_qs
                 qs = parse_qs(parsed.query or "")
                 limit = max(1, min(200, int((qs.get("limit") or ["50"])[0])))
                 offset = max(0, int((qs.get("offset") or ["0"])[0]))
                 q = (qs.get("q") or [""])[0]
-                self._json(run_async(fetch_sessions(limit=limit, offset=offset, q=q)))
+                self._json(run_async(fetch_sessions(limit=limit, offset=offset, q=q, qs=qs)))
             elif path == "/api/analytics":
                 from urllib.parse import parse_qs
                 qs = parse_qs(parsed.query or "")
                 days = int((qs.get("days") or ["30"])[0])
-                self._json(run_async(fetch_analytics(days)))
+                self._json(run_async(fetch_analytics(days, qs)))
             elif path == "/api/feedback":
                 self._json(run_async(fetch_feedback()))
             elif path.startswith("/api/session-detail/"):
@@ -1010,6 +1769,90 @@ class DashboardHandler(BaseHTTPRequestHandler):
             elif path.startswith("/api/replay/"):
                 sid = path.split("/api/replay/", 1)[1]
                 self._json(run_async(fetch_replay(sid)))
+            elif path.startswith("/api/followup/draft/"):
+                sid = path.split("/api/followup/draft/", 1)[1]
+                self._json(run_async(fetch_followup_draft(sid)))
+            else:
+                self._json({"error": "Not found"}, 404)
+        except Exception as e:
+            self._json({"error": str(e)}, 500)
+
+    def do_POST(self):
+        parsed = urlparse(self.path)
+        raw = parsed.path or "/"
+        if not raw.startswith("/"):
+            raw = "/" + raw
+        path = raw.rstrip("/") or "/"
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+            raw_body = self.rfile.read(length) if length > 0 else b""
+            try:
+                payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+            except Exception:
+                self._json({"error": "Invalid JSON body"}, 400)
+                return
+
+            if path == "/api/followup/ai-compose":
+                session_id = (payload.get("sessionId") or "").strip()
+                instruction = payload.get("instruction") or ""
+                current_subject = payload.get("currentSubject") or ""
+                current_body = payload.get("currentBody") or ""
+                if not session_id:
+                    self._json({"error": "sessionId is required"}, 400)
+                    return
+                result = run_async(fetch_ai_followup(
+                    session_id=session_id,
+                    instruction=instruction,
+                    current_subject=current_subject,
+                    current_body=current_body,
+                ))
+                if result.get("ok"):
+                    self._json({
+                        "subject": result.get("subject", ""),
+                        "text": result.get("text", ""),
+                        "to": result.get("to", ""),
+                        "fromEmail": result.get("fromEmail", ""),
+                        "model": result.get("model", ""),
+                    }, 200)
+                else:
+                    self._json({"error": result.get("error", "AI compose failed"),
+                                "raw": result.get("raw", "")}, 500)
+            elif path == "/api/followup/send":
+                to = (payload.get("to") or "").strip()
+                subject = (payload.get("subject") or "").strip()
+                html = payload.get("html") or ""
+                text = payload.get("text") or ""
+                from_email = (payload.get("fromEmail") or "").strip() or None
+                reply_to = (payload.get("replyTo") or "").strip() or None
+                session_id = (payload.get("sessionId") or "").strip()
+
+                # Resend call is a blocking HTTP request; run it in a worker
+                # thread so we do not stall the event loop.
+                result = send_followup_email(
+                    to=to,
+                    subject=subject,
+                    html=html,
+                    text=text,
+                    from_email=from_email,
+                    reply_to=reply_to,
+                )
+                if result.get("ok"):
+                    log_payload = {
+                        "sessionId": session_id,
+                        "to": to,
+                        "subject": subject,
+                        "fromEmail": from_email or os.environ.get("FOLLOWUP_FROM", FOLLOWUP_FROM_DEFAULT),
+                        "resendId": (result.get("data") or {}).get("id"),
+                        "sentAt": datetime.now(timezone.utc),
+                    }
+                    try:
+                        run_async(log_followup_send(log_payload))
+                    except Exception:
+                        pass
+                    self._json({"status": "sent",
+                                "id": (result.get("data") or {}).get("id")}, 200)
+                else:
+                    self._json({"status": "error", "error": result.get("error", "send failed")}, 500)
             else:
                 self._json({"error": "Not found"}, 404)
         except Exception as e:
@@ -1018,7 +1861,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
-        self.send_header("Access-Control-Allow-Methods", "GET, OPTIONS")
+        self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
         self.send_header("Access-Control-Allow-Headers", "Content-Type")
         self.end_headers()
 
@@ -1252,6 +2095,83 @@ DASHBOARD_HTML = """\
   .topic-list .tn { color: var(--text); flex: 1; margin-right: 12px; overflow: hidden;
                      text-overflow: ellipsis; white-space: nowrap; }
   .topic-list .tc { color: var(--accent); font-weight: 700; font-family: 'SF Mono', monospace; }
+
+  .session-title-link { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                        overflow: hidden; text-overflow: ellipsis; max-width: 380px;
+                        word-break: break-word; }
+  td:has(.session-title-link) { max-width: 400px; }
+  .modal-header h3 { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
+                     overflow: hidden; word-break: break-word; max-width: 100%; }
+  .row-tags { display: flex; flex-wrap: wrap; gap: 4px; margin: 4px 0 2px 0; }
+  .row-tags > span { font-size: 10px; padding: 1px 6px; border-radius: 10px; line-height: 1.5;
+                     font-family: 'SF Mono', Monaco, monospace; }
+  .mode-tag { background: rgba(124, 92, 255, 0.18); color: var(--accent2); border: 1px solid rgba(124, 92, 255, 0.35); }
+  .mode-tag.mode-mock { background: rgba(255, 122, 89, 0.18); color: #ff9b78; border-color: rgba(255, 122, 89, 0.35); }
+  .mode-tag.mode-dsa { background: rgba(46, 204, 113, 0.18); color: #4ee390; border-color: rgba(46, 204, 113, 0.35); }
+  .mode-tag.mode-systemdesign,
+  .mode-tag.mode-system_design,
+  .mode-tag.mode-sd { background: rgba(255, 196, 0, 0.16); color: #f5c44a; border-color: rgba(255, 196, 0, 0.35); }
+  .prob-tag { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+  .diff-tag { background: var(--surface2); color: var(--text2); border: 1px solid var(--border); text-transform: lowercase; }
+  .diff-tag.diff-easy { color: #4ee390; border-color: rgba(46, 204, 113, 0.4); }
+  .diff-tag.diff-medium { color: #f5c44a; border-color: rgba(255, 196, 0, 0.45); }
+  .diff-tag.diff-hard { color: #ff7a59; border-color: rgba(255, 122, 89, 0.45); }
+  .user-said { color: var(--text2); font-size: 11px; line-height: 1.4; margin: 4px 0 4px 0; max-width: 360px;
+               display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+               font-style: italic; }
+  .replay-link { font-size: 10px; color: var(--accent2); text-decoration: none; display: inline-block; margin-top: 2px; }
+
+  .insight-wrap { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+                  padding: 14px 16px; margin-bottom: 18px; }
+  .insight-wrap h4 { font-size: 11px; color: var(--accent2); text-transform: uppercase; letter-spacing: .5px;
+                     margin: 14px 0 8px 0; }
+  .insight-wrap h4:first-child { margin-top: 0; }
+  .insight-wrap dl { display: grid; grid-template-columns: 140px 1fr; gap: 4px 12px; font-size: 12px; margin: 0; }
+  .insight-wrap dt { color: var(--text2); }
+  .insight-wrap dd { margin: 0; color: var(--text); word-break: break-word; }
+  .insight-pre { background: var(--bg); border: 1px solid var(--border); border-radius: 8px; padding: 10px;
+                 font-size: 11px; line-height: 1.45; max-height: 280px; overflow: auto; white-space: pre-wrap;
+                 font-family: 'SF Mono', Monaco, monospace; color: var(--text); }
+  .insight-msg { border-left: 3px solid var(--border); padding: 6px 0 6px 10px; margin-bottom: 8px; font-size: 12px; }
+  .insight-msg .r { font-size: 10px; color: var(--accent); text-transform: uppercase; margin-bottom: 4px; }
+
+  .followup-bar { display: flex; gap: 8px; align-items: center; margin: 4px 0 14px 0; flex-wrap: wrap; }
+  .followup-bar button { padding: 6px 12px; font-size: 12px; border-radius: 6px; cursor: pointer;
+                         border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+  .followup-bar button.primary { background: var(--accent); color: #0f1117; border-color: var(--accent);
+                                 font-weight: 600; }
+  .followup-bar button:disabled { opacity: 0.5; cursor: not-allowed; }
+  .followup-panel { background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+                    padding: 14px 16px; margin-bottom: 18px; }
+  .followup-panel h4 { font-size: 11px; color: var(--accent2); text-transform: uppercase; letter-spacing: .5px;
+                       margin: 0 0 10px 0; }
+  .followup-panel label { display: block; font-size: 11px; color: var(--text2); margin: 8px 0 4px 0;
+                          text-transform: uppercase; letter-spacing: .4px; }
+  .followup-panel input,
+  .followup-panel textarea { width: 100%; background: var(--bg); border: 1px solid var(--border);
+                              border-radius: 6px; color: var(--text); padding: 8px 10px; font-size: 13px;
+                              font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+  .followup-panel textarea { font-family: 'SF Mono', Monaco, monospace; font-size: 12px; line-height: 1.5;
+                              min-height: 220px; resize: vertical; }
+  .followup-actions { display: flex; gap: 8px; margin-top: 12px; align-items: center; flex-wrap: wrap; }
+  .followup-status { font-size: 12px; color: var(--text2); }
+  .followup-status.ok { color: var(--green); }
+  .followup-status.err { color: var(--red); }
+  .followup-ai { margin-top: 14px; padding: 10px 12px; border: 1px dashed var(--border);
+                 border-radius: 8px; background: rgba(124,92,255,0.04); }
+
+  .email-filters { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+                   padding: 14px 16px; margin-bottom: 16px; }
+  .email-filters .row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-bottom: 8px; }
+  .email-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text2);
+                         text-transform: uppercase; letter-spacing: .4px; }
+  .email-filters input { min-width: 160px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border);
+                         background: var(--surface2); color: var(--text); font-size: 13px; }
+  .email-filters input.wide { min-width: 220px; }
+  .email-filters .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .email-filters .hint { font-size: 11px; color: var(--text2); line-height: 1.45; margin-top: 4px; }
+  .email-filters .pill { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: var(--surface2);
+                        color: var(--accent); border: 1px solid var(--border); }
 </style>
 </head>
 <body>
@@ -1274,6 +2194,21 @@ DASHBOARD_HTML = """\
     </div>
   </div>
   <div class="status-bar" id="statusBar">connecting...</div>
+
+  <div class="email-filters" id="emailFilters">
+    <div class="row">
+      <label>Email domain <input class="wide" type="text" id="filterDomain" placeholder="e.g. seekcapacity.com" autocomplete="off" /></label>
+      <label>Contains <input type="text" id="filterEmailContains" placeholder="substring in email" autocomplete="off" /></label>
+      <label>Exclude (comma-separated) <input class="wide" type="text" id="filterEmailExclude" placeholder="e.g. test.com, +noise+" autocomplete="off" /></label>
+    </div>
+    <div class="actions">
+      <button type="button" onclick="applyEmailFilters()">Apply email filters</button>
+      <button type="button" onclick="clearEmailFilters()" style="opacity:.85">Clear</button>
+      <span class="pill" id="filterActivePill" style="display:none">Filtered</span>
+    </div>
+    <p class="hint">Example: domain <strong>gmail.com</strong> limits stats, users, sessions, and analytics to addresses ending in <strong>@gmail.com</strong>.
+      Combine with <strong>Exclude</strong> <code>test.com, mayank@test.com</code> to drop internal addresses. Search box still filters the current table client-side (users) or server-side (sessions).</p>
+  </div>
 
   <div class="stats" id="statsCards"></div>
 
@@ -1390,6 +2325,9 @@ function fmtCost(cents, compact) {
 function renderStats(d) {
   const llmPct = d.costAllCents > 0 ? Math.round(d.costAllLlmCents / d.costAllCents * 100) : 0;
   const ttsPct = d.costAllCents > 0 ? Math.round(d.costAllTtsCents / d.costAllCents * 100) : 0;
+  const f = d.filters || {};
+  const pill = document.getElementById('filterActivePill');
+  if (pill) pill.style.display = f.active ? 'inline-block' : 'none';
   document.getElementById('statsCards').innerHTML = `
     <div class="stat-card"><div class="label">Total Users</div><div class="value c1">${d.totalUsers}</div></div>
     <div class="stat-card"><div class="label">Total Sessions</div><div class="value c2">${d.totalSessions}</div></div>
@@ -1397,6 +2335,7 @@ function renderStats(d) {
     <div class="stat-card"><div class="label">Total Spend</div><div class="value c5">${fmtCost(d.costAllCents, true)}</div><div class="sub">${llmPct}% LLM · ${ttsPct}% TTS</div></div>
     <div class="stat-card"><div class="label">This Month</div><div class="value c6">${fmtCost(d.costMonthCents, true)}</div><div class="sub">month to date</div></div>
     <div class="stat-card"><div class="label">Today</div><div class="value c4">${fmtCost(d.costTodayCents, true)}</div><div class="sub">UTC midnight</div></div>
+    ${f.active ? `<div class="stat-card" style="grid-column:1/-1;max-width:none"><div class="label">Active email filter</div><div class="sub" style="margin-top:6px;font-size:12px;color:var(--text)">domain: <strong>${esc(f.domain || '(any)')}</strong> &middot; contains: <strong>${esc(f.email_contains || '(none)')}</strong> &middot; exclude: <strong>${esc(f.email_exclude || '(none)')}</strong></div></div>` : ''}
   `;
 }
 
@@ -1449,11 +2388,31 @@ function _sessionRow(s, idx) {
     ? '<span class="cost">' + fmtCost(s.costCents) + '</span>' +
       '<br><span class="cost-sm">' + fmtCost(s.llmCents) + '/' + fmtCost(s.ttsCents) + '</span>'
     : '<span class="zero">$0</span>';
+  const tagBits = [];
+  if (s.sessionMode && s.sessionMode !== 'general') {
+    tagBits.push('<span class="mode-tag mode-' + esc(s.sessionMode) + '">' + esc(s.sessionMode) + '</span>');
+  }
+  if (s.problemSlug) {
+    tagBits.push('<span class="prob-tag" title="DSA card / problem">' + esc(s.problemSlug) + '</span>');
+  } else if (s.problemName) {
+    tagBits.push('<span class="prob-tag" title="DSA card / problem">' + esc(s.problemName) + '</span>');
+  }
+  if (s.problemDifficulty) {
+    tagBits.push('<span class="diff-tag diff-' + esc(s.problemDifficulty.toLowerCase()) + '">' + esc(s.problemDifficulty) + '</span>');
+  }
+  const tagsRow = tagBits.length ? '<div class="row-tags">' + tagBits.join('') + '</div>' : '';
+
+  const userSnippet = s.firstUserMsg || s.studentIntent || s.intent || '';
+  const userLine = userSnippet
+    ? '<div class="user-said" title="What the student typed/said first">\\u201C' + esc(userSnippet) + '\\u201D</div>'
+    : '';
+
   return `<tr>
   <td class="muted">${idx}</td>
   <td><span class="bold">${esc(s.user)}</span><br><span class="mono muted">${esc(s.email)}</span></td>
-  <td><span class="link" onclick="viewTranscript('${s._idx}')" title="View transcript + cost breakdown">${esc(s.title)}</span>
-      <br><a class="mono muted" href="/replay/${s._id}" target="_blank" style="font-size:10px;color:var(--accent2);text-decoration:none" title="Open replay">&#9654; replay</a></td>
+  <td><span class="link session-title-link" onclick="viewTranscript('${s._idx}')" title="${esc(s.titleFull || s.title || '')}">${esc(s.title)}</span>
+      ${tagsRow}${userLine}
+      <a class="mono muted replay-link" href="/replay/${s._id}" target="_blank" title="Open replay">&#9654; replay</a></td>
   <td class="sm">${fmtDate(s.createdAt)}<br><span class="muted">${ago(s.createdAt)}</span></td>
   <td><span class="dur">${activeStr}</span>${spanStr}</td>
   <td>${zeroWrap(s.turns)}</td>
@@ -1531,7 +2490,9 @@ let _searchTimer = null;
 function filterTable() {
   // Users tab still client-side filter (light data)
   renderUsers();
-  // Sessions tab → debounced server-side query
+  // Sessions tab only: debounced server-side search (do not run while on other tabs — shared input would hide "latest" sessions)
+  const activeTab = document.querySelector('.tabs button.active')?.dataset.tab;
+  if (activeTab !== 'sessions') return;
   clearTimeout(_searchTimer);
   _searchTimer = setTimeout(() => {
     _sessionsPagination.query = getQ();
@@ -1542,23 +2503,26 @@ function filterTable() {
 function switchTab(tab) {
   document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   document.querySelectorAll('.tab-panel').forEach(p => p.classList.toggle('active', p.id === 'tab-' + tab));
-  // Lazy-load each tab's data on first switch
   if (tab === 'users') loadUsers();
-  else if (tab === 'sessions' && !_sessionsLoaded) loadSessions(true);
-  else if (tab === 'analytics') loadAnalytics();
+  else if (tab === 'sessions') {
+    // Sync shared search box → session query, then refetch (always fresh when opening this tab)
+    _sessionsPagination.query = getQ();
+    loadSessions(true);
+  } else if (tab === 'analytics') loadAnalytics();
   else if (tab === 'feedback') loadFeedback();
 }
 
 // ── Analytics ──
 let analyticsLoaded = false;
-async function loadAnalytics() {
-  if (analyticsLoaded) return;
-  analyticsLoaded = true;
+async function loadAnalytics(force) {
+  if (analyticsLoaded && !force) return;
   try {
-    const r = await fetch(API + '/api/analytics?days=30');
+    const r = await fetch(mergeUrl('/api/analytics', new URLSearchParams({ days: '30' })));
     const a = await r.json();
     renderAnalytics(a);
+    analyticsLoaded = true;
   } catch (e) {
+    analyticsLoaded = false;
     document.getElementById('analyticsGrid').innerHTML =
       '<div class="chart-card"><p style="color:var(--red)">Failed to load: ' + e.message + '</p></div>';
   }
@@ -1762,15 +2726,263 @@ function renderPerTurnCosts(detail) {
   return html;
 }
 
+function renderSessionInsight(detail) {
+  const ins = detail && detail.sessionInsight;
+  if (!ins || typeof ins !== 'object') return '';
+  let h = '<div class="insight-wrap">';
+  h += '<h4>Session insight</h4>';
+  if (ins.intentRaw) {
+    h += '<p style="margin:0 0 10px 0;font-size:13px;line-height:1.45"><strong>Initial intent:</strong> ' +
+      esc(String(ins.intentRaw)) + '</p>';
+  }
+  if (ins.studentIntent) {
+    h += '<p style="margin:0 0 10px 0;font-size:13px;line-height:1.45"><strong>Student intent (backend):</strong> ' +
+      esc(String(ins.studentIntent)) + '</p>';
+  }
+  const metaBits = [];
+  if (ins.headline) metaBits.push(['Headline', ins.headline]);
+  if (ins.backendSessionMode) metaBits.push(['Session mode', ins.backendSessionMode]);
+  if (ins.sessionTeachingMode) metaBits.push(['Teaching mode', ins.sessionTeachingMode]);
+  if (ins.sessionStatus) metaBits.push(['Status', ins.sessionStatus]);
+  if (ins.phase !== undefined && ins.phase !== null && ins.phase !== '') {
+    metaBits.push(['Phase', ins.phase]);
+  }
+  if (metaBits.length) {
+    h += '<h4>Session meta</h4><dl>';
+    for (const [k, v] of metaBits) {
+      h += '<dt>' + esc(k) + '</dt><dd>' + esc(String(v)) + '</dd>';
+    }
+    h += '</dl>';
+  }
+  const bp = ins.blueprint;
+  if (bp && typeof bp === 'object' && Object.keys(bp).length) {
+    h += '<h4>Blueprint / mode</h4><dl>';
+    for (const k of Object.keys(bp)) {
+      const v = bp[k];
+      if (v === undefined || v === null || v === '') continue;
+      h += '<dt>' + esc(k) + '</dt><dd>' + esc(String(v)) + '</dd>';
+    }
+    h += '</dl>';
+  }
+  const pd = ins.problemData;
+  if (pd && typeof pd === 'object' && Object.keys(pd).length) {
+    h += '<h4>Problem / DSA selection</h4><dl>';
+    for (const k of Object.keys(pd)) {
+      const v = pd[k];
+      if (v === undefined || v === null || v === '') continue;
+      h += '<dt>' + esc(k) + '</dt><dd>' + esc(String(v)) + '</dd>';
+    }
+    h += '</dl>';
+  }
+  const mock = ins.mock;
+  if (mock && typeof mock === 'object') {
+    const mk = Object.keys(mock).filter((k) => mock[k] !== undefined && mock[k] !== null && mock[k] !== '');
+    if (mk.length) {
+      h += '<h4>Mock interview</h4><dl>';
+      for (const k of mk) {
+        h += '<dt>' + esc(k) + '</dt><dd>' + esc(String(mock[k])) + '</dd>';
+      }
+      h += '</dl>';
+    }
+  }
+  const cc = ins.codeCanvas;
+  if (cc && typeof cc === 'object' && (cc.hasCodeState || cc.hasCanvasState)) {
+    h += '<h4>Workspace flags</h4><dl>' +
+      '<dt>Code state</dt><dd>' + (cc.hasCodeState ? 'yes' : 'no') + '</dd>' +
+      '<dt>Canvas state</dt><dd>' + (cc.hasCanvasState ? 'yes' : 'no') + '</dd></dl>';
+  }
+  if (ins.dsaState && typeof ins.dsaState === 'object' && Object.keys(ins.dsaState).length) {
+    h += '<h4>DSA workspace (sanitized)</h4><pre class="insight-pre">' +
+      esc(JSON.stringify(ins.dsaState, null, 2)) + '</pre>';
+  }
+  const ru = ins.recentUserInputs;
+  if (Array.isArray(ru) && ru.length) {
+    h += '<h4>Recent user inputs (transcript)</h4><ul style="margin:0;padding-left:18px;font-size:12px;line-height:1.5">';
+    for (const line of ru) {
+      h += '<li>' + esc(String(line)) + '</li>';
+    }
+    h += '</ul>';
+  }
+  const tail = ins.serverMessageTail;
+  if (Array.isArray(tail) && tail.length) {
+    h += '<h4>Server message tail (backendState)</h4>';
+    for (const m of tail) {
+      const role = m && m.role ? String(m.role) : '?';
+      const content = m && m.content != null ? String(m.content) : '';
+      h += '<div class="insight-msg"><div class="r">' + esc(role) + '</div><div>' + esc(content) + '</div></div>';
+    }
+  }
+  const metrics = ins.metrics;
+  if (metrics && typeof metrics === 'object' && Object.keys(metrics).length) {
+    h += '<h4>Session metrics</h4><pre class="insight-pre" style="max-height:200px">' +
+      esc(JSON.stringify(metrics, null, 2)) + '</pre>';
+  }
+  h += '</div>';
+  const mk = '<h4>Session insight</h4>';
+  const p0 = h.indexOf(mk);
+  const pos = p0 < 0 ? 0 : p0 + mk.length;
+  const ix = h.lastIndexOf('</div>');
+  const body = ix > pos ? h.slice(pos, ix).trim() : '';
+  if (!body) return '';
+  return h;
+}
+
+let _activeSession = null;
+
+function _followupBar(s) {
+  const to = (s && s.email) ? s.email : '';
+  const disabled = to ? '' : 'disabled title="No email on file"';
+  return '<div class="followup-bar">' +
+    '<button class="primary" ' + disabled + ' onclick="composeFollowup(\\'' + s._id + '\\')">' +
+      '\\u2709 Compose follow-up email</button>' +
+    (to ? '<span class="muted sm">to <span class="mono">' + esc(to) + '</span></span>' : '') +
+    '<span id="followupStatus" class="followup-status"></span>' +
+    '</div>' +
+    '<div id="followupPanel"></div>';
+}
+
+async function composeFollowup(sessionId) {
+  const status = document.getElementById('followupStatus');
+  const panel = document.getElementById('followupPanel');
+  if (!panel) return;
+  if (status) { status.className = 'followup-status'; status.textContent = 'Drafting...'; }
+  panel.innerHTML = '';
+  try {
+    const resp = await fetch(API + '/api/followup/draft/' + encodeURIComponent(sessionId));
+    const d = await resp.json();
+    if (!resp.ok || d.error) {
+      if (status) { status.className = 'followup-status err'; status.textContent = d.error || 'Could not load draft'; }
+      return;
+    }
+    panel.innerHTML =
+      '<div class="followup-panel">' +
+        '<h4>Follow-up email</h4>' +
+        '<label>To</label>' +
+        '<input id="fuTo" type="email" value="' + esc(d.to || '') + '" />' +
+        '<label>From</label>' +
+        '<input id="fuFrom" type="text" value="' + esc(d.fromEmail || '') + '" />' +
+        '<label>Subject</label>' +
+        '<input id="fuSubject" type="text" value="' + esc(d.subject || '') + '" />' +
+        '<label>Body (plain text)</label>' +
+        '<textarea id="fuText">' + esc(d.text || '') + '</textarea>' +
+        '<div class="followup-ai">' +
+          '<label>Refine with AI <span class="muted sm">(optional instruction, e.g. "shorter, less corporate, mention voice issue")</span></label>' +
+          '<textarea id="fuInstr" placeholder="Type how the email should change, then click Refine. Leave empty + click Generate for a fresh AI draft." style="min-height:60px"></textarea>' +
+          '<div class="followup-actions">' +
+            '<button onclick="aiCompose(\\'' + sessionId + '\\', false)">\\u2728 Generate with AI</button>' +
+            '<button onclick="aiCompose(\\'' + sessionId + '\\', true)">\\u21bb Refine with AI</button>' +
+            '<span id="fuAiStatus" class="followup-status"></span>' +
+          '</div>' +
+        '</div>' +
+        '<div class="followup-actions">' +
+          '<button class="primary" onclick="sendFollowup(\\'' + sessionId + '\\')">Send via Resend</button>' +
+          '<button onclick="document.getElementById(\\'followupPanel\\').innerHTML=\\'\\'">Cancel</button>' +
+          '<span id="fuSendStatus" class="followup-status"></span>' +
+        '</div>' +
+      '</div>';
+    if (status) status.textContent = '';
+  } catch (e) {
+    if (status) { status.className = 'followup-status err'; status.textContent = 'Draft failed: ' + e; }
+  }
+}
+
+async function aiCompose(sessionId, useCurrent) {
+  const st = document.getElementById('fuAiStatus');
+  const subjectEl = document.getElementById('fuSubject');
+  const textEl = document.getElementById('fuText');
+  const instrEl = document.getElementById('fuInstr');
+  const instruction = (instrEl && instrEl.value || '').trim();
+  if (st) { st.className = 'followup-status'; st.textContent = 'Asking the model\\u2026'; }
+  try {
+    const body = {
+      sessionId,
+      instruction: useCurrent ? instruction : '',
+      currentSubject: useCurrent ? (subjectEl ? subjectEl.value : '') : '',
+      currentBody: useCurrent ? (textEl ? textEl.value : '') : '',
+    };
+    const resp = await fetch(API + '/api/followup/ai-compose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await resp.json();
+    if (!resp.ok || d.error) {
+      if (st) { st.className = 'followup-status err';
+                st.textContent = 'AI failed: ' + (d.error || ('HTTP ' + resp.status)); }
+      return;
+    }
+    if (subjectEl && d.subject) subjectEl.value = d.subject;
+    if (textEl && d.text) textEl.value = d.text;
+    if (st) {
+      st.className = 'followup-status ok';
+      const tag = useCurrent ? 'Refined' : 'Generated';
+      st.textContent = '\\u2713 ' + tag + (d.model ? ' (' + d.model + ')' : '') +
+                       '. Review, edit if needed, then send.';
+    }
+  } catch (e) {
+    if (st) { st.className = 'followup-status err'; st.textContent = 'AI failed: ' + e; }
+  }
+}
+
+async function sendFollowup(sessionId) {
+  const to = (document.getElementById('fuTo') || {}).value || '';
+  const fromEmail = (document.getElementById('fuFrom') || {}).value || '';
+  const subject = (document.getElementById('fuSubject') || {}).value || '';
+  const text = (document.getElementById('fuText') || {}).value || '';
+  const st = document.getElementById('fuSendStatus');
+  if (!to.trim() || !subject.trim() || !text.trim()) {
+    if (st) { st.className = 'followup-status err'; st.textContent = 'To, subject and body are required.'; }
+    return;
+  }
+  if (!confirm('Send this follow-up to ' + to + '?')) return;
+  if (st) { st.className = 'followup-status'; st.textContent = 'Sending...'; }
+  // Convert plain text to lightweight HTML (paragraphs from blank lines).
+  const html = text.split(/\\n\\s*\\n/).map(function (p) {
+    return '<p>' + esc(p).replace(/\\n/g, '<br>') + '</p>';
+  }).join('');
+  try {
+    const resp = await fetch(API + '/api/followup/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId, to, subject, text, html, fromEmail }),
+    });
+    const d = await resp.json();
+    if (resp.ok && d.status === 'sent') {
+      if (st) { st.className = 'followup-status ok';
+                st.textContent = '\\u2713 Sent (id ' + (d.id || 'ok') + ').'; }
+    } else {
+      if (st) { st.className = 'followup-status err';
+                st.textContent = 'Send failed: ' + (d.error || ('HTTP ' + resp.status)); }
+    }
+  } catch (e) {
+    if (st) { st.className = 'followup-status err'; st.textContent = 'Send failed: ' + e; }
+  }
+}
+
+function _trimTitle(t, n) {
+  if (!t) return '';
+  const s = String(t).replace(/\\s+/g, ' ').trim();
+  return s.length <= n ? s : s.slice(0, n - 1) + '\\u2026';
+}
+
 async function viewTranscript(idx) {
   const s = sessionsData[idx];
   if (!s || !s._id) return;
-  const title = (s.user || '?') + ' \\u2014 ' + (s.title || 'Session');
+  _activeSession = s;
+  const titleShort = _trimTitle(s.title || 'Session', 160);
+  const fullTitle = (s.titleFull || s.title || '').replace(/"/g, '\\u201D');
+  const title = (s.user || '?') + ' \\u2014 ' + titleShort;
   const costStr = (s.costCents && s.costCents > 0)
     ? ' | ' + fmtCost(s.costCents) + ' (' + fmtCost(s.llmCents) + ' LLM, ' + fmtCost(s.ttsCents) + ' TTS)'
     : '';
   const subtitle = 'Active: ' + fmtDur(s.activeSec) + ' | Span: ' + fmtDur(s.spanSec) + ' | ' + s.turns + ' turns' + costStr;
-  document.getElementById('modalTitle').innerHTML = esc(title) + '<br><span class="muted sm">' + subtitle + '</span>';
+  const titleEl = document.getElementById('modalTitle');
+  titleEl.innerHTML = esc(title) + '<br><span class="muted sm">' + subtitle + '</span>';
+  if (fullTitle && fullTitle.length > titleShort.length) {
+    titleEl.setAttribute('title', fullTitle);
+  } else {
+    titleEl.removeAttribute('title');
+  }
   document.getElementById('modalBody').innerHTML = '<p class="muted">Loading transcript...</p>';
   document.getElementById('modal').classList.add('show');
   try {
@@ -1782,11 +2994,24 @@ async function viewTranscript(idx) {
     const data = await transResp.json();
     const detail = await detailResp.json();
     const turns = data.transcript || [];
-    if (!turns.length) {
-      document.getElementById('modalBody').innerHTML = '<p class="muted">No transcript data.</p>';
+    const insightHtml = renderSessionInsight(detail || {});
+    let html = _followupBar(s);
+    if (detail && detail.error) {
+      html += '<p style="color:var(--amber);font-size:12px;margin-bottom:10px">Session detail: ' +
+        esc(String(detail.error)) + ' (transcript may still load).</p>';
+    }
+    html += insightHtml;
+    if (!turns.length && !insightHtml && !(detail && detail.error)) {
+      document.getElementById('modalBody').innerHTML = html +
+        '<p class="muted">No transcript or session insight for this session.</p>';
       return;
     }
-    let html = '';
+    if (!turns.length) {
+      html += '<p class="muted" style="margin:0 0 12px 0">No transcript rows stored for this session.</p>';
+    }
+    if (turns.length) {
+      html += '<h4 style="font-size:11px;color:var(--text2);text-transform:uppercase;letter-spacing:.5px;margin:18px 0 8px 0">Transcript</h4>';
+    }
     for (let i = 0; i < turns.length; i++) {
       const t = turns[i];
       // Show gap markers for pauses > 5 min
@@ -1816,8 +3041,43 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 
 // ── Pagination state ──
 let _sessionsPagination = { offset: 0, limit: 50, total: 0, hasMore: false, query: '' };
-let _usersLoaded = false;
-let _sessionsLoaded = false;
+
+function emailFilterParams() {
+  const p = new URLSearchParams();
+  const d = (document.getElementById('filterDomain')?.value || '').trim();
+  if (d) p.set('domain', d);
+  const c = (document.getElementById('filterEmailContains')?.value || '').trim();
+  if (c) p.set('email_contains', c);
+  const e = (document.getElementById('filterEmailExclude')?.value || '').trim();
+  if (e) p.set('email_exclude', e);
+  return p;
+}
+
+function mergeUrl(path, baseParams) {
+  const p = baseParams ? new URLSearchParams(baseParams) : new URLSearchParams();
+  emailFilterParams().forEach((v, k) => p.set(k, v));
+  const q = p.toString();
+  return API + path + (q ? '?' + q : '');
+}
+
+function applyEmailFilters() {
+  analyticsLoaded = false;
+  _sessionsPagination.offset = 0;
+  sessionsData = [];
+  refreshAll().then(() => {
+    const tab = document.querySelector('.tabs button.active')?.dataset.tab;
+    if (tab === 'analytics') loadAnalytics(true);
+    if (tab === 'sessions') loadSessions(true);
+  });
+}
+
+function clearEmailFilters() {
+  ['filterDomain', 'filterEmailContains', 'filterEmailExclude'].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = '';
+  });
+  applyEmailFilters();
+}
 
 // On first load: fetch only stats + the active tab's data (lazy)
 async function refreshAll() {
@@ -1825,7 +3085,7 @@ async function refreshAll() {
   document.getElementById('statusBar').textContent = 'refreshing...';
   try {
     // Stats card always loads (cheap)
-    const sr = await fetch(API + '/api/stats');
+    const sr = await fetch(mergeUrl('/api/stats'));
     renderStats(await sr.json());
 
     // Load whichever tab is currently active; defer the rest
@@ -1842,13 +3102,11 @@ async function refreshAll() {
 }
 
 async function loadUsers() {
-  if (_usersLoaded) return;
   const t0 = performance.now();
   try {
-    const r = await fetch(API + '/api/users');
+    const r = await fetch(mergeUrl('/api/users'));
     usersData = await r.json();
     renderUsers();
-    _usersLoaded = true;
     const ms = Math.round(performance.now() - t0);
     document.getElementById('statusBar').textContent =
       'users: ' + usersData.length + ' loaded in ' + ms + 'ms';
@@ -1864,8 +3122,11 @@ async function loadSessions(reset) {
   }
   const t0 = performance.now();
   const p = _sessionsPagination;
-  const url = API + '/api/sessions?limit=' + p.limit + '&offset=' + p.offset +
-    (p.query ? '&q=' + encodeURIComponent(p.query) : '');
+  const base = new URLSearchParams();
+  base.set('limit', String(p.limit));
+  base.set('offset', String(p.offset));
+  if (p.query) base.set('q', p.query);
+  const url = mergeUrl('/api/sessions', base);
   try {
     const r = await fetch(url);
     const data = await r.json();
@@ -1875,7 +3136,6 @@ async function loadSessions(reset) {
     _sessionsPagination.hasMore = !!data.hasMore;
     _sessionsPagination.offset += items.length;
     renderSessions();
-    _sessionsLoaded = true;
     const ms = Math.round(performance.now() - t0);
     document.getElementById('statusBar').textContent =
       'sessions: ' + sessionsData.length + ' / ' + _sessionsPagination.total + ' loaded (' + ms + 'ms)';
@@ -1928,8 +3188,41 @@ REPLAY_HTML = """\
              position: sticky; top: 0; z-index: 10; }
   .top-bar a { color: var(--accent); text-decoration: none; font-size: 13px; }
   .top-bar a:hover { text-decoration: underline; }
-  .top-bar .title { font-weight: 700; font-size: 15px; flex: 1; }
-  .top-bar .meta { font-size: 12px; color: var(--text2); }
+  .top-bar .title { font-weight: 700; font-size: 15px; flex: 1; min-width: 0;
+                    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+                    overflow: hidden; text-overflow: ellipsis; word-break: break-word;
+                    line-height: 1.35; }
+  .top-bar .meta { font-size: 12px; color: var(--text2); white-space: nowrap; }
+  .top-bar .email-btn { padding: 6px 12px; border-radius: 6px; font-size: 12px;
+                        cursor: pointer; background: var(--accent); color: #0f1117;
+                        border: 1px solid var(--accent); font-weight: 600; }
+  .top-bar .email-btn:hover { opacity: 0.9; }
+
+  .email-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.55); z-index: 50;
+                   display: none; align-items: flex-start; justify-content: center;
+                   padding: 40px 16px; overflow-y: auto; }
+  .email-overlay.show { display: flex; }
+  .email-card { width: min(720px, 100%); background: var(--surface); border: 1px solid var(--border);
+                border-radius: 12px; padding: 18px 22px; color: var(--text); }
+  .email-card h3 { font-size: 16px; margin-bottom: 12px; color: var(--accent); }
+  .email-card label { display: block; font-size: 11px; color: var(--text2);
+                      text-transform: uppercase; letter-spacing: .4px; margin: 10px 0 4px 0; }
+  .email-card input, .email-card textarea { width: 100%; background: var(--bg);
+      border: 1px solid var(--border); border-radius: 6px; color: var(--text);
+      padding: 8px 10px; font-size: 13px;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Inter, sans-serif; }
+  .email-card textarea { font-family: 'SF Mono', Monaco, monospace; font-size: 12px;
+                         line-height: 1.5; min-height: 200px; resize: vertical; }
+  .email-card .actions { display: flex; gap: 8px; margin-top: 14px; align-items: center; flex-wrap: wrap; }
+  .email-card .actions button { padding: 7px 14px; font-size: 12px; border-radius: 6px;
+      cursor: pointer; border: 1px solid var(--border); background: var(--surface2); color: var(--text); }
+  .email-card .actions button.primary { background: var(--accent); color: #0f1117;
+                                        border-color: var(--accent); font-weight: 600; }
+  .email-card .ai-box { margin-top: 12px; padding: 10px 12px; border: 1px dashed var(--border);
+                        border-radius: 8px; background: rgba(124,92,255,0.05); }
+  .email-card .status { font-size: 12px; color: var(--text2); }
+  .email-card .status.ok { color: var(--green); }
+  .email-card .status.err { color: var(--red); }
 
   .main { display: flex; height: calc(100vh - 49px); }
 
@@ -2012,7 +3305,38 @@ REPLAY_HTML = """\
 <div class="top-bar">
   <a href="/">&larr; Dashboard</a>
   <div class="title" id="replayTitle">Loading...</div>
+  <button class="email-btn" id="emailBtn" onclick="openEmail()" title="Compose follow-up email">
+    &#9993; Email student
+  </button>
   <div class="meta" id="replayMeta"></div>
+</div>
+
+<div class="email-overlay" id="emailOverlay" onclick="if(event.target===this)closeEmail()">
+  <div class="email-card">
+    <h3>Follow-up email</h3>
+    <label>To</label>
+    <input id="emTo" type="email" />
+    <label>From</label>
+    <input id="emFrom" type="text" />
+    <label>Subject</label>
+    <input id="emSubject" type="text" />
+    <label>Body (plain text)</label>
+    <textarea id="emText"></textarea>
+    <div class="ai-box">
+      <label>Refine with AI <span style="text-transform:none;color:var(--text2);font-size:11px">(optional instruction)</span></label>
+      <textarea id="emInstr" placeholder='e.g. "shorter, less corporate, mention voice issue"' style="min-height:60px"></textarea>
+      <div class="actions">
+        <button onclick="emailAi(false)">&#x2728; Generate with AI</button>
+        <button onclick="emailAi(true)">&#x21bb; Refine with AI</button>
+        <span id="emAiStatus" class="status"></span>
+      </div>
+    </div>
+    <div class="actions">
+      <button class="primary" onclick="emailSend()">Send via Resend</button>
+      <button onclick="closeEmail()">Cancel</button>
+      <span id="emSendStatus" class="status"></span>
+    </div>
+  </div>
 </div>
 <div class="main">
   <div class="board-panel">
@@ -2264,16 +3588,26 @@ document.addEventListener('keydown', e => {
   if (e.key === 'End') goEnd();
 });
 
+function _trimReplayTitle(t, n) {
+  if (!t) return '';
+  const s = String(t).replace(/\\s+/g, ' ').trim();
+  return s.length <= n ? s : s.slice(0, n - 1) + '\\u2026';
+}
+
+const SESSION_ID = (location.pathname.split('/replay/')[1] || '').split(/[?#]/)[0];
+
 async function loadReplay() {
-  const sid = location.pathname.split('/replay/')[1];
-  if (!sid) { document.getElementById('board').innerHTML = '<div class="loading">No session ID</div>'; return; }
+  if (!SESSION_ID) { document.getElementById('board').innerHTML = '<div class="loading">No session ID</div>'; return; }
   try {
-    const resp = await fetch('/api/replay/' + sid);
+    const resp = await fetch('/api/replay/' + SESSION_ID);
     const data = await resp.json();
     if (data.error) { document.getElementById('board').innerHTML = '<div class="loading">' + esc(data.error) + '</div>'; return; }
     steps = data.steps || [];
     meta = data.meta || {};
-    document.getElementById('replayTitle').textContent = (meta.student || '?') + ' — ' + (meta.title || 'Session');
+    const fullTitle = (meta.student || '?') + ' \\u2014 ' + (meta.title || 'Session');
+    const titleEl = document.getElementById('replayTitle');
+    titleEl.textContent = _trimReplayTitle(fullTitle, 220);
+    titleEl.setAttribute('title', fullTitle);
     document.getElementById('replayMeta').textContent =
       (meta.createdAt || '').replace('T', ' ') + ' | ' + steps.length + ' steps | ' +
       (meta.metrics?.totalTurns || 0) + ' turns';
@@ -2284,6 +3618,109 @@ async function loadReplay() {
     document.getElementById('board').innerHTML = '<div class="loading">Failed to load: ' + esc(e.message) + '</div>';
   }
 }
+
+function _setStatus(id, cls, text) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.className = 'status' + (cls ? ' ' + cls : '');
+  el.textContent = text || '';
+}
+
+async function openEmail() {
+  if (!SESSION_ID) return;
+  document.getElementById('emailOverlay').classList.add('show');
+  _setStatus('emAiStatus', '', 'Loading draft\\u2026');
+  _setStatus('emSendStatus', '', '');
+  try {
+    const resp = await fetch('/api/followup/draft/' + encodeURIComponent(SESSION_ID));
+    const d = await resp.json();
+    if (!resp.ok || d.error) {
+      _setStatus('emAiStatus', 'err', d.error || 'Could not load draft');
+      return;
+    }
+    document.getElementById('emTo').value = d.to || '';
+    document.getElementById('emFrom').value = d.fromEmail || '';
+    document.getElementById('emSubject').value = d.subject || '';
+    document.getElementById('emText').value = d.text || '';
+    document.getElementById('emInstr').value = '';
+    _setStatus('emAiStatus', '', '');
+  } catch (e) {
+    _setStatus('emAiStatus', 'err', 'Draft load failed: ' + e);
+  }
+}
+
+function closeEmail() {
+  document.getElementById('emailOverlay').classList.remove('show');
+}
+
+async function emailAi(useCurrent) {
+  if (!SESSION_ID) return;
+  const instr = (document.getElementById('emInstr').value || '').trim();
+  _setStatus('emAiStatus', '', 'Asking the model\\u2026');
+  try {
+    const body = {
+      sessionId: SESSION_ID,
+      instruction: useCurrent ? instr : '',
+      currentSubject: useCurrent ? document.getElementById('emSubject').value : '',
+      currentBody: useCurrent ? document.getElementById('emText').value : '',
+    };
+    const resp = await fetch('/api/followup/ai-compose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    const d = await resp.json();
+    if (!resp.ok || d.error) {
+      _setStatus('emAiStatus', 'err', 'AI failed: ' + (d.error || ('HTTP ' + resp.status)));
+      return;
+    }
+    if (d.subject) document.getElementById('emSubject').value = d.subject;
+    if (d.text) document.getElementById('emText').value = d.text;
+    const tag = useCurrent ? 'Refined' : 'Generated';
+    _setStatus('emAiStatus', 'ok',
+               '\\u2713 ' + tag + (d.model ? ' (' + d.model + ')' : '') +
+               '. Review, edit, then send.');
+  } catch (e) {
+    _setStatus('emAiStatus', 'err', 'AI failed: ' + e);
+  }
+}
+
+async function emailSend() {
+  const to = (document.getElementById('emTo').value || '').trim();
+  const fromEmail = (document.getElementById('emFrom').value || '').trim();
+  const subject = (document.getElementById('emSubject').value || '').trim();
+  const text = (document.getElementById('emText').value || '').trim();
+  if (!to || !subject || !text) {
+    _setStatus('emSendStatus', 'err', 'To, subject and body are required.');
+    return;
+  }
+  if (!confirm('Send this follow-up to ' + to + '?')) return;
+  _setStatus('emSendStatus', '', 'Sending\\u2026');
+  const html = text.split(/\\n\\s*\\n/).map(function (p) {
+    return '<p>' + esc(p).replace(/\\n/g, '<br>') + '</p>';
+  }).join('');
+  try {
+    const resp = await fetch('/api/followup/send', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sessionId: SESSION_ID, to, subject, text, html, fromEmail }),
+    });
+    const d = await resp.json();
+    if (resp.ok && d.status === 'sent') {
+      _setStatus('emSendStatus', 'ok',
+                 '\\u2713 Sent (id ' + (d.id || 'ok') + ').');
+    } else {
+      _setStatus('emSendStatus', 'err',
+                 'Send failed: ' + (d.error || ('HTTP ' + resp.status)));
+    }
+  } catch (e) {
+    _setStatus('emSendStatus', 'err', 'Send failed: ' + e);
+  }
+}
+
+document.addEventListener('keydown', function (e) {
+  if (e.key === 'Escape') closeEmail();
+});
 
 loadReplay();
 </script>
@@ -2302,6 +3739,11 @@ if __name__ == "__main__":
 
     print("\n  Euler Admin Dashboard", flush=True)
     print(f"  Open: http://127.0.0.1:{args.port}/  (same UI at /dashboard)", flush=True)
+    _mongo_host = urlparse(MONGO_URI).hostname or "(unknown host)"
+    print(
+        f"  MongoDB: {_mongo_host} / db={MONGO_DB_NAME} (from ../backend/.env + MONGODB_DB)",
+        flush=True,
+    )
     print(
         f"  Tip: response header Server: {DashboardHandler.server_version} confirms this app.",
         flush=True,
