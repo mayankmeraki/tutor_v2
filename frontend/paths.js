@@ -75,65 +75,63 @@ function _renderStreamedNode(node) {
   const el = document.getElementById('wiz-artifact') || document.getElementById('path-artifact-panel');
   if (!el) return;
 
-  // Remove placeholder if first node
   if (_streamedNodes.length === 1) {
-    el.innerHTML = `<div style="font-size:8px;font-weight:700;letter-spacing:1px;text-transform:uppercase;color:rgba(52,211,153,.6);margin-bottom:8px">Building your path</div>
-      <div id="wiz-streamed-nodes"></div>`;
+    el.innerHTML = `<div id="wiz-streamed-nodes" style="padding:4px 0"></div>`;
   }
 
   const container = document.getElementById('wiz-streamed-nodes') || el;
   const tc = { learn: '#34d399', drill: '#fb923c', quiz: '#a78bfa', build: '#fbbf24' }[node.type] || '#60a5fa';
-  const shownTopics = node.topics.slice(0, 3);
-  const moreCount = node.topics.length - 3;
-  const topicDots = shownTopics.length ? shownTopics.map(t =>
-    `<div style="display:flex;align-items:center;gap:5px;padding:0.5px 0"><div style="width:3px;height:3px;border-radius:50%;background:rgba(255,255,255,.1);flex-shrink:0"></div><span style="font-size:7.5px;color:rgba(255,255,255,.2)">${_escHtml(t)}</span></div>`).join('')
-    + (moreCount > 0 ? `<div style="font-size:7px;color:rgba(255,255,255,.12);padding-left:8px">+${moreCount} more</div>` : '') : '';
 
-  // Add phase header if this is first node in a new phase
+  // Phase header
   const prevNode = _streamedNodes[_streamedNodes.length - 2];
   const isNewPhase = !prevNode || prevNode.phase !== node.phase;
   const phaseCount = new Set(_streamedNodes.map(n => n.phase)).size;
   const isFirstPhase = phaseCount <= 1;
 
   if (isNewPhase) {
-    const phColId = `wiz-ph-${phaseCount}`;
-    container.innerHTML += `<div style="margin:${prevNode ? '8px' : '0'} 0 3px">
-      <div onclick="var e=document.getElementById('${phColId}');if(e)e.style.display=e.style.display==='none'?'':'none'"
-        style="font-size:7.5px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;
-        color:rgba(255,255,255,.2);cursor:pointer;display:flex;align-items:center;gap:4px;user-select:none">
+    const phId = `wiz-ph-${phaseCount}`;
+    container.innerHTML += `<div style="margin:${prevNode ? '14px' : '0'} 0 6px">
+      <div onclick="var e=document.getElementById('${phId}');if(e)e.style.display=e.style.display==='none'?'':'none'"
+        style="font-size:9px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;
+        color:rgba(255,255,255,.25);cursor:pointer;display:flex;align-items:center;gap:5px;
+        padding:4px 0;user-select:none">
+        <span style="width:8px;height:8px;border-radius:50%;background:rgba(52,211,153,.15);flex-shrink:0"></span>
         ${_escHtml(node.phase)}
-        <span style="font-size:7px;color:rgba(255,255,255,.1)">${isFirstPhase ? '&#9660;' : '&#9654;'}</span>
+        <span style="font-size:8px;color:rgba(255,255,255,.1);margin-left:auto">${isFirstPhase ? '&#9660;' : '&#9654;'}</span>
       </div>
-      <div id="${phColId}" style="${isFirstPhase ? '' : 'display:none'}">
+      <div id="${phId}" style="${isFirstPhase ? '' : 'display:none'}"></div>
     </div>`;
   }
+
+  const phContainer = document.getElementById(`wiz-ph-${phaseCount}`) || container;
+
+  // Subtopics as vertical connected list
+  const topics = node.topics || [];
+  const topicHtml = topics.length ? `<div style="padding-left:28px;margin-top:4px">
+    ${topics.map(t => `<div style="display:flex;align-items:baseline;gap:6px;padding:2px 0">
+      <span style="width:4px;height:4px;border-radius:50%;background:rgba(255,255,255,.1);flex-shrink:0;margin-top:4px"></span>
+      <span style="font-size:10px;color:rgba(255,255,255,.3);line-height:1.4">${_escHtml(t)}</span>
+    </div>`).join('')}
+  </div>` : '';
 
   if (node.placeholder) {
-    container.innerHTML += `<div style="padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.01);
-      border:1px dashed rgba(255,255,255,.06);margin-bottom:3px;opacity:.5;animation:scopeHintIn .2s ease">
-      <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:16px;height:16px;border-radius:50%;background:rgba(255,255,255,.03);color:rgba(255,255,255,.15);
-          display:grid;place-items:center;font-size:7px;flex-shrink:0">~</div>
-        <span style="font-size:10px;color:rgba(255,255,255,.3);flex:1;font-style:italic;overflow:hidden;
-          text-overflow:ellipsis;white-space:nowrap">${_escHtml(node.title)}</span>
-      </div>
-      ${topicDots ? `<div style="display:flex;flex-wrap:wrap;gap:2px;margin-top:2px;padding-left:22px;opacity:.6;line-height:1.5">${topicDots}</div>` : ''}
+    phContainer.innerHTML += `<div style="padding:8px 10px;border-radius:8px;border:1px dashed rgba(255,255,255,.05);
+      margin-bottom:4px;opacity:.4;animation:scopeHintIn .2s ease">
+      <span style="font-size:11px;color:rgba(255,255,255,.3);font-style:italic">${_escHtml(node.title)}</span>
     </div>`;
   } else {
-    container.innerHTML += `<div style="padding:6px 8px;border-radius:6px;background:rgba(255,255,255,.02);
-      border:1px solid rgba(255,255,255,.04);margin-bottom:3px;animation:scopeHintIn .2s ease">
-      <div style="display:flex;align-items:center;gap:6px">
-        <div style="width:16px;height:16px;border-radius:50%;background:${tc}15;color:${tc};
-          display:grid;place-items:center;font-size:7px;font-weight:700;flex-shrink:0">${node.milestone ? '★' : node.order}</div>
-        <span style="font-size:10px;font-weight:600;color:rgba(255,255,255,.75);flex:1;overflow:hidden;
-          text-overflow:ellipsis;white-space:nowrap">${_escHtml(node.title)}</span>
-        <span style="font-size:8px;color:rgba(255,255,255,.15);flex-shrink:0">${node.targetMin}m</span>
+    phContainer.innerHTML += `<div style="padding:8px 10px;border-radius:8px;background:rgba(255,255,255,.015);
+      border:1px solid rgba(255,255,255,.04);margin-bottom:4px;animation:scopeHintIn .2s ease">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="width:20px;height:20px;border-radius:50%;background:${tc}12;color:${tc};
+          display:grid;place-items:center;font-size:9px;font-weight:700;flex-shrink:0">${node.milestone ? '★' : node.order}</div>
+        <span style="font-size:12px;font-weight:600;color:rgba(255,255,255,.8);flex:1">${_escHtml(node.title)}</span>
+        <span style="font-size:9px;color:rgba(255,255,255,.15);flex-shrink:0">${node.targetMin}m</span>
       </div>
-      ${topicDots ? `<div style="padding-left:22px;margin-top:2px;position:relative"><div style="position:absolute;left:24px;top:4px;bottom:4px;width:1px;background:rgba(255,255,255,.05)"></div>${topicDots}</div>` : ''}
+      ${topicHtml}
     </div>`;
   }
 
-  // Scroll artifact
   el.scrollTop = el.scrollHeight;
 }
 
@@ -1341,7 +1339,7 @@ function _renderPathPage(path) {
                   background:rgba(96,165,250,.03);border:1px solid rgba(96,165,250,.06)">
                   <span style="font-size:10px;color:rgba(96,165,250,.5)">&#9998;</span>
                   <input type="text" value="${_escHtml(next.studentNote || '')}"
-                    placeholder="Optional: tell Euler what you know..."
+                    placeholder="Optional — e.g. &quot;I know the basics&quot; to calibrate Euler"
                     onblur="PathUI._saveNodeNote('${_pid}','${_escHtml(next.nodeId)}',this.value)"
                     onkeydown="if(event.key==='Enter')this.blur()"
                     style="flex:1;background:none;border:none;color:#fff;font-size:10px;font-family:inherit;outline:none">
@@ -1514,40 +1512,47 @@ function _buildTimeline(path, nodes, next) {
       }
 
       const expandId = `tl-expand-${_nid}`;
-      const topics = (n.topics || []).slice(0, 6);
-      const topicDots = topics.length ? `<div style="display:flex;flex-direction:column;gap:0;padding-left:25px;margin-top:3px;position:relative">
-        <div style="position:absolute;left:29px;top:4px;bottom:4px;width:1px;background:rgba(255,255,255,.06)"></div>
-        ${topics.map(t => `<div style="display:flex;align-items:center;gap:6px;padding:1px 0;position:relative">
-          <div style="width:5px;height:5px;border-radius:50%;background:rgba(255,255,255,.12);flex-shrink:0;z-index:1"></div>
-          <span style="font-size:8.5px;color:rgba(255,255,255,.28)">${_escHtml(t)}</span>
-        </div>`).join('')}
-      </div>` : '';
-      html += `<div style="border-radius:7px;background:${bg};border:1px solid ${borderColor};
-        transition:border-color .1s;${isDone ? 'opacity:.55;' : ''};overflow:hidden"
-        onmouseenter="this.style.borderColor='rgba(96,165,250,.12)'" onmouseleave="this.style.borderColor='${borderColor}'">
+      const topics = (n.topics || []).slice(0, 5);
+
+      // Collapsed: title + number only. Expanded: subtopics + start button
+      html += `<div style="border-radius:8px;background:${bg};border:1px solid ${borderColor};
+        transition:border-color .12s;${isDone ? 'opacity:.5;' : ''}overflow:hidden;margin-bottom:4px"
+        onmouseenter="this.style.borderColor='rgba(96,165,250,.12)';this.querySelectorAll('.subtopic-start').forEach(b=>b.style.opacity='1')"
+        onmouseleave="this.style.borderColor='${borderColor}';this.querySelectorAll('.subtopic-start').forEach(b=>b.style.opacity='0')"
+
         <div onclick="var ex=document.getElementById('${expandId}');if(ex)ex.style.display=ex.style.display==='none'?'':'none'"
-          style="padding:7px 9px;cursor:pointer">
-          <div style="display:flex;align-items:center;gap:7px">
-            <div style="width:18px;height:18px;border-radius:50%;display:grid;place-items:center;font-size:7.5px;font-weight:700;
-              flex-shrink:0;background:${numBg};color:${numColor}">${isDone ? '&#10003;' : (n.milestone ? '&#9733;' : (n.order || ''))}</div>
-            <span style="flex:1;font-size:11px;font-weight:600;color:${isDone ? 'rgba(255,255,255,.4)' : '#fff'};
-              white-space:nowrap;overflow:hidden;text-overflow:ellipsis;${isDone ? 'text-decoration:line-through;' : ''}">${_escHtml(n.title)}</span>
-            ${tag}
-            <span style="font-size:8.5px;color:rgba(255,255,255,.12);flex-shrink:0">${n.targetMin}m</span>
+          style="padding:10px 12px;cursor:pointer;display:flex;align-items:center;gap:8px">
+          <div style="width:22px;height:22px;border-radius:50%;display:grid;place-items:center;font-size:9px;font-weight:700;
+            flex-shrink:0;background:${numBg};color:${numColor}">${isDone ? '&#10003;' : (n.milestone ? '&#9733;' : (n.order || ''))}</div>
+          <div style="flex:1;min-width:0">
+            <div style="font-size:13px;font-weight:600;color:${isDone ? 'rgba(255,255,255,.4)' : '#fff'};
+              ${isDone ? 'text-decoration:line-through;' : ''}">${_escHtml(n.title)}</div>
           </div>
-          ${topicDots}
+          ${tag}
+          <span style="font-size:9px;color:rgba(255,255,255,.12);flex-shrink:0">${n.targetMin}m</span>
         </div>
-        <div id="${expandId}" style="display:${isNext ? '' : 'none'};padding:6px 9px 9px;border-top:1px solid rgba(255,255,255,.03)">
-          <div style="display:flex;align-items:center;gap:5px;margin-bottom:6px;padding:4px 7px;border-radius:5px;
-            background:rgba(96,165,250,.03);border:1px solid rgba(96,165,250,.05)">
-            <span style="font-size:9px;color:rgba(96,165,250,.45)">&#9998;</span>
-            <input type="text" value="${_escHtml(n.studentNote || '')}" placeholder="What do you know about this?"
+
+        <div id="${expandId}" style="display:${isNext ? '' : 'none'};padding:0 12px 12px">
+          ${topics.length ? `<div style="padding-left:30px;margin-bottom:8px;position:relative">
+            <div style="position:absolute;left:32px;top:8px;bottom:8px;width:1px;background:rgba(255,255,255,.04)"></div>
+            ${topics.map((t, ti) => `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;position:relative"
+              onclick="event.stopPropagation()">
+              <span style="width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.1);flex-shrink:0;z-index:1"></span>
+              <span style="font-size:11.5px;color:rgba(255,255,255,.4);flex:1;line-height:1.3">${_escHtml(t)}</span>
+              <button onclick="PathUI._startAtSubtopic('${_pid}','${_nid}','${_escHtml(t)}')"
+                style="padding:3px 10px;border-radius:5px;border:1px solid rgba(52,211,153,.15);
+                background:rgba(52,211,153,.04);color:rgba(52,211,153,.6);font-size:9px;font-weight:600;
+                cursor:pointer;font-family:inherit;flex-shrink:0;opacity:0;transition:opacity .1s"
+                onmouseenter="this.style.opacity='1'" class="subtopic-start">Start</button>
+            </div>`).join('')}
+          </div>` : ''}
+          <div style="padding-left:30px">
+            <input type="text" value="${_escHtml(n.studentNote || '')}" placeholder="Optional — add context to calibrate Euler, e.g. &quot;I know basics of this&quot;"
               onblur="PathUI._saveNodeNote('${_pid}','${_nid}',this.value)" onkeydown="if(event.key==='Enter')this.blur()"
-              style="flex:1;background:none;border:none;color:#fff;font-size:10px;font-family:inherit;outline:none">
+              onclick="event.stopPropagation()"
+              style="width:100%;padding:6px 10px;border-radius:6px;border:1px solid rgba(255,255,255,.04);
+              background:rgba(255,255,255,.015);color:#fff;font-size:10.5px;font-family:inherit;outline:none">
           </div>
-          <button onclick="PathUI.continueNode('${_pid}','${_nid}')" style="padding:6px 14px;border-radius:6px;border:none;
-            background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;font-size:10.5px;font-weight:700;
-            cursor:pointer;font-family:inherit;float:right">${isDone ? 'Restart' : 'Start'} &rarr;</button>
         </div>
       </div>`;
     }
@@ -2049,6 +2054,17 @@ const PathUI = {
     }
     PathState._wizardStep = stepIndex + 1;
     _renderWizardStep(stepIndex + 1);
+  },
+
+  async _startAtSubtopic(pathId, nodeId, subtopic) {
+    // Start session at a specific subtopic within a chapter
+    const path = PathState.activePath;
+    if (!path) return;
+    const node = (path.nodes || []).find(n => n.nodeId === nodeId);
+    if (!node) return;
+    // Save the subtopic as the student note so tutor starts there
+    await this._saveNodeNote(pathId, nodeId, `Start from: ${subtopic}`);
+    await this.continueNode(pathId, nodeId);
   },
 
   async _planPhase(pathId, phaseName) {
