@@ -101,45 +101,40 @@ def _convert_finish_reason(reason: str | None) -> str:
 
 
 def _convert_messages_openrouter(
-    system: str | tuple, messages: list[dict]
+    system: str | tuple, messages: list[dict], model: str = ""
 ) -> list[dict]:
     """Convert Anthropic-format messages to OpenAI/OpenRouter format.
 
     system can be:
       - str: single system message (entire prompt cached as one block)
       - tuple (static, dynamic): two content blocks — static is cached, dynamic is not
+
+    cache_control is only added for Anthropic models (others reject or ignore it).
     """
+    # Only Anthropic models support cache_control
+    _supports_cache = "anthropic/" in model.lower()
+
     result: list[dict] = []
     if system:
         if isinstance(system, tuple) and len(system) == 2:
-            # Split prompt: static (cached) + dynamic (not cached)
             static_part, dynamic_part = system
-            content_blocks = [
-                {
-                    "type": "text",
-                    "text": static_part,
-                    "cache_control": {"type": "ephemeral"},
-                }
-            ]
+            static_block = {"type": "text", "text": static_part}
+            if _supports_cache:
+                static_block["cache_control"] = {"type": "ephemeral"}
+            content_blocks = [static_block]
             if dynamic_part and dynamic_part.strip():
-                content_blocks.append({
-                    "type": "text",
-                    "text": dynamic_part,
-                })
+                content_blocks.append({"type": "text", "text": dynamic_part})
             result.append({"role": "system", "content": content_blocks})
         else:
-            # Single string — cache the whole thing
             system_text = system if isinstance(system, str) else str(system)
-            result.append({
-                "role": "system",
-                "content": [
-                    {
-                        "type": "text",
-                        "text": system_text,
-                        "cache_control": {"type": "ephemeral"},
-                    }
-                ],
-            })
+            if _supports_cache:
+                result.append({
+                    "role": "system",
+                    "content": [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}],
+                })
+            else:
+                # Non-Anthropic: plain string system message (most compatible)
+                result.append({"role": "system", "content": system_text})
 
     for msg in messages:
         role = msg["role"]

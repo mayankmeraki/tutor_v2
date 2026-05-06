@@ -82,14 +82,15 @@ async def _llm_call_single(
 
     elif provider == "openrouter":
         client = _get_openrouter_client()
-        or_messages = _convert_messages_openrouter(system, messages)
+        _model_id = _prefix_model(model)
+        or_messages = _convert_messages_openrouter(system, messages, model=_model_id)
         kwargs = {
-            "model": _prefix_model(model),
+            "model": _model_id,
             "max_tokens": max_tokens,
             "messages": or_messages,
             "extra_body": {
                 "provider": {
-                    "order": ["Anthropic"],
+                    "order": ["Anthropic"] if "anthropic/" in _model_id.lower() else [],
                     "allow_fallbacks": False,
                 },
             },
@@ -170,14 +171,14 @@ def _build_stream(
 
     elif provider == "openrouter":
         client = _get_openrouter_client()
-        or_messages = _convert_messages_openrouter(system, messages)
+        _model_id = _prefix_model(model)
+        or_messages = _convert_messages_openrouter(system, messages, model=_model_id)
         kwargs = {
             "messages": or_messages,
             "max_tokens": max_tokens,
-            # Enable Anthropic prompt caching via OpenRouter provider config
             "extra_body": {
                 "provider": {
-                    "order": ["Anthropic"],
+                    "order": ["Anthropic"] if "anthropic/" in _model_id.lower() else [],
                     "allow_fallbacks": False,
                 },
             },
