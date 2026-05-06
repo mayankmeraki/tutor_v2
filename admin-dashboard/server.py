@@ -79,33 +79,121 @@ def _qs_first(qs: dict, key: str, default: str = "") -> str:
     return str(v) if v is not None else default
 
 
-def parse_email_filter_parts(qs: dict) -> tuple[str, str, list[str]]:
-    """From query string: domain (e.g. seekcapacity.com), substring contains, comma-separated excludes."""
+def parse_unified_filter_string(raw: str) -> tuple[str, list[str], list[str]]:
+    """Parse a single ``filter`` string into (domain, includes, excludes).
+
+    Tokens are whitespace-separated. Examples that work:
+      ``@seekcapacity.com``  → restrict to that domain
+      ``mayank``             → email/name contains "mayank"
+      ``-test.com``          → exclude anything containing "test.com"
+      ``!gmail.com``         → exclude anything containing "gmail.com"
+
+    Combine freely:
+      ``@seekcapacity.com -test``  → @seekcapacity.com but not "test"
+      ``mayank -@gmail.com``       → has "mayank" but not on gmail
+
+    Multiple includes are AND-ed (must match all). Domain takes the
+    last ``@x`` seen — there's only one domain in play at a time.
+    """
+    domain = ""
+    includes: list[str] = []
+    excludes: list[str] = []
+    for tok in (raw or "").split():
+        tok = tok.strip()
+        if not tok:
+            continue
+        # Negation prefix → exclude (also supports `-@gmail.com` to
+        # exclude an entire domain by treating it as a substring).
+        if tok[0] in ("-", "!"):
+            seg = tok[1:].strip()
+            if seg:
+                excludes.append(seg)
+            continue
+        # Bare domain (starts with @) → restrict to that domain.
+        if tok.startswith("@"):
+            domain = tok[1:].lower()
+            continue
+        # Looks like a domain (no @ but has a dot and no spaces and
+        # ends with a TLD-ish segment). Treat as domain too — common
+        # case: user types ``seekcapacity.com`` without the @.
+        if (
+            "." in tok
+            and "@" not in tok
+            and "/" not in tok
+            and len(tok.split(".")[-1]) >= 2
+        ):
+            domain = tok.lower()
+            continue
+        includes.append(tok)
+    return domain, includes, excludes
+
+
+def parse_email_filter_parts(qs: dict) -> tuple[str, list[str], list[str]]:
+    """Build (domain, includes, excludes) from the query string.
+
+    Prefers the new single ``filter`` param when present. Falls back to
+    the legacy ``domain`` / ``email_contains`` / ``email_exclude`` params
+    so saved URLs and bookmarks keep working.
+    """
+    raw = _qs_first(qs, "filter").strip()
+    if raw:
+        return parse_unified_filter_string(raw)
+
     domain = _qs_first(qs, "domain").strip().lower()
     if domain.startswith("@"):
         domain = domain[1:]
     contains = _qs_first(qs, "email_contains").strip()
+    includes = [contains] if contains else []
     exclude_raw = _qs_first(qs, "email_exclude").strip()
-    exclude_parts = [s.strip() for s in exclude_raw.split(",") if s.strip()]
-    return domain, contains, exclude_parts
+    excludes = [s.strip() for s in exclude_raw.split(",") if s.strip()]
+    return domain, includes, excludes
 
 
-def filter_fingerprint_parts(domain: str, contains: str, exclude_parts: list[str]) -> str:
-    if not domain and not contains and not exclude_parts:
+def filter_fingerprint_parts(domain: str, includes: list[str], excludes: list[str]) -> str:
+    if not domain and not includes and not excludes:
         return "all"
-    raw = f"{domain}|{contains}|{','.join(exclude_parts)}"
+    raw = f"{domain}|{','.join(includes)}|{','.join(excludes)}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]
 
 
-def email_match_for_field(field: str, domain: str, contains: str, exclude_parts: list[str]):
-    """Mongo fragment for one field (userEmail on sessions, email on users). None = no constraint."""
+def _filters_payload(domain: str, includes: list[str], excludes: list[str]) -> dict:
+    """Echo the active filter back to the FE in a single shape.
+
+    The FE renders one chip per part so users can see exactly what's
+    being applied without re-parsing the input string. ``filterRaw`` is
+    a faithful round-trip of the input so the FE can pre-fill the box
+    after a hard reload.
+    """
+    raw_parts: list[str] = []
+    if domain:
+        raw_parts.append("@" + domain)
+    raw_parts.extend(includes)
+    raw_parts.extend("-" + e for e in excludes)
+    return {
+        "active": bool(domain or includes or excludes),
+        "filterRaw": " ".join(raw_parts),
+        "domain": domain,
+        "includes": includes,
+        "excludes": excludes,
+        # Legacy fields for any old code/links still reading the
+        # old shape — mirrors the new structure as best it can.
+        "email_contains": ",".join(includes),
+        "email_exclude": ",".join(excludes),
+    }
+
+
+def email_match_for_field(field: str, domain: str,
+                          includes: list[str], excludes: list[str]):
+    """Mongo fragment for one field (userEmail on sessions, email on users).
+    Returns None when there's no active filter.
+    """
     parts: list[dict] = []
     if domain:
         parts.append({field: {"$regex": re.escape("@" + domain) + "$", "$options": "i"}})
-    if contains:
-        parts.append({field: {"$regex": re.escape(contains), "$options": "i"}})
-    for seg in exclude_parts:
-        parts.append({field: {"$not": {"$regex": re.escape(seg), "$options": "i"}}})
+    for inc in includes:
+        parts.append({field: {"$regex": re.escape(inc), "$options": "i"}})
+    for exc in excludes:
+        parts.append({field: {"$not": {"$regex": re.escape(exc), "$options": "i"}}})
     if not parts:
         return None
     if len(parts) == 1:
@@ -288,17 +376,17 @@ def _mongo_stats_meta() -> dict:
 
 async def fetch_stats(qs: dict | None = None):
     qs = qs or {}
-    domain, contains, exclude_parts = parse_email_filter_parts(qs)
-    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
-    cache_key = f"stats_{fp}"
+    domain, includes, excludes = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, includes, excludes)
+    cache_key = f"stats_v3_{fp}"
     cached = cache_get(cache_key)
     if cached:
         out = dict(cached)
         out.update(_mongo_stats_meta())
         return out
     db = get_db()
-    sess_email = email_match_for_field("userEmail", domain, contains, exclude_parts)
-    user_email = email_match_for_field("email", domain, contains, exclude_parts)
+    sess_email = email_match_for_field("userEmail", domain, includes, excludes)
+    user_email = email_match_for_field("email", domain, includes, excludes)
 
     total_users = await db.users.count_documents(user_email or {})
     total_sessions = await db.sessions.count_documents(sess_email or {})
@@ -334,23 +422,57 @@ async def fetch_stats(qs: dict | None = None):
     cost_month = await _sum_cost({"createdAt": {"$gte": month_start}})
     cost_today = await _sum_cost({"createdAt": {"$gte": today_start}})
 
+    # ── Path adoption: how many sessions / users came in via a path ──
+    # A "path session" is one where backendState.pathId is populated —
+    # set when the student clicked Learn from a path or subtopic. Anything
+    # without a pathId is a "single" entry (chat-box / direct intent).
+    path_session_match = merge_mongo_filters(
+        sess_email,
+        {"backendState.pathId": {"$exists": True, "$nin": [None, ""]}},
+    )
+    path_sessions = await db.sessions.count_documents(path_session_match)
+    single_sessions = max(0, total_sessions - path_sessions)
+
+    # Distinct users who ever launched a path session
+    path_user_emails = await db.sessions.distinct("userEmail", path_session_match)
+    path_users = len({e for e in path_user_emails if e})
+
+    # Total paths created (any status) — independent of sessions.
+    # Reuse the same email filter so a stakeholder filtering by
+    # `@seekcapacity.com` sees the same scoped numbers everywhere.
+    # Paths collection uses `userEmail` (same as sessions), so reuse
+    # the session email filter directly.
+    paths_filter = sess_email or {}
+    paths_total = 0
+    paths_active = 0
+    try:
+        paths_total = await db.paths.count_documents(paths_filter)
+        paths_active = await db.paths.count_documents(
+            merge_mongo_filters(paths_filter, {"status": "active"})
+        )
+    except Exception:
+        # paths collection may not yet exist on fresh installs
+        pass
+
     result = {
         "totalUsers": total_users,
         "totalSessions": total_sessions,
         "activeSessions": active_sessions,
         "externalSessions": external_sessions,
+        "pathSessions": path_sessions,
+        "singleSessions": single_sessions,
+        "pathUsers": path_users,
+        "pathAdoptionPct": round(path_users / total_users * 100, 1) if total_users else 0,
+        "pathSessionsPct": round(path_sessions / total_sessions * 100, 1) if total_sessions else 0,
+        "pathsTotal": paths_total,
+        "pathsActive": paths_active,
         "costAllCents": cost_all["llm"] + cost_all["tts"],
         "costAllLlmCents": cost_all["llm"],
         "costAllTtsCents": cost_all["tts"],
         "costMonthCents": cost_month["llm"] + cost_month["tts"],
         "costTodayCents": cost_today["llm"] + cost_today["tts"],
         "ts": datetime.now(timezone.utc).isoformat(),
-        "filters": {
-            "active": bool(domain or contains or exclude_parts),
-            "domain": domain,
-            "email_contains": contains,
-            "email_exclude": ",".join(exclude_parts),
-        },
+        "filters": _filters_payload(domain, includes, excludes),
     }
     result.update(_mongo_stats_meta())
     cache_set(cache_key, result)
@@ -360,21 +482,31 @@ async def fetch_stats(qs: dict | None = None):
 async def fetch_users(qs: dict | None = None):
     """Optimized user-aggregation:
       1. Mongo $group — counts/costs/per-session min/max timestamps (server-side, fast)
-      2. For "outlier" sessions (span > 4h, suggesting tab-open) pull transcript
-         timestamps and refine via active-period split. ~5% of sessions.
-      3. For normal sessions, span ≈ active (continuous interaction).
+      2. For sessions whose span exceeds the active-period gap, pull
+         transcript timestamps and refine via active-period split.
+      3. For sessions whose span is short (under the active-period gap),
+         span ≈ active by construction (no internal idle gap can fit).
+
+    Why the 4h threshold was wrong: a 1h session with one 30-minute idle
+    gap genuinely had ~30min of active dwell, but the old code reported
+    1h because 1h < 4h ("not an outlier") and just used span as active.
+    Sessions with span > ACTIVE_PERIOD_GAP_SEC (15min) are the ones that
+    CAN have an internal gap, so those are the ones we must refine.
     """
     qs = qs or {}
-    domain, contains, exclude_parts = parse_email_filter_parts(qs)
-    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
-    cached = cache_get(f"users_{fp}")
+    domain, includes, excludes = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, includes, excludes)
+    cached = cache_get(f"users_v2_{fp}")
     if cached:
         return cached
     db = get_db()
-    OUTLIER_GAP_SEC = 4 * 3600  # 4 hours — sessions with span>this need refinement
+    # Refine any session whose span could plausibly contain an idle gap
+    # large enough to skew the active-time number. Equal to the
+    # active-period gap so the same definition is enforced everywhere.
+    OUTLIER_GAP_SEC = ACTIVE_PERIOD_GAP_SEC
 
-    sess_email = email_match_for_field("userEmail", domain, contains, exclude_parts)
-    user_email = email_match_for_field("email", domain, contains, exclude_parts)
+    sess_email = email_match_for_field("userEmail", domain, includes, excludes)
+    user_email = email_match_for_field("email", domain, includes, excludes)
 
     # Single aggregation: counts + costs + min/max timestamp per session, then
     # group by user. We sum span-from-min/max here and tag outlier sessions for
@@ -495,7 +627,7 @@ async def fetch_users(qs: dict | None = None):
             "totalLlmCents": round(llm_c, 2),
             "totalTtsCents": round(tts_c, 2),
         })
-    cache_set(f"users_{fp}", result)
+    cache_set(f"users_v2_{fp}", result)
     return result
 
 
@@ -504,9 +636,9 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict
     userEmail / studentName / title / intent.
     """
     qs = qs or {}
-    domain, contains, exclude_parts = parse_email_filter_parts(qs)
-    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
-    cache_key = f"sessions_v4_{limit}_{offset}_{q.lower()}_{fp}"
+    domain, includes, excludes = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, includes, excludes)
+    cache_key = f"sessions_v6_{limit}_{offset}_{q.lower()}_{fp}"
     cached = cache_get(cache_key)
     if cached:
         return cached
@@ -527,7 +659,7 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict
                 {"intent.raw": qre},
             ]}
 
-    sess_email = email_match_for_field("userEmail", domain, contains, exclude_parts)
+    sess_email = email_match_for_field("userEmail", domain, includes, excludes)
     if sess_email and match:
         match = {"$and": [match, sess_email]}
     elif sess_email:
@@ -563,8 +695,28 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict
             "backendState.llmTotalInputTokens": 1,
             "backendState.llmTotalOutputTokens": 1,
             "backendState.ttsCharCount": 1,
+            # Path linkage — set on sessions started from a path's
+            # Learn button. Drives the PATH badge in the UI and lets
+            # us split overall metrics into "path" vs "single-session".
+            "backendState.pathId": 1,
+            "backendState.nodeId": 1,
         },
     ).sort("createdAt", -1).skip(offset).limit(limit).to_list(length=limit)
+
+    # Resolve path titles + node positions for any session linked to a
+    # path. Single round trip per page (max 50 paths) — uses the indexed
+    # pathId field. We strip out the nodes payload to keep this cheap.
+    path_ids = list({(s.get("backendState") or {}).get("pathId")
+                     for s in sessions
+                     if (s.get("backendState") or {}).get("pathId")})
+    path_lookup: dict = {}
+    if path_ids:
+        async for p in db.paths.find(
+            {"pathId": {"$in": path_ids}},
+            {"pathId": 1, "title": 1, "nodes.nodeId": 1, "nodes.order": 1,
+             "nodes.phase": 1, "nodes.title": 1},
+        ):
+            path_lookup[p["pathId"]] = p
 
     result = []
     for s in sessions:
@@ -600,6 +752,29 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict
                 break
 
         raw_title = s.get("title") or s.get("headline") or "(no title)"
+
+        # Path linkage summary — shown as a PATH badge + tooltip in the
+        # Sessions list, and reused by stats / analytics for the
+        # "started a path" cohort split.
+        path_id = bs.get("pathId") or ""
+        node_id = bs.get("nodeId") or ""
+        path_title = ""
+        node_order = None
+        node_phase = None
+        node_title = ""
+        path_total_nodes = 0
+        if path_id and path_id in path_lookup:
+            pdoc = path_lookup[path_id]
+            path_title = pdoc.get("title", "") or ""
+            nodes = pdoc.get("nodes") or []
+            path_total_nodes = len(nodes)
+            for n in nodes:
+                if n.get("nodeId") == node_id:
+                    node_order = n.get("order")
+                    node_phase = n.get("phase")
+                    node_title = (n.get("title") or "")[:80]
+                    break
+
         result.append({
             "_id": str(s.get("_id", "")),
             "user": s.get("studentName", "?"),
@@ -630,6 +805,17 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict
             "inputTokens": bs.get("llmTotalInputTokens") or 0,
             "outputTokens": bs.get("llmTotalOutputTokens") or 0,
             "ttsChars": bs.get("ttsCharCount") or 0,
+            # Entry-point: "path" if this session was launched from a
+            # path's Learn button, "single" otherwise. Used to split
+            # adoption funnels in the dashboard.
+            "entryType": "path" if path_id else "single",
+            "pathId": path_id,
+            "pathTitle": path_title,
+            "nodeId": node_id,
+            "nodeOrder": node_order,
+            "nodePhase": node_phase,
+            "nodeTitle": node_title,
+            "pathTotalNodes": path_total_nodes,
         })
     response = {
         "items": result,
@@ -645,16 +831,16 @@ async def fetch_sessions(limit: int = 50, offset: int = 0, q: str = "", qs: dict
 async def fetch_analytics(days: int = 30, qs: dict | None = None):
     """Time-series + aggregates for the Analytics tab."""
     qs = qs or {}
-    domain, contains, exclude_parts = parse_email_filter_parts(qs)
-    fp = filter_fingerprint_parts(domain, contains, exclude_parts)
-    cache_key = f"analytics_{days}_{fp}"
+    domain, includes, excludes = parse_email_filter_parts(qs)
+    fp = filter_fingerprint_parts(domain, includes, excludes)
+    cache_key = f"analytics_v3_{days}_{fp}"
     cached = cache_get(cache_key)
     if cached:
         return cached
     db = get_db()
     now = datetime.now(timezone.utc)
-    sess_f = email_match_for_field("userEmail", domain, contains, exclude_parts)
-    user_f = email_match_for_field("email", domain, contains, exclude_parts)
+    sess_f = email_match_for_field("userEmail", domain, includes, excludes)
+    user_f = email_match_for_field("email", domain, includes, excludes)
 
     def _iso(dt: datetime) -> str:
         return dt.isoformat()
@@ -804,9 +990,99 @@ async def fetch_analytics(days: int = 30, qs: dict | None = None):
         return {"cohort": len(cohort), "returned": len(returned), "rate": round(rate, 1)}
 
     td = datetime_timedelta
+    # 1-day return: cohort = users with a session 2d-1d ago, returned = had another session in last 24h
     ret_1d = await _return_rate(_iso(now - td(days=2)), _iso(now - td(days=1)), _iso(now - td(days=1)))
+    # 2-day return: cohort = users with a session 3d-2d ago, returned = had another session in last 48h
+    ret_2d = await _return_rate(_iso(now - td(days=3)), _iso(now - td(days=2)), _iso(now - td(days=2)))
+    # 7-day return: cohort = users with a session 14d-7d ago, returned = had another session in last 7d
     ret_7d = await _return_rate(_iso(now - td(days=14)), _iso(now - td(days=7)), _iso(now - td(days=7)))
+    # 30-day return: cohort = users with a session 60d-30d ago, returned = had another session in last 30d
     ret_30d = await _return_rate(_iso(now - td(days=60)), _iso(now - td(days=30)), _iso(now - td(days=30)))
+
+    # ── Path adoption funnel + per-cohort averages ───────────────────
+    path_match_window = merge_mongo_filters(
+        sess_day_match,
+        {"backendState.pathId": {"$exists": True, "$nin": [None, ""]}},
+    )
+    path_sessions_window = await db.sessions.count_documents(path_match_window)
+    path_users_window = len({u for u in await db.sessions.distinct("userEmail", path_match_window) if u})
+    single_match_window = merge_mongo_filters(
+        sess_day_match,
+        {"$or": [
+            {"backendState.pathId": {"$exists": False}},
+            {"backendState.pathId": None},
+            {"backendState.pathId": ""},
+        ]},
+    )
+    single_sessions_window = await db.sessions.count_documents(single_match_window)
+    single_users_window = len({u for u in await db.sessions.distinct("userEmail", single_match_window) if u})
+
+    # ── Avg sessions per active user + avg session active time ───────
+    # Active user = any user with at least one session in the window.
+    # Sessions/user is the headline "stickiness" number stakeholders ask
+    # for. Avg session length uses the same active-period definition as
+    # the Users tab so the two screens agree.
+    active_users_window = await db.sessions.distinct("userEmail", sess_day_match)
+    active_users_window = [u for u in active_users_window if u]
+    avg_sessions_per_user = (
+        totals["sessions"] / len(active_users_window)
+        if active_users_window else 0
+    )
+
+    # Pull session spans + flag potential idle-gap outliers, then refine
+    # the long ones by reading transcript timestamps. Same approach as
+    # fetch_users so the numbers reconcile. We cap to 2000 sessions in
+    # the window to keep this responsive on large datasets.
+    span_pipeline = [
+        {"$match": sess_day_match},
+        {"$addFields": {
+            "_minTs": {"$min": "$transcript.timestamp"},
+            "_maxTs": {"$max": "$transcript.timestamp"},
+        }},
+        {"$addFields": {
+            "_spanSec": {
+                "$cond": {
+                    "if": {"$and": [{"$ne": ["$_minTs", None]}, {"$ne": ["$_maxTs", None]}]},
+                    "then": {"$divide": [
+                        {"$subtract": [
+                            {"$dateFromString": {"dateString": "$_maxTs", "onError": None}},
+                            {"$dateFromString": {"dateString": "$_minTs", "onError": None}},
+                        ]},
+                        1000,
+                    ]},
+                    "else": 0,
+                }
+            },
+        }},
+        {"$project": {"_id": 1, "_spanSec": 1}},
+        {"$limit": 2000},
+    ]
+    span_rows = [r async for r in db.sessions.aggregate(span_pipeline, allowDiskUse=True)]
+    short_sum = 0
+    short_count = 0
+    long_ids = []
+    for r in span_rows:
+        sp = r.get("_spanSec") or 0
+        if sp <= ACTIVE_PERIOD_GAP_SEC:
+            short_sum += sp
+            short_count += 1
+        else:
+            long_ids.append(r["_id"])
+
+    long_active_sum = 0
+    long_count = 0
+    if long_ids:
+        cur = db.sessions.find(
+            {"_id": {"$in": long_ids}},
+            {"transcript.timestamp": 1},
+        )
+        async for s in cur:
+            timing = compute_interaction_time(s.get("transcript", []))
+            long_active_sum += timing["activeSec"]
+            long_count += 1
+    total_active = short_sum + long_active_sum
+    total_session_count = short_count + long_count
+    avg_session_active_sec = (total_active / total_session_count) if total_session_count else 0
 
     result = {
         "windowDays": days,
@@ -820,15 +1096,29 @@ async def fetch_analytics(days: int = 30, qs: dict | None = None):
         "avgTurnsPerSession": round(avg_turns_per_session, 2),
         "avgCostPerSessionCents": round(avg_cost_per_session, 2),
         "avgCostPerTurnCents": round(avg_cost_per_turn, 2),
+        "avgSessionsPerUser": round(avg_sessions_per_user, 2),
+        "avgSessionActiveSec": int(avg_session_active_sec),
+        "activeUsersWindow": len(active_users_window),
+        "pathFunnel": {
+            "pathSessions": path_sessions_window,
+            "pathUsers": path_users_window,
+            "singleSessions": single_sessions_window,
+            "singleUsers": single_users_window,
+            # Use the unbounded totals["sessions"] count as the denominator
+            # so the percentage stays accurate even if span_pipeline was
+            # capped at 2000 docs.
+            "pathPctOfSessions": round(
+                path_sessions_window / max(1, totals["sessions"]) * 100, 1
+            ),
+            "pathPctOfUsers": round(
+                path_users_window / max(1, len(active_users_window)) * 100, 1
+            ),
+        },
         "returnRate1d": ret_1d,
+        "returnRate2d": ret_2d,
         "returnRate7d": ret_7d,
         "returnRate30d": ret_30d,
-        "filters": {
-            "active": bool(domain or contains or exclude_parts),
-            "domain": domain,
-            "email_contains": contains,
-            "email_exclude": ",".join(exclude_parts),
-        },
+        "filters": _filters_payload(domain, includes, excludes),
     }
     cache_set(cache_key, result)
     return result
@@ -891,7 +1181,7 @@ async def fetch_feedback():
 
 async def fetch_session_detail(session_id: str):
     """Per-session details: costs + full visibility (intent, DSA/SD, blueprint, inputs)."""
-    cache_key = f"detail_v3_{session_id}"
+    cache_key = f"detail_v4_{session_id}"
     cached = cache_get(cache_key)
     if cached:
         return cached
@@ -924,6 +1214,53 @@ async def fetch_session_detail(session_id: str):
         return {"error": "not found"}
     bs = s.get("backendState") or {}
     raw_title_d = s.get("title") or s.get("headline") or ""
+
+    # ── Path context: enrich the insight with full path linkage so the
+    # session-detail modal can show "Session 3 of 14, Phase 2, focus
+    # subtopic = X" with a link to the path doc. Cheap: one find_one
+    # per detail open.
+    path_ctx = None
+    p_id = bs.get("pathId")
+    n_id = bs.get("nodeId")
+    if p_id:
+        try:
+            pdoc = await db.paths.find_one(
+                {"pathId": p_id},
+                {"pathId": 1, "title": 1, "description": 1, "status": 1,
+                 "nodes": 1, "userEmail": 1, "createdAt": 1},
+            )
+        except Exception:
+            pdoc = None
+        if pdoc:
+            nodes = pdoc.get("nodes") or []
+            this_node = next((n for n in nodes if n.get("nodeId") == n_id), None)
+            done = sum(1 for n in nodes if (n.get("status") or "") in ("complete", "completed", "done"))
+            path_ctx = {
+                "pathId": pdoc.get("pathId"),
+                "pathTitle": pdoc.get("title"),
+                "pathDescription": (pdoc.get("description") or "")[:400],
+                "pathStatus": pdoc.get("status"),
+                "pathOwnerEmail": pdoc.get("userEmail"),
+                "totalNodes": len(nodes),
+                "completedNodes": done,
+                "completedPct": round(done / len(nodes) * 100, 1) if nodes else 0,
+                "currentNodeId": n_id,
+                "currentNodeOrder": this_node.get("order") if this_node else None,
+                "currentNodePhase": this_node.get("phase") if this_node else None,
+                "currentNodeTitle": (this_node.get("title") or "")[:160] if this_node else "",
+                "currentNodeStatus": this_node.get("status") if this_node else "",
+                "currentNodeTopics": (this_node.get("topics") or [])[:12] if this_node else [],
+                "currentNodeStudentNote": ((this_node.get("studentNote") or "")[:600]
+                                           if this_node else ""),
+            }
+
+    insight = _build_session_insight(s)
+    if path_ctx:
+        insight["pathContext"] = path_ctx
+        insight["entryType"] = "path"
+    else:
+        insight["entryType"] = "single"
+
     result = {
         "title": _shorten_text(raw_title_d, 200),
         "titleFull": _shorten_text(raw_title_d, 8000),
@@ -937,7 +1274,7 @@ async def fetch_session_detail(session_id: str):
         "outputTokens": bs.get("llmTotalOutputTokens") or 0,
         "ttsChars": bs.get("ttsCharCount") or 0,
         "perTurnCosts": bs.get("perTurnCosts") or [],
-        "sessionInsight": _build_session_insight(s),
+        "sessionInsight": insight,
     }
     cache_set(cache_key, result)
     return result
@@ -2116,6 +2453,15 @@ DASHBOARD_HTML = """\
   .diff-tag.diff-easy { color: #4ee390; border-color: rgba(46, 204, 113, 0.4); }
   .diff-tag.diff-medium { color: #f5c44a; border-color: rgba(255, 196, 0, 0.45); }
   .diff-tag.diff-hard { color: #ff7a59; border-color: rgba(255, 122, 89, 0.45); }
+  .entry-tag { font-weight: 600; letter-spacing: .4px; }
+  .entry-tag.entry-path { background: rgba(124, 92, 255, 0.22); color: #b8a4ff;
+                          border: 1px solid rgba(124, 92, 255, 0.5); }
+  .entry-tag.entry-single { background: rgba(160, 174, 192, 0.10); color: var(--text2);
+                            border: 1px solid var(--border); }
+  .path-line { font-size: 11px; color: var(--accent2); margin: 3px 0 2px 0;
+               max-width: 480px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .path-line .path-title { font-weight: 500; }
+  .path-line .path-node { color: var(--text2); }
   .user-said { color: var(--text2); font-size: 11px; line-height: 1.4; margin: 4px 0 4px 0; max-width: 360px;
                display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
                font-style: italic; }
@@ -2161,17 +2507,44 @@ DASHBOARD_HTML = """\
                  border-radius: 8px; background: rgba(124,92,255,0.04); }
 
   .email-filters { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-                   padding: 14px 16px; margin-bottom: 16px; }
-  .email-filters .row { display: flex; flex-wrap: wrap; gap: 10px 14px; align-items: flex-end; margin-bottom: 8px; }
-  .email-filters label { display: flex; flex-direction: column; gap: 4px; font-size: 11px; color: var(--text2);
-                         text-transform: uppercase; letter-spacing: .4px; }
-  .email-filters input { min-width: 160px; padding: 7px 10px; border-radius: 6px; border: 1px solid var(--border);
-                         background: var(--surface2); color: var(--text); font-size: 13px; }
-  .email-filters input.wide { min-width: 220px; }
-  .email-filters .actions { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
-  .email-filters .hint { font-size: 11px; color: var(--text2); line-height: 1.45; margin-top: 4px; }
-  .email-filters .pill { font-size: 10px; padding: 2px 8px; border-radius: 999px; background: var(--surface2);
-                        color: var(--accent); border: 1px solid var(--border); }
+                   padding: 12px 16px; margin-bottom: 16px; }
+  .email-filters .filter-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .email-filters .filter-input { position: relative; flex: 1 1 360px; min-width: 280px; }
+  .email-filters .filter-input input { width: 100%; padding: 9px 36px 9px 36px; border-radius: 8px;
+                         border: 1px solid var(--border); background: var(--surface2); color: var(--text);
+                         font-size: 13px; font-family: 'SF Mono', Monaco, monospace; }
+  .email-filters .filter-input input:focus { outline: none; border-color: var(--accent);
+                         box-shadow: 0 0 0 2px rgba(124,92,255,0.18); }
+  .email-filters .filter-input .icon { position: absolute; left: 11px; top: 50%; transform: translateY(-50%);
+                         color: var(--text2); font-size: 14px; pointer-events: none; }
+  .email-filters .filter-input .clear { position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+                         background: none; border: none; color: var(--text2); cursor: pointer;
+                         font-size: 16px; padding: 4px 6px; line-height: 1; border-radius: 4px; display: none; }
+  .email-filters .filter-input .clear:hover { background: var(--surface2); color: var(--text); }
+  .email-filters .preset { font-size: 11px; padding: 6px 10px; border-radius: 999px;
+                         background: var(--surface2); color: var(--text); border: 1px solid var(--border);
+                         cursor: pointer; white-space: nowrap; }
+  .email-filters .preset:hover { background: rgba(124,92,255,0.12); border-color: var(--accent);
+                         color: var(--accent); }
+  .email-filters .preset.active { background: rgba(124,92,255,0.2); color: var(--accent2);
+                         border-color: var(--accent); }
+  .email-filters .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px;
+                          align-items: center; min-height: 24px; }
+  .email-filters .chip { font-size: 11px; padding: 3px 9px; border-radius: 999px;
+                         font-family: 'SF Mono', Monaco, monospace; display: inline-flex;
+                         align-items: center; gap: 6px; }
+  .email-filters .chip.include { background: rgba(124,92,255,0.18); color: #b8a4ff;
+                         border: 1px solid rgba(124,92,255,0.4); }
+  .email-filters .chip.domain { background: rgba(64,200,170,0.18); color: #56e0ba;
+                         border: 1px solid rgba(64,200,170,0.4); }
+  .email-filters .chip.exclude { background: rgba(255,122,89,0.16); color: #ff9b78;
+                         border: 1px solid rgba(255,122,89,0.4); }
+  .email-filters .chip-x { cursor: pointer; opacity: .6; font-size: 13px; line-height: 1; }
+  .email-filters .chip-x:hover { opacity: 1; }
+  .email-filters .chip-empty { font-size: 11px; color: var(--text2); font-style: italic; }
+  .email-filters .hint { font-size: 11px; color: var(--text2); line-height: 1.5; margin-top: 8px; }
+  .email-filters .hint code { background: var(--surface2); padding: 1px 5px; border-radius: 3px;
+                         font-size: 10.5px; }
 </style>
 </head>
 <body>
@@ -2328,13 +2701,19 @@ function renderStats(d) {
   const f = d.filters || {};
   const pill = document.getElementById('filterActivePill');
   if (pill) pill.style.display = f.active ? 'inline-block' : 'none';
+  const pathSess = d.pathSessions || 0;
+  const singleSess = d.singleSessions || 0;
+  const pathUsers = d.pathUsers || 0;
+  const pathsTotal = d.pathsTotal || 0;
+  const pathSessPct = d.pathSessionsPct || 0;
+  const pathUserPct = d.pathAdoptionPct || 0;
   document.getElementById('statsCards').innerHTML = `
-    <div class="stat-card"><div class="label">Total Users</div><div class="value c1">${d.totalUsers}</div></div>
-    <div class="stat-card"><div class="label">Total Sessions</div><div class="value c2">${d.totalSessions}</div></div>
-    <div class="stat-card"><div class="label">Active Sessions</div><div class="value c3">${d.activeSessions}</div></div>
+    <div class="stat-card"><div class="label">Total Users</div><div class="value c1">${d.totalUsers}</div><div class="sub">${pathUsers} on a path · ${pathUserPct}%</div></div>
+    <div class="stat-card"><div class="label">Total Sessions</div><div class="value c2">${d.totalSessions}</div><div class="sub">${pathSess} path · ${singleSess} single</div></div>
+    <div class="stat-card"><div class="label">Paths Created</div><div class="value c3">${pathsTotal}</div><div class="sub">${d.pathsActive || 0} active · ${pathSessPct}% of sessions</div></div>
+    <div class="stat-card"><div class="label">Active Sessions</div><div class="value c4">${d.activeSessions}</div><div class="sub">in progress now</div></div>
     <div class="stat-card"><div class="label">Total Spend</div><div class="value c5">${fmtCost(d.costAllCents, true)}</div><div class="sub">${llmPct}% LLM · ${ttsPct}% TTS</div></div>
     <div class="stat-card"><div class="label">This Month</div><div class="value c6">${fmtCost(d.costMonthCents, true)}</div><div class="sub">month to date</div></div>
-    <div class="stat-card"><div class="label">Today</div><div class="value c4">${fmtCost(d.costTodayCents, true)}</div><div class="sub">UTC midnight</div></div>
     ${f.active ? `<div class="stat-card" style="grid-column:1/-1;max-width:none"><div class="label">Active email filter</div><div class="sub" style="margin-top:6px;font-size:12px;color:var(--text)">domain: <strong>${esc(f.domain || '(any)')}</strong> &middot; contains: <strong>${esc(f.email_contains || '(none)')}</strong> &middot; exclude: <strong>${esc(f.email_exclude || '(none)')}</strong></div></div>` : ''}
   `;
 }
@@ -2389,6 +2768,17 @@ function _sessionRow(s, idx) {
       '<br><span class="cost-sm">' + fmtCost(s.llmCents) + '/' + fmtCost(s.ttsCents) + '</span>'
     : '<span class="zero">$0</span>';
   const tagBits = [];
+  if (s.entryType === 'path') {
+    const pos = (s.nodeOrder && s.pathTotalNodes)
+      ? (' ' + s.nodeOrder + '/' + s.pathTotalNodes)
+      : '';
+    const phase = s.nodePhase ? (' · P' + s.nodePhase) : '';
+    const tip = 'Path: ' + (s.pathTitle || '?') +
+      (s.nodeTitle ? ('  Session: ' + s.nodeTitle) : '');
+    tagBits.push('<span class="entry-tag entry-path" title="' + esc(tip) + '">PATH' + pos + phase + '</span>');
+  } else {
+    tagBits.push('<span class="entry-tag entry-single" title="Started directly from chat / intent box (not from a path)">SINGLE</span>');
+  }
   if (s.sessionMode && s.sessionMode !== 'general') {
     tagBits.push('<span class="mode-tag mode-' + esc(s.sessionMode) + '">' + esc(s.sessionMode) + '</span>');
   }
@@ -2401,6 +2791,12 @@ function _sessionRow(s, idx) {
     tagBits.push('<span class="diff-tag diff-' + esc(s.problemDifficulty.toLowerCase()) + '">' + esc(s.problemDifficulty) + '</span>');
   }
   const tagsRow = tagBits.length ? '<div class="row-tags">' + tagBits.join('') + '</div>' : '';
+  const pathLine = (s.entryType === 'path' && (s.pathTitle || s.nodeTitle))
+    ? ('<div class="path-line" title="Click row to view path linkage">' +
+        '<span class="path-title">\\u279C ' + esc(s.pathTitle || '(untitled path)') + '</span>' +
+        (s.nodeTitle ? ('<span class="path-node"> &middot; ' + esc(s.nodeTitle) + '</span>') : '') +
+       '</div>')
+    : '';
 
   const userSnippet = s.firstUserMsg || s.studentIntent || s.intent || '';
   const userLine = userSnippet
@@ -2411,7 +2807,7 @@ function _sessionRow(s, idx) {
   <td class="muted">${idx}</td>
   <td><span class="bold">${esc(s.user)}</span><br><span class="mono muted">${esc(s.email)}</span></td>
   <td><span class="link session-title-link" onclick="viewTranscript('${s._idx}')" title="${esc(s.titleFull || s.title || '')}">${esc(s.title)}</span>
-      ${tagsRow}${userLine}
+      ${tagsRow}${pathLine}${userLine}
       <a class="mono muted replay-link" href="/replay/${s._id}" target="_blank" title="Open replay">&#9654; replay</a></td>
   <td class="sm">${fmtDate(s.createdAt)}<br><span class="muted">${ago(s.createdAt)}</span></td>
   <td><span class="dur">${activeStr}</span>${spanStr}</td>
@@ -2588,21 +2984,49 @@ function renderAnalytics(a) {
     </div>
 
     <div class="chart-card">
-      <h3>Return rate <span class="hdr-sub">cohort → returned</span></h3>
-      <p class="desc">% of cohort who came back within the window.</p>
+      <h3>Return rate <span class="hdr-sub">cohort \\u2192 returned</span></h3>
+      <p class="desc">% of cohort who came back within the window. Cohort = had a session in
+        an earlier window; returned = came back in the named window.</p>
       <div class="metric-row">
         <div class="m"><div class="n">${a.returnRate1d.rate}%</div><div class="l">1-day (${a.returnRate1d.returned}/${a.returnRate1d.cohort})</div></div>
-        <div class="m"><div class="n c2">${a.returnRate7d.rate}%</div><div class="l">7-day (${a.returnRate7d.returned}/${a.returnRate7d.cohort})</div></div>
-        <div class="m"><div class="n c3">${a.returnRate30d.rate}%</div><div class="l">30-day (${a.returnRate30d.returned}/${a.returnRate30d.cohort})</div></div>
+        <div class="m"><div class="n c2">${(a.returnRate2d || {rate:0}).rate}%</div><div class="l">2-day (${(a.returnRate2d||{}).returned||0}/${(a.returnRate2d||{}).cohort||0})</div></div>
+        <div class="m"><div class="n c3">${a.returnRate7d.rate}%</div><div class="l">7-day (${a.returnRate7d.returned}/${a.returnRate7d.cohort})</div></div>
+        <div class="m"><div class="n c4">${a.returnRate30d.rate}%</div><div class="l">30-day (${a.returnRate30d.returned}/${a.returnRate30d.cohort})</div></div>
       </div>
     </div>
 
     <div class="chart-card">
-      <h3>Session averages <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <h3>Engagement averages <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">Per-active-user and per-session figures. Active session length is
+        based on the same active-period definition (15-min idle gap) used on the Users tab,
+        so these reconcile.</p>
       <div class="metric-row">
-        <div class="m"><div class="n">${a.avgTurnsPerSession}</div><div class="l">Turns/session</div></div>
-        <div class="m"><div class="n c2">${fmtCost(a.avgCostPerSessionCents)}</div><div class="l">Cost/session</div></div>
-        <div class="m"><div class="n c3">${fmtCost(a.avgCostPerTurnCents)}</div><div class="l">Cost/turn</div></div>
+        <div class="m"><div class="n">${a.avgSessionsPerUser || 0}</div><div class="l">Sessions / active user</div></div>
+        <div class="m"><div class="n c2">${fmtDur(a.avgSessionActiveSec || 0)}</div><div class="l">Avg session length</div></div>
+        <div class="m"><div class="n c3">${a.avgTurnsPerSession}</div><div class="l">Turns / session</div></div>
+        <div class="m"><div class="n c4">${a.activeUsersWindow || 0}</div><div class="l">Active users</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Path adoption <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <p class="desc">How many sessions / active users came in via a path
+        (Learn button on a path or subtopic) vs. starting a single session
+        directly from the chat box.</p>
+      <div class="metric-row">
+        <div class="m"><div class="n">${(a.pathFunnel||{}).pathSessions||0}</div><div class="l">Path sessions (${(a.pathFunnel||{}).pathPctOfSessions||0}%)</div></div>
+        <div class="m"><div class="n c2">${(a.pathFunnel||{}).singleSessions||0}</div><div class="l">Single sessions</div></div>
+        <div class="m"><div class="n c3">${(a.pathFunnel||{}).pathUsers||0}</div><div class="l">Path users (${(a.pathFunnel||{}).pathPctOfUsers||0}%)</div></div>
+        <div class="m"><div class="n c4">${(a.pathFunnel||{}).singleUsers||0}</div><div class="l">Single-only users</div></div>
+      </div>
+    </div>
+
+    <div class="chart-card">
+      <h3>Cost per session <span class="hdr-sub">last ${a.windowDays}d</span></h3>
+      <div class="metric-row">
+        <div class="m"><div class="n">${fmtCost(a.avgCostPerSessionCents)}</div><div class="l">Cost/session</div></div>
+        <div class="m"><div class="n c2">${fmtCost(a.avgCostPerTurnCents)}</div><div class="l">Cost/turn</div></div>
+        <div class="m"><div class="n c3">${fmtCost(a.totals.costCents)}</div><div class="l">Total spend</div></div>
       </div>
     </div>
 
@@ -2731,6 +3155,51 @@ function renderSessionInsight(detail) {
   if (!ins || typeof ins !== 'object') return '';
   let h = '<div class="insight-wrap">';
   h += '<h4>Session insight</h4>';
+
+  // Path linkage block — surfaces "where in the path is this session?"
+  // Stakeholders need this to evaluate whether path students complete
+  // their plan vs. drop off mid-way.
+  const pc = ins.pathContext;
+  if (pc && typeof pc === 'object' && pc.pathId) {
+    const pos = (pc.currentNodeOrder && pc.totalNodes)
+      ? ('Session ' + pc.currentNodeOrder + ' of ' + pc.totalNodes)
+      : '';
+    const phase = pc.currentNodePhase ? ('Phase ' + pc.currentNodePhase) : '';
+    const meta = [pos, phase].filter(Boolean).join(' &middot; ');
+    const topics = (pc.currentNodeTopics || []).slice(0, 8)
+      .map(t => esc(typeof t === 'string' ? t : (t && t.title) || ''))
+      .filter(x => x).join(', ');
+    h += '<div style="background:rgba(124,92,255,0.10);border:1px solid rgba(124,92,255,0.35);' +
+         'border-radius:8px;padding:12px 14px;margin:0 0 14px 0">' +
+      '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px">' +
+        '<span class="entry-tag entry-path">PATH</span>' +
+        '<strong style="font-size:13px">' + esc(pc.pathTitle || '(untitled path)') + '</strong>' +
+      '</div>' +
+      (meta ? '<div style="color:var(--text2);font-size:11px;margin-bottom:6px">' + meta + '</div>' : '') +
+      (pc.currentNodeTitle ? ('<div style="font-size:13px;margin:6px 0"><strong>' +
+        esc(pc.currentNodeTitle) + '</strong>' +
+        (pc.currentNodeStatus ? (' <span class="muted sm">(' + esc(pc.currentNodeStatus) + ')</span>') : '') +
+        '</div>') : '') +
+      (topics ? ('<div style="font-size:12px;color:var(--text2);margin:4px 0"><strong>Topics:</strong> ' +
+        topics + '</div>') : '') +
+      (pc.currentNodeStudentNote ? ('<div style="font-size:12px;color:var(--text2);margin:4px 0;font-style:italic">' +
+        '<strong>Student note:</strong> \\u201C' + esc(pc.currentNodeStudentNote) + '\\u201D</div>') : '') +
+      '<div style="font-size:11px;color:var(--text2);margin-top:8px">' +
+        'Path progress: ' + (pc.completedNodes || 0) + '/' + (pc.totalNodes || 0) +
+        ' nodes complete (' + (pc.completedPct || 0) + '%) &middot; status: ' +
+        esc(pc.pathStatus || 'unknown') +
+      '</div>' +
+      '<div style="font-size:10px;color:var(--text2);margin-top:6px;font-family:\\'SF Mono\\',monospace">' +
+        'pathId=' + esc(pc.pathId) + ' &middot; nodeId=' + esc(pc.currentNodeId || '') +
+      '</div>' +
+    '</div>';
+  } else if (ins.entryType === 'single') {
+    h += '<div style="margin:0 0 12px 0">' +
+      '<span class="entry-tag entry-single">SINGLE SESSION</span> ' +
+      '<span class="muted sm" style="margin-left:6px">Started directly from chat / intent box (no path).</span>' +
+    '</div>';
+  }
+
   if (ins.intentRaw) {
     h += '<p style="margin:0 0 10px 0;font-size:13px;line-height:1.45"><strong>Initial intent:</strong> ' +
       esc(String(ins.intentRaw)) + '</p>';
