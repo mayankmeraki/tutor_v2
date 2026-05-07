@@ -49,6 +49,13 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         log.warning("Failed to ensure path indexes: %s", e)
 
+    # Ensure usage tracking indexes
+    from app.core.usage_tracker import ensure_usage_indexes
+    try:
+        await ensure_usage_indexes()
+    except Exception as e:
+        log.warning("Failed to ensure path indexes: %s", e)
+
     # Ensure BYO pipeline indexes
     try:
         from app.core.mongodb import get_mongo_db
@@ -135,6 +142,13 @@ async def lifespan(app: FastAPI):
         _byo_worker_task.cancel()
 
     # ── Shutdown: close DB connections ──
+    # Flush usage logs before shutdown
+    from app.core.usage_tracker import flush_now
+    try:
+        await flush_now()
+    except Exception as e:
+        log.warning("Usage log flush on shutdown failed: %s", e)
+
     log.info("Shutting down — closing database connections…")
     try:
         from app.core.mongodb import get_mongo_client
@@ -596,9 +610,7 @@ async def submit_session_feedback(request: Request):
     doc = {
         "sessionId": body.get("sessionId", ""),
         "userEmail": user_email,
-        "score": body.get("score"),            # NPS-mapped (1-10) for analytics
-        "scoreRaw": body.get("scoreRaw"),      # Display value (1-5)
-        "scaleMax": body.get("scaleMax", 5),   # Scale denominator
+        "score": body.get("score"),            # 1-5 emoji scale
         "chips": body.get("chips", []),        # quick-select feedback tags
         "comment": body.get("comment", ""),    # freeform text
         "createdAt": datetime.now(timezone.utc),

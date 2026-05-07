@@ -1,0 +1,202 @@
+# ─── Model Registry & Pricing ───────────────────────────────────
+# Prices are per 1M tokens in USD. Update when models change.
+# "cached_input" = price when prompt caching hits (Anthropic only).
+# "supports_cache" = whether cache_control works for this model.
+# "supports_tools" = whether function/tool calling is supported.
+# "supports_vision" = whether image inputs are accepted.
+# "max_context" = max context window in tokens.
+
+tiers:
+  heavy:
+    description: "Best quality — tutor teaching, assessment, delegation"
+    default_model: "anthropic/claude-opus-4-6"
+  mid:
+    description: "Good balance — planning, enrichment, code generation, path planner"
+    default_model: "anthropic/claude-sonnet-4-6"
+  fast:
+    description: "Cheap & quick — classification, summaries, reflection, wizard questions"
+    default_model: "anthropic/claude-haiku-4.5"
+  nano:
+    description: "Cheapest — simple extraction, structure detection, boundary classification"
+    default_model: "openai/gpt-4.1-nano"
+  embed:
+    description: "Embedding model"
+    default_model: "openai/text-embedding-3-small"
+
+models:
+  # ── Anthropic ──
+  anthropic/claude-opus-4-6:
+    input: 15.0
+    output: 75.0
+    cached_input: 1.5
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 200000
+
+  anthropic/claude-opus-4.7:
+    input: 15.0
+    output: 75.0
+    cached_input: 1.5
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 200000
+
+  anthropic/claude-sonnet-4-6:
+    input: 3.0
+    output: 15.0
+    cached_input: 0.3
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 200000
+
+  anthropic/claude-haiku-4.5:
+    input: 0.8
+    output: 4.0
+    cached_input: 0.08
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 200000
+
+  anthropic/claude-haiku-4-5-20251001:
+    input: 0.8
+    output: 4.0
+    cached_input: 0.08
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 200000
+
+  # ── OpenAI ──
+  openai/gpt-4.1-nano:
+    input: 0.1
+    output: 0.4
+    cached_input: 0.025
+    supports_cache: false  # implicit caching by provider
+    supports_tools: true
+    supports_vision: false
+    max_context: 1048576
+
+  openai/gpt-4.1-mini:
+    input: 0.4
+    output: 1.6
+    cached_input: 0.1
+    supports_cache: false
+    supports_tools: true
+    supports_vision: true
+    max_context: 1048576
+
+  # ── DeepSeek ──
+  deepseek/deepseek-v4-pro:
+    input: 0.435
+    output: 0.87
+    cached_input: 0.1
+    supports_cache: false  # implicit
+    supports_tools: true
+    supports_vision: false
+    max_context: 1048576
+
+  deepseek/deepseek-chat:
+    input: 0.14
+    output: 0.28
+    cached_input: 0.014
+    supports_cache: false
+    supports_tools: true
+    supports_vision: false
+    max_context: 131072
+
+  # ── xAI ──
+  x-ai/grok-4.3:
+    input: 3.0
+    output: 15.0
+    cached_input: 0.75
+    supports_cache: false  # implicit
+    supports_tools: true
+    supports_vision: true
+    max_context: 131072
+
+  # ── Google ──
+  google/gemini-2.5-pro:
+    input: 1.25
+    output: 10.0
+    cached_input: 0.315
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 1048576
+
+  google/gemini-2.5-flash:
+    input: 0.15
+    output: 0.6
+    cached_input: 0.0375
+    supports_cache: true
+    supports_tools: true
+    supports_vision: true
+    max_context: 1048576
+
+  # ── Embeddings ──
+  openai/text-embedding-3-small:
+    input: 0.02
+    output: 0.0
+    cached_input: 0.02
+    supports_cache: false
+    supports_tools: false
+    supports_vision: false
+    max_context: 8191
+    type: embedding
+
+  # ── Reranking (not token-based — per search) ──
+  cohere/rerank-4-fast:
+    input: 0.0
+    output: 0.0
+    per_search_usd: 0.002
+    supports_cache: false
+    supports_tools: false
+    supports_vision: false
+    type: rerank
+
+# ── Purpose tags (for usage attribution) ──
+purposes:
+  tutor_teaching: "Main tutor teaching loop"
+  tutor_assessment: "Student assessment/grading"
+  tutor_delegation: "Sub-task delegation"
+  session_planning: "Teaching plan generation"
+  session_enrichment: "Concept research & enrichment"
+  session_summarization: "Section/session summaries"
+  session_headline: "Session headline generation"
+  intent_classification: "Intent classifier (DSA/SD/mock/general)"
+  path_planning: "Learning path generation"
+  path_wizard: "Path wizard questions"
+  path_reflection: "Post-session reflection"
+  path_refine: "Path refinement chat"
+  byo_structure: "Document structure classification"
+  byo_boundaries: "Semantic boundary detection"
+  byo_image_description: "Image description via vision"
+  byo_questions: "HyQE question generation"
+  byo_synthesis: "Collection knowledge map"
+  byo_embedding: "Segment embedding"
+  byo_hyde: "HyDE query expansion"
+  byo_rerank: "Search result reranking"
+  web_search: "Web search tool"
+  animation_fix: "p5/Three.js code fixing"
+  tts: "Text-to-speech (ElevenLabs)"
+  stt: "Speech-to-text (ElevenLabs Scribe)"
+
+# ── Voice pricing (per character / per minute) ──
+voice:
+  elevenlabs_tts:
+    provider: "elevenlabs"
+    # Turbo v2.5 — used for real-time teaching
+    cost_per_1k_chars_usd: 0.30
+    model: "eleven_turbo_v2_5"
+    description: "ElevenLabs TTS for voice mode"
+
+  elevenlabs_scribe:
+    provider: "elevenlabs"
+    # Scribe STT — real-time transcription
+    cost_per_minute_usd: 0.40
+    model: "scribe_v1"
+    description: "ElevenLabs Scribe STT"
