@@ -1,0 +1,648 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Editorial Spread</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700;9..144,900&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root[data-mode="light"] {
+    --paper:        #f5f1e8;
+    --paper-edge:   #ebe4d2;
+    --ink:          #18233f;
+    --ink-soft:     #4a5568;
+    --ink-faint:    #94a3b8;
+    --rule:         #cdc4ad;
+    --rule-strong:  #1a1d2e;
+    --accent:       #7e1d2c;            /* burgundy */
+    --accent-soft:  #c2410c;            /* terracotta */
+    --highlight:    #fef9c3;
+    --pull:         #18233f;
+    --good:         #166534;
+    --margin-bg:    #ede5ce;
+  }
+  :root[data-mode="dark"] {
+    --paper:        #15161c;
+    --paper-edge:   #0c0d12;
+    --ink:          #ece6d0;
+    --ink-soft:     #a8a290;
+    --ink-faint:    #6b6757;
+    --rule:         #2a2820;
+    --rule-strong:  #ece6d0;
+    --accent:       #f59e9e;
+    --accent-soft:  #fdba74;
+    --highlight:    #4a3d10;
+    --pull:         #ece6d0;
+    --good:         #4ade80;
+    --margin-bg:    #1c1d22;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; min-height: 100%; }
+  body {
+    font-family: 'Fraunces', 'Times New Roman', serif;
+    color: var(--ink);
+    background: var(--paper-edge);
+    font-size: 17px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Masthead — like a literary magazine header ───────────────── */
+  .masthead {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: stretch; gap: 0;
+    background: var(--paper-edge);
+    border-bottom: 2px solid var(--rule-strong);
+  }
+  .masthead-cell {
+    padding: 14px 22px;
+    border-right: 1px solid var(--rule);
+    display: flex; flex-direction: column; justify-content: center;
+    min-width: 0;
+  }
+  .masthead-cell.brand {
+    font-family: 'Fraunces', serif;
+    font-weight: 900; font-size: 28px; letter-spacing: -.02em;
+    text-transform: lowercase;
+  }
+  .masthead-cell.brand em { color: var(--accent); font-style: italic; font-variation-settings: "opsz" 144; }
+  .masthead-cell .label {
+    font-family: 'Inter', sans-serif;
+    font-size: 9px; letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600;
+    margin-bottom: 2px;
+  }
+  .masthead-cell .value {
+    font-family: 'Fraunces', serif;
+    font-size: 15px; color: var(--ink); font-variation-settings: "opsz" 14;
+  }
+  .masthead-cell.title { flex: 1; }
+  .masthead-cell.right { margin-left: auto; border-right: 0; }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--rule-strong);
+    background: var(--paper);
+    color: var(--ink); cursor: pointer;
+    font: 600 11px 'Inter', sans-serif;
+    letter-spacing: .04em;
+    text-transform: uppercase;
+  }
+  .toggle:hover { background: var(--paper-edge); }
+  .toggle svg { width: 13px; height: 13px; }
+
+  /* ─── The page — magazine spread ───────────────────────────────── */
+  .spread-wrap {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 28px 24px 80px;
+    background: var(--paper);
+    min-height: calc(100vh - 80px);
+    transition: background .35s ease;
+  }
+
+  /* Page eyebrow */
+  .eyebrow {
+    display: flex; gap: 16px; align-items: baseline; flex-wrap: wrap;
+    border-bottom: 1px solid var(--rule);
+    padding-bottom: 12px; margin-bottom: 30px;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 600;
+  }
+  .eyebrow .section-name { color: var(--accent); font-weight: 700; }
+  .eyebrow .meta { margin-left: auto; color: var(--ink-faint); font-weight: 500; }
+
+  /* Title */
+  .article-title {
+    font-family: 'Fraunces', serif;
+    font-size: 56px; font-weight: 900; line-height: .98;
+    letter-spacing: -.03em;
+    margin: 0 0 14px;
+    font-variation-settings: "opsz" 144;
+    max-width: 16ch;
+  }
+  .article-title em { color: var(--accent); font-style: italic; }
+  .deck {
+    font-family: 'Fraunces', serif;
+    font-size: 22px; line-height: 1.35; font-weight: 400;
+    color: var(--ink-soft);
+    font-variation-settings: "opsz" 24;
+    margin: 0 0 22px;
+    max-width: 50ch;
+    font-style: italic;
+  }
+  .byline {
+    font-family: 'Inter', sans-serif;
+    font-size: 12px; color: var(--ink-soft);
+    border-top: 1px solid var(--rule);
+    padding-top: 10px;
+    margin-bottom: 36px;
+    display: flex; gap: 20px; align-items: center;
+  }
+  .byline b { color: var(--ink); font-weight: 600; letter-spacing: .04em; }
+  .byline .euler-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    background: var(--accent); color: #fff;
+    font-size: 10px; letter-spacing: .12em; text-transform: uppercase;
+    font-weight: 700;
+  }
+  .byline .euler-pill::before {
+    content: ""; width: 5px; height: 5px; border-radius: 50%;
+    background: #fff; animation: heart 1.6s ease-in-out infinite;
+  }
+  @keyframes heart { 0%,100% { transform: scale(1); opacity: 1; } 50% { transform: scale(1.4); opacity: .7; } }
+
+  /* ─── The 2-column spread ──────────────────────────────────────── */
+  .spread {
+    display: grid;
+    grid-template-columns: 1.1fr 320px;
+    gap: 50px;
+    align-items: start;
+  }
+  @media (max-width: 980px) {
+    .spread { grid-template-columns: 1fr; }
+    .marginalia { order: 2; }
+  }
+
+  /* ── Left: the prose article ── */
+  .article {
+    column-count: 1;
+    font-family: 'Fraunces', serif;
+    font-size: 18px;
+    line-height: 1.65;
+    text-align: justify;
+    hyphens: auto;
+    max-width: 64ch;
+  }
+  .article p { margin: 0 0 16px; }
+  .article p:first-of-type::first-letter {
+    font-family: 'Fraunces', serif;
+    float: left;
+    font-size: 84px; line-height: .82;
+    padding: 8px 14px 0 0;
+    color: var(--accent);
+    font-weight: 900;
+    font-variation-settings: "opsz" 144;
+  }
+  .article .small-caps {
+    font-variant: small-caps;
+    letter-spacing: .04em;
+    color: var(--ink);
+    font-weight: 600;
+  }
+  .article em { color: var(--accent); font-style: italic; }
+  .article .term {
+    background: var(--highlight);
+    padding: 1px 4px;
+    font-style: normal;
+    color: var(--ink);
+    border-bottom: 1px solid var(--accent);
+  }
+  .section-break {
+    text-align: center; margin: 28px 0;
+    color: var(--ink-faint); letter-spacing: 1em;
+  }
+
+  /* Pull-quote inserted within the article column */
+  blockquote.pull {
+    border-left: 0;
+    margin: 28px 0 28px -8px;
+    padding: 14px 0 14px 26px;
+    border-left: 3px solid var(--accent);
+    font-family: 'Fraunces', serif;
+    font-size: 28px; line-height: 1.2;
+    font-style: italic;
+    color: var(--pull);
+    font-variation-settings: "opsz" 80;
+    font-weight: 500;
+  }
+
+  /* Section heading (H2) */
+  h2.head {
+    font-family: 'Fraunces', serif;
+    font-size: 14px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: .14em;
+    color: var(--accent);
+    margin: 36px 0 6px;
+    border-top: 1px solid var(--rule);
+    padding-top: 18px;
+  }
+  h2.head .num {
+    font-family: 'Inter', sans-serif;
+    font-weight: 800;
+    margin-right: 10px;
+    color: var(--ink);
+  }
+  h3.head {
+    font-family: 'Fraunces', serif;
+    font-size: 26px; font-weight: 700;
+    line-height: 1.15; letter-spacing: -.01em;
+    color: var(--ink);
+    margin: 4px 0 18px;
+    font-variation-settings: "opsz" 32;
+  }
+
+  /* Equation, magazine style */
+  .eqn {
+    font-family: 'Fraunces', serif;
+    font-size: 24px;
+    text-align: center;
+    margin: 22px 0;
+    color: var(--ink);
+  }
+  .eqn .num {
+    float: right;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-top: 12px;
+  }
+
+  /* ── Right: marginalia + figures ── */
+  .marginalia {
+    display: flex; flex-direction: column; gap: 26px;
+    border-left: 1px solid var(--rule);
+    padding-left: 26px;
+    color: var(--ink-soft);
+    font-family: 'Fraunces', serif;
+    font-size: 14px; line-height: 1.5;
+  }
+  .figure {
+    margin: 0;
+  }
+  .figure-label {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700;
+    margin-bottom: 6px;
+  }
+  .figure-label b { color: var(--accent); }
+  .figure svg { display: block; width: 100%; height: auto; }
+  .caption {
+    font-family: 'Fraunces', serif;
+    font-size: 13px; line-height: 1.45;
+    color: var(--ink-soft);
+    font-style: italic;
+    margin-top: 8px;
+    max-width: 30ch;
+  }
+
+  .definition {
+    background: var(--margin-bg);
+    padding: 14px 16px;
+    border-radius: 0;
+    border-top: 2px solid var(--accent);
+  }
+  .definition .head {
+    font-family: 'Inter', sans-serif;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .definition .term {
+    font-family: 'Fraunces', serif;
+    font-size: 18px; font-weight: 600; color: var(--ink);
+  }
+  .definition .body { font-size: 13px; line-height: 1.45; margin-top: 4px; color: var(--ink-soft); }
+
+  .sidenote {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px;
+    line-height: 1.5;
+    color: var(--ink-soft);
+    border-left: 2px solid var(--accent-soft);
+    padding-left: 12px;
+  }
+  .sidenote b { color: var(--ink); font-weight: 600; }
+
+  /* SVG primitive styling */
+  .stroke { stroke: var(--ink); fill: none; stroke-width: 1.4; stroke-linecap: round; }
+  .stroke-soft { stroke: var(--ink-soft); fill: none; stroke-width: 1; }
+  .stroke-accent { stroke: var(--accent); fill: none; stroke-width: 1.6; }
+  .stroke-good { stroke: var(--good); fill: none; stroke-width: 1.6; }
+  .label { fill: var(--ink); font: 11px 'Inter', sans-serif; font-weight: 600; }
+  .label-soft { fill: var(--ink-soft); font: 11px 'Inter', sans-serif; }
+  .label-italic { fill: var(--ink-soft); font: italic 12px 'Fraunces', serif; }
+
+  /* ─── Bottom: foot, page number, voice input ───────────────────── */
+  .foot {
+    border-top: 1px solid var(--rule);
+    margin-top: 60px;
+    padding-top: 16px;
+    display: flex; justify-content: space-between; align-items: center;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; letter-spacing: .12em;
+    color: var(--ink-faint); text-transform: uppercase; font-weight: 600;
+  }
+  .foot b { color: var(--ink); }
+  .foot .center { font-family: 'Fraunces', serif; font-style: italic; text-transform: none; letter-spacing: 0; font-size: 14px; }
+
+  /* Voice input — a "letter to the editor" inline form */
+  .letter {
+    margin: 28px 0 0;
+    background: var(--paper);
+    border: 1px solid var(--rule-strong);
+    padding: 18px 22px;
+    position: relative;
+  }
+  .letter::before {
+    content: "ASK"; position: absolute; top: -10px; left: 18px;
+    background: var(--paper);
+    padding: 0 8px;
+    font: 700 10px 'Inter', sans-serif;
+    letter-spacing: .2em;
+    color: var(--accent);
+  }
+  .letter-prompt {
+    font-family: 'Fraunces', serif;
+    font-style: italic;
+    color: var(--ink-soft);
+    font-size: 14px;
+    margin-bottom: 6px;
+  }
+  .letter-input {
+    width: 100%;
+    border: 0; background: transparent; outline: none;
+    font: 400 17px 'Fraunces', serif;
+    color: var(--ink);
+    resize: none;
+  }
+  .letter-input::placeholder { color: var(--ink-faint); font-style: italic; }
+  .letter-meta {
+    margin-top: 8px;
+    display: flex; gap: 14px; align-items: center;
+    font: 600 11px 'Inter', sans-serif;
+    letter-spacing: .08em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .letter-meta .send {
+    margin-left: auto;
+    background: var(--accent); color: #fff;
+    border: 0; padding: 8px 16px;
+    font: 700 11px 'Inter', sans-serif;
+    letter-spacing: .14em; text-transform: uppercase;
+    cursor: pointer;
+  }
+  .letter-meta b { color: var(--ink); }
+</style>
+</head>
+<body>
+
+<header class="masthead">
+  <div class="masthead-cell brand">e<em>u</em>ler</div>
+  <div class="masthead-cell" style="width:170px">
+    <span class="label">Issue</span>
+    <span class="value">Vol. 4 · Electromagnetism</span>
+  </div>
+  <div class="masthead-cell title">
+    <span class="label">Concept in session</span>
+    <span class="value">How a transformer works</span>
+  </div>
+  <div class="masthead-cell" style="width:170px">
+    <span class="label">Beat</span>
+    <span class="value"><b>4</b> of 7 · 0:38</span>
+  </div>
+  <div class="masthead-cell right">
+    <button class="toggle" onclick="toggleMode()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      <span id="modeLabel">Light</span>
+    </button>
+  </div>
+</header>
+
+<div class="spread-wrap">
+
+  <div class="eyebrow">
+    <span class="section-name">Section · Faraday's law to the bench</span>
+    <span>Reading time ≈ 6 min</span>
+    <span>Difficulty 2 / 5</span>
+    <span class="meta">scribbled live with you</span>
+  </div>
+
+  <h1 class="article-title">A changing field, <em>quietly</em>, makes a voltage.</h1>
+  <p class="deck">The transformer is the simplest device that wrings useful work out of Faraday's rule —
+    and the reason your laptop charger has two coils inside.</p>
+
+  <div class="byline">
+    <span class="euler-pill">euler · live</span>
+    <span><b>Reading along with you</b> · responsive to your questions</span>
+  </div>
+
+  <div class="spread">
+
+    <!-- ── Left column: the article (built up live as Euler narrates) ── -->
+    <div class="article">
+
+      <h2 class="head"><span class="num">I.</span> The lesson, in one line</h2>
+      <h3 class="head">It is the rate of change, not the field itself.</h3>
+
+      <p>
+        Hold a magnet still inside a coil of wire and absolutely nothing happens. The needle on a
+        connected meter sits at zero. Move the same magnet — even slowly — toward or away from the
+        coil, and the needle flicks. <em>That</em> is electromagnetic induction.
+      </p>
+
+      <p>
+        The careful sentence to remember is this: <em>a changing magnetic flux through a loop of
+        wire induces a voltage in the loop.</em> The word <span class="term">changing</span> is the
+        whole game. Stationary fields do nothing. Even a very strong but unchanging field does
+        nothing. The induction is in the <span class="small-caps">verb</span>, not the noun.
+      </p>
+
+      <blockquote class="pull">
+        Stationary fields do nothing. The induction is in the verb, not the noun.
+      </blockquote>
+
+      <p>
+        Faraday wrote this rule down in 1831 in the form we still use:
+      </p>
+
+      <div class="eqn">
+        ℰ = − dΦ / dt <span class="num">eq. 1 · faraday</span>
+      </div>
+
+      <p>
+        The minus sign is Lenz's dressing — induced voltage <em>opposes</em> the change that caused
+        it. We will return to that. For now, take only the bigger idea:
+        <span class="term">change in flux</span> creates <span class="term">voltage</span>.
+        No motion, no voltage. Slow motion, weak voltage. Fast motion, strong.
+      </p>
+
+      <h2 class="head"><span class="num">II.</span> Now, two coils sharing a core</h2>
+      <h3 class="head">A transformer is the device that turns this rule into a tool.</h3>
+
+      <p>
+        Wrap two coils around the same iron core. Push alternating current through the first one —
+        call it the <span class="term">primary</span>. Because the current alternates, the magnetic
+        field inside the core is constantly reversing. That reversing field threads the second coil
+        too — the <span class="term">secondary</span>. By Faraday's rule, a changing field through
+        the secondary creates a voltage <em>in</em> the secondary.
+      </p>
+
+      <p>
+        Whatever voltage you put on the primary appears on the secondary, scaled by the ratio of
+        turns:
+      </p>
+
+      <div class="eqn">
+        V<sub>s</sub> ⁄ V<sub>p</sub> = N<sub>s</sub> ⁄ N<sub>p</sub>
+        <span class="num">eq. 2 · turns ratio</span>
+      </div>
+
+      <p>
+        More turns on the secondary means the device <span class="small-caps">steps up</span> the
+        voltage; fewer means it <span class="small-caps">steps down</span>. That's why the brick on
+        your laptop charger is heavy — it is, almost literally, a small transformer pressing 120 V
+        down to 20.
+      </p>
+
+      <p class="section-break">· · ·</p>
+
+      <h2 class="head"><span class="num">III.</span> Why the iron core matters</h2>
+      <h3 class="head">A funnel for flux.</h3>
+
+      <p style="color: var(--ink-faint); font-style: italic;">
+        — writing this section as we speak. The core is not the source of the magnetism; it is the
+        path the field prefers. Without it, most of the primary's flux would scatter through air,
+        miss the secondary entirely, and the device would barely transmit any voltage at all…
+      </p>
+
+      <!-- ── Letter (voice input) ── -->
+      <div class="letter">
+        <div class="letter-prompt">Write to Euler, or push back on the argument so far —</div>
+        <textarea class="letter-input" rows="2" placeholder="“If induction depends on rate of change, why does my charger work at 60 Hz and not 60,000 Hz?”"></textarea>
+        <div class="letter-meta">
+          <span>↩ <b>send</b></span>
+          <span>·</span>
+          <span>⌥ M to <b>speak</b></span>
+          <span>·</span>
+          <span>/<b>cite</b> to anchor</span>
+          <button class="send">Submit</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── Right column: marginalia ── -->
+    <aside class="marginalia">
+
+      <div class="figure">
+        <div class="figure-label"><b>Fig. 1</b> · Two scenes, two outcomes</div>
+        <svg viewBox="0 0 320 200">
+          <g transform="translate(0, 14)">
+            <!-- left: stationary -->
+            <ellipse cx="80" cy="60" rx="40" ry="14" class="stroke-soft"/>
+            <ellipse cx="80" cy="60" rx="32" ry="11" class="stroke-soft"/>
+            <ellipse cx="80" cy="60" rx="24" ry="8"  class="stroke-soft"/>
+            <rect x="64" y="48" width="32" height="24" class="stroke" fill="var(--ink-soft)"/>
+            <text x="80" y="63" text-anchor="middle" fill="#fff" font-family="Inter" font-size="9" font-weight="700">N</text>
+            <text x="80" y="22" text-anchor="middle" class="label-soft">stationary</text>
+            <text x="80" y="100" text-anchor="middle" class="label-italic">meter: — 0 —</text>
+
+            <!-- right: moving -->
+            <ellipse cx="240" cy="60" rx="40" ry="14" class="stroke-soft"/>
+            <ellipse cx="240" cy="60" rx="32" ry="11" class="stroke-soft"/>
+            <ellipse cx="240" cy="60" rx="24" ry="8"  class="stroke-soft"/>
+            <rect x="200" y="48" width="32" height="24" class="stroke-accent" fill="var(--accent)"/>
+            <text x="216" y="63" text-anchor="middle" fill="#fff" font-family="Inter" font-size="9" font-weight="700">N</text>
+            <path d="M236 60 l28 0" class="stroke-accent" stroke-dasharray="3 3"/>
+            <path d="M260 56 l8 4 l-8 4" class="stroke-accent" fill="var(--accent)"/>
+            <text x="240" y="22" text-anchor="middle" class="label" fill="var(--accent)">moving →</text>
+            <text x="240" y="100" text-anchor="middle" class="label" font-weight="700" fill="var(--accent)">⚡ 1.4 V</text>
+          </g>
+          <line x1="20" y1="135" x2="300" y2="135" class="stroke-soft"/>
+          <text x="160" y="158" text-anchor="middle" class="label-italic">A controlled comparison: only the motion of the magnet differs.</text>
+        </svg>
+      </div>
+
+      <div class="definition">
+        <div class="head">Definition</div>
+        <div class="term">Magnetic flux, Φ</div>
+        <div class="body">
+          A measure of how much magnetic field passes through a loop. Larger field, larger area, more flux. Units: weber (Wb).
+        </div>
+      </div>
+
+      <div class="figure">
+        <div class="figure-label"><b>Fig. 2</b> · The transformer in cross-section</div>
+        <svg viewBox="0 0 320 220">
+          <!-- core -->
+          <path d="M120 40 h140 v140 h-140 v-22 h120 v-96 h-120 z" stroke="var(--ink-soft)" stroke-width="3" fill="none" stroke-linejoin="round"/>
+          <text x="190" y="115" text-anchor="middle" class="label-italic">iron core</text>
+          <!-- primary -->
+          <g stroke="var(--accent)" stroke-width="1.8" fill="none">
+            <path d="M70 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M85 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M100 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M115 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+          </g>
+          <text x="92" y="48" text-anchor="middle" class="label" fill="var(--accent)">primary</text>
+          <text x="40" y="115" class="label" fill="var(--accent)" font-weight="700">~</text>
+          <line x1="46" y1="60" x2="64" y2="60" class="stroke-accent"/>
+          <line x1="46" y1="170" x2="64" y2="170" class="stroke-accent"/>
+          <!-- secondary -->
+          <g stroke="var(--good)" stroke-width="1.8" fill="none">
+            <path d="M260 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M275 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M290 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M305 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M320 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+            <path d="M335 60 q-16 22 0 44 q16 22 0 44 q16 22 0 30"/>
+          </g>
+          <text x="298" y="48" text-anchor="middle" class="label" fill="var(--good)">secondary</text>
+          <!-- flux -->
+          <path d="M132 110 q60 -14 120 0" stroke="var(--accent-soft)" stroke-width="1.5" fill="none" stroke-dasharray="2 4"/>
+          <path d="M250 108 l-9 -2 l3 6 z" fill="var(--accent-soft)"/>
+          <text x="190" y="100" text-anchor="middle" class="label" fill="var(--accent-soft)" font-style="italic">Φ(t)</text>
+        </svg>
+        <p class="caption">Two coils. Same flux. Whatever happens in one, happens in the other — almost.</p>
+      </div>
+
+      <div class="sidenote">
+        <b>Why "almost"?</b>
+        Real transformers leak. A tiny portion of flux escapes the core and never threads the
+        secondary. Engineers call this <i>leakage inductance</i>; it's the difference between
+        90% and 99.5% efficiency.
+      </div>
+
+      <div class="definition">
+        <div class="head">Definition</div>
+        <div class="term">Electromotive force, ℰ</div>
+        <div class="body">
+          The voltage that an induced field is capable of driving around a circuit. Confusingly named —
+          it is a voltage, not a force. Units: volts.
+        </div>
+      </div>
+
+      <div class="sidenote" style="border-color: var(--accent);">
+        <b>Bookmark</b> · 4 · <i>Two coils, one core</i><br>
+        — pinned to your reading list at 0:32.
+      </div>
+
+    </aside>
+  </div>
+
+  <div class="foot">
+    <span><b>Page 4</b> · of 7</span>
+    <span class="center">— in conversation with you —</span>
+    <span>Vol. 4 · Faraday</span>
+  </div>
+</div>
+
+<script>
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+  }
+</script>
+</body>
+</html>

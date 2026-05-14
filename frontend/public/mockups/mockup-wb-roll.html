@@ -1,0 +1,853 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler · Scrolling Roll</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  /* ─── Roll: horizontal time-as-space scroll, cinematic ──── */
+  :root[data-mode="light"] {
+    --bg:           #2a1f12;            /* warm wood backdrop */
+    --bg-glow:      rgba(245, 158, 11, .06);
+    --paper:        #f5e9c8;            /* parchment */
+    --paper-edge:   #c9b787;
+    --paper-grain:  rgba(120, 90, 40, .06);
+    --paper-shadow: rgba(0, 0, 0, .35);
+    --chrome:       #faf8f1;
+    --chrome-edge:  #d9d3c0;
+    --ink:          #2a1d0a;
+    --ink-soft:     #5c4426;
+    --ink-faint:    #9c8856;
+    --pen:          #2a1d0a;
+    --pen-blue:     #1b4a8a;
+    --pen-you:      #0e5a8a;
+    --pen-red:      #a8302b;
+    --pen-acc:      #c2671a;
+    --pen-good:     #2f7d3a;
+    --highlight:    #ffdf6b;
+    --shadow:       rgba(0, 0, 0, .25);
+    --shadow-strong: rgba(0, 0, 0, .5);
+  }
+  :root[data-mode="dark"] {
+    --bg:           #08070a;
+    --bg-glow:      rgba(251, 191, 36, .06);
+    --paper:        #1c1a18;
+    --paper-edge:   #3a342a;
+    --paper-grain:  rgba(255, 255, 255, .025);
+    --paper-shadow: rgba(0, 0, 0, .65);
+    --chrome:       #14181f;
+    --chrome-edge:  #2a2f3a;
+    --ink:          #f3f4f6;
+    --ink-soft:     #cbd5e1;
+    --ink-faint:    #64748b;
+    --pen:          #f3f4f6;
+    --pen-blue:     #93c5fd;
+    --pen-you:      #5eead4;
+    --pen-red:      #fca5a5;
+    --pen-acc:      #fbbf24;
+    --pen-good:     #86efac;
+    --highlight:    rgba(250, 204, 21, .25);
+    --shadow:       rgba(0, 0, 0, .5);
+    --shadow-strong: rgba(0, 0, 0, .85);
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background:
+      radial-gradient(ellipse at 50% 0%, var(--bg-glow), transparent 60%),
+      radial-gradient(ellipse at 20% 100%, rgba(0,0,0,.4), transparent 60%),
+      var(--bg);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Top chrome — minimal, on dark wood ─── */
+  .topbar {
+    height: 50px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px;
+    background: rgba(0,0,0,.32);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid rgba(255,255,255,.06);
+    position: relative; z-index: 30;
+    color: var(--paper);
+  }
+  .topbar .brand { font-weight: 800; font-size: 17px; letter-spacing: -.01em; color: var(--paper); }
+  .topbar .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--pen-acc), #fde047);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .topbar .crumb { font: 500 12px 'Inter'; color: rgba(245, 233, 200, .7); }
+  .topbar .crumb b { color: var(--paper); }
+  .topbar .crumb .sep { color: rgba(245, 233, 200, .35); margin: 0 5px; }
+  .topbar .spacer { flex: 1; }
+  .topbar .topmeta {
+    font: 700 11px 'JetBrains Mono'; color: rgba(245, 233, 200, .55); letter-spacing: .08em;
+  }
+  .topbar .topmeta b { color: var(--paper); }
+  .topbar .top-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 6px 10px;
+    background: rgba(255,255,255,.05); border: 1px solid rgba(255,255,255,.12);
+    border-radius: 6px; cursor: pointer;
+    color: var(--paper); font: 600 11px 'Inter';
+  }
+  .topbar .top-btn:hover { background: rgba(255,255,255,.1); }
+  .topbar .top-btn svg { width: 12px; height: 12px; }
+
+  /* ─── Stage = the roll viewport ─── */
+  .stage {
+    height: calc(100vh - 50px - 100px);     /* leave room for filmstrip at bottom */
+    position: relative;
+    overflow: hidden;
+    perspective: 1600px;
+    perspective-origin: center;
+  }
+
+  /* Side gradient fades — "tunnel vision" */
+  .stage::before, .stage::after {
+    content: ""; position: absolute; top: 0; bottom: 0;
+    width: 240px;
+    z-index: 8;
+    pointer-events: none;
+  }
+  .stage::before {
+    left: 0;
+    background: linear-gradient(90deg, var(--bg), transparent);
+  }
+  .stage::after {
+    right: 0;
+    background: linear-gradient(-90deg, var(--bg), transparent);
+  }
+
+  /* ─── The roll: a horizontal track of panels ─── */
+  .roll {
+    height: 100%;
+    display: flex; align-items: center;
+    gap: 24px;
+    padding: 14px 60px;
+    transform: translateX(0);
+  }
+
+  /* A single panel (parchment card) */
+  .panel {
+    flex-shrink: 0;
+    background: var(--paper);
+    background-image:
+      /* subtle paper grain */
+      repeating-linear-gradient(135deg, transparent 0 4px, var(--paper-grain) 4px 5px),
+      repeating-linear-gradient(45deg, transparent 0 6px, var(--paper-grain) 6px 7px);
+    border: 1px solid var(--paper-edge);
+    border-radius: 6px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.3),
+      0 12px 32px var(--paper-shadow);
+    position: relative;
+    overflow: hidden;
+    transition: opacity .25s ease, transform .25s ease;
+  }
+  :root[data-mode="dark"] .panel {
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.04),
+      0 12px 32px var(--paper-shadow);
+  }
+
+  /* Torn-edge effect — left & right */
+  .panel::before, .panel::after {
+    content: ""; position: absolute;
+    top: 0; bottom: 0; width: 4px;
+    background-image: linear-gradient(to right, var(--paper-edge), transparent);
+    opacity: .35;
+  }
+  .panel::before { left: 0; }
+  .panel::after { right: 0; transform: scaleX(-1); }
+
+  /* Panel sizes by "distance from now" */
+  .panel.past-3   { width: 200px; height: 60%; opacity: .25; transform: rotateY(28deg) scale(.85); }
+  .panel.past-2   { width: 280px; height: 70%; opacity: .42; transform: rotateY(20deg) scale(.92); }
+  .panel.past-1   { width: 380px; height: 86%; opacity: .65; transform: rotateY(10deg); }
+  .panel.now      { width: 660px; height: 100%; opacity: 1;  transform: scale(1); z-index: 5; }
+  .panel.next-1   { width: 360px; height: 84%; opacity: .55; transform: rotateY(-12deg); border-style: dashed; }
+  .panel.next-2   { width: 260px; height: 70%; opacity: .35; transform: rotateY(-22deg) scale(.92); border-style: dashed; }
+  .panel.next-3   { width: 180px; height: 58%; opacity: .2;  transform: rotateY(-30deg) scale(.85); border-style: dashed; }
+
+  /* Now-panel glow */
+  .panel.now {
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.4),
+      0 0 60px rgba(245, 158, 11, .15),
+      0 14px 40px var(--paper-shadow);
+  }
+  :root[data-mode="dark"] .panel.now {
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.06),
+      0 0 60px rgba(251, 191, 36, .12),
+      0 14px 40px var(--paper-shadow);
+  }
+
+  /* Panel content */
+  .panel-head {
+    padding: 14px 24px 8px;
+    display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px dashed var(--paper-edge);
+  }
+  .panel-num {
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--ink); color: var(--paper);
+    display: flex; align-items: center; justify-content: center;
+    font: 800 13px 'JetBrains Mono';
+    flex-shrink: 0;
+  }
+  .panel.now .panel-num { background: var(--pen-acc); color: var(--paper); }
+  :root[data-mode="dark"] .panel.now .panel-num { color: #1a1305; }
+  .panel-title {
+    font: 700 12px 'JetBrains Mono'; color: var(--ink-soft);
+    letter-spacing: .14em; text-transform: uppercase;
+  }
+  .panel-title b { color: var(--ink); }
+  .panel-time { margin-left: auto; font: 700 11px 'JetBrains Mono'; color: var(--ink-faint); }
+
+  .panel-body {
+    padding: 14px 24px;
+    height: calc(100% - 60px);
+    display: flex; flex-direction: column;
+    overflow: hidden;
+  }
+  .panel-h1 {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    color: var(--ink);
+    margin: 0 0 8px;
+    line-height: 1;
+    letter-spacing: -.015em;
+  }
+  .panel.now .panel-h1 { font-size: 26px; }
+  .panel.past-1 .panel-h1, .panel.next-1 .panel-h1 { font-size: 18px; }
+  .panel.past-2 .panel-h1, .panel.next-2 .panel-h1 { font-size: 16px; }
+  .panel.past-3 .panel-h1, .panel.next-3 .panel-h1 { font-size: 14px; }
+  .panel-h1 em { color: var(--pen-acc); font-style: italic; }
+
+  .panel-figure {
+    flex: 1; min-height: 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .panel-figure svg { width: 100%; height: 100%; max-height: 100%; }
+  .panel-figure .ink-stroke { stroke: var(--ink); fill: none; stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+  .panel-figure .ink-soft   { stroke: var(--ink-soft); fill: none; stroke-width: 1.2; }
+  .panel-figure .acc-stroke { stroke: var(--pen-acc); fill: none; stroke-width: 1.8; }
+  .panel-figure .you-stroke { stroke: var(--pen-you); fill: none; stroke-width: 1.6; }
+  .panel-figure .lbl        { fill: var(--ink); font: 600 11px 'Inter'; }
+  .panel-figure .lbl-soft   { fill: var(--ink-soft); font: 500 10px 'Inter'; }
+  .panel-figure .lbl-acc    { fill: var(--pen-acc); font: 700 11px 'Inter'; font-style: italic; }
+
+  .panel-eq {
+    margin: 8px auto 0;
+    padding: 8px 14px;
+    text-align: center;
+    border: 1px dashed var(--paper-edge);
+    border-radius: 4px;
+    background: rgba(0,0,0,.03);
+    font-family: 'Fraunces', serif;
+    font-weight: 500;
+    color: var(--ink);
+  }
+  :root[data-mode="dark"] .panel-eq { background: rgba(255,255,255,.02); }
+  .panel.now .panel-eq { font-size: 20px; }
+  .panel.past-1 .panel-eq, .panel.next-1 .panel-eq { font-size: 16px; }
+  .panel.past-2 .panel-eq, .panel.next-2 .panel-eq { font-size: 13px; }
+  .panel-eq .acc { color: var(--pen-acc); font-weight: 600; }
+  .panel-eq .you { color: var(--pen-you); font-weight: 600; }
+
+  /* Student handwritten scrawl on the current panel */
+  .panel-scrawl {
+    position: absolute;
+    font-family: 'Caveat', cursive;
+    font-weight: 600;
+    color: var(--pen-you);
+    line-height: 1.2;
+    pointer-events: none;
+  }
+  .panel.now .panel-scrawl { font-size: 18px; }
+  .panel-scrawl .arrow { display: inline-block; margin-right: 4px; }
+
+  .panel-scrawl.tutor { color: var(--ink); font-family: 'Caveat', cursive; }
+
+  /* "Now" indicator on current panel */
+  .now-flag {
+    position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+    z-index: 6;
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 12px;
+    background: var(--pen-acc);
+    color: var(--paper);
+    border-radius: 999px;
+    font: 800 10px 'JetBrains Mono'; letter-spacing: .18em; text-transform: uppercase;
+    box-shadow: 0 4px 12px rgba(194, 103, 26, .35);
+  }
+  :root[data-mode="dark"] .now-flag { color: #1a1305; }
+  .now-flag::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--paper);
+    animation: blink 1.4s infinite;
+  }
+  :root[data-mode="dark"] .now-flag::before { background: #1a1305; }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* Sticky on the current panel */
+  .panel-sticky {
+    position: absolute;
+    background: #fff3a8; color: #4a4a2c;
+    padding: 8px 12px;
+    transform: rotate(-2deg);
+    box-shadow: 0 3px 8px rgba(0,0,0,.18);
+    border-radius: 2px;
+    font-family: 'Caveat', cursive;
+    font-size: 15px; font-weight: 600;
+    line-height: 1.2;
+    max-width: 180px;
+  }
+  :root[data-mode="dark"] .panel-sticky { background: #d4c374; color: #1a1a0a; }
+  .panel-sticky.you { background: #b6f7ff; color: #082a31; }
+  :root[data-mode="dark"] .panel-sticky.you { background: #67e8f9; color: #082a31; }
+  .panel-sticky .src {
+    display: block;
+    font: 700 8px 'JetBrains Mono'; letter-spacing: .14em;
+    color: rgba(74,74,44,.65); margin-bottom: 2px; text-transform: uppercase;
+  }
+
+  /* ─── Filmstrip / scrubber at the bottom ─── */
+  .scrubber {
+    position: absolute; bottom: 0; left: 0; right: 0;
+    height: 100px;
+    background: rgba(0,0,0,.35);
+    backdrop-filter: blur(8px);
+    border-top: 1px solid rgba(255,255,255,.06);
+    padding: 10px 24px;
+    display: flex; flex-direction: column; gap: 8px;
+    z-index: 20;
+  }
+  .scrubber-top {
+    display: flex; gap: 14px; align-items: center;
+    font: 700 11px 'JetBrains Mono'; color: rgba(245,233,200,.55); letter-spacing: .1em;
+  }
+  .scrubber-top b { color: var(--paper); }
+  .play-btn {
+    width: 28px; height: 28px;
+    border-radius: 50%;
+    background: var(--pen-acc); color: var(--paper);
+    border: 0; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+  }
+  .play-btn svg { width: 12px; height: 12px; }
+  :root[data-mode="dark"] .play-btn { color: #1a1305; }
+
+  .strip {
+    flex: 1;
+    display: flex; gap: 6px;
+    align-items: stretch;
+    overflow-x: auto;
+  }
+  .frame {
+    flex-shrink: 0;
+    height: 100%;
+    width: calc((100% - 36px) / 7);
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-radius: 4px;
+    padding: 4px 6px;
+    cursor: pointer;
+    position: relative;
+    transition: transform .12s ease;
+    overflow: hidden;
+  }
+  .frame:hover { transform: translateY(-3px); }
+  .frame .f-n {
+    position: absolute; top: 3px; left: 5px;
+    font: 800 8px 'JetBrains Mono';
+    color: var(--ink-faint);
+  }
+  .frame .f-name {
+    position: absolute; bottom: 3px; left: 5px; right: 5px;
+    font: 600 9px 'Inter';
+    color: var(--ink-soft);
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  }
+  .frame .f-thumb {
+    position: absolute; inset: 14px 4px 18px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .frame .f-thumb svg { width: 100%; height: 100%; }
+  .frame.done {
+    background: rgba(47, 125, 58, .15);
+    border-color: rgba(47, 125, 58, .35);
+  }
+  .frame.done .f-n { color: var(--pen-good); }
+  .frame.active {
+    background: var(--pen-acc);
+    border-color: var(--pen-acc);
+    box-shadow: 0 4px 12px rgba(194, 103, 26, .4);
+    transform: translateY(-4px);
+  }
+  .frame.active .f-n { color: rgba(255,255,255,.85); }
+  :root[data-mode="dark"] .frame.active .f-n { color: rgba(0,0,0,.55); }
+  .frame.active .f-name { color: var(--paper); font-weight: 700; }
+  :root[data-mode="dark"] .frame.active .f-name { color: #1a1305; }
+  .frame.active .f-thumb svg :is(path, rect, ellipse, line) { stroke: var(--paper) !important; }
+  :root[data-mode="dark"] .frame.active .f-thumb svg :is(path, rect, ellipse, line) { stroke: #1a1305 !important; }
+  .frame.future {
+    background: transparent;
+    border-style: dashed;
+    opacity: .6;
+  }
+
+  /* Playhead position indicator */
+  .playhead {
+    position: absolute;
+    top: 36px; bottom: 6px;
+    width: 2px;
+    background: var(--pen-acc);
+    pointer-events: none;
+    z-index: 5;
+    box-shadow: 0 0 8px rgba(194, 103, 26, .6);
+  }
+  .playhead::before {
+    content: ""; position: absolute;
+    top: -4px; left: 50%; transform: translateX(-50%);
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    background: var(--pen-acc);
+    box-shadow: 0 0 10px rgba(194, 103, 26, .8);
+  }
+
+  /* ─── Floating tools (top-right) ─── */
+  .float-tools {
+    position: absolute; top: 64px; right: 20px;
+    z-index: 25;
+    display: flex; flex-direction: column; gap: 4px;
+    background: rgba(0,0,0,.4);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px;
+    padding: 4px;
+    backdrop-filter: blur(8px);
+  }
+  .ftool {
+    width: 32px; height: 32px;
+    border: 0; background: transparent;
+    border-radius: 6px;
+    color: rgba(245,233,200,.7);
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .ftool:hover { background: rgba(255,255,255,.08); color: var(--paper); }
+  .ftool.active { background: var(--pen-acc); color: var(--paper); }
+  :root[data-mode="dark"] .ftool.active { color: #1a1305; }
+  .ftool svg { width: 14px; height: 14px; }
+  .ftool::after {
+    content: attr(data-tip);
+    position: absolute; right: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+    background: var(--ink); color: var(--paper);
+    padding: 3px 8px; font: 600 10px 'Inter'; letter-spacing: .04em;
+    border-radius: 5px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+  }
+  .ftool:hover::after { opacity: 1; }
+
+  /* ─── Floating ask bar ─── */
+  .ask-bar {
+    position: fixed;
+    bottom: 116px; left: 50%; transform: translateX(-50%);
+    z-index: 40;
+    width: min(580px, calc(100vw - 80px));
+    background: rgba(0,0,0,.45);
+    border: 1px solid rgba(255,255,255,.1);
+    border-radius: 14px;
+    backdrop-filter: blur(8px);
+    box-shadow: 0 14px 36px rgba(0,0,0,.5);
+    padding: 10px 14px 10px 52px;
+  }
+  .ask-mic {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: var(--pen-acc); color: var(--paper);
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(194, 103, 26, .35);
+  }
+  :root[data-mode="dark"] .ask-mic { color: #1a1305; }
+  .ask-mic svg { width: 14px; height: 14px; }
+  .ask-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--paper); font: 400 14px 'Inter'; resize: none;
+  }
+  .ask-input::placeholder { color: rgba(245,233,200,.45); }
+  .ask-meta {
+    margin-top: 4px;
+    display: flex; gap: 10px; align-items: center;
+    font: 600 10px 'JetBrains Mono'; letter-spacing: .08em; color: rgba(245,233,200,.5);
+  }
+  .ask-meta b { color: rgba(245,233,200,.85); }
+  .ask-actions { margin-left: auto; display: flex; gap: 4px; }
+  .ask-quick {
+    padding: 4px 10px;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 6px; background: transparent;
+    font: 600 10px 'Inter'; color: rgba(245,233,200,.8); cursor: pointer;
+  }
+  .ask-quick:hover { background: rgba(255,255,255,.06); color: var(--paper); }
+  .ask-quick.primary { background: var(--pen-acc); color: var(--paper); border-color: var(--pen-acc); }
+  :root[data-mode="dark"] .ask-quick.primary { color: #1a1305; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb"><b>Roll</b> <span class="sep">›</span> Transformers <span class="sep">›</span> <b style="color: var(--pen-acc)">turns ratio</b></span>
+  <div class="spacer"></div>
+  <span class="topmeta"><b>0:51</b> / ~2:30 · frame 4/7</span>
+  <button class="top-btn" onclick="toggleMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span id="modeLabel">Light</span>
+  </button>
+</header>
+
+<!-- Floating tool palette (compact, vertical) -->
+<aside class="float-tools">
+  <button class="ftool active" data-tip="Quill">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+  </button>
+  <button class="ftool" data-tip="Highlight">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 2l6 6-12 12-6-6L16 2zM2 22l4-2"/></svg>
+  </button>
+  <button class="ftool" data-tip="Math">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+  </button>
+  <button class="ftool" data-tip="Sticky">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h-9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9z"/><polyline points="14 3 14 10 21 10"/></svg>
+  </button>
+  <button class="ftool" data-tip="Pin to roll">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 17v5M5 12h14M9 7l3-4 3 4M9 7l-2 5 5 5 5-5-2-5z"/></svg>
+  </button>
+  <button class="ftool" data-tip="Voice ⌥M">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+  </button>
+</aside>
+
+<!-- ── Stage: horizontal roll ── -->
+<div class="stage">
+  <div class="roll">
+
+    <!-- Past panel 1 (Field) -->
+    <article class="panel past-2">
+      <div class="panel-head">
+        <span class="panel-num">01</span>
+        <span class="panel-title">Field</span>
+        <span class="panel-time">0:00</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Magnetic field</h2>
+        <div class="panel-figure">
+          <svg viewBox="0 0 200 100">
+            <rect x="60" y="30" width="80" height="40" rx="2" class="ink-stroke" fill="var(--ink-soft)" fill-opacity=".4"/>
+            <text x="100" y="56" text-anchor="middle" fill="var(--paper)" font-size="12" font-weight="800">N · S</text>
+            <ellipse cx="100" cy="50" rx="80" ry="22" class="ink-soft"/>
+            <ellipse cx="100" cy="50" rx="60" ry="16" class="ink-soft"/>
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <!-- Past panel 2 (Flux) -->
+    <article class="panel past-1">
+      <div class="panel-head">
+        <span class="panel-num">02</span>
+        <span class="panel-title">Flux Φ</span>
+        <span class="panel-time">0:18</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Flux through a loop</h2>
+        <div class="panel-figure">
+          <svg viewBox="0 0 220 130">
+            <ellipse cx="110" cy="65" rx="80" ry="40" class="ink-stroke" fill="none"/>
+            <g class="acc-stroke" stroke-dasharray="3 3">
+              <line x1="50" y1="40" x2="170" y2="40"/>
+              <line x1="40" y1="65" x2="180" y2="65"/>
+              <line x1="50" y1="90" x2="170" y2="90"/>
+            </g>
+            <text x="110" y="120" text-anchor="middle" class="lbl-acc">Φ = ∫B·dA</text>
+          </svg>
+        </div>
+        <div class="panel-eq" style="font-size: 16px">
+          Φ = ∫ <span class="acc">B</span> · dA
+        </div>
+      </div>
+    </article>
+
+    <!-- Past panel 3 (Faraday) -->
+    <article class="panel past-1">
+      <div class="panel-head">
+        <span class="panel-num">03</span>
+        <span class="panel-title">Faraday's law</span>
+        <span class="panel-time">0:31</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Rate <em>is</em> the rule</h2>
+        <div class="panel-figure">
+          <svg viewBox="0 0 240 130">
+            <rect x="40" y="40" width="50" height="36" rx="2" class="acc-stroke" fill="var(--pen-acc)" fill-opacity=".6"/>
+            <text x="65" y="62" text-anchor="middle" fill="var(--paper)" font-size="10" font-weight="800">N</text>
+            <path d="M85 58 l32 0" stroke="var(--pen-acc)" stroke-width="2" stroke-dasharray="3 3"/>
+            <path d="M111 54 l8 4 l-8 4" fill="var(--pen-acc)"/>
+            <ellipse cx="180" cy="58" rx="40" ry="14" class="ink-stroke"/>
+            <text x="180" y="118" text-anchor="middle" class="lbl-acc">⚡</text>
+          </svg>
+        </div>
+        <div class="panel-eq" style="font-size: 15px">
+          <span class="acc">ℰ</span> = − dΦ ⁄ dt
+        </div>
+      </div>
+      <div class="panel-sticky you" style="bottom: 8px; right: 8px; max-width: 130px; font-size: 13px">
+        <span class="src">your Q</span>
+        why the "−"?
+      </div>
+    </article>
+
+    <!-- NOW panel (Turns ratio) -->
+    <article class="panel now">
+      <span class="now-flag">PLAYING NOW · 0:51</span>
+      <div class="panel-head">
+        <span class="panel-num">04</span>
+        <span class="panel-title"><b>Turns ratio</b> · the punchline</span>
+        <span class="panel-time">0:38 → 1:05</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Two coils. <em>One</em> shared flux.</h2>
+        <div class="panel-figure">
+          <svg viewBox="0 0 580 280">
+            <defs>
+              <linearGradient id="fluxRoll" x1="0" x2="1">
+                <stop offset="0"  stop-color="var(--pen-acc)" stop-opacity="0"/>
+                <stop offset=".5" stop-color="var(--pen-acc)" stop-opacity="1"/>
+                <stop offset="1"  stop-color="var(--pen-acc)" stop-opacity="0"/>
+              </linearGradient>
+              <marker id="arrR" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+                <path d="M0,0 L10,5 L0,10 z" fill="var(--pen-acc)"/>
+              </marker>
+            </defs>
+            <path d="M210 50 h160 v180 h-160 v-28 h132 v-124 h-132 z" class="ink-soft" stroke-width="3"/>
+            <text x="290" y="146" text-anchor="middle" class="lbl-soft" font-style="italic" font-size="11">iron core</text>
+            <path d="M200 140 q90 -24 180 0" stroke="url(#fluxRoll)" stroke-width="6" fill="none" opacity=".9">
+              <animate attributeName="d" dur="2.4s" repeatCount="indefinite"
+                values="M200 140 q90 -24 180 0; M200 140 q90 24 180 0; M200 140 q90 -24 180 0"/>
+            </path>
+            <text x="290" y="120" text-anchor="middle" class="lbl-acc">Φ(t)</text>
+
+            <g transform="translate(100,50)">
+              <text x="50" y="-10" text-anchor="middle" class="lbl" font-weight="700">primary · Nₚ</text>
+              <g class="ink-stroke">
+                <path d="M30 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M48 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M66 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M84 25 q-16 38 0 76 q16 38 0 76"/>
+              </g>
+              <line x1="0" y1="16" x2="30" y2="25" class="ink-stroke"/>
+              <line x1="0" y1="186" x2="30" y2="177" class="ink-stroke"/>
+              <text x="-22" y="104" text-anchor="end" class="lbl" font-weight="700">~AC</text>
+            </g>
+
+            <g transform="translate(370,50)">
+              <text x="58" y="-10" text-anchor="middle" class="lbl" font-weight="700">secondary · Nₛ</text>
+              <g class="ink-stroke">
+                <path d="M30 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M48 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M66 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M84 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M102 25 q-16 38 0 76 q16 38 0 76"/>
+                <path d="M120 25 q-16 38 0 76 q16 38 0 76"/>
+              </g>
+              <line x1="130" y1="16" x2="160" y2="25" class="ink-stroke"/>
+              <line x1="130" y1="186" x2="160" y2="177" class="ink-stroke"/>
+              <text x="172" y="104" class="lbl" font-weight="700">⚡out</text>
+            </g>
+          </svg>
+        </div>
+        <div class="panel-eq">
+          <span class="acc">V<sub>s</sub></span>/V<sub>p</sub> = <span class="acc">N<sub>s</sub></span>/N<sub>p</sub>
+        </div>
+      </div>
+
+      <!-- Student scrawl on this panel -->
+      <div class="panel-scrawl" style="left: 24px; bottom: 96px">
+        <span class="arrow">↘</span>each turn = same dΦ/dt<br>so they <i>stack</i> ✓
+      </div>
+
+      <!-- Sticky in lower right -->
+      <div class="panel-sticky you" style="right: 18px; bottom: 100px">
+        <span class="src">your note · 0:48</span>
+        charger = 1/6 ratio<br>N<sub>p</sub>=600, N<sub>s</sub>=100
+      </div>
+    </article>
+
+    <!-- Next panel (Worked example) -->
+    <article class="panel next-1">
+      <div class="panel-head">
+        <span class="panel-num">05</span>
+        <span class="panel-title">Worked example</span>
+        <span class="panel-time">~1:05</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Your <em>charger</em></h2>
+        <div class="panel-figure">
+          <svg viewBox="0 0 220 120">
+            <rect x="40" y="40" width="60" height="36" rx="6" class="ink-soft" fill="var(--ink-soft)" fill-opacity=".3"/>
+            <text x="70" y="62" text-anchor="middle" class="lbl" font-size="11">120 V</text>
+            <path d="M100 58 l30 0" stroke="var(--pen-acc)" stroke-width="2"/>
+            <path d="M124 54 l8 4 l-8 4" fill="var(--pen-acc)"/>
+            <rect x="130" y="40" width="60" height="36" rx="6" class="acc-stroke" fill="var(--pen-acc)" fill-opacity=".15"/>
+            <text x="160" y="62" text-anchor="middle" class="lbl-acc" font-size="11">20 V</text>
+            <text x="110" y="105" text-anchor="middle" class="lbl-soft" font-style="italic" font-size="10">ratio = 1/6</text>
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <!-- Future panel (Iron core) -->
+    <article class="panel next-2">
+      <div class="panel-head">
+        <span class="panel-num">06</span>
+        <span class="panel-title">Why iron?</span>
+        <span class="panel-time">~1:30</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Iron is a flux funnel</h2>
+        <div class="panel-figure">
+          <svg viewBox="0 0 200 100">
+            <path d="M40 30 h120 v40 h-120 z" class="ink-soft" fill-opacity=".3"/>
+            <text x="100" y="58" text-anchor="middle" class="lbl-soft" font-style="italic" font-size="11">iron core</text>
+          </svg>
+        </div>
+      </div>
+    </article>
+
+    <!-- Distant future (Recap) -->
+    <article class="panel next-3">
+      <div class="panel-head">
+        <span class="panel-num">07</span>
+        <span class="panel-title">Recap</span>
+      </div>
+      <div class="panel-body">
+        <h2 class="panel-h1">Pulling it<br>all together</h2>
+      </div>
+    </article>
+
+  </div>
+</div>
+
+<!-- ── Filmstrip / scrubber ── -->
+<div class="scrubber">
+  <div class="scrubber-top">
+    <button class="play-btn">
+      <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>
+    </button>
+    <span>FRAME <b>04 / 07</b></span>
+    <span>·</span>
+    <span><b>0:51</b> / 2:30</span>
+    <span>·</span>
+    <span>turns ratio</span>
+    <div style="flex:1"></div>
+    <span>← →  scrub · space  pause</span>
+  </div>
+  <div class="strip" style="position: relative">
+    <div class="frame done">
+      <span class="f-n">01</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><rect x="20" y="10" width="20" height="10" stroke="var(--ink-soft)" fill="none"/><ellipse cx="30" cy="15" rx="20" ry="6" stroke="var(--ink-soft)" fill="none"/></svg></div>
+      <span class="f-name">Field</span>
+    </div>
+    <div class="frame done">
+      <span class="f-n">02</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><ellipse cx="25" cy="15" rx="18" ry="8" stroke="var(--ink-soft)" fill="none"/><line x1="10" y1="15" x2="40" y2="15" stroke="var(--pen-acc)" stroke-dasharray="2 2"/></svg></div>
+      <span class="f-name">Flux</span>
+    </div>
+    <div class="frame done">
+      <span class="f-n">03</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><rect x="6" y="10" width="14" height="10" stroke="var(--pen-acc)" fill="none"/><line x1="20" y1="15" x2="32" y2="15" stroke="var(--pen-acc)"/><ellipse cx="40" cy="15" rx="8" ry="5" stroke="var(--ink-soft)" fill="none"/></svg></div>
+      <span class="f-name">Faraday</span>
+    </div>
+    <div class="frame active">
+      <span class="f-n">04</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><rect x="14" y="6" width="22" height="18" stroke="var(--ink-soft)" fill="none"/><path d="M8 15 q17 -5 34 0" stroke="var(--pen-acc)" fill="none" stroke-width="1.5"/></svg></div>
+      <span class="f-name">Turns ratio</span>
+    </div>
+    <div class="frame future">
+      <span class="f-n">05</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><rect x="6" y="10" width="16" height="10" stroke="var(--ink-soft)" fill="none"/><rect x="28" y="10" width="16" height="10" stroke="var(--pen-acc)" fill="none"/></svg></div>
+      <span class="f-name">Example</span>
+    </div>
+    <div class="frame future">
+      <span class="f-n">06</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><path d="M10 10 h30 v10 h-30 z" stroke="var(--ink-soft)" fill="none"/></svg></div>
+      <span class="f-name">Iron</span>
+    </div>
+    <div class="frame future">
+      <span class="f-n">07</span>
+      <div class="f-thumb"><svg viewBox="0 0 50 30"><circle cx="25" cy="15" r="10" stroke="var(--ink-soft)" fill="none"/></svg></div>
+      <span class="f-name">Recap</span>
+    </div>
+    <!-- playhead is positioned over the active frame -->
+    <div class="playhead" style="left: calc(3 * ((100% - 36px) / 7) + 3 * 6px + ((100% - 36px) / 7) * .65)"></div>
+  </div>
+</div>
+
+<!-- ── Floating ask bar ── -->
+<div class="ask-bar">
+  <span class="ask-mic">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+  </span>
+  <textarea class="ask-input" rows="1" placeholder="Pause Euler. Scrub back. Or ask…"></textarea>
+  <div class="ask-meta">
+    <span>↩ <b>ask</b></span>
+    <span>· ← <b>back</b></span>
+    <span>· space <b>pause</b></span>
+    <span>· ⌥M <b>speak</b></span>
+    <div class="ask-actions">
+      <button class="ask-quick">Pause</button>
+      <button class="ask-quick">Rewind</button>
+      <button class="ask-quick primary">Ask →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function applyInitialMode() {
+    const html = document.documentElement;
+    const hash = (location.hash || '').toLowerCase().replace('#', '');
+    if (hash === 'dark' || hash === 'light') html.dataset.mode = hash;
+    const lbl = document.getElementById('modeLabel');
+    if (lbl) lbl.textContent = html.dataset.mode === 'dark' ? 'Dark' : 'Light';
+  })();
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+    history.replaceState(null, '', '#' + next);
+  }
+  document.querySelectorAll('.ftool').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.classList.contains('active')) return;
+      document.querySelectorAll('.ftool').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

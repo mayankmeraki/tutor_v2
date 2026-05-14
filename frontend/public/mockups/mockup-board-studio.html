@@ -1,0 +1,658 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Studio Notebook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;600;700&family=Crimson+Pro:ital,wght@0,400;0,500;0,600;0,700;1,400&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  /* ─── Theme tokens ─────────────────────────────────────────────── */
+  :root[data-mode="light"] {
+    --paper:        #faf6ec;          /* cream paper */
+    --paper-edge:   #f1ead8;
+    --paper-shadow: rgba(80, 50, 20, .08);
+    --rule:         #e7dfc8;          /* faint ruled lines */
+    --margin-line:  #e2c2a0;          /* the red margin rule */
+    --ink:          #2b2520;          /* warm near-black */
+    --ink-soft:     #6b5e54;
+    --ink-faint:    #a89784;
+    --highlight:    #fff3b0;          /* pencil-yellow highlighter */
+    --pencil:       #4a3f37;
+    --accent:       #c2410c;          /* burnt orange — section heads */
+    --accent-soft:  #fb923c;
+    --pin:          #d97706;
+    --note-bg:      #fff8e1;
+    --good:         #16a34a;
+    --link:         #1d4ed8;
+  }
+  :root[data-mode="dark"] {
+    --paper:        #1c1611;          /* dark leather notebook */
+    --paper-edge:   #14100c;
+    --paper-shadow: rgba(0, 0, 0, .35);
+    --rule:         #2a2218;
+    --margin-line:  #5b3a22;
+    --ink:          #efe6d5;
+    --ink-soft:     #b8a98c;
+    --ink-faint:    #8a7a5e;
+    --highlight:    #715a13;
+    --pencil:       #d8c19a;
+    --accent:       #fb923c;
+    --accent-soft:  #fdba74;
+    --pin:          #f59e0b;
+    --note-bg:      #25201a;
+    --good:         #4ade80;
+    --link:         #93c5fd;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: 'Crimson Pro', Georgia, serif;
+    color: var(--ink);
+    background: var(--paper-edge);
+    font-size: 18px;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Top bar (chrome stays minimal) ───────────────────────────── */
+  .topbar {
+    position: sticky; top: 0; z-index: 40;
+    display: flex; align-items: center; gap: 18px;
+    padding: 14px 32px;
+    background: var(--paper-edge);
+    border-bottom: 1px solid var(--rule);
+    font-family: 'Inter', sans-serif; font-size: 13px;
+  }
+  .logo {
+    font-family: 'Crimson Pro', serif;
+    font-size: 22px; font-weight: 700; letter-spacing: -.02em;
+    color: var(--ink);
+  }
+  .logo em { color: var(--accent); font-style: italic; }
+  .topbar-meta {
+    margin-left: auto;
+    display: flex; align-items: center; gap: 16px;
+    color: var(--ink-soft); font-size: 12px;
+  }
+  .topbar-meta b { color: var(--ink); font-weight: 600; }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px; border: 1px solid var(--rule);
+    border-radius: 999px; background: var(--paper);
+    color: var(--ink); cursor: pointer; font: inherit;
+  }
+  .toggle:hover { background: var(--note-bg); }
+  .toggle svg { width: 14px; height: 14px; }
+
+  /* ─── The page itself — the lesson is one continuous notebook ─── */
+  .page-wrap {
+    max-width: 920px;
+    margin: 28px auto 240px;
+    padding: 0 24px;
+  }
+  .page {
+    position: relative;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 6px;
+    box-shadow:
+      0 1px 0 var(--paper-edge),
+      0 8px 28px var(--paper-shadow),
+      0 1px 1px var(--paper-shadow) inset;
+    padding: 56px 64px 80px 110px;   /* extra left for margin rule */
+    transition: background .35s ease;
+  }
+  /* Faint ruled lines — like college-rule paper, very subtle */
+  .page {
+    background-image:
+      linear-gradient(to right, transparent 84px, var(--margin-line) 84px, var(--margin-line) 85px, transparent 85px),
+      repeating-linear-gradient(to bottom, transparent 0 31px, var(--rule) 31px 32px);
+  }
+
+  /* ─── Lesson cover ─────────────────────────────────────────────── */
+  .cover { margin-bottom: 30px; }
+  .cover-eyebrow {
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent); font-weight: 700;
+  }
+  .cover h1 {
+    font-family: 'Crimson Pro', serif;
+    font-size: 44px; font-weight: 700; letter-spacing: -.015em;
+    margin: 6px 0 10px; line-height: 1.05;
+  }
+  .cover-sub {
+    color: var(--ink-soft); font-style: italic;
+    margin: 0 0 18px;
+  }
+  .chapter-ribbon {
+    display: flex; gap: 6px; align-items: center;
+    font-family: 'Inter', sans-serif; font-size: 11px;
+    color: var(--ink-soft);
+  }
+  .chip {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px; border-radius: 999px;
+    border: 1px solid var(--rule);
+    background: var(--paper);
+    font-size: 11px;
+  }
+  .chip.active { background: var(--accent); color:#fff; border-color: var(--accent); }
+  .chip.done   { color: var(--good); }
+  .chip.done::before { content:"✓ "; }
+
+  /* ─── Section heading ──────────────────────────────────────────── */
+  h2.section {
+    font-family: 'Crimson Pro', serif;
+    font-size: 26px; font-weight: 700;
+    margin: 36px 0 14px;
+    display: flex; align-items: baseline; gap: 14px;
+  }
+  h2.section .num {
+    font-family: 'Caveat', cursive;
+    color: var(--accent);
+    font-size: 30px;
+    font-weight: 700;
+  }
+  h2.section .rule {
+    flex: 1; height: 1px; background: var(--rule); transform: translateY(-4px);
+  }
+
+  /* ─── Narration paragraphs ─────────────────────────────────────── */
+  p.narr {
+    margin: 0 0 14px;
+    color: var(--ink);
+    text-align: justify;
+    hyphens: auto;
+    max-width: 64ch;
+  }
+  p.narr.lead::first-letter {
+    font-family: 'Crimson Pro', serif;
+    float: left; font-size: 64px; line-height: .85;
+    padding: 6px 10px 0 0; color: var(--accent); font-weight: 700;
+  }
+  p.narr em { background: var(--highlight); padding: 0 4px; border-radius: 2px; font-style: normal; }
+  p.narr .term { font-weight: 600; color: var(--accent); }
+
+  /* ─── Sketch insets — figures embedded in the page ─────────────── */
+  figure.sketch {
+    margin: 16px -28px 16px 0;
+    padding: 18px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    box-shadow: 0 4px 0 -3px var(--rule), 0 1px 8px var(--paper-shadow);
+    transform: rotate(-.4deg);
+    position: relative;
+  }
+  figure.sketch.right { float: right; width: 360px; margin: 4px -36px 14px 28px; transform: rotate(.6deg); }
+  figure.sketch.full  { width: auto; }
+  figure.sketch figcaption {
+    margin-top: 10px;
+    font-family: 'Caveat', cursive;
+    font-size: 17px; color: var(--accent); text-align: center;
+  }
+  figure.sketch svg { display: block; width: 100%; height: auto; }
+
+  /* The sketched primitives use 'currentColor' so they retheme. */
+  .sk { stroke: var(--ink); fill: none; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+  .sk-soft { stroke: var(--ink-soft); fill: none; stroke-width: 1.2; stroke-dasharray: 3 3; }
+  .sk-fill { fill: var(--ink); }
+  .sk-accent  { stroke: var(--accent); stroke-width: 1.8; }
+  .sk-good    { stroke: var(--good);   stroke-width: 1.8; }
+  .sk-label   { font-family: 'Caveat', cursive; font-size: 17px; fill: var(--ink); }
+  .sk-label-bold { font-family: 'Caveat', cursive; font-size: 19px; font-weight: 700; }
+  .sk-fade    { opacity: .7; }
+
+  /* ─── Margin scribbles — student notes & definitions ───────────── */
+  aside.margin {
+    position: absolute; left: -200px; top: 0;
+    width: 180px;
+    pointer-events: auto;
+  }
+  /* On narrow screens the margin tucks under the page */
+  @media (max-width: 1180px) { aside.margin { display: none; } }
+
+  .scribble {
+    font-family: 'Caveat', cursive;
+    font-size: 17px; color: var(--accent);
+    margin-bottom: 22px;
+    line-height: 1.25;
+    transform: rotate(-1deg);
+    padding: 0 4px;
+  }
+  .scribble.blue  { color: var(--link); transform: rotate(.5deg); }
+  .scribble.pencil{ color: var(--pencil); transform: rotate(-.7deg); }
+  .scribble svg   { display:inline-block; vertical-align: middle; }
+
+  .define {
+    background: var(--note-bg);
+    border-left: 3px solid var(--accent);
+    padding: 8px 12px;
+    border-radius: 2px;
+    font-family: 'Inter', sans-serif;
+    font-size: 12px; color: var(--ink-soft); line-height: 1.45;
+    margin-bottom: 16px;
+  }
+  .define b { color: var(--ink); display:block; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; margin-bottom: 4px; }
+
+  /* ─── Equation block ───────────────────────────────────────────── */
+  .eqn {
+    margin: 18px 0;
+    padding: 18px 22px;
+    background: var(--paper);
+    border: 1px dashed var(--ink-faint);
+    border-radius: 4px;
+    text-align: center;
+    font-family: 'Crimson Pro', serif;
+    font-size: 22px;
+    color: var(--ink);
+  }
+  .eqn .lhs { color: var(--accent); }
+  .eqn .num {
+    float: right; font-family: 'Caveat', cursive;
+    color: var(--ink-faint); font-size: 16px;
+  }
+
+  /* ─── Pinned-beats paperclip strip at bottom ───────────────────── */
+  .pin-strip {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: linear-gradient(180deg, transparent, var(--paper-edge) 30%);
+    padding: 30px 24px 18px;
+    pointer-events: none;
+    z-index: 30;
+  }
+  .pin-row {
+    max-width: 920px; margin: 0 auto;
+    display: flex; gap: 8px; align-items: stretch;
+    overflow-x: auto;
+    pointer-events: auto;
+    padding-bottom: 4px;
+  }
+  .pin-card {
+    flex: 0 0 auto;
+    width: 132px; height: 78px;
+    background: var(--paper);
+    border: 1px solid var(--rule);
+    border-radius: 4px;
+    padding: 10px 10px 8px;
+    position: relative;
+    font-family: 'Inter', sans-serif;
+    font-size: 11px; color: var(--ink-soft);
+    line-height: 1.3;
+    transform: rotate(-.4deg);
+    box-shadow: 0 2px 6px var(--paper-shadow);
+    cursor: pointer;
+    transition: transform .18s ease;
+  }
+  .pin-card:hover { transform: rotate(0) translateY(-3px); }
+  .pin-card:nth-child(even) { transform: rotate(.5deg); }
+  .pin-card .pin {
+    position: absolute; top: -8px; left: 14px;
+    width: 22px; height: 12px; border-radius: 6px;
+    background: linear-gradient(180deg, #cd7f32, #8c5a25);
+    box-shadow: 0 2px 3px rgba(0,0,0,.25);
+  }
+  :root[data-mode="dark"] .pin-card .pin { background: linear-gradient(180deg, #f59e0b, #92400e); }
+  .pin-card b { color: var(--ink); font-size: 12px; display:block; margin-bottom: 3px; }
+  .pin-card.current { background: var(--note-bg); border-color: var(--accent); }
+  .pin-card.current b { color: var(--accent); }
+
+  /* ─── Voice input — torn paper note at bottom ──────────────────── */
+  .voice-wrap {
+    position: fixed; bottom: 100px; left: 50%; transform: translateX(-50%);
+    width: min(660px, calc(100vw - 48px));
+    z-index: 35;
+  }
+  .voice-paper {
+    position: relative;
+    background: var(--paper);
+    border-radius: 3px;
+    padding: 14px 16px 14px 56px;
+    box-shadow: 0 12px 32px var(--paper-shadow), 0 2px 6px var(--paper-shadow);
+    border-top: 1px solid var(--rule);
+  }
+  /* Torn top edge using SVG mask wave */
+  .voice-paper::before {
+    content:""; position: absolute; top: -8px; left: 0; right: 0; height: 10px;
+    background: var(--paper);
+    mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 10' preserveAspectRatio='none'><path d='M0,7 Q5,3 10,6 T20,7 T30,5 T40,8 T50,4 T60,7 T70,5 T80,8 T90,6 T100,4 T110,7 T120,5 T130,8 T140,6 T150,5 T160,7 T170,4 T180,8 T190,6 T200,7 L200,10 L0,10 Z' fill='black'/></svg>");
+    mask-size: 100% 100%; mask-repeat: no-repeat;
+    -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 200 10' preserveAspectRatio='none'><path d='M0,7 Q5,3 10,6 T20,7 T30,5 T40,8 T50,4 T60,7 T70,5 T80,8 T90,6 T100,4 T110,7 T120,5 T130,8 T140,6 T150,5 T160,7 T170,4 T180,8 T190,6 T200,7 L200,10 L0,10 Z' fill='black'/></svg>");
+    -webkit-mask-size: 100% 100%; -webkit-mask-repeat: no-repeat;
+  }
+  .voice-icon {
+    position: absolute; left: 14px; top: 50%; transform: translateY(-50%);
+    width: 30px; height: 30px;
+    border-radius: 50%;
+    background: var(--accent);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .voice-icon svg { width: 14px; height: 14px; }
+  .voice-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    font: inherit; color: var(--ink); resize: none;
+    font-family: 'Crimson Pro', serif; font-size: 17px;
+  }
+  .voice-input::placeholder { color: var(--ink-faint); font-style: italic; }
+  .voice-meta {
+    margin-top: 6px;
+    display: flex; gap: 14px; align-items: center;
+    font-family: 'Inter', sans-serif; font-size: 11px; color: var(--ink-faint);
+  }
+  .voice-meta .send {
+    margin-left: auto; padding: 4px 12px; border: 0;
+    background: var(--accent); color: #fff; border-radius: 999px;
+    font: 600 11px 'Inter', sans-serif; cursor: pointer; letter-spacing: .04em;
+  }
+
+  /* ─── Tiny utility ─────────────────────────────────────────────── */
+  .clearfix::after { content:""; display:block; clear: both; }
+  hr.thin { border: 0; border-top: 1px dashed var(--rule); margin: 22px 0; }
+
+  /* The "Euler is talking" indicator — pencil bouncing */
+  .talking { display:inline-flex; align-items:center; gap:6px; font-family:'Caveat',cursive; font-size:18px; color:var(--accent); }
+  .talking .dot { width:6px; height:6px; border-radius:50%; background:var(--accent); animation: bob 1.2s infinite; }
+  .talking .dot:nth-child(2){ animation-delay:.15s }
+  .talking .dot:nth-child(3){ animation-delay:.3s }
+  @keyframes bob { 0%,80%,100%{ transform: translateY(0); } 40% { transform: translateY(-3px); } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="logo"><em>E</em>uler</div>
+  <span style="color:var(--ink-soft);font-family:'Inter',sans-serif">Studio Notebook · <i>concept: electromagnetic induction</i></span>
+  <div class="topbar-meta">
+    <span><b>4 of 7</b> beats</span>
+    <span>•</span>
+    <span>0:38 / ~6 min</span>
+    <button class="toggle" id="modeToggle" onclick="toggleMode()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/>
+      </svg>
+      <span id="modeLabel">Light</span>
+    </button>
+  </div>
+</header>
+
+<div class="page-wrap">
+  <article class="page">
+
+    <!-- ── Margin scribbles ── -->
+    <aside class="margin">
+      <div class="scribble">
+        ← this is what
+        <br/>I keep mixing up
+      </div>
+      <div class="define">
+        <b>flux Φ</b>
+        How much magnetic field passes through a loop.
+        Bigger field, bigger area, more flux.
+      </div>
+      <div class="scribble blue">
+        rate of change
+        <br/>matters most! ✦
+      </div>
+      <div class="define">
+        <b>EMF</b>
+        Electromotive force — the "voltage push" induced in a coil.
+        Units: volts.
+      </div>
+      <div class="scribble pencil">
+        try problem 4.7
+        <br/>tonight ✏︎
+      </div>
+    </aside>
+
+    <!-- ── Cover ── -->
+    <header class="cover">
+      <div class="cover-eyebrow">Chapter 4 · Electromagnetism</div>
+      <h1>How a transformer works</h1>
+      <p class="cover-sub">From "moving magnets make voltage" to the device that powers your laptop.</p>
+      <div class="chapter-ribbon">
+        <span class="chip done">Magnetic field</span>
+        <span class="chip done">Flux</span>
+        <span class="chip active">Faraday's law</span>
+        <span class="chip">Transformer geometry</span>
+        <span class="chip">Turns ratio</span>
+      </div>
+    </header>
+
+    <!-- ── Section 1 ── -->
+    <h2 class="section"><span class="num">1.</span> The lesson, in one line<span class="rule"></span></h2>
+
+    <p class="narr lead">
+      <em>A changing magnetic field, on its own, creates a voltage in any loop of wire it passes through.</em>
+      That single sentence is the whole reason your phone charger has two coils inside, why power lines
+      can ship electricity hundreds of miles, and why bicycle dynamos light up your way home.
+    </p>
+
+    <p class="narr">
+      We'll get to the device. First we need to make the rule itself
+      <span class="term">unforgettable</span>: it's not the magnetic field that induces voltage —
+      it's <em>the rate at which the field is changing</em>. Hold a magnet still inside a coil and
+      nothing happens. Move it, even slowly, and a needle on a connected meter flicks.
+    </p>
+
+    <!-- ── Sketch inset — the rule ── -->
+    <figure class="sketch right">
+      <svg viewBox="0 0 360 200">
+        <!-- left coil with stationary magnet -->
+        <g transform="translate(40,30)">
+          <text x="50" y="-4" class="sk-label" text-anchor="middle">stationary magnet</text>
+          <ellipse cx="50" cy="60" rx="42" ry="18" class="sk"/>
+          <ellipse cx="50" cy="60" rx="36" ry="14" class="sk sk-fade"/>
+          <ellipse cx="50" cy="60" rx="30" ry="11" class="sk sk-fade"/>
+          <rect x="38" y="48" width="24" height="24" rx="2" class="sk sk-fill" style="fill:var(--ink-soft)"/>
+          <text x="50" y="64" text-anchor="middle" font-family="Inter" font-size="9" fill="#fff" font-weight="700">N</text>
+          <text x="50" y="120" class="sk-label" text-anchor="middle">meter: <tspan fill="var(--ink-faint)">— 0 —</tspan></text>
+        </g>
+        <!-- right coil with moving magnet -->
+        <g transform="translate(220,30)">
+          <text x="50" y="-4" class="sk-label" text-anchor="middle">magnet moving →</text>
+          <ellipse cx="50" cy="60" rx="42" ry="18" class="sk"/>
+          <ellipse cx="50" cy="60" rx="36" ry="14" class="sk sk-fade"/>
+          <ellipse cx="50" cy="60" rx="30" ry="11" class="sk sk-fade"/>
+          <rect x="20" y="48" width="24" height="24" rx="2" class="sk sk-fill" style="fill:var(--accent)"/>
+          <path d="M50 60 l24 0" class="sk sk-accent" stroke-dasharray="3 3"/>
+          <path d="M70 56 l8 4 l-8 4" class="sk sk-accent"/>
+          <text x="50" y="120" class="sk-label-bold" text-anchor="middle" fill="var(--accent)">meter: ⚡ 1.4 V</text>
+        </g>
+      </svg>
+      <figcaption>A magnet that doesn't move induces nothing. Move it, and a voltage appears.</figcaption>
+    </figure>
+
+    <p class="narr">
+      Faraday wrote the rule down in 1831:
+    </p>
+
+    <div class="eqn">
+      <span class="lhs">EMF</span> = − <i>dΦ</i> / <i>dt</i>
+      <span class="num">eq. 1</span>
+    </div>
+
+    <p class="narr">
+      The minus sign is Lenz's law dressing — the induced voltage <em>opposes</em> the change that caused
+      it. We'll come back to that. For now, take the bigger idea: <span class="term">change in flux</span>
+      causes <span class="term">voltage</span>. No motion, no voltage.
+    </p>
+
+    <hr class="thin">
+
+    <!-- ── Section 2 ── -->
+    <h2 class="section"><span class="num">2.</span> Now, two coils sharing a core<span class="rule"></span></h2>
+
+    <p class="narr">
+      A transformer is the simplest device that wrings useful work out of Faraday's rule. Wrap two coils
+      around a shared iron core. Push alternating current through the first one — call it the
+      <span class="term">primary</span>. Because it's AC, the field through the core is constantly
+      reversing. That reversing field threads the <span class="term">secondary</span> coil too. And by
+      Faraday: a changing field through the secondary <em>creates a voltage in it</em>.
+    </p>
+
+    <!-- ── Sketch inset — the device ── -->
+    <figure class="sketch full">
+      <svg viewBox="0 0 720 240">
+        <!-- iron core: two C-shapes forming a frame -->
+        <g class="sk-soft" stroke="var(--ink-soft)" stroke-width="6" fill="none" stroke-dasharray="0">
+          <path d="M270 60 h180 v120 h-180 v-30 h150 v-60 h-150 z"/>
+        </g>
+        <g class="sk" stroke="var(--ink-soft)" stroke-width="0.8">
+          <line x1="290" y1="80" x2="430" y2="160"/>
+          <line x1="290" y1="100" x2="430" y2="180"/>
+          <line x1="290" y1="60" x2="320" y2="80"/>
+          <line x1="430" y1="60" x2="430" y2="80"/>
+          <line x1="290" y1="180" x2="320" y2="180"/>
+          <line x1="430" y1="180" x2="430" y2="200"/>
+        </g>
+        <text x="360" y="125" text-anchor="middle" class="sk-label" fill="var(--ink-soft)">iron core</text>
+        <!-- primary coil (left) -->
+        <g transform="translate(150,40)">
+          <text x="60" y="-4" text-anchor="middle" class="sk-label-bold" fill="var(--accent)">primary (Nₚ turns)</text>
+          <g class="sk-accent">
+            <path d="M30 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M50 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M70 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M90 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M110 30 q-20 25 0 50 q20 25 0 50"/>
+          </g>
+          <line x1="0"  y1="20" x2="30" y2="30"  class="sk sk-accent"/>
+          <line x1="0"  y1="140" x2="30" y2="130" class="sk sk-accent"/>
+          <text x="-30" y="50" text-anchor="end" class="sk-label-bold" fill="var(--accent)">~ AC in</text>
+          <path d="M-32 80 q8 -10 16 0 t16 0" class="sk sk-accent" fill="none"/>
+        </g>
+        <!-- secondary coil (right) -->
+        <g transform="translate(470,40)">
+          <text x="60" y="-4" text-anchor="middle" class="sk-label-bold" fill="var(--good)">secondary (Nₛ turns)</text>
+          <g class="sk-good">
+            <path d="M30 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M50 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M70 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M90 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M110 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M130 30 q-20 25 0 50 q20 25 0 50"/>
+            <path d="M150 30 q-20 25 0 50 q20 25 0 50"/>
+          </g>
+          <line x1="160" y1="20"  x2="190" y2="30"  class="sk sk-good"/>
+          <line x1="160" y1="140" x2="190" y2="130" class="sk sk-good"/>
+          <text x="220" y="50" class="sk-label-bold" fill="var(--good)">⚡ AC out</text>
+          <path d="M186 80 q8 -10 16 0 t16 0" class="sk sk-good" fill="none"/>
+        </g>
+        <!-- flux arrow -->
+        <path d="M260 110 q100 -20 200 0" class="sk-soft" stroke="var(--accent-soft)" stroke-width="1.5" stroke-dasharray="2 4"/>
+        <path d="M450 108 l-12 -3 l3 8 z" fill="var(--accent-soft)"/>
+        <text x="360" y="100" text-anchor="middle" class="sk-label" fill="var(--accent-soft)" font-style="italic">Φ(t)</text>
+      </svg>
+      <figcaption>The same flux that fills the core fills both coils. Whatever happens in the primary, happens in the secondary — almost.</figcaption>
+    </figure>
+
+    <p class="narr">
+      Whatever voltage you put on the primary appears on the secondary, scaled by the
+      <span class="term">turns ratio</span>:
+    </p>
+
+    <div class="eqn">
+      <span class="lhs">V<sub>s</sub></span> / <span class="lhs">V<sub>p</sub></span>
+      = <i>N<sub>s</sub> / N<sub>p</sub></i>
+      <span class="num">eq. 2</span>
+    </div>
+
+    <p class="narr">
+      <em>More turns on the secondary = step-up.</em> Fewer turns = step-down. That's why the brick on
+      your laptop charger is heavy — it's literally a small transformer pressing 120 V down to about
+      20 V.
+    </p>
+
+    <p style="margin-top:24px">
+      <span class="talking">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2M12 19v4"/></svg>
+        Euler is explaining
+        <span class="dot"></span><span class="dot"></span><span class="dot"></span>
+      </span>
+    </p>
+
+    <hr class="thin">
+
+    <!-- ── Section 3 (in progress, will populate as Euler talks) ── -->
+    <h2 class="section"><span class="num">3.</span> Why the iron core matters<span class="rule"></span></h2>
+
+    <p class="narr" style="color: var(--ink-faint); font-style: italic;">
+      …writing as we speak. The core funnels the field so almost every flux line through the primary
+      threads the secondary too. Without it…
+    </p>
+
+  </article>
+</div>
+
+<!-- ── Pinned beats strip ── -->
+<div class="pin-strip">
+  <div class="pin-row">
+    <div class="pin-card">
+      <span class="pin"></span>
+      <b>Magnet at rest</b>
+      No flux change → no EMF.
+    </div>
+    <div class="pin-card">
+      <span class="pin"></span>
+      <b>Magnet moving</b>
+      Field changes → 1.4 V appears.
+    </div>
+    <div class="pin-card">
+      <span class="pin"></span>
+      <b>Faraday's law</b>
+      EMF = − dΦ/dt
+    </div>
+    <div class="pin-card current">
+      <span class="pin"></span>
+      <b>Two coils, one core</b>
+      Primary's AC threads secondary.
+    </div>
+    <div class="pin-card" style="opacity:.5">
+      <span class="pin"></span>
+      <b>Turns ratio</b>
+      Vₛ/Vₚ = Nₛ/Nₚ
+    </div>
+    <div class="pin-card" style="opacity:.5">
+      <span class="pin"></span>
+      <b>Why iron?</b>
+      <span style="color:var(--ink-faint)">— up next —</span>
+    </div>
+    <div class="pin-card" style="opacity:.5">
+      <span class="pin"></span>
+      <b>Worked example</b>
+      <span style="color:var(--ink-faint)">— up next —</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Voice input — torn paper ── -->
+<div class="voice-wrap">
+  <div class="voice-paper">
+    <span class="voice-icon">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </span>
+    <textarea class="voice-input" rows="1" placeholder="Ask, push back, or say 'pause' to scribble…"></textarea>
+    <div class="voice-meta">
+      <span>↩ to send</span>
+      <span>· hold ⌥ M to speak</span>
+      <button class="send">Send</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+  }
+</script>
+</body>
+</html>

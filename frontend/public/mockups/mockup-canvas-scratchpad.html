@@ -1,0 +1,1043 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Scratchpad</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600&display=swap" rel="stylesheet">
+<style>
+  /* ─── Theme tokens ─────────────────────────────────────────────── */
+  :root[data-mode="light"] {
+    --bg:           #fafaf7;          /* paper-ish */
+    --bg-soft:      #f3f3ee;
+    --chrome:       #ffffff;
+    --chrome-edge:  #e6e4dc;
+    --chrome-edge-strong: #d1cfc4;
+    --ink:          #1a2030;
+    --ink-soft:     #4a5568;
+    --ink-faint:    #94a3b8;
+    --rule:         #e6e4dc;
+    --student:      #0891b2;          /* your color */
+    --student-bg:   rgba(8, 145, 178, .07);
+    --student-edge: rgba(8, 145, 178, .25);
+    --tutor:        #1a2030;
+    --tutor-bg:     #ffffff;
+    --accent:       #f59e0b;
+    --good:         #16a34a;
+    --warn:         #dc2626;
+    --highlight:    rgba(254, 240, 138, .65);
+    --code-bg:      #1a2030;
+    --code-text:    #f3f4f6;
+    --shadow:       rgba(20, 30, 60, .08);
+    --shadow-strong: rgba(20, 30, 60, .14);
+  }
+  :root[data-mode="dark"] {
+    --bg:           #14171c;
+    --bg-soft:      #1a1d24;
+    --chrome:       #1c2029;
+    --chrome-edge:  #2a2f3a;
+    --chrome-edge-strong: #3a4150;
+    --ink:          #f3f4f6;
+    --ink-soft:     #cbd5e1;
+    --ink-faint:    #64748b;
+    --rule:         #2a2f3a;
+    --student:      #5eead4;
+    --student-bg:   rgba(94, 234, 212, .08);
+    --student-edge: rgba(94, 234, 212, .25);
+    --tutor:        #f3f4f6;
+    --tutor-bg:     #1c2029;
+    --accent:       #fbbf24;
+    --good:         #4ade80;
+    --warn:         #f87171;
+    --highlight:    rgba(250, 204, 21, .25);
+    --code-bg:      #0a0d12;
+    --code-text:    #f3f4f6;
+    --shadow:       rgba(0, 0, 0, .35);
+    --shadow-strong: rgba(0, 0, 0, .55);
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Top chrome ─────────────────────────────────────────────── */
+  .topbar {
+    height: 52px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-edge);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .brand {
+    font-weight: 800; font-size: 17px; letter-spacing: -.01em;
+    color: var(--ink);
+  }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--student), var(--accent));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb {
+    font-size: 12px; color: var(--ink-soft); font-weight: 500;
+  }
+  .crumb b { color: var(--ink); }
+  .crumb .sep { color: var(--ink-faint); margin: 0 6px; }
+  .spacer { flex: 1; }
+
+  .concept-ribbon {
+    display: inline-flex; gap: 6px; align-items: center; overflow-x: auto;
+  }
+  .concept {
+    flex: 0 0 auto;
+    padding: 5px 10px; border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--chrome-edge);
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .concept::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--ink-faint); }
+  .concept.done    { color: var(--good); border-color: rgba(22,163,74,.3); }
+  .concept.done::before { background: var(--good); }
+  .concept.active  {
+    background: var(--ink); color: var(--bg);
+    border-color: var(--ink);
+    box-shadow: 0 2px 10px var(--shadow);
+  }
+  .concept.active::before { background: var(--student); }
+
+  .meta {
+    font: 600 11px 'JetBrains Mono', monospace;
+    color: var(--ink-faint); letter-spacing: .04em;
+  }
+  .meta b { color: var(--ink); }
+  .topbar-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 7px; cursor: pointer;
+    color: var(--ink); font: 600 11px 'Inter', sans-serif;
+  }
+  .topbar-btn:hover { background: var(--bg-soft); }
+  .topbar-btn svg { width: 13px; height: 13px; }
+
+  /* ─── 3-col layout: cell-type rail · scratchpad · activity ──── */
+  .stage {
+    display: grid;
+    grid-template-columns: 56px 1fr 260px;
+    height: calc(100vh - 52px);
+  }
+  @media (max-width: 1180px) {
+    .stage { grid-template-columns: 56px 1fr; }
+    .activity-rail { display: none; }
+  }
+
+  /* ─── Cell-type rail (left edge) ─────────────────────────────── */
+  .palette {
+    background: var(--chrome);
+    border-right: 1px solid var(--chrome-edge);
+    display: flex; flex-direction: column; align-items: center;
+    padding: 12px 0; gap: 4px;
+  }
+  .tool {
+    width: 40px; height: 40px;
+    border: 1px solid transparent;
+    border-radius: 9px; background: transparent;
+    color: var(--ink-soft); cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+    transition: all .12s ease;
+  }
+  .tool:hover { background: var(--bg-soft); color: var(--ink); }
+  .tool.active {
+    background: var(--bg); color: var(--ink);
+    border-color: var(--chrome-edge);
+    box-shadow: 0 1px 2px var(--shadow);
+  }
+  .tool svg { width: 18px; height: 18px; }
+  .tool::after {
+    content: attr(data-tip);
+    position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+    background: var(--ink); color: var(--bg);
+    padding: 3px 8px; font: 600 10px 'Inter', sans-serif; letter-spacing: .04em;
+    border-radius: 5px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+    z-index: 40;
+  }
+  .tool:hover::after { opacity: 1; }
+  .tool-sep { width: 24px; height: 1px; background: var(--chrome-edge); margin: 6px 0; }
+
+  /* ─── Scratchpad center column ───────────────────────────────── */
+  .scratchpad {
+    overflow-y: auto;
+    padding: 28px 28px 160px;
+    background: var(--bg);
+  }
+  .scratchpad::-webkit-scrollbar { width: 10px; }
+  .scratchpad::-webkit-scrollbar-thumb { background: var(--chrome-edge); border-radius: 6px; }
+
+  .doc {
+    max-width: 760px; margin: 0 auto;
+  }
+
+  /* Doc header */
+  .doc-title {
+    font-family: 'Fraunces', serif;
+    font-size: 38px; font-weight: 700;
+    line-height: 1.05; letter-spacing: -.02em;
+    color: var(--ink);
+    font-variation-settings: "opsz" 80;
+    margin: 0 0 8px;
+  }
+  .doc-title em {
+    color: var(--accent); font-style: italic;
+  }
+  .doc-meta {
+    display: flex; gap: 12px; align-items: center;
+    margin-bottom: 24px;
+    font: 600 11px 'JetBrains Mono', monospace;
+    letter-spacing: .04em; color: var(--ink-faint);
+  }
+  .doc-meta b { color: var(--ink); }
+  .doc-meta .live-dot {
+    display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--good); box-shadow: 0 0 6px var(--good);
+    margin-right: 4px;
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* ─── A "cell" — the core element ─────────────────────────────── */
+  .cell {
+    position: relative;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    margin-bottom: 4px;
+    padding: 10px 14px 10px 36px;
+    transition: all .15s ease;
+  }
+  .cell:hover {
+    background: var(--chrome);
+    border-color: var(--chrome-edge);
+  }
+  .cell-handle {
+    position: absolute; left: 4px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 2px;
+    color: var(--ink-faint); cursor: grab;
+    opacity: 0; transition: opacity .15s ease;
+  }
+  .cell:hover .cell-handle { opacity: 1; }
+  .cell-handle::before, .cell-handle::after {
+    content: "⋮⋮";
+    font: 700 10px monospace;
+    letter-spacing: -2px;
+  }
+  /* Cell "author" stripe — left edge color */
+  .cell::before {
+    content: ""; position: absolute; left: 12px; top: 14px; bottom: 14px;
+    width: 3px; border-radius: 2px;
+    background: transparent;
+  }
+  .cell.tutor::before    { background: var(--tutor); opacity: .25; }
+  .cell.student::before  { background: var(--student); }
+  .cell.student          { background: var(--student-bg); border-color: var(--student-edge); }
+  .cell.student:hover    { background: var(--student-bg); }
+  .cell.live::before     { background: var(--good); }
+  .cell.live             { background: rgba(22,163,74,.04); border-color: rgba(22,163,74,.2); }
+
+  /* Author badge */
+  .author-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    margin-bottom: 6px;
+    font: 700 10px 'JetBrains Mono', monospace;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .author-badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--ink-faint); }
+  .author-badge.you .dot { background: var(--student); }
+  .author-badge.you      { color: var(--student); }
+  .author-badge.euler .dot { background: var(--ink); }
+  .author-badge.euler    { color: var(--ink); }
+  .author-badge.live .dot {
+    background: var(--good); box-shadow: 0 0 6px var(--good);
+    animation: blink 1.4s infinite;
+  }
+  .author-badge .time { color: var(--ink-faint); font-weight: 500; margin-left: 4px; }
+  .author-badge .actions { margin-left: auto; display: none; gap: 4px; }
+  .cell:hover .author-badge .actions { display: inline-flex; }
+  .actions button {
+    background: transparent; border: 0;
+    padding: 1px 4px;
+    color: var(--ink-faint); cursor: pointer;
+    font: 500 10px 'JetBrains Mono', monospace;
+  }
+  .actions button:hover { color: var(--ink); }
+
+  /* Cell content variants */
+  .cell-text {
+    font: 400 16px 'Inter', sans-serif;
+    line-height: 1.55; color: var(--ink);
+  }
+  .cell-text mark {
+    background: var(--highlight);
+    padding: 1px 4px; border-radius: 2px;
+    color: var(--ink);
+  }
+  .cell-text em { color: var(--accent); font-style: italic; font-weight: 500; }
+  .cell-text b.term {
+    color: var(--ink); font-weight: 600;
+    border-bottom: 1.5px solid var(--accent);
+    padding-bottom: 1px;
+  }
+
+  /* Math cell */
+  .cell-math {
+    background: var(--chrome); border: 1px dashed var(--ink-faint);
+    border-radius: 6px;
+    padding: 14px 20px;
+    font: 500 22px 'Fraunces', serif;
+    color: var(--ink);
+    text-align: center;
+    position: relative;
+  }
+  .cell-math .num {
+    position: absolute; top: 6px; right: 10px;
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .14em;
+    color: var(--ink-faint);
+  }
+  .cell-math .acc { color: var(--accent); font-weight: 600; }
+
+  /* Code cell */
+  .cell-code {
+    background: var(--code-bg);
+    border-radius: 6px;
+    padding: 12px 14px;
+    font: 500 13px 'JetBrains Mono', monospace;
+    color: var(--code-text);
+    line-height: 1.55;
+    overflow-x: auto;
+    border: 1px solid var(--chrome-edge);
+  }
+  .cell-code .kw  { color: #f9a8d4; font-weight: 700; }
+  .cell-code .fn  { color: #67e8f9; }
+  .cell-code .num { color: #fbbf24; }
+  .cell-code .str { color: #86efac; }
+  .cell-code .com { color: #94a3b8; font-style: italic; }
+  .cell-code-output {
+    margin-top: 6px;
+    background: var(--bg-soft);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 6px;
+    padding: 8px 12px;
+    font: 500 12px 'JetBrains Mono', monospace;
+    color: var(--ink-soft);
+  }
+  .cell-code-output b { color: var(--good); font-weight: 700; }
+
+  /* Sketch cell — embedded SVG figure */
+  .cell-sketch {
+    border: 1px solid var(--chrome-edge);
+    border-radius: 8px;
+    padding: 16px;
+    background: var(--chrome);
+  }
+  .cell-sketch svg { display: block; width: 100%; height: auto; max-height: 240px; }
+  .cell-sketch .caption {
+    margin-top: 8px;
+    font: italic 12px 'Fraunces', serif;
+    color: var(--ink-soft); text-align: center;
+  }
+
+  /* Callout */
+  .cell-callout {
+    background: linear-gradient(180deg, rgba(245, 158, 11, .12), rgba(245, 158, 11, .04));
+    border: 1px solid rgba(245, 158, 11, .35);
+    border-left: 3px solid var(--accent);
+    border-radius: 6px;
+    padding: 14px 18px;
+  }
+  .cell-callout .label {
+    font: 700 10px 'JetBrains Mono', monospace;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--accent);
+    margin-bottom: 6px;
+  }
+  .cell-callout .body {
+    font: 500 15px 'Inter', sans-serif;
+    color: var(--ink); line-height: 1.45;
+  }
+  .cell-callout .body b { color: var(--accent); font-weight: 700; }
+
+  /* Student's attempt cell — explicit "your work" */
+  .cell.student .author-badge { color: var(--student); }
+  .cell-attempt {
+    font: 500 16px 'Inter', sans-serif; line-height: 1.55; color: var(--ink);
+  }
+  .cell-attempt .wrong  { color: var(--warn); text-decoration: line-through; text-decoration-thickness: 2px; }
+  .cell-attempt .right  { color: var(--good); font-weight: 600; }
+  .cell-attempt .my-note {
+    font-family: 'Caveat', cursive; font-size: 18px;
+    color: var(--student); margin-left: 8px; font-weight: 600;
+  }
+
+  /* Euler reply (inline reply to a student cell) */
+  .cell-reply {
+    margin-top: 6px;
+    margin-left: 28px;
+    padding: 10px 14px;
+    background: var(--tutor-bg);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 8px;
+    font: 400 15px 'Inter', sans-serif;
+    color: var(--ink); line-height: 1.5;
+    position: relative;
+  }
+  .cell-reply::before {
+    content: "↳ Euler";
+    position: absolute; left: -28px; top: 12px;
+    width: 28px;
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .1em;
+    color: var(--ink-faint);
+    text-align: center;
+  }
+  .cell-reply mark {
+    background: var(--highlight); padding: 1px 4px; border-radius: 2px;
+  }
+
+  /* Inline comment chip (you reacted to Euler) */
+  .inline-comment {
+    display: inline-flex; gap: 6px; align-items: center;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: var(--student-bg);
+    border: 1px solid var(--student-edge);
+    border-radius: 999px;
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--student);
+    cursor: pointer;
+  }
+  .inline-comment::before { content:""; width:5px; height:5px; border-radius:50%; background: var(--student); }
+
+  /* "+ add cell" inline hover button */
+  .add-row {
+    position: relative;
+    height: 12px; margin: 2px 0;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .add-row::before {
+    content:""; position: absolute; left: 36px; right: 0;
+    height: 1px; background: transparent;
+    transition: background .15s ease;
+  }
+  .add-row:hover::before { background: var(--chrome-edge); }
+  .add-row .pop {
+    position: relative; z-index: 2;
+    display: none;
+    background: var(--chrome); border: 1px solid var(--chrome-edge);
+    border-radius: 6px;
+    padding: 2px 4px;
+    box-shadow: 0 2px 6px var(--shadow);
+    gap: 2px;
+  }
+  .add-row:hover .pop { display: inline-flex; }
+  .pop button {
+    background: transparent; border: 0;
+    padding: 3px 8px;
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    border-radius: 4px;
+  }
+  .pop button:hover { background: var(--bg-soft); color: var(--ink); }
+
+  /* SVG primitives */
+  .stroke      { stroke: var(--ink); fill: none; stroke-width: 1.5; stroke-linecap: round; }
+  .stroke-soft { stroke: var(--ink-soft); fill: none; stroke-width: 1; }
+  .stroke-acc  { stroke: var(--accent); fill: none; stroke-width: 1.6; }
+  .label       { fill: var(--ink); font: 600 12px 'Inter', sans-serif; }
+  .label-soft  { fill: var(--ink-soft); font: 500 11px 'Inter', sans-serif; }
+
+  /* ─── Right rail ─────────────────────────────────────────────── */
+  .activity-rail {
+    background: var(--chrome);
+    border-left: 1px solid var(--chrome-edge);
+    padding: 18px 14px 100px;
+    overflow-y: auto;
+  }
+  .rail-section { margin-bottom: 22px; }
+  .rail-title {
+    font: 700 10px 'JetBrains Mono', monospace;
+    letter-spacing: .18em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 10px;
+  }
+  .outline {
+    display: flex; flex-direction: column; gap: 2px; position: relative;
+  }
+  .outline::before {
+    content:""; position: absolute; left: 8px; top: 6px; bottom: 6px;
+    width: 1px; background: var(--chrome-edge);
+  }
+  .outline-row {
+    display: grid; grid-template-columns: 18px 1fr;
+    gap: 6px; align-items: start; padding: 5px 0;
+    cursor: pointer;
+  }
+  .outline-row:hover .outline-text { color: var(--ink); }
+  .outline-dot {
+    width: 9px; height: 9px; border-radius: 50%;
+    background: var(--chrome); border: 2px solid var(--ink-faint);
+    margin-left: 4px; margin-top: 4px;
+  }
+  .outline-row.done .outline-dot { background: var(--good); border-color: var(--good); }
+  .outline-row.active .outline-dot {
+    background: var(--student); border-color: var(--student);
+    box-shadow: 0 0 0 3px rgba(8,145,178,.2);
+  }
+  .outline-text {
+    font: 500 12px 'Inter', sans-serif;
+    color: var(--ink-soft); line-height: 1.35;
+  }
+  .outline-row.active .outline-text { color: var(--ink); font-weight: 600; }
+  .outline-time {
+    font: 500 10px 'JetBrains Mono', monospace;
+    color: var(--ink-faint); margin-top: 1px;
+  }
+
+  .pin-card {
+    background: var(--bg-soft);
+    border: 1px solid var(--chrome-edge);
+    border-left: 3px solid var(--student);
+    padding: 8px 10px;
+    border-radius: 0 6px 6px 0;
+    margin-bottom: 6px;
+    font: 400 13px 'Inter', sans-serif;
+    color: var(--ink); line-height: 1.35;
+    cursor: pointer;
+  }
+  .pin-card .src {
+    display: block;
+    font: 600 9px 'JetBrains Mono', monospace;
+    color: var(--ink-faint);
+    letter-spacing: .12em; text-transform: uppercase;
+    margin-bottom: 2px;
+  }
+  .pin-card.eqn {
+    font: 500 15px 'Fraunces', serif;
+    color: var(--ink); text-align: center;
+    border-left-color: var(--accent);
+    background: var(--chrome);
+  }
+
+  /* ─── Floating ask bar ───────────────────────────────────────── */
+  .ask-bar {
+    position: fixed;
+    bottom: 22px;
+    left: calc(56px + (100vw - 56px - 260px) / 2);
+    transform: translateX(-50%);
+    z-index: 30;
+    width: min(580px, calc(100vw - 380px));
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 14px;
+    box-shadow: 0 10px 32px var(--shadow-strong);
+    padding: 10px 14px 10px 50px;
+  }
+  @media (max-width: 1180px) {
+    .ask-bar { left: calc(56px + (100vw - 56px) / 2); width: min(580px, calc(100vw - 120px)); }
+  }
+  .ask-mic {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 34px; height: 34px;
+    border-radius: 10px;
+    background: var(--student);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(8,145,178,.25);
+  }
+  :root[data-mode="dark"] .ask-mic { color: var(--bg); }
+  .ask-mic svg { width: 14px; height: 14px; }
+  .ask-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--ink); font: 400 14px 'Inter', sans-serif; resize: none;
+  }
+  .ask-input::placeholder { color: var(--ink-faint); }
+  .ask-meta {
+    margin-top: 4px;
+    display: flex; gap: 10px; align-items: center;
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .08em; color: var(--ink-faint);
+  }
+  .ask-meta b { color: var(--ink-soft); }
+  .ask-quick {
+    padding: 4px 10px;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 6px; background: transparent;
+    font: 600 10px 'Inter', sans-serif; color: var(--ink-soft); cursor: pointer;
+  }
+  .ask-quick:hover { background: var(--bg-soft); }
+  .ask-quick.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .ask-actions { margin-left: auto; display: flex; gap: 4px; }
+
+  /* "Typing" indicator on the live cell */
+  .typing-dot {
+    display: inline-block;
+    width: 6px; height: 14px;
+    background: var(--good);
+    margin-left: 4px; vertical-align: text-bottom;
+    animation: caret 1s infinite;
+  }
+  @keyframes caret { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb">
+    <b>Scratchpad</b> <span class="sep">›</span> Transformers <span class="sep">›</span> <b style="color:var(--student)">cell 06</b>
+  </span>
+  <div class="spacer"></div>
+  <div class="concept-ribbon">
+    <span class="concept done">Field</span>
+    <span class="concept done">Flux Φ</span>
+    <span class="concept done">Faraday</span>
+    <span class="concept active">Two coils</span>
+    <span class="concept">Iron core</span>
+    <span class="concept">Turns ratio</span>
+  </div>
+  <span class="meta">0:38 · <b>4/7</b></span>
+  <button class="topbar-btn" onclick="toggleMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span id="modeLabel">Light</span>
+  </button>
+</header>
+
+<div class="stage">
+
+  <!-- ── Cell-type palette ── -->
+  <aside class="palette">
+    <button class="tool active" data-tip="Text">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+    </button>
+    <button class="tool" data-tip="Math">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+    </button>
+    <button class="tool" data-tip="Sketch">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+    </button>
+    <button class="tool" data-tip="Code">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
+    </button>
+    <button class="tool" data-tip="Callout">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+    </button>
+    <button class="tool" data-tip="Table">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-tip="Highlight">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 2l6 6-12 12-6-6L16 2zM2 22l4-2"/></svg>
+    </button>
+    <button class="tool" data-tip="Comment">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+    </button>
+    <div style="flex:1"></div>
+    <button class="tool" data-tip="Voice (hold)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </button>
+  </aside>
+
+  <!-- ── Scratchpad doc ── -->
+  <main class="scratchpad">
+    <article class="doc">
+
+      <h1 class="doc-title">How a <em>transformer</em> works.</h1>
+      <div class="doc-meta">
+        <span><span class="live-dot"></span>Euler is writing</span>
+        <span>·</span>
+        <span><b>17</b> cells</span>
+        <span>·</span>
+        <span><b>0:38</b> elapsed</span>
+        <span>·</span>
+        <span style="color: var(--student)"><b>4</b> by you</span>
+      </div>
+
+      <!-- ── Cell 1: Euler — opening prose ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler <span class="time">· 0:00</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-text">
+          A <b class="term">transformer</b> is the simplest device that wrings useful work out of Faraday's rule. Before we put it together, the rule itself needs to land —
+          <em>it's not the magnetic field that matters, it's the rate at which the field is changing</em>.
+        </div>
+      </div>
+
+      <div class="add-row"><div class="pop"><button>+ text</button><button>+ math</button><button>+ sketch</button><button>+ code</button></div></div>
+
+      <!-- ── Cell 2: Euler — sketch of stationary vs moving ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler · sketch <span class="time">· 0:08</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-sketch">
+          <svg viewBox="0 0 720 180">
+            <g transform="translate(60,30)">
+              <text x="80" y="-8" text-anchor="middle" class="label-soft">stationary magnet</text>
+              <ellipse cx="80" cy="60" rx="50" ry="18" class="stroke"/>
+              <ellipse cx="80" cy="60" rx="40" ry="14" class="stroke-soft"/>
+              <ellipse cx="80" cy="60" rx="30" ry="10" class="stroke-soft"/>
+              <rect x="64" y="46" width="32" height="28" rx="2" class="stroke" fill="var(--ink-soft)"/>
+              <text x="80" y="64" text-anchor="middle" fill="#fff" font-family="Inter" font-size="10" font-weight="800">N</text>
+              <text x="80" y="115" text-anchor="middle" class="label">meter: <tspan fill="var(--ink-faint)">— 0 —</tspan></text>
+            </g>
+            <g transform="translate(380,30)">
+              <text x="100" y="-8" text-anchor="middle" class="label-soft">magnet moving →</text>
+              <ellipse cx="100" cy="60" rx="50" ry="18" class="stroke"/>
+              <ellipse cx="100" cy="60" rx="40" ry="14" class="stroke-soft"/>
+              <ellipse cx="100" cy="60" rx="30" ry="10" class="stroke-soft"/>
+              <rect x="40" y="46" width="32" height="28" rx="2" class="stroke-acc" fill="var(--accent)"/>
+              <text x="56" y="64" text-anchor="middle" fill="#fff" font-family="Inter" font-size="10" font-weight="800">N</text>
+              <path d="M70 60 l32 0" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 3"/>
+              <path d="M96 56 l8 4 l-8 4" fill="var(--accent)"/>
+              <text x="100" y="115" text-anchor="middle" class="label" font-weight="700" fill="var(--accent)">⚡ 1.4 V</text>
+            </g>
+          </svg>
+          <div class="caption">A controlled comparison: only the motion of the magnet differs.</div>
+        </div>
+      </div>
+
+      <div class="add-row"><div class="pop"><button>+ text</button><button>+ math</button><button>+ sketch</button></div></div>
+
+      <!-- ── Cell 3: Euler — Faraday's equation ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler · math <span class="time">· 0:22</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-math">
+          <span class="acc">ℰ</span> = − <i>dΦ</i> ⁄ <i>dt</i>
+          <span class="num">EQ 1 · faraday</span>
+        </div>
+        <!-- Inline reaction from you -->
+        <div style="margin-top: 8px">
+          <span class="inline-comment">your note · "the rate of change is the whole game"</span>
+        </div>
+      </div>
+
+      <!-- ── Cell 4: YOUR question (with Euler's reply nested) ── -->
+      <div class="cell student">
+        <div class="cell-handle"></div>
+        <div class="author-badge you"><span class="dot"></span>You · question <span class="time">· 0:31</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-text">
+          Wait — why is there a minus sign in front of <em>dΦ/dt</em>? Is it just a sign convention?
+        </div>
+        <!-- Euler's threaded reply -->
+        <div class="cell-reply">
+          Sharp question. The minus sign isn't cosmetic — it's <mark>Lenz's law</mark>. The induced voltage <em>opposes</em> the change in flux. If you push a magnet in, the current in the loop creates a field that pushes back. We'll come back to this when we look at why the iron core matters.
+        </div>
+      </div>
+
+      <!-- ── Cell 5: Euler — the transformer diagram ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler · sketch <span class="time">· 0:38</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-sketch">
+          <svg viewBox="0 0 720 220">
+            <defs>
+              <linearGradient id="fluxScratch" x1="0" x2="1">
+                <stop offset="0" stop-color="var(--accent)" stop-opacity="0"/>
+                <stop offset=".5" stop-color="var(--accent)" stop-opacity="1"/>
+                <stop offset="1" stop-color="var(--accent)" stop-opacity="0"/>
+              </linearGradient>
+            </defs>
+            <path d="M280 50 h160 v120 h-160 v-22 h138 v-76 h-138 z"
+                  stroke="var(--ink-soft)" stroke-width="3" fill="none" stroke-linejoin="round"/>
+            <text x="360" y="112" text-anchor="middle" class="label-soft" font-style="italic">iron core</text>
+            <path d="M270 110 q90 -20 160 0" stroke="url(#fluxScratch)" stroke-width="5" fill="none" opacity=".8">
+              <animate attributeName="d" dur="2.4s" repeatCount="indefinite"
+                values="M270 110 q90 -20 160 0; M270 110 q90 20 160 0; M270 110 q90 -20 160 0"/>
+            </path>
+            <text x="360" y="96" text-anchor="middle" class="label" font-weight="700" fill="var(--accent)" font-style="italic">Φ(t)</text>
+            <!-- primary -->
+            <g transform="translate(180,50)">
+              <text x="50" y="-8" text-anchor="middle" class="label" font-weight="700">primary · Nₚ</text>
+              <g stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linecap="round">
+                <path d="M30 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M48 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M66 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M84 20 q-18 25 0 50 q18 25 0 50"/>
+              </g>
+              <line x1="0" y1="12" x2="30" y2="20" stroke="var(--ink)" stroke-width="2"/>
+              <line x1="0" y1="130" x2="30" y2="120" stroke="var(--ink)" stroke-width="2"/>
+              <text x="-22" y="48" text-anchor="end" class="label" font-weight="700">~ AC</text>
+            </g>
+            <!-- secondary -->
+            <g transform="translate(450,50)">
+              <text x="60" y="-8" text-anchor="middle" class="label" font-weight="700">secondary · Nₛ</text>
+              <g stroke="var(--ink)" stroke-width="2.4" fill="none" stroke-linecap="round">
+                <path d="M30 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M48 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M66 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M84 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M102 20 q-18 25 0 50 q18 25 0 50"/>
+                <path d="M120 20 q-18 25 0 50 q18 25 0 50"/>
+              </g>
+              <line x1="130" y1="12"  x2="160" y2="20"  stroke="var(--ink)" stroke-width="2"/>
+              <line x1="130" y1="130" x2="160" y2="120" stroke="var(--ink)" stroke-width="2"/>
+              <text x="172" y="48" class="label" font-weight="700">⚡ AC out</text>
+            </g>
+          </svg>
+          <div class="caption">Same flux fills both coils. Whatever happens in the primary, happens in the secondary — almost.</div>
+        </div>
+      </div>
+
+      <!-- ── Cell 6: YOUR attempt (with cross-out) ── -->
+      <div class="cell student">
+        <div class="cell-handle"></div>
+        <div class="author-badge you"><span class="dot"></span>You · attempt <span class="time">· 0:48</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-attempt">
+          OK so since both coils share the same flux, the voltage on each should be the same?
+          So <span class="wrong">V<sub>s</sub> = V<sub>p</sub></span>
+          <span class="my-note">← that feels wrong though?</span>
+        </div>
+        <!-- Euler's correction -->
+        <div class="cell-reply">
+          You're <mark>almost there</mark> — the shared flux is right, but the voltage induced in each coil is
+          <em>proportional to its number of turns</em>. Each loop of wire sees the same dΦ/dt, so more loops = more voltage stacked up. That gives you the <b>turns ratio</b>:
+        </div>
+      </div>
+
+      <!-- ── Cell 7: Euler — turns ratio equation ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler · math <span class="time">· 0:51</span>
+        </div>
+        <div class="cell-math">
+          <span class="acc">V<sub>s</sub></span> ⁄ V<sub>p</sub>
+          &nbsp;=&nbsp;
+          N<sub>s</sub> ⁄ N<sub>p</sub>
+          <span class="num">EQ 2 · turns ratio</span>
+        </div>
+      </div>
+
+      <!-- ── Cell 8: Euler — callout key insight ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler · note <span class="time">· 0:53</span>
+        </div>
+        <div class="cell-callout">
+          <div class="label">⚡ Key insight</div>
+          <div class="body">
+            More turns on the secondary = <b>step-up</b>. Fewer turns = <b>step-down</b>.
+            That's why the brick on your laptop charger is heavy — it's a tiny transformer pressing 120 V down to ~20 V.
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Cell 9: YOUR worked example ── -->
+      <div class="cell student">
+        <div class="cell-handle"></div>
+        <div class="author-badge you"><span class="dot"></span>You · worked example <span class="time">· 1:02</span>
+          <span class="actions"><button>↩</button><button>📌</button></span>
+        </div>
+        <div class="cell-attempt">
+          For my laptop charger: <b>120 V → 20 V</b><br>
+          Ratio = 1/6 → so <span class="right">N<sub>s</sub> / N<sub>p</sub> = 1/6</span><br>
+          <span class="my-note">If primary has 600 turns, secondary has 100 ✓</span>
+        </div>
+        <div class="cell-reply">
+          <mark>Exactly right.</mark> Real chargers also have some loss + leakage, so a real 120→20 V transformer might use slightly more secondary turns to compensate. We'll quantify that next.
+        </div>
+      </div>
+
+      <!-- ── Cell 10: Euler — code cell (live simulation) ── -->
+      <div class="cell tutor">
+        <div class="cell-handle"></div>
+        <div class="author-badge euler"><span class="dot"></span>Euler · code <span class="time">· 1:09</span>
+        </div>
+        <div class="cell-code"><span class="com"># Quick sim: induced EMF as primary frequency changes</span>
+<span class="kw">import</span> numpy <span class="kw">as</span> np
+N_p, N_s = <span class="num">600</span>, <span class="num">100</span>      <span class="com"># laptop charger turns</span>
+V_p     = <span class="num">120.0</span>             <span class="com"># mains voltage</span>
+freqs   = [<span class="num">50</span>, <span class="num">60</span>, <span class="num">400</span>, <span class="num">1000</span>]
+<span class="kw">for</span> f <span class="kw">in</span> freqs:
+    V_s = V_p * (N_s / N_p)
+    <span class="fn">print</span>(<span class="str">f"f={f:>5} Hz  →  V_s = {V_s:.2f} V"</span>)</div>
+        <div class="cell-code-output">
+          f=   50 Hz  →  V_s = <b>20.00 V</b><br>
+          f=   60 Hz  →  V_s = <b>20.00 V</b><br>
+          f=  400 Hz  →  V_s = <b>20.00 V</b><br>
+          f= 1000 Hz  →  V_s = <b>20.00 V</b><br>
+          <span style="color: var(--ink-faint); font-style: italic; display: block; margin-top: 4px">— ratio is frequency-independent (to first order)</span>
+        </div>
+      </div>
+
+      <!-- ── Cell 11: LIVE — Euler is currently writing ── -->
+      <div class="cell live">
+        <div class="cell-handle"></div>
+        <div class="author-badge live"><span class="dot"></span>Euler · writing now <span class="time">· live</span>
+        </div>
+        <div class="cell-text">
+          Now, one question we glossed over: <em>why iron?</em> If both coils just share air, would it work? Almost — but the flux would scatter, miss the secondary, and we'd lose most of the energy. The iron core is a <b class="term">flux funnel</b><span class="typing-dot"></span>
+        </div>
+      </div>
+
+      <div class="add-row"><div class="pop"><button>+ text</button><button>+ math</button><button>+ sketch</button><button>+ code</button></div></div>
+
+      <p style="text-align: center; color: var(--ink-faint); font-style: italic; font-family: 'Fraunces', serif; margin: 16px 0;">…more is coming…</p>
+
+    </article>
+  </main>
+
+  <!-- ── Activity rail ── -->
+  <aside class="activity-rail">
+    <div class="rail-section">
+      <div class="rail-title">Cell outline</div>
+      <div class="outline">
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">1 · Opening — "rate of change is the rule"</div><div class="outline-time">0:00</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">2 · Sketch — stationary vs moving</div><div class="outline-time">0:08</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">3 · Math — Faraday's law</div><div class="outline-time">0:22</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text" style="color:var(--student)">4 · You · "why the minus sign?"</div><div class="outline-time">0:31</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">5 · Sketch — the transformer</div><div class="outline-time">0:38</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text" style="color:var(--student)">6 · You · attempt "V_s = V_p?"</div><div class="outline-time">0:48</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">7 · Math — turns ratio</div><div class="outline-time">0:51</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">8 · Callout — key insight</div><div class="outline-time">0:53</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text" style="color:var(--student)">9 · You · worked example (charger)</div><div class="outline-time">1:02</div></div>
+        </div>
+        <div class="outline-row done">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">10 · Code — frequency sim</div><div class="outline-time">1:09</div></div>
+        </div>
+        <div class="outline-row active">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text">11 · Why iron matters</div><div class="outline-time">live</div></div>
+        </div>
+        <div class="outline-row">
+          <span class="outline-dot"></span>
+          <div><div class="outline-text" style="color:var(--ink-faint)">12+ · Worked example: real numbers</div><div class="outline-time">~ 2:00</div></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="rail-section">
+      <div class="rail-title">Pinned</div>
+      <div class="pin-card eqn">
+        ℰ = − dΦ ⁄ dt
+        <span class="src">EQ 1 · 0:22</span>
+      </div>
+      <div class="pin-card eqn">
+        V<sub>s</sub>/V<sub>p</sub> = N<sub>s</sub>/N<sub>p</sub>
+        <span class="src">EQ 2 · 0:51</span>
+      </div>
+      <div class="pin-card">
+        <span class="src">your note · 0:26</span>
+        "the rate of change is the whole game"
+      </div>
+      <div class="pin-card">
+        <span class="src">your note · 1:02</span>
+        N<sub>p</sub>=600 → N<sub>s</sub>=100 for 120→20 V
+      </div>
+    </div>
+
+    <div class="rail-section">
+      <div class="rail-title">Quick add a cell</div>
+      <div style="display: flex; flex-wrap: wrap; gap: 4px">
+        <button class="ask-quick" style="font-size: 11px">+ note</button>
+        <button class="ask-quick" style="font-size: 11px">+ math</button>
+        <button class="ask-quick" style="font-size: 11px">+ sketch</button>
+        <button class="ask-quick" style="font-size: 11px">+ code</button>
+        <button class="ask-quick" style="font-size: 11px">+ table</button>
+      </div>
+    </div>
+  </aside>
+</div>
+
+<!-- ── Floating ask bar ── -->
+<div class="ask-bar">
+  <span class="ask-mic">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+  </span>
+  <textarea class="ask-input" rows="1" placeholder="Add a cell, ask, or just type your reasoning…"></textarea>
+  <div class="ask-meta">
+    <span>↩ <b>add cell</b></span>
+    <span>· /math · /sketch · /code</span>
+    <span>· ⌥M <b>speak</b></span>
+    <div class="ask-actions">
+      <button class="ask-quick">I get it</button>
+      <button class="ask-quick">Show me</button>
+      <button class="ask-quick primary">Send →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ── Honor URL hash on load ──
+  (function applyInitialMode() {
+    const html = document.documentElement;
+    const hash = (location.hash || '').toLowerCase().replace('#', '');
+    if (hash === 'dark' || hash === 'light') html.dataset.mode = hash;
+    const lbl = document.getElementById('modeLabel');
+    if (lbl) lbl.textContent = html.dataset.mode === 'dark' ? 'Dark' : 'Light';
+  })();
+
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+    history.replaceState(null, '', '#' + next);
+  }
+
+  document.querySelectorAll('.tool').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.classList.contains('active')) return;
+      document.querySelectorAll('.tool').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

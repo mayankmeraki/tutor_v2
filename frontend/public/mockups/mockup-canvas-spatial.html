@@ -1,0 +1,974 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Spatial Canvas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  /* ─── Theme tokens ─────────────────────────────────────────── */
+  :root[data-mode="light"] {
+    --bg:           #f7f6f1;
+    --canvas:       #f0eee6;
+    --grid:         rgba(20, 30, 60, .055);
+    --grid-strong:  rgba(20, 30, 60, .11);
+    --chrome:       #ffffff;
+    --chrome-edge:  #e3e1d8;
+    --chrome-edge-strong: #ccc9bd;
+    --ink:          #1a2030;
+    --ink-soft:     #4a5568;
+    --ink-faint:    #94a3b8;
+    --node-bg:      #ffffff;
+    --node-edge:    #d1cfc4;
+    --node-shadow:  rgba(20, 30, 60, .1);
+    --student:      #0891b2;
+    --student-bg:   #ecfeff;
+    --student-edge: #67e8f9;
+    --tutor:        #1a2030;
+    --accent:       #f59e0b;
+    --accent-bg:    #fef3c7;
+    --good:         #16a34a;
+    --warn:         #dc2626;
+    --highlight:    rgba(254, 240, 138, .65);
+    --link:         #94a3b8;
+    --link-strong:  #4a5568;
+    --shadow:       rgba(20, 30, 60, .12);
+    --shadow-strong: rgba(20, 30, 60, .25);
+  }
+  :root[data-mode="dark"] {
+    --bg:           #0f1217;
+    --canvas:       #14181f;
+    --grid:         rgba(255, 255, 255, .04);
+    --grid-strong:  rgba(255, 255, 255, .08);
+    --chrome:       #1c2029;
+    --chrome-edge:  #2a2f3a;
+    --chrome-edge-strong: #3a4150;
+    --ink:          #f3f4f6;
+    --ink-soft:     #cbd5e1;
+    --ink-faint:    #64748b;
+    --node-bg:      #1c2029;
+    --node-edge:    #3a4150;
+    --node-shadow:  rgba(0, 0, 0, .55);
+    --student:      #5eead4;
+    --student-bg:   rgba(94, 234, 212, .1);
+    --student-edge: #5eead4;
+    --tutor:        #f3f4f6;
+    --accent:       #fbbf24;
+    --accent-bg:    rgba(251, 191, 36, .15);
+    --good:         #4ade80;
+    --warn:         #f87171;
+    --highlight:    rgba(250, 204, 21, .25);
+    --link:         #475569;
+    --link-strong:  #cbd5e1;
+    --shadow:       rgba(0, 0, 0, .45);
+    --shadow-strong: rgba(0, 0, 0, .75);
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Top chrome ───────────────────────────────────────────── */
+  .topbar {
+    height: 52px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 16px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-edge);
+    position: relative; z-index: 30;
+  }
+  .brand {
+    font-weight: 800; font-size: 17px; letter-spacing: -.01em;
+    color: var(--ink);
+  }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--student), var(--accent));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb { font: 500 12px 'Inter', sans-serif; color: var(--ink-soft); }
+  .crumb b { color: var(--ink); }
+  .crumb .sep { color: var(--ink-faint); margin: 0 6px; }
+  .spacer { flex: 1; }
+
+  .topbar-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 7px; cursor: pointer;
+    color: var(--ink); font: 600 11px 'Inter', sans-serif;
+  }
+  .topbar-btn:hover { background: var(--canvas); }
+  .topbar-btn svg { width: 13px; height: 13px; }
+
+  .live-pill {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    background: rgba(22,163,74,.1);
+    border: 1px solid rgba(22,163,74,.3);
+    color: var(--good);
+    font: 700 11px 'JetBrains Mono', monospace; letter-spacing: .08em;
+  }
+  .live-pill::before {
+    content:""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--good); box-shadow: 0 0 6px var(--good);
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* ─── Stage ────────────────────────────────────────────────── */
+  .stage {
+    position: relative;
+    height: calc(100vh - 52px);
+    overflow: hidden;
+  }
+
+  /* ─── Canvas ───────────────────────────────────────────────── */
+  .canvas {
+    position: absolute; inset: 0;
+    background:
+      radial-gradient(circle at 30% 20%, rgba(245,158,11,.06), transparent 50%),
+      radial-gradient(circle at 75% 80%, rgba(8,145,178,.05), transparent 50%),
+      var(--canvas);
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px),
+      linear-gradient(var(--grid-strong) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid-strong) 1px, transparent 1px),
+      radial-gradient(circle at 30% 20%, rgba(245,158,11,.05), transparent 50%),
+      radial-gradient(circle at 75% 80%, rgba(8,145,178,.04), transparent 50%);
+    background-size: 24px 24px, 24px 24px, 120px 120px, 120px 120px, 100% 100%, 100% 100%;
+    background-color: var(--canvas);
+    cursor: grab;
+  }
+  .canvas.dragging { cursor: grabbing; }
+
+  /* Connections layer */
+  .conn-layer {
+    position: absolute; inset: 0;
+    pointer-events: none;
+  }
+  .conn { fill: none; stroke: var(--link); stroke-width: 1.5; stroke-linecap: round; }
+  .conn-strong { stroke: var(--link-strong); stroke-width: 2; }
+  .conn-acc { stroke: var(--accent); stroke-width: 2; stroke-dasharray: 5 4; }
+  .conn-student { stroke: var(--student); stroke-width: 2; }
+  .conn-label {
+    fill: var(--node-bg);
+    stroke: var(--chrome-edge); stroke-width: 1;
+  }
+  .conn-label-text {
+    fill: var(--ink-soft); font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .04em;
+    text-anchor: middle;
+  }
+
+  /* ─── A node on the canvas ──────────────────────────────────── */
+  .node {
+    position: absolute;
+    background: var(--node-bg);
+    border: 1px solid var(--node-edge);
+    border-radius: 10px;
+    box-shadow: 0 4px 14px var(--node-shadow);
+    padding: 12px 14px;
+    transition: transform .15s ease, box-shadow .15s ease;
+    cursor: pointer;
+  }
+  .node:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 10px 28px var(--shadow-strong);
+    z-index: 10;
+  }
+  .node-head {
+    display: flex; align-items: center; gap: 6px;
+    margin-bottom: 8px;
+    font: 700 10px 'JetBrains Mono', monospace;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .node-head .badge {
+    display: inline-block;
+    padding: 1px 6px; border-radius: 999px;
+    background: var(--canvas);
+    color: var(--ink-soft); font-size: 9px;
+  }
+  .node-head .author {
+    margin-left: auto;
+    display: inline-flex; align-items: center; gap: 4px;
+    color: var(--ink);
+  }
+  .node-head .author .dot {
+    width: 6px; height: 6px; border-radius: 50%; background: var(--ink);
+  }
+
+  /* Node variants */
+  .node.tutor    { border-color: var(--node-edge); }
+  .node.student  { border-color: var(--student-edge); background: var(--student-bg); }
+  .node.student .node-head .author .dot { background: var(--student); }
+  .node.student .node-head .author       { color: var(--student); }
+  .node.accent   { border-color: var(--accent); }
+  .node.accent .node-head .author .dot   { background: var(--accent); }
+  .node.accent .node-head .author        { color: var(--accent); }
+
+  /* Active = the one Euler is currently building */
+  .node.active {
+    border: 2px solid var(--good);
+    box-shadow: 0 0 0 4px rgba(22,163,74,.15), 0 12px 28px var(--shadow-strong);
+    z-index: 12;
+  }
+  .node.active::after {
+    content: "EULER WORKING";
+    position: absolute; top: -22px; right: 0;
+    background: var(--good);
+    color: #fff;
+    padding: 2px 8px;
+    border-radius: 5px;
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .12em;
+    box-shadow: 0 2px 6px rgba(22,163,74,.4);
+  }
+  :root[data-mode="dark"] .node.active::after { color: var(--bg); }
+
+  /* Future / not-yet nodes */
+  .node.ghost {
+    background: transparent;
+    border: 1.5px dashed var(--ink-faint);
+    box-shadow: none;
+    opacity: .55;
+  }
+  .node.ghost .node-head { color: var(--ink-faint); }
+
+  /* Node titles */
+  .node-title {
+    font-family: 'Fraunces', serif; font-weight: 600;
+    font-size: 18px; line-height: 1.15;
+    color: var(--ink);
+    margin: 0 0 6px;
+    letter-spacing: -.005em;
+  }
+  .node-body {
+    font: 400 13px 'Inter', sans-serif; color: var(--ink-soft);
+    line-height: 1.45;
+  }
+  .node-body mark {
+    background: var(--highlight); padding: 0 3px; border-radius: 2px;
+    color: var(--ink);
+  }
+  .node-body em { color: var(--accent); font-style: italic; font-weight: 500; }
+  .node-body b { color: var(--ink); font-weight: 600; }
+
+  .node-math {
+    margin-top: 6px;
+    padding: 12px 14px;
+    background: var(--canvas);
+    border-radius: 8px;
+    text-align: center;
+    font: 500 22px 'Fraunces', serif;
+    color: var(--ink);
+  }
+  .node-math .acc { color: var(--accent); font-weight: 600; }
+
+  .node-sketch {
+    background: var(--canvas);
+    border-radius: 8px;
+    padding: 8px;
+  }
+  .node-sketch svg { display: block; width: 100%; height: auto; }
+
+  .stroke      { stroke: var(--ink); fill: none; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .stroke-soft { stroke: var(--ink-soft); fill: none; stroke-width: 1; }
+  .stroke-acc  { stroke: var(--accent); fill: none; stroke-width: 1.6; }
+  .stroke-student { stroke: var(--student); fill: none; stroke-width: 1.6; }
+  .label       { fill: var(--ink); font: 600 11px 'Inter', sans-serif; }
+  .label-soft  { fill: var(--ink-soft); font: 500 10px 'Inter', sans-serif; }
+
+  /* Sticky note */
+  .node.sticky {
+    background: #fff3a8;
+    border: 0;
+    transform: rotate(-1.6deg);
+    box-shadow: 0 4px 14px rgba(0,0,0,.12), 0 1px 2px rgba(0,0,0,.05);
+    padding: 14px 16px;
+    color: #4a4a2c;
+    font-family: 'Caveat', cursive;
+    font-size: 17px; font-weight: 600;
+    line-height: 1.25;
+  }
+  :root[data-mode="dark"] .node.sticky { background: #d4c374; color: #1a1a0a; }
+  .node.sticky .node-head { color: rgba(74,74,44,.7); font-family: 'JetBrains Mono', monospace; }
+  .node.sticky.you {
+    background: #b6f7ff;
+    color: #082a31;
+  }
+  :root[data-mode="dark"] .node.sticky.you { background: #67e8f9; color: #082a31; }
+  .node.sticky.you .node-head { color: rgba(8,42,49,.7); }
+
+  /* "You are here" marker */
+  .you-marker {
+    position: absolute;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    z-index: 15;
+  }
+  .you-marker::before {
+    content: "";
+    width: 14px; height: 14px;
+    background: var(--student);
+    border: 3px solid var(--node-bg);
+    border-radius: 50%;
+    display: block;
+    box-shadow: 0 0 0 4px rgba(8,145,178,.25), 0 0 14px rgba(8,145,178,.3);
+  }
+  .you-marker .label {
+    position: absolute; top: -8px; left: 18px;
+    background: var(--student);
+    color: #fff; font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .12em;
+    padding: 3px 7px; border-radius: 4px;
+    white-space: nowrap;
+  }
+  :root[data-mode="dark"] .you-marker .label { color: var(--bg); }
+
+  /* Cursor for Euler (showing he's "on" the active node) */
+  .euler-cursor {
+    position: absolute;
+    z-index: 16;
+    pointer-events: none;
+    transform: translate(-2px, -2px);
+  }
+  .euler-cursor svg { width: 22px; height: 22px; filter: drop-shadow(0 1px 3px rgba(0,0,0,.3)); }
+  .euler-cursor .label {
+    position: absolute; top: 22px; left: 12px;
+    background: var(--ink);
+    color: var(--bg);
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .12em;
+    padding: 3px 7px; border-radius: 4px;
+    white-space: nowrap;
+  }
+
+  /* ─── Left tool palette ─────────────────────────────────────── */
+  .palette {
+    position: absolute; top: 16px; left: 16px; z-index: 20;
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 12px;
+    padding: 4px;
+    display: flex; flex-direction: column; gap: 2px;
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+  .tool {
+    width: 36px; height: 36px;
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--ink-soft);
+    border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    position: relative;
+  }
+  .tool:hover { background: var(--canvas); color: var(--ink); }
+  .tool.active { background: var(--ink); color: var(--bg); }
+  .tool svg { width: 16px; height: 16px; }
+  .tool::after {
+    content: attr(data-tip);
+    position: absolute; left: calc(100% + 8px); top: 50%; transform: translateY(-50%);
+    background: var(--ink); color: var(--bg);
+    padding: 3px 8px; font: 600 10px 'Inter', sans-serif; letter-spacing: .04em;
+    border-radius: 5px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+    z-index: 30;
+  }
+  .tool:hover::after { opacity: 1; }
+  .tool-sep { height: 1px; background: var(--chrome-edge); margin: 4px 4px; }
+
+  /* ─── Concept ribbon ─ floating top-center ─ */
+  .ribbon-float {
+    position: absolute; top: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 20;
+    display: flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 12px;
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+  .concept {
+    padding: 5px 10px; border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--chrome-edge);
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .concept::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--ink-faint); }
+  .concept.done    { color: var(--good); border-color: rgba(22,163,74,.3); }
+  .concept.done::before { background: var(--good); }
+  .concept.active  {
+    background: var(--ink); color: var(--bg);
+    border-color: var(--ink);
+  }
+  .concept.active::before { background: var(--student); }
+
+  /* ─── Bottom-right zoom & viewport controls ── */
+  .viewport-ctrl {
+    position: absolute; bottom: 96px; right: 16px;
+    z-index: 20;
+    display: flex; flex-direction: column; gap: 6px;
+  }
+  .vc-group {
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 10px;
+    padding: 3px;
+    display: flex; flex-direction: column;
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+  .vc-btn {
+    width: 32px; height: 32px;
+    border: 0; background: transparent; cursor: pointer;
+    color: var(--ink-soft); border-radius: 7px;
+    display: flex; align-items: center; justify-content: center;
+    font: 700 12px 'JetBrains Mono', monospace;
+  }
+  .vc-btn:hover { background: var(--canvas); color: var(--ink); }
+  .vc-btn svg { width: 14px; height: 14px; }
+  .vc-readout {
+    text-align: center;
+    font: 700 10px 'JetBrains Mono', monospace;
+    color: var(--ink-soft);
+    padding: 4px 2px;
+    border-top: 1px solid var(--chrome-edge);
+    margin-top: 2px;
+  }
+
+  /* ─── Mini-map (top-right) ─── */
+  .minimap {
+    position: absolute; top: 80px; right: 16px;
+    z-index: 18;
+    width: 200px; height: 130px;
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 10px;
+    padding: 8px;
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+  .minimap-title {
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .14em;
+    color: var(--ink-faint); text-transform: uppercase;
+    margin-bottom: 4px;
+    display: flex; justify-content: space-between;
+  }
+  .minimap-stage {
+    background: var(--canvas);
+    border-radius: 4px;
+    position: relative;
+    height: calc(100% - 18px);
+    overflow: hidden;
+  }
+  .mm-node {
+    position: absolute;
+    background: var(--ink-soft);
+    border-radius: 1px;
+    opacity: .6;
+  }
+  .mm-node.tutor   { background: var(--ink-soft); }
+  .mm-node.student { background: var(--student); }
+  .mm-node.accent  { background: var(--accent); }
+  .mm-node.active  {
+    background: var(--good); opacity: 1;
+    box-shadow: 0 0 0 1px rgba(22,163,74,.4);
+  }
+  .mm-viewport {
+    position: absolute;
+    border: 1.5px solid var(--student);
+    background: rgba(8,145,178,.1);
+    border-radius: 3px;
+    pointer-events: none;
+  }
+
+  /* ─── Floating ask bar ─── */
+  .ask-bar {
+    position: absolute;
+    bottom: 18px; left: 50%; transform: translateX(-50%);
+    z-index: 25;
+    width: min(620px, calc(100vw - 80px));
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 14px;
+    box-shadow: 0 10px 32px var(--shadow-strong);
+    padding: 10px 14px 10px 52px;
+  }
+  .ask-mic {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: var(--student); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(8,145,178,.25);
+  }
+  :root[data-mode="dark"] .ask-mic { color: var(--bg); }
+  .ask-mic svg { width: 14px; height: 14px; }
+  .ask-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--ink); font: 400 14px 'Inter', sans-serif; resize: none;
+  }
+  .ask-input::placeholder { color: var(--ink-faint); }
+  .ask-meta {
+    margin-top: 4px;
+    display: flex; gap: 10px; align-items: center;
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .08em; color: var(--ink-faint);
+  }
+  .ask-meta b { color: var(--ink-soft); }
+  .ask-quick {
+    padding: 4px 10px;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 6px; background: transparent;
+    font: 600 10px 'Inter', sans-serif; color: var(--ink-soft); cursor: pointer;
+  }
+  .ask-quick:hover { background: var(--canvas); }
+  .ask-quick.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .ask-actions { margin-left: auto; display: flex; gap: 4px; }
+
+  /* ─── Mobile responsiveness ──── */
+  @media (max-width: 700px) {
+    .minimap, .palette { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb">
+    <b>Spatial</b> <span class="sep">›</span> Transformers <span class="sep">›</span> <b style="color:var(--good)">building "Iron core"</b>
+  </span>
+  <div class="spacer"></div>
+  <span class="live-pill">live · 1:14</span>
+  <button class="topbar-btn" title="Fit all to view">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 9V5a2 2 0 0 1 2-2h4M21 9V5a2 2 0 0 0-2-2h-4M3 15v4a2 2 0 0 0 2 2h4M21 15v4a2 2 0 0 1-2 2h-4"/></svg>
+    Fit
+  </button>
+  <button class="topbar-btn" onclick="toggleMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span id="modeLabel">Light</span>
+  </button>
+</header>
+
+<div class="stage">
+
+  <!-- ── Canvas ── -->
+  <div class="canvas" id="canvas">
+
+    <!-- Connections (positioned roughly under the nodes) -->
+    <svg class="conn-layer" viewBox="0 0 1600 900" preserveAspectRatio="none">
+      <defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="9" markerHeight="9" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--link-strong)"/>
+        </marker>
+        <marker id="arr-acc" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="9" markerHeight="9" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--accent)"/>
+        </marker>
+        <marker id="arr-student" viewBox="0 0 10 10" refX="8" refY="5"
+                markerWidth="9" markerHeight="9" orient="auto">
+          <path d="M0,0 L10,5 L0,10 z" fill="var(--student)"/>
+        </marker>
+      </defs>
+
+      <!-- field → flux -->
+      <path class="conn conn-strong" marker-end="url(#arr)"
+        d="M225 240 C 320 240 320 290 405 290"/>
+      <g transform="translate(310,272)">
+        <rect class="conn-label" x="-26" y="-10" width="52" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">B → Φ</text>
+      </g>
+
+      <!-- flux → faraday -->
+      <path class="conn conn-strong" marker-end="url(#arr)"
+        d="M555 320 C 640 320 640 220 745 220"/>
+      <g transform="translate(660,260)">
+        <rect class="conn-label" x="-30" y="-10" width="60" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">∂/∂t</text>
+      </g>
+
+      <!-- faraday → stationary/moving demo -->
+      <path class="conn conn-acc" marker-end="url(#arr-acc)"
+        d="M820 280 C 820 360 820 360 820 430"/>
+      <g transform="translate(820,360)">
+        <rect class="conn-label" x="-38" y="-10" width="76" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">proves</text>
+      </g>
+
+      <!-- faraday → transformer -->
+      <path class="conn conn-strong" marker-end="url(#arr)"
+        d="M905 220 C 1000 220 1000 220 1080 220"/>
+      <g transform="translate(995,205)">
+        <rect class="conn-label" x="-40" y="-10" width="80" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">applied to →</text>
+      </g>
+
+      <!-- transformer → turns ratio -->
+      <path class="conn conn-strong" marker-end="url(#arr)"
+        d="M1230 310 C 1230 400 1230 400 1230 470"/>
+      <g transform="translate(1230,400)">
+        <rect class="conn-label" x="-42" y="-10" width="84" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">yields</text>
+      </g>
+
+      <!-- turns ratio → your charger -->
+      <path class="conn conn-student" marker-end="url(#arr-student)"
+        d="M1170 580 C 1080 580 1080 600 990 600"/>
+      <g transform="translate(1080,582)">
+        <rect class="conn-label" x="-32" y="-10" width="64" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">your example</text>
+      </g>
+
+      <!-- transformer → iron core (ACTIVE, with pulsing dashed accent) -->
+      <path class="conn conn-acc" marker-end="url(#arr-acc)"
+        d="M1180 240 C 1080 220 1000 130 870 100">
+        <animate attributeName="stroke-dashoffset" from="0" to="-18" dur="1.2s" repeatCount="indefinite"/>
+      </path>
+      <g transform="translate(1020,140)">
+        <rect class="conn-label" x="-44" y="-10" width="88" height="20" rx="4" stroke="var(--accent)"/>
+        <text class="conn-label-text" y="4" fill="var(--accent)">why?</text>
+      </g>
+
+      <!-- faraday → lenz's law (your question) -->
+      <path class="conn conn-student" marker-end="url(#arr-student)"
+        d="M810 150 C 720 90 660 80 580 70"/>
+      <g transform="translate(700,90)">
+        <rect class="conn-label" x="-36" y="-10" width="72" height="20" rx="4"/>
+        <text class="conn-label-text" y="4">your Q ·  "−"</text>
+      </g>
+
+      <!-- iron core → power losses (ghost / future) -->
+      <path class="conn" stroke-dasharray="3 4"
+        d="M780 100 C 720 130 700 200 720 280"/>
+    </svg>
+
+    <!-- ── Nodes ── -->
+
+    <!-- Field (origin) -->
+    <div class="node tutor" style="left: 60px; top: 200px; width: 170px">
+      <div class="node-head">
+        <span class="badge">def</span>
+        <span class="author"><span class="dot"></span>Euler</span>
+      </div>
+      <h3 class="node-title">Magnetic field</h3>
+      <p class="node-body">Region around a moving charge or magnet — a <em>vector</em> at every point. Symbol: <b>B</b>.</p>
+    </div>
+
+    <!-- Flux -->
+    <div class="node tutor" style="left: 405px; top: 250px; width: 160px">
+      <div class="node-head">
+        <span class="badge">def</span>
+        <span class="author"><span class="dot"></span>Euler</span>
+      </div>
+      <h3 class="node-title">Flux Φ</h3>
+      <div class="node-math" style="font-size: 17px">Φ = ∫ <span class="acc">B</span>·dA</div>
+      <p class="node-body" style="margin-top: 6px">How much field threads through a loop.</p>
+    </div>
+
+    <!-- Faraday's Law (centerpiece) -->
+    <div class="node accent" style="left: 745px; top: 150px; width: 175px">
+      <div class="node-head">
+        <span class="badge">law</span>
+        <span class="author"><span class="dot"></span>Euler</span>
+      </div>
+      <h3 class="node-title">Faraday's law</h3>
+      <div class="node-math" style="background: var(--accent-bg)">
+        <span class="acc">ℰ</span> = − dΦ/dt
+      </div>
+      <p class="node-body" style="margin-top: 6px"><em>Rate of change</em> of flux drives voltage.</p>
+    </div>
+
+    <!-- Stationary vs moving demo -->
+    <div class="node tutor" style="left: 695px; top: 440px; width: 250px">
+      <div class="node-head">
+        <span class="badge">sketch</span>
+        <span class="author"><span class="dot"></span>Euler · 0:08</span>
+      </div>
+      <h3 class="node-title">Stationary vs moving</h3>
+      <div class="node-sketch">
+        <svg viewBox="0 0 240 100">
+          <g transform="translate(20,12)">
+            <text x="40" y="-2" text-anchor="middle" class="label-soft">still</text>
+            <rect x="22" y="14" width="36" height="22" rx="2" class="stroke" fill="var(--ink-soft)"/>
+            <text x="40" y="30" text-anchor="middle" fill="#fff" font-size="9" font-weight="800">N</text>
+            <text x="40" y="62" text-anchor="middle" class="label" font-size="10">0 V</text>
+          </g>
+          <g transform="translate(130,12)">
+            <text x="44" y="-2" text-anchor="middle" class="label-soft">moving →</text>
+            <rect x="14" y="14" width="36" height="22" rx="2" class="stroke-acc" fill="var(--accent)"/>
+            <text x="32" y="30" text-anchor="middle" fill="#fff" font-size="9" font-weight="800">N</text>
+            <path d="M48 26 l28 0" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 3"/>
+            <path d="M70 22 l8 4 l-8 4" fill="var(--accent)"/>
+            <text x="50" y="62" text-anchor="middle" class="label" font-weight="700" fill="var(--accent)">⚡ 1.4 V</text>
+          </g>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Lenz's Law (your question prompted this) -->
+    <div class="node student" style="left: 440px; top: 30px; width: 195px">
+      <div class="node-head">
+        <span class="badge">your question</span>
+        <span class="author"><span class="dot"></span>You · 0:31</span>
+      </div>
+      <h3 class="node-title" style="color: var(--ink)">Lenz's law (the "−")</h3>
+      <p class="node-body">Induced voltage <b>opposes</b> the change. The "−" isn't cosmetic — it's why pushing a magnet feels stiff.</p>
+    </div>
+
+    <!-- Transformer geometry -->
+    <div class="node tutor" style="left: 1080px; top: 145px; width: 230px">
+      <div class="node-head">
+        <span class="badge">sketch</span>
+        <span class="author"><span class="dot"></span>Euler · 0:38</span>
+      </div>
+      <h3 class="node-title">Transformer</h3>
+      <div class="node-sketch">
+        <svg viewBox="0 0 220 120">
+          <path d="M75 30 h90 v60 h-90 v-12 h80 v-36 h-80 z"
+            stroke="var(--ink-soft)" stroke-width="2.6" fill="none" stroke-linejoin="round"/>
+          <text x="120" y="64" text-anchor="middle" class="label-soft" font-style="italic" font-size="9">iron</text>
+          <path d="M70 60 q50 -10 90 0" stroke="var(--accent)" stroke-width="2.4" fill="none" opacity=".8" stroke-dasharray="4 3"/>
+          <text x="120" y="54" text-anchor="middle" class="label" font-weight="700" fill="var(--accent)" font-size="10" font-style="italic">Φ(t)</text>
+          <g stroke="var(--ink)" stroke-width="2" fill="none" stroke-linecap="round">
+            <path d="M55 35 q-10 14 0 28 q10 14 0 28"/>
+            <path d="M65 35 q-10 14 0 28 q10 14 0 28"/>
+          </g>
+          <text x="35" y="68" text-anchor="end" class="label" font-weight="700" font-size="10">~AC</text>
+          <g stroke="var(--ink)" stroke-width="2" fill="none" stroke-linecap="round">
+            <path d="M170 35 q-10 14 0 28 q10 14 0 28"/>
+            <path d="M180 35 q-10 14 0 28 q10 14 0 28"/>
+            <path d="M190 35 q-10 14 0 28 q10 14 0 28"/>
+          </g>
+          <text x="200" y="68" class="label" font-weight="700" font-size="10">out</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Turns ratio -->
+    <div class="node tutor" style="left: 1170px; top: 480px; width: 175px">
+      <div class="node-head">
+        <span class="badge">law</span>
+        <span class="author"><span class="dot"></span>Euler · 0:51</span>
+      </div>
+      <h3 class="node-title">Turns ratio</h3>
+      <div class="node-math">V<sub>s</sub>/V<sub>p</sub> = N<sub>s</sub>/N<sub>p</sub></div>
+    </div>
+
+    <!-- Your charger (student) -->
+    <div class="node student" style="left: 810px; top: 540px; width: 195px">
+      <div class="node-head">
+        <span class="badge">your example</span>
+        <span class="author"><span class="dot"></span>You · 1:02</span>
+      </div>
+      <h3 class="node-title" style="color: var(--ink)">Laptop charger</h3>
+      <p class="node-body" style="font-family:'JetBrains Mono',monospace; font-size:12px">
+        120 V → 20 V<br>
+        ratio = 1/6 ✓<br>
+        N<sub>p</sub>=600, N<sub>s</sub>=100
+      </p>
+    </div>
+
+    <!-- Iron core (ACTIVE - being built) -->
+    <div class="node accent active" style="left: 700px; top: 50px; width: 200px">
+      <div class="node-head">
+        <span class="badge">why?</span>
+        <span class="author"><span class="dot"></span>Euler · live</span>
+      </div>
+      <h3 class="node-title">Iron core</h3>
+      <p class="node-body">Without iron, the flux would scatter — most wouldn't reach the secondary. Iron is a <b>flux funnel</b>: it concentrates Φ along the path between coils, so almost every field line links both…</p>
+    </div>
+
+    <!-- Power losses (ghost / future) -->
+    <div class="node tutor ghost" style="left: 580px; top: 250px; width: 165px">
+      <div class="node-head">
+        <span class="badge">next</span>
+        <span class="author"><span class="dot"></span>Euler</span>
+      </div>
+      <h3 class="node-title">Power losses</h3>
+      <p class="node-body">Heat, eddy currents, leakage — why real transformers aren't 100%.</p>
+    </div>
+
+    <!-- A few sticky notes for personality -->
+    <div class="node sticky" style="left: 320px; top: 480px; width: 145px;">
+      <div class="node-head" style="font-size: 8px">Euler · 0:24</div>
+      The rate is the rule.<br>Not the field itself.
+    </div>
+
+    <div class="node sticky you" style="left: 1040px; top: 540px; width: 130px; transform: rotate(2deg)">
+      <div class="node-head" style="font-size: 8px">You · 1:00</div>
+      heavy brick on charger = transformer
+    </div>
+
+    <!-- You-are-here marker (centered on iron-core node) -->
+    <div class="you-marker" style="left: 800px; top: 80px">
+      <div class="label">YOU ARE HERE</div>
+    </div>
+
+    <!-- Euler's cursor on the active node -->
+    <div class="euler-cursor" style="left: 830px; top: 130px">
+      <svg viewBox="0 0 16 16">
+        <path d="M2 1 L2 12 L5 9 L7 14 L9 13 L7 8 L11 8 z"
+              fill="var(--good)" stroke="var(--node-bg)" stroke-width="1.2"/>
+      </svg>
+      <div class="label">Euler</div>
+    </div>
+
+  </div>
+
+  <!-- ── Tool palette ── -->
+  <aside class="palette">
+    <button class="tool active" data-tip="Select">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3l7 17 2-7 7-2z"/></svg>
+    </button>
+    <button class="tool" data-tip="Pan (hand)">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 11V6.5a2 2 0 1 0-4 0v3M14 9.5V4a2 2 0 0 0-4 0v6M10 9V5.5a2 2 0 1 0-4 0V14"/><path d="M18 11V14a8 8 0 0 1-16 0v-3M22 6l-3 3-3-3"/></svg>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-tip="Sticky note">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h-9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9z"/><polyline points="14 3 14 10 21 10"/></svg>
+    </button>
+    <button class="tool" data-tip="Frame / region">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+    </button>
+    <button class="tool" data-tip="Arrow / connect">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="5" y1="12" x2="19" y2="12"/><polyline points="12 5 19 12 12 19"/></svg>
+    </button>
+    <button class="tool" data-tip="Pen">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+    </button>
+    <button class="tool" data-tip="Shape">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/></svg>
+    </button>
+    <button class="tool" data-tip="Text">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 7 4 4 20 4 20 7"/><line x1="9" y1="20" x2="15" y2="20"/><line x1="12" y1="4" x2="12" y2="20"/></svg>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-tip="Math">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+    </button>
+    <button class="tool" data-tip="Voice ⌥M">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </button>
+  </aside>
+
+  <!-- ── Concept ribbon (top center) ── -->
+  <div class="ribbon-float">
+    <span class="concept done">Field</span>
+    <span class="concept done">Flux</span>
+    <span class="concept done">Faraday</span>
+    <span class="concept done">Two coils</span>
+    <span class="concept active">Iron core</span>
+    <span class="concept">Turns ratio</span>
+  </div>
+
+  <!-- ── Mini-map ── -->
+  <div class="minimap">
+    <div class="minimap-title"><span>Map · 11 nodes</span><span>1:14</span></div>
+    <div class="minimap-stage">
+      <div class="mm-node tutor"   style="left: 4%;  top: 56%; width: 11%; height: 14%"></div>
+      <div class="mm-node tutor"   style="left: 25%; top: 60%; width: 10%; height: 16%"></div>
+      <div class="mm-node accent"  style="left: 46%; top: 28%; width: 11%; height: 24%"></div>
+      <div class="mm-node tutor"   style="left: 43%; top: 76%; width: 16%; height: 18%"></div>
+      <div class="mm-node student" style="left: 27%; top: 4%;  width: 12%; height: 16%"></div>
+      <div class="mm-node tutor"   style="left: 67%; top: 24%; width: 14%; height: 22%"></div>
+      <div class="mm-node tutor"   style="left: 73%; top: 80%; width: 11%; height: 14%"></div>
+      <div class="mm-node student" style="left: 50%; top: 90%; width: 12%; height: 12%"></div>
+      <div class="mm-node active"  style="left: 43%; top: 8%;  width: 12%; height: 16%"></div>
+      <div class="mm-node tutor"   style="left: 36%; top: 42%; width: 10%; height: 14%; opacity: .35"></div>
+      <div class="mm-viewport" style="left: 28%; top: 4%; width: 44%; height: 60%"></div>
+    </div>
+  </div>
+
+  <!-- ── Zoom controls ── -->
+  <div class="viewport-ctrl">
+    <div class="vc-group">
+      <button class="vc-btn" title="Zoom in">+</button>
+      <button class="vc-btn" title="Zoom out">−</button>
+      <div class="vc-readout">100%</div>
+    </div>
+    <div class="vc-group">
+      <button class="vc-btn" title="Fit all">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 14 4 20 10 20"/><polyline points="20 10 20 4 14 4"/><line x1="14" y1="10" x2="21" y2="3"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+      </button>
+      <button class="vc-btn" title="Center on active">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><circle cx="12" cy="12" r="10"/></svg>
+      </button>
+    </div>
+  </div>
+
+  <!-- ── Floating ask bar ── -->
+  <div class="ask-bar">
+    <span class="ask-mic">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </span>
+    <textarea class="ask-input" rows="1" placeholder="Ask, sketch, or drop a node anywhere on the map…"></textarea>
+    <div class="ask-meta">
+      <span>↩ <b>add node here</b></span>
+      <span>· N <b>new note</b></span>
+      <span>· L <b>link nodes</b></span>
+      <span>· ⌥M <b>speak</b></span>
+      <div class="ask-actions">
+        <button class="ask-quick">Zoom to Euler</button>
+        <button class="ask-quick">I get it</button>
+        <button class="ask-quick primary">Send →</button>
+      </div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+  (function applyInitialMode() {
+    const html = document.documentElement;
+    const hash = (location.hash || '').toLowerCase().replace('#', '');
+    if (hash === 'dark' || hash === 'light') html.dataset.mode = hash;
+    const lbl = document.getElementById('modeLabel');
+    if (lbl) lbl.textContent = html.dataset.mode === 'dark' ? 'Dark' : 'Light';
+  })();
+
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+    history.replaceState(null, '', '#' + next);
+  }
+
+  // ── Simple pan ──
+  const canvas = document.getElementById('canvas');
+  let panX = 0, panY = 0, isDown = false, startX = 0, startY = 0;
+  canvas.addEventListener('mousedown', (e) => {
+    if (e.target !== canvas) return;
+    isDown = true; canvas.classList.add('dragging');
+    startX = e.clientX - panX; startY = e.clientY - panY;
+  });
+  window.addEventListener('mousemove', (e) => {
+    if (!isDown) return;
+    panX = e.clientX - startX; panY = e.clientY - startY;
+    document.querySelectorAll('.node, .you-marker, .euler-cursor, .conn-layer')
+      .forEach(el => el.style.transform = `translate(${panX}px, ${panY}px)` +
+        (el.classList.contains('sticky') && el.style.transform.includes('rotate')
+          ? '' : ''));
+  });
+  window.addEventListener('mouseup', () => { isDown = false; canvas.classList.remove('dragging'); });
+
+  document.querySelectorAll('.tool').forEach(t => {
+    t.addEventListener('click', () => {
+      if (t.classList.contains('active')) return;
+      document.querySelectorAll('.tool').forEach(x => x.classList.remove('active'));
+      t.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

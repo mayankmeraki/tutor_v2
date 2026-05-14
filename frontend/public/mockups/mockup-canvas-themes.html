@@ -1,0 +1,506 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas directions — Euler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  :root[data-mode="light"] {
+    --bg:           #f3f1ea;
+    --chrome:       #ffffff;
+    --chrome-edge:  #e0ddd2;
+    --ink:          #1a2030;
+    --ink-soft:     #4a5568;
+    --ink-faint:    #94a3b8;
+    --tile-bg:      #ffffff;
+    --tile-edge:    #d1cfc4;
+    --accent:       #f59e0b;
+    --student:      #0891b2;
+    --good:         #16a34a;
+    --shadow:       rgba(20, 30, 60, .08);
+    --shadow-strong: rgba(20, 30, 60, .2);
+  }
+  :root[data-mode="dark"] {
+    --bg:           #0a0d12;
+    --chrome:       #14181f;
+    --chrome-edge:  #2a2f3a;
+    --ink:          #f3f4f6;
+    --ink-soft:     #cbd5e1;
+    --ink-faint:    #64748b;
+    --tile-bg:      #1c2029;
+    --tile-edge:    #3a4150;
+    --accent:       #fbbf24;
+    --student:      #5eead4;
+    --good:         #4ade80;
+    --shadow:       rgba(0, 0, 0, .55);
+    --shadow-strong: rgba(0, 0, 0, .8);
+  }
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; background: var(--bg); }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s, color .35s;
+  }
+
+  /* ── Top bar ── */
+  .topbar {
+    height: 56px;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 22px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-edge);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .brand { font-weight: 800; font-size: 18px; letter-spacing: -.01em; }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--student), var(--accent));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb {
+    font: 500 12px 'Inter', sans-serif;
+    color: var(--ink-soft);
+  }
+  .crumb b { color: var(--ink); }
+  .spacer { flex: 1; }
+  .tab-group {
+    display: inline-flex; gap: 0;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 9px; overflow: hidden;
+  }
+  .tab-group button {
+    padding: 7px 12px;
+    background: transparent; border: 0;
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+  }
+  .tab-group button.on { background: var(--ink); color: var(--bg); }
+  .tab-group button:hover:not(.on) { background: var(--bg); }
+  .top-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 11px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 8px; cursor: pointer;
+    color: var(--ink); font: 600 11px 'Inter', sans-serif;
+  }
+  .top-btn:hover { background: var(--bg); }
+  .top-btn svg { width: 13px; height: 13px; }
+
+  /* ── Header ── */
+  .header {
+    padding: 32px 28px 18px;
+    max-width: 1480px; margin: 0 auto;
+  }
+  .header h1 {
+    font-family: 'Fraunces', serif; font-weight: 600;
+    font-size: 34px; line-height: 1.1; margin: 0 0 6px;
+    letter-spacing: -.015em;
+  }
+  .header h1 em { color: var(--accent); font-style: italic; }
+  .header p {
+    font: 400 15px 'Inter', sans-serif;
+    color: var(--ink-soft); line-height: 1.5;
+    max-width: 640px; margin: 0;
+  }
+
+  /* ── Grid ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 20px;
+    padding: 18px 28px 60px;
+    max-width: 1480px; margin: 0 auto;
+  }
+  @media (max-width: 900px) {
+    .grid { grid-template-columns: 1fr; }
+  }
+
+  .tile {
+    background: var(--tile-bg);
+    border: 1px solid var(--tile-edge);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px var(--shadow);
+    display: flex; flex-direction: column;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 32px var(--shadow-strong);
+    border-color: var(--ink-faint);
+  }
+
+  .tile-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--tile-edge);
+  }
+  .tile-head .num {
+    width: 26px; height: 26px;
+    border-radius: 7px;
+    background: var(--ink); color: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font: 800 12px 'JetBrains Mono', monospace;
+  }
+  .tile-head .name {
+    font: 700 15px 'Inter', sans-serif;
+    color: var(--ink); letter-spacing: -.005em;
+  }
+  .tile-head .name small {
+    display: block;
+    font: 500 11px 'Inter', sans-serif;
+    color: var(--ink-faint);
+    margin-top: 1px;
+  }
+  .tile-head-actions { margin-left: auto; display: flex; gap: 4px; }
+  .tile-mini-btn {
+    padding: 4px 9px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 6px; cursor: pointer;
+    color: var(--ink-soft); font: 600 10px 'Inter', sans-serif;
+  }
+  .tile-mini-btn:hover { background: var(--bg); color: var(--ink); }
+  .tile-mini-btn.primary {
+    background: var(--ink); color: var(--bg); border-color: var(--ink);
+  }
+  .tile-mini-btn svg { width: 10px; height: 10px; vertical-align: -1px; margin-right: 2px; }
+
+  .tile-frame {
+    position: relative;
+    aspect-ratio: 16 / 9.7;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .tile-frame iframe {
+    position: absolute; left: 0; top: 0;
+    width: calc(100% * (1 / .55));   /* scale-down compensation */
+    height: calc(100% * (1 / .55));
+    transform: scale(.55);
+    transform-origin: top left;
+    border: 0;
+    pointer-events: none;
+  }
+  .tile-frame.zoomedmore iframe {
+    width: calc(100% * (1 / .4));
+    height: calc(100% * (1 / .4));
+    transform: scale(.4);
+  }
+  .tile-frame.interactive iframe { pointer-events: auto; }
+  .tile-frame .frame-overlay {
+    position: absolute; inset: 0;
+    background: linear-gradient(180deg, transparent 70%, rgba(0,0,0,.05) 100%);
+    pointer-events: none;
+  }
+
+  .tile-foot {
+    padding: 12px 18px 14px;
+    border-top: 1px solid var(--tile-edge);
+  }
+  .tile-foot .blurb {
+    font: 400 13px 'Inter', sans-serif;
+    color: var(--ink-soft); line-height: 1.45;
+    margin: 0 0 8px;
+  }
+  .tile-foot .props {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .prop {
+    padding: 2px 7px;
+    background: var(--bg);
+    border: 1px solid var(--tile-edge);
+    border-radius: 4px;
+    font: 600 10px 'JetBrains Mono', monospace;
+    color: var(--ink-soft); letter-spacing: .04em;
+  }
+  .prop.good { color: var(--good); border-color: rgba(22,163,74,.3); background: rgba(22,163,74,.05); }
+  .prop.acc  { color: var(--accent); border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.07); }
+
+  /* ── Fullscreen mode ── */
+  body.fullscreen {
+    overflow: hidden;
+  }
+  body.fullscreen .header,
+  body.fullscreen .grid > .tile:not(.fs),
+  body.fullscreen .grid {
+    display: none;
+  }
+  body.fullscreen .tile.fs {
+    display: flex;
+    position: fixed; inset: 56px 0 0 0;
+    margin: 0; border-radius: 0; border: 0;
+    z-index: 20;
+  }
+  body.fullscreen .tile.fs .tile-frame { flex: 1; aspect-ratio: auto; }
+  body.fullscreen .tile.fs .tile-frame iframe {
+    width: 100%; height: 100%;
+    transform: scale(1); pointer-events: auto;
+  }
+  body.fullscreen .tile.fs .tile-foot { display: none; }
+
+  /* Spinner placeholder while iframes load */
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-faint);
+    font: 600 11px 'JetBrains Mono', monospace; letter-spacing: .14em;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb">Mockups <b>›</b> Canvas directions <b>· 4</b></span>
+  <div class="spacer"></div>
+  <div class="tab-group" id="zoom-toggle">
+    <button class="on" data-zoom="comfortable">Comfortable</button>
+    <button data-zoom="tight">Tight</button>
+  </div>
+  <div class="tab-group" id="mode-toggle">
+    <button class="on" data-mode="light">Light</button>
+    <button data-mode="dark">Dark</button>
+  </div>
+  <button class="top-btn" id="interact-toggle" title="Make the previews clickable">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11.5V5a3 3 0 1 1 6 0v6.5"/><path d="M12 22v-5"/><circle cx="12" cy="14" r="3"/></svg>
+    Hover-only
+  </button>
+</header>
+
+<section class="header">
+  <h1>Four <em>canvas</em> directions for the board.</h1>
+  <p>
+    Each direction reimagines where the lesson lives. Same lesson — Faraday → transformers —
+    rendered four different ways. Click any tile to expand. Toggle light / dark.
+  </p>
+</section>
+
+<div class="grid" id="grid">
+
+  <!-- 1 — Whiteboard Studio -->
+  <article class="tile" data-key="whiteboard">
+    <div class="tile-head">
+      <span class="num">1</span>
+      <div class="name">Whiteboard Studio<small>shared spatial board · tool palette · pinned beats</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-canvas-whiteboard.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('whiteboard')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-canvas-whiteboard.html" loading="lazy"></iframe>
+      <div class="frame-overlay"></div>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        Studio-feel whiteboard with Euler & you as <b>co-authors</b>. Visible student handwriting,
+        tool palette, beat timeline, pinned equations.
+      </p>
+      <div class="props">
+        <span class="prop good">co-author</span>
+        <span class="prop">tool palette</span>
+        <span class="prop">handwriting</span>
+        <span class="prop">pinned beats</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+  <!-- 2 — Notebook Scratchpad -->
+  <article class="tile" data-key="scratchpad">
+    <div class="tile-head">
+      <span class="num">2</span>
+      <div class="name">Notebook Scratchpad<small>vertical cells · Jupyter-feel · inline replies</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-canvas-scratchpad.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('scratchpad')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame zoomedmore">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-canvas-scratchpad.html" loading="lazy"></iframe>
+      <div class="frame-overlay"></div>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        A flowing document of mixed-media cells — prose, math, code, sketch.
+        Your attempts live inline; Euler replies in a threaded box. Reads like a Notion / Jupyter co-doc.
+      </p>
+      <div class="props">
+        <span class="prop good">co-doc</span>
+        <span class="prop">cell types</span>
+        <span class="prop">inline replies</span>
+        <span class="prop">live caret</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+  <!-- 3 — Spatial Canvas -->
+  <article class="tile" data-key="spatial">
+    <div class="tile-head">
+      <span class="num">3</span>
+      <div class="name">Spatial Canvas<small>infinite plane · concept nodes · connections</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-canvas-spatial.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('spatial')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-canvas-spatial.html" loading="lazy"></iframe>
+      <div class="frame-overlay"></div>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        Excalidraw / FigJam style. Concepts laid out spatially, connected by labelled arrows.
+        Mini-map, "you are here", and Euler's cursor on the node he's building <i>right now</i>.
+      </p>
+      <div class="props">
+        <span class="prop good">spatial</span>
+        <span class="prop">mini-map</span>
+        <span class="prop">live cursor</span>
+        <span class="prop">connected nodes</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+  <!-- 4 — Two-Hand Studio -->
+  <article class="tile" data-key="split">
+    <div class="tile-head">
+      <span class="num">4</span>
+      <div class="name">Two-Hand Studio<small>Euler's slate ⇆ your scratchpad · drag between sides</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-canvas-split.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('split')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-canvas-split.html" loading="lazy"></iframe>
+      <div class="frame-overlay"></div>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        Side-by-side. Euler's chalk slate on the left, your handwritten paper on the right.
+        Drag from his side to yours. Different aesthetics, equal weight — your space isn't an afterthought.
+      </p>
+      <div class="props">
+        <span class="prop good">two-hand</span>
+        <span class="prop">drag between</span>
+        <span class="prop">chalk + ink</span>
+        <span class="prop">your voice</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+</div>
+
+<script>
+  // ── Mode toggle ──
+  document.querySelectorAll('#mode-toggle button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#mode-toggle button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      const mode = b.dataset.mode;
+      document.documentElement.dataset.mode = mode;
+      // Push mode to each iframe via hash
+      document.querySelectorAll('.tile-frame iframe').forEach(f => {
+        try {
+          const u = new URL(f.src, location.href);
+          u.hash = mode;
+          f.src = u.toString();
+        } catch {}
+      });
+    });
+  });
+
+  // ── Zoom toggle ──
+  document.querySelectorAll('#zoom-toggle button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#zoom-toggle button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+      const z = b.dataset.zoom;
+      document.querySelectorAll('.tile-frame').forEach(f => {
+        if (z === 'tight') f.classList.add('zoomedmore');
+        else if (f.parentElement.dataset.key === 'scratchpad') {
+          /* scratchpad always tight */
+        } else f.classList.remove('zoomedmore');
+      });
+    });
+  });
+
+  // ── Interactive toggle ──
+  const interactBtn = document.getElementById('interact-toggle');
+  let interactive = false;
+  interactBtn.addEventListener('click', () => {
+    interactive = !interactive;
+    interactBtn.firstElementChild.style.opacity = interactive ? 1 : .55;
+    interactBtn.lastChild.textContent = interactive ? ' Interactive' : ' Hover-only';
+    document.querySelectorAll('.tile-frame').forEach(f => f.classList.toggle('interactive', interactive));
+  });
+
+  // ── Fullscreen ──
+  function enterFullscreen(key) {
+    document.querySelectorAll('.tile').forEach(t => {
+      t.classList.toggle('fs', t.dataset.key === key);
+    });
+    document.body.classList.add('fullscreen');
+    const fsTile = document.querySelector('.tile.fs .tile-frame');
+    if (fsTile) {
+      fsTile.classList.remove('zoomedmore');
+      fsTile.classList.add('interactive');
+    }
+    history.replaceState(null, '', '#' + key);
+  }
+
+  function exitFullscreen() {
+    document.body.classList.remove('fullscreen');
+    document.querySelectorAll('.tile').forEach(t => t.classList.remove('fs'));
+    history.replaceState(null, '', ' ');
+  }
+
+  // ESC exits fullscreen
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('fullscreen')) exitFullscreen();
+  });
+
+  // Open in new tab
+  function openTab(file) { window.open(file, '_blank'); }
+
+  // Restore fullscreen on load (if hash present)
+  (function restore() {
+    const h = (location.hash || '').replace('#', '');
+    if (['whiteboard','scratchpad','spatial','split'].includes(h)) enterFullscreen(h);
+  })();
+
+  // Hide loading placeholder once iframes load
+  document.querySelectorAll('.tile-frame iframe').forEach(f => {
+    f.addEventListener('load', () => {
+      const p = f.parentElement.querySelector('.placeholder');
+      if (p) p.remove();
+    });
+  });
+</script>
+
+</body>
+</html>

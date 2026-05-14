@@ -46,6 +46,10 @@ wireframe-*.html
 
 .graphify/
 
+# React rewrite build output
+frontend/dist/
+frontend/.vite/
+
 # Local planning / spec docs (superpowers workflow)
 docs/superpowers/
 .playwright-mcp/

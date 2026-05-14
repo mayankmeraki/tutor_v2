@@ -1,0 +1,936 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Two-Hand Studio</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@400;500;600;700&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  /* ─── Theme tokens ─────────────────────────────────────────── */
+  :root[data-mode="light"] {
+    /* "stage" / chrome */
+    --bg:          #f7f6f1;
+    --chrome:      #ffffff;
+    --chrome-edge: #e6e4dc;
+    --ink:         #1a2030;
+    --ink-soft:    #4a5568;
+    --ink-faint:   #94a3b8;
+    --student:     #0891b2;
+    --accent:      #f59e0b;
+    --good:        #16a34a;
+    --warn:        #dc2626;
+    --shadow:      rgba(20, 30, 60, .1);
+    --shadow-strong: rgba(20, 30, 60, .22);
+
+    /* Euler's slate (left side) — chalk on slate */
+    --slate-bg:    #1a2030;
+    --slate-fg:    #f0eee6;
+    --slate-soft:  rgba(240, 238, 230, .65);
+    --slate-faint: rgba(240, 238, 230, .35);
+    --slate-edge:  rgba(240, 238, 230, .12);
+    --slate-glow:  rgba(255, 255, 255, .03);
+    --chalk:       #f0eee6;
+    --chalk-blue:  #67e8f9;
+    --chalk-yellow:#fde047;
+    --chalk-pink:  #f9a8d4;
+    --chalk-green: #86efac;
+
+    /* Your paper (right side) */
+    --paper-bg:    #fdfcf6;
+    --paper-edge:  #d1cfc4;
+    --paper-rule:  rgba(20, 30, 60, .08);
+    --ink-pen:     #082a31;
+    --highlight:   rgba(254, 240, 138, .8);
+    --your-color:  #0891b2;
+  }
+  :root[data-mode="dark"] {
+    --bg:          #0a0d12;
+    --chrome:      #14181f;
+    --chrome-edge: #2a2f3a;
+    --ink:         #f3f4f6;
+    --ink-soft:    #cbd5e1;
+    --ink-faint:   #64748b;
+    --student:     #5eead4;
+    --accent:      #fbbf24;
+    --good:        #4ade80;
+    --warn:        #f87171;
+    --shadow:      rgba(0, 0, 0, .45);
+    --shadow-strong: rgba(0, 0, 0, .75);
+
+    /* Euler's slate stays dark in both modes (it IS the dark side) */
+    --slate-bg:    #050709;
+    --slate-fg:    #f0eee6;
+    --slate-soft:  rgba(240, 238, 230, .65);
+    --slate-faint: rgba(240, 238, 230, .35);
+    --slate-edge:  rgba(240, 238, 230, .1);
+    --slate-glow:  rgba(255, 255, 255, .025);
+    --chalk:       #f0eee6;
+    --chalk-blue:  #67e8f9;
+    --chalk-yellow:#fde047;
+    --chalk-pink:  #f9a8d4;
+    --chalk-green: #86efac;
+
+    /* Your paper flips to a dim ink-on-paper-dark */
+    --paper-bg:    #1a1d24;
+    --paper-edge:  #3a4150;
+    --paper-rule:  rgba(255, 255, 255, .06);
+    --ink-pen:     #67e8f9;
+    --highlight:   rgba(250, 204, 21, .25);
+    --your-color:  #5eead4;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Top chrome ───────────────────────────────────────────── */
+  .topbar {
+    height: 52px;
+    display: flex; align-items: center; gap: 14px;
+    padding: 0 18px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-edge);
+    position: relative; z-index: 30;
+  }
+  .brand {
+    font-weight: 800; font-size: 17px; letter-spacing: -.01em;
+    color: var(--ink);
+  }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--student), var(--accent));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb { font: 500 12px 'Inter', sans-serif; color: var(--ink-soft); }
+  .crumb b { color: var(--ink); }
+  .crumb .sep { color: var(--ink-faint); margin: 0 6px; }
+  .spacer { flex: 1; }
+  .concept-ribbon { display: inline-flex; gap: 6px; align-items: center; overflow-x: auto; }
+  .concept {
+    flex: 0 0 auto;
+    padding: 5px 10px; border-radius: 999px;
+    background: transparent;
+    border: 1px solid var(--chrome-edge);
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .concept::before { content:""; width:6px; height:6px; border-radius:50%; background: var(--ink-faint); }
+  .concept.done    { color: var(--good); border-color: rgba(22,163,74,.3); }
+  .concept.done::before { background: var(--good); }
+  .concept.active  { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .concept.active::before { background: var(--student); }
+  .topbar-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 10px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 7px; cursor: pointer;
+    color: var(--ink); font: 600 11px 'Inter', sans-serif;
+  }
+  .topbar-btn:hover { background: var(--bg); }
+  .topbar-btn svg { width: 13px; height: 13px; }
+
+  /* ─── Stage ───────────────────────────────────────────────── */
+  .stage {
+    display: grid;
+    grid-template-columns: 1fr 12px 0.7fr;
+    height: calc(100vh - 52px);
+    overflow: hidden;
+  }
+  @media (max-width: 980px) {
+    .stage { grid-template-columns: 1fr; grid-template-rows: 1.4fr 12px 1fr; }
+    .splitter { width: 100%; height: 12px; cursor: row-resize; }
+  }
+
+  /* ─── Splitter ─── */
+  .splitter {
+    background: var(--bg);
+    cursor: col-resize;
+    position: relative;
+    border-left: 1px solid var(--chrome-edge);
+    border-right: 1px solid var(--chrome-edge);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .splitter::after {
+    content: "";
+    width: 3px; height: 36px;
+    background: var(--ink-faint); opacity: .35;
+    border-radius: 3px;
+  }
+  .splitter:hover::after { opacity: .8; }
+
+  /* ════════════════════════════════════════════════════════════
+     LEFT — Euler's slate
+     ════════════════════════════════════════════════════════════ */
+  .left {
+    background:
+      radial-gradient(ellipse at 50% 30%, var(--slate-glow), transparent 60%),
+      var(--slate-bg);
+    color: var(--slate-fg);
+    position: relative;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .side-head {
+    padding: 12px 18px;
+    display: flex; align-items: center; gap: 12px;
+    border-bottom: 1px solid var(--slate-edge);
+    flex-shrink: 0;
+  }
+  .side-head .who {
+    display: inline-flex; align-items: center; gap: 6px;
+    font: 700 11px 'JetBrains Mono', monospace;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--slate-fg);
+  }
+  .side-head .who .dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: var(--good);
+    box-shadow: 0 0 8px var(--good);
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .side-head .meta {
+    font: 500 11px 'JetBrains Mono', monospace;
+    color: var(--slate-faint);
+  }
+  .side-head .meta b { color: var(--slate-fg); }
+  .side-tools {
+    margin-left: auto;
+    display: inline-flex; gap: 4px;
+    padding: 3px;
+    background: var(--slate-glow);
+    border: 1px solid var(--slate-edge);
+    border-radius: 8px;
+  }
+  .stool {
+    width: 28px; height: 28px;
+    border: 0; background: transparent;
+    border-radius: 5px;
+    cursor: pointer;
+    color: var(--slate-soft);
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stool:hover { background: var(--slate-edge); color: var(--slate-fg); }
+  .stool.active { background: var(--slate-fg); color: var(--slate-bg); }
+  .stool svg { width: 13px; height: 13px; }
+
+  /* Euler's working area */
+  .slate {
+    flex: 1; padding: 28px 36px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .slate::-webkit-scrollbar { width: 6px; }
+  .slate::-webkit-scrollbar-thumb { background: var(--slate-edge); border-radius: 3px; }
+
+  .slate-title {
+    font: 600 13px 'JetBrains Mono', monospace;
+    color: var(--slate-faint);
+    letter-spacing: .14em; text-transform: uppercase;
+    margin: 0 0 4px;
+  }
+  .slate-h1 {
+    font-family: 'Fraunces', serif;
+    font-size: 28px; font-weight: 600;
+    color: var(--slate-fg); line-height: 1.1;
+    margin: 0 0 20px;
+    letter-spacing: -.01em;
+  }
+  .slate-h1 em { color: var(--chalk-yellow); font-style: italic; }
+
+  /* Big transformer figure in chalk style */
+  .slate-figure {
+    margin: 0 auto 28px;
+    max-width: 540px;
+    position: relative;
+  }
+  .slate-figure svg { display: block; width: 100%; height: auto; }
+  .chalk      { stroke: var(--chalk); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .chalk-soft { stroke: var(--slate-soft); fill: none; stroke-width: 1.2; stroke-linecap: round; }
+  .chalk-blue { stroke: var(--chalk-blue); fill: none; stroke-width: 2; }
+  .chalk-yel  { stroke: var(--chalk-yellow); fill: none; stroke-width: 1.8; }
+  .chalk-pink { stroke: var(--chalk-pink); fill: none; stroke-width: 1.8; }
+  .chalk-grn  { stroke: var(--chalk-green); fill: none; stroke-width: 1.6; }
+  .clabel      { fill: var(--slate-fg); font: 600 13px 'Inter', sans-serif; }
+  .clabel-soft { fill: var(--slate-soft); font: 500 11px 'Inter', sans-serif; }
+  .clabel-acc  { fill: var(--chalk-yellow); font: 700 13px 'Inter', sans-serif; font-style: italic; }
+
+  /* Equation block */
+  .slate-eq {
+    text-align: center;
+    margin: 20px auto 24px;
+    max-width: 540px;
+    padding: 18px 20px;
+    background: var(--slate-glow);
+    border: 1px dashed var(--slate-edge);
+    border-radius: 8px;
+    position: relative;
+  }
+  .slate-eq .formula {
+    font-family: 'Fraunces', serif;
+    font-size: 30px; font-weight: 500;
+    color: var(--chalk);
+    letter-spacing: .02em;
+  }
+  .slate-eq .formula .y { color: var(--chalk-yellow); font-weight: 600; }
+  .slate-eq .formula .b { color: var(--chalk-blue); font-weight: 600; }
+  .slate-eq .formula .p { color: var(--chalk-pink); font-weight: 600; }
+  .slate-eq .num {
+    position: absolute; top: 8px; right: 12px;
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .14em;
+    color: var(--slate-faint);
+  }
+  .slate-eq .caret {
+    display: inline-block;
+    width: 6px; height: 24px;
+    background: var(--chalk-yellow);
+    margin-left: 4px; vertical-align: text-bottom;
+    animation: caret 1s infinite;
+  }
+  @keyframes caret { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+
+  .slate-narration {
+    max-width: 540px; margin: 0 auto 12px;
+    font: 400 16px 'Inter', sans-serif;
+    color: var(--slate-soft);
+    line-height: 1.55;
+  }
+  .slate-narration b { color: var(--chalk); font-weight: 600; }
+  .slate-narration em { color: var(--chalk-yellow); font-style: italic; }
+  .slate-narration mark {
+    background: rgba(253, 224, 71, .18);
+    color: var(--chalk-yellow);
+    padding: 1px 4px; border-radius: 3px;
+  }
+
+  /* Pull-quote callout on slate */
+  .slate-callout {
+    max-width: 540px; margin: 14px auto;
+    padding: 14px 18px;
+    border-left: 3px solid var(--chalk-yellow);
+    background: rgba(253, 224, 71, .06);
+    border-radius: 0 6px 6px 0;
+    font: 500 14px 'Inter', sans-serif;
+    color: var(--chalk);
+    line-height: 1.45;
+  }
+  .slate-callout .lbl {
+    display: block;
+    font: 700 9px 'JetBrains Mono', monospace;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--chalk-yellow);
+    margin-bottom: 4px;
+  }
+
+  /* Voice/transcript at bottom of slate side */
+  .slate-foot {
+    padding: 14px 18px;
+    border-top: 1px solid var(--slate-edge);
+    flex-shrink: 0;
+    background: rgba(0,0,0,.18);
+  }
+  .voice-bars {
+    display: inline-flex; gap: 2px; align-items: end; height: 14px;
+    margin-right: 8px;
+  }
+  .voice-bars span {
+    display: block; width: 2px; background: var(--good);
+    border-radius: 1px;
+    animation: voice 1s infinite;
+  }
+  .voice-bars span:nth-child(1) { height: 40%; animation-delay: 0s; }
+  .voice-bars span:nth-child(2) { height: 90%; animation-delay: .15s; }
+  .voice-bars span:nth-child(3) { height: 60%; animation-delay: .3s; }
+  .voice-bars span:nth-child(4) { height: 95%; animation-delay: .45s; }
+  .voice-bars span:nth-child(5) { height: 35%; animation-delay: .6s; }
+  @keyframes voice { 0%,100% { transform: scaleY(.5); } 50% { transform: scaleY(1); } }
+  .transcript {
+    font: 500 13px 'Inter', sans-serif;
+    color: var(--slate-soft); line-height: 1.4;
+    margin: 4px 0 0;
+  }
+  .transcript b { color: var(--chalk); font-weight: 600; }
+  .transcript em { color: var(--chalk-yellow); font-style: italic; }
+
+  /* ════════════════════════════════════════════════════════════
+     RIGHT — Your scratchpad
+     ════════════════════════════════════════════════════════════ */
+  .right {
+    background: var(--paper-bg);
+    background-image:
+      repeating-linear-gradient(180deg, transparent 0 26px, var(--paper-rule) 26px 27px);
+    position: relative; overflow: hidden;
+    display: flex; flex-direction: column;
+  }
+  .right .side-head {
+    border-bottom: 1px solid var(--paper-edge);
+    background: var(--paper-bg);
+  }
+  .right .side-head .who {
+    color: var(--ink-pen);
+  }
+  .right .side-head .who .dot {
+    background: var(--your-color); box-shadow: 0 0 8px var(--your-color);
+  }
+  .right .side-head .meta { color: var(--ink-faint); }
+  .right .side-head .meta b { color: var(--ink-pen); }
+  .right .side-tools {
+    background: transparent;
+    border: 1px solid var(--paper-edge);
+  }
+  .right .stool { color: var(--ink-faint); }
+  .right .stool:hover { background: var(--bg); color: var(--ink-pen); }
+  .right .stool.active { background: var(--ink-pen); color: var(--paper-bg); }
+
+  .my-pad {
+    flex: 1;
+    padding: 20px 28px 100px;
+    overflow-y: auto;
+    position: relative;
+  }
+  .my-pad::-webkit-scrollbar { width: 6px; }
+  .my-pad::-webkit-scrollbar-thumb { background: var(--paper-edge); border-radius: 3px; }
+
+  /* Date header (handwritten) */
+  .pad-date {
+    font-family: 'Caveat', cursive;
+    font-size: 22px; font-weight: 600;
+    color: var(--your-color);
+    margin: 0 0 12px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .pad-date::before {
+    content: ""; width: 24px; height: 1px;
+    background: var(--your-color); opacity: .5;
+  }
+  .pad-date::after {
+    content: ""; flex: 1; height: 1px;
+    background: var(--your-color); opacity: .5;
+  }
+
+  .my-note {
+    font-family: 'Caveat', cursive;
+    color: var(--ink-pen);
+    line-height: 1.4;
+    margin-bottom: 6px;
+    font-weight: 500;
+  }
+  .my-note.h1 { font-size: 26px; font-weight: 700; margin-top: 14px; }
+  .my-note.h2 { font-size: 20px; font-weight: 600; margin-top: 12px; color: var(--your-color); }
+  .my-note.body { font-size: 18px; }
+  .my-note .arrow {
+    display: inline-block; margin-right: 6px;
+    color: var(--your-color); font-weight: 700;
+  }
+  .my-note mark { background: var(--highlight); padding: 0 4px; border-radius: 3px; }
+  .my-note .strike { text-decoration: line-through; text-decoration-thickness: 2px; color: rgba(220,38,38,.7); }
+  .my-note .check  { color: var(--good); font-weight: 700; }
+  .my-note .em     { color: var(--accent); font-style: italic; }
+
+  /* Inline math (your handwritten attempts) */
+  .my-eq {
+    font-family: 'Caveat', cursive;
+    font-size: 24px; font-weight: 600;
+    color: var(--ink-pen);
+    margin: 6px 0 6px 22px;
+    letter-spacing: .02em;
+  }
+  .my-eq .sub { font-size: 16px; vertical-align: sub; }
+  .my-eq .ans {
+    color: var(--good);
+    border-bottom: 2px solid var(--good);
+    margin-left: 4px;
+    padding: 0 4px;
+  }
+  .my-eq .wrong {
+    text-decoration: line-through;
+    text-decoration-thickness: 2px;
+    color: rgba(220,38,38,.7);
+  }
+
+  /* Your sticky on paper */
+  .my-sticky {
+    background: #fff3a8;
+    transform: rotate(-2deg);
+    padding: 10px 14px;
+    border-radius: 2px;
+    box-shadow: 1px 2px 6px rgba(0,0,0,.1);
+    margin: 14px 0 14px 8px;
+    font-family: 'Caveat', cursive;
+    font-size: 18px; font-weight: 600;
+    color: #4a4a2c;
+    max-width: 230px;
+    line-height: 1.25;
+    position: relative;
+  }
+  :root[data-mode="dark"] .my-sticky { background: #d4c374; color: #1a1a0a; }
+  .my-sticky .src {
+    display: block;
+    font: 600 9px 'JetBrains Mono', monospace;
+    letter-spacing: .12em;
+    color: rgba(74,74,44,.65);
+    margin-bottom: 4px; text-transform: uppercase;
+  }
+
+  /* Your doodle */
+  .my-doodle {
+    border: 1px dashed var(--paper-edge);
+    border-radius: 6px;
+    padding: 8px;
+    margin: 10px 0 10px 12px;
+    background: rgba(255,255,255,.4);
+  }
+  :root[data-mode="dark"] .my-doodle { background: rgba(255,255,255,.02); }
+  .my-doodle svg { display: block; width: 100%; height: auto; max-height: 130px; }
+  .my-doodle .cap {
+    font-family: 'Caveat', cursive;
+    font-size: 14px;
+    color: var(--ink-faint); text-align: center; margin-top: 2px;
+  }
+
+  /* Question button — for asking Euler about a snippet */
+  .ask-euler {
+    display: inline-flex; align-items: center; gap: 4px;
+    margin-left: 8px;
+    padding: 2px 8px;
+    background: transparent;
+    border: 1px dashed var(--your-color);
+    border-radius: 999px;
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--your-color); cursor: pointer;
+    vertical-align: middle;
+  }
+  .ask-euler:hover { background: var(--your-color); color: var(--paper-bg); }
+  .ask-euler svg { width: 11px; height: 11px; }
+
+  /* "Drag-import" hint from Euler's side */
+  .imported {
+    display: flex; align-items: stretch; gap: 8px;
+    margin: 12px 0 12px 8px;
+    padding: 10px;
+    background: linear-gradient(135deg, rgba(245,158,11,.08), rgba(245,158,11,.02));
+    border: 1px solid rgba(245,158,11,.3);
+    border-left: 3px solid var(--accent);
+    border-radius: 0 8px 8px 0;
+  }
+  .imported .src {
+    flex-shrink: 0;
+    width: 4px;
+  }
+  .imported .body {
+    flex: 1;
+    font-family: 'Caveat', cursive;
+    font-size: 18px; color: var(--ink-pen);
+    line-height: 1.3;
+  }
+  .imported .body b { color: var(--accent); }
+  .imported .src-tag {
+    font: 600 9px 'JetBrains Mono', monospace;
+    letter-spacing: .12em;
+    color: var(--accent);
+    text-transform: uppercase;
+    margin-bottom: 4px;
+    display: block;
+  }
+  .imported .eqn {
+    font-family: 'Fraunces', serif;
+    font-size: 22px; font-weight: 500;
+    color: var(--ink-pen);
+    text-align: center;
+    padding: 8px 0;
+  }
+  .imported .eqn .acc { color: var(--accent); font-weight: 600; }
+
+  /* ─── Floating ask bar (centered across both sides) ── */
+  .ask-bar {
+    position: absolute;
+    bottom: 18px; left: 50%; transform: translateX(-50%);
+    z-index: 25;
+    width: min(620px, calc(100vw - 80px));
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 14px;
+    box-shadow: 0 10px 32px var(--shadow-strong);
+    padding: 10px 14px 10px 52px;
+  }
+  .ask-mic {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: var(--student); color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(8,145,178,.25);
+  }
+  :root[data-mode="dark"] .ask-mic { color: var(--bg); }
+  .ask-mic svg { width: 14px; height: 14px; }
+  .ask-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--ink); font: 400 14px 'Inter', sans-serif; resize: none;
+  }
+  .ask-input::placeholder { color: var(--ink-faint); }
+  .ask-meta {
+    margin-top: 4px;
+    display: flex; gap: 10px; align-items: center;
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .08em; color: var(--ink-faint);
+  }
+  .ask-meta b { color: var(--ink-soft); }
+  .ask-meta .which-side {
+    display: inline-flex; gap: 0;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 6px; overflow: hidden;
+  }
+  .ask-meta .which-side button {
+    padding: 3px 8px;
+    background: transparent; border: 0;
+    font: 600 10px 'Inter', sans-serif; color: var(--ink-soft); cursor: pointer;
+  }
+  .ask-meta .which-side button.on { background: var(--ink); color: var(--bg); }
+  .ask-quick {
+    padding: 4px 10px;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 6px; background: transparent;
+    font: 600 10px 'Inter', sans-serif; color: var(--ink-soft); cursor: pointer;
+  }
+  .ask-quick:hover { background: var(--bg); }
+  .ask-quick.primary { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .ask-actions { margin-left: auto; display: flex; gap: 4px; }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb">
+    <b>Two-Hand Studio</b> <span class="sep">›</span> Transformers <span class="sep">›</span> <b style="color:var(--good)">turns ratio</b>
+  </span>
+  <div class="spacer"></div>
+  <div class="concept-ribbon">
+    <span class="concept done">Field</span>
+    <span class="concept done">Flux</span>
+    <span class="concept done">Faraday</span>
+    <span class="concept done">Two coils</span>
+    <span class="concept active">Turns ratio</span>
+    <span class="concept">Iron core</span>
+  </div>
+  <button class="topbar-btn" onclick="toggleMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span id="modeLabel">Light</span>
+  </button>
+</header>
+
+<div class="stage">
+
+  <!-- ════════════════════════════════════════════
+       LEFT — Euler's slate (the teaching board)
+       ════════════════════════════════════════════ -->
+  <section class="left">
+    <div class="side-head">
+      <span class="who"><span class="dot"></span>Euler · writing</span>
+      <span class="meta"><b>0:51</b> · beat 7/12</span>
+      <div class="side-tools">
+        <button class="stool active" title="Chalk (default)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/><path d="M18 13l-1.5-7.5L2 2l3.5 14.5L13 18l5-5z"/></svg>
+        </button>
+        <button class="stool" title="Highlight">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 2l6 6-12 12-6-6L16 2zM2 22l4-2"/></svg>
+        </button>
+        <button class="stool" title="Math">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 12h4l3-9 4 18 3-9h4"/></svg>
+        </button>
+        <button class="stool" title="Eraser">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h18M5 21h14M7 13l5-5 8 8-5 5z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="slate">
+      <p class="slate-title">Lesson · the punchline</p>
+      <h2 class="slate-h1">Two coils, <em>one</em> shared flux.</h2>
+
+      <div class="slate-figure">
+        <svg viewBox="0 0 560 240">
+          <defs>
+            <linearGradient id="fluxStudio" x1="0" x2="1">
+              <stop offset="0"  stop-color="var(--chalk-yellow)" stop-opacity="0"/>
+              <stop offset=".5" stop-color="var(--chalk-yellow)" stop-opacity="1"/>
+              <stop offset="1"  stop-color="var(--chalk-yellow)" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- Iron core -->
+          <path d="M210 50 h170 v140 h-170 v-26 h148 v-88 h-148 z"
+                class="chalk-soft" stroke-width="3"/>
+          <text x="295" y="124" text-anchor="middle" class="clabel-soft" font-style="italic">iron core</text>
+
+          <!-- Flux animation -->
+          <path d="M200 120 q95 -22 170 0" stroke="url(#fluxStudio)" stroke-width="6" fill="none" opacity=".95">
+            <animate attributeName="d" dur="2.4s" repeatCount="indefinite"
+              values="M200 120 q95 -22 170 0; M200 120 q95 22 170 0; M200 120 q95 -22 170 0"/>
+          </path>
+          <text x="295" y="106" text-anchor="middle" class="clabel-acc" font-style="italic">Φ(t)</text>
+
+          <!-- Primary coil -->
+          <g transform="translate(110,50)">
+            <text x="50" y="-10" text-anchor="middle" class="clabel" font-weight="700">primary · Nₚ</text>
+            <g class="chalk-pink">
+              <path d="M30 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M48 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M66 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M84 20 q-18 28 0 56 q18 28 0 56"/>
+            </g>
+            <line x1="0" y1="14"  x2="30" y2="20"  class="chalk-pink"/>
+            <line x1="0" y1="146" x2="30" y2="140" class="chalk-pink"/>
+            <text x="-22" y="80" text-anchor="end" class="clabel" fill="var(--chalk-pink)" font-weight="700">~AC</text>
+          </g>
+
+          <!-- Secondary coil -->
+          <g transform="translate(370,50)">
+            <text x="60" y="-10" text-anchor="middle" class="clabel" font-weight="700">secondary · Nₛ</text>
+            <g class="chalk-blue">
+              <path d="M30 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M48 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M66 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M84 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M102 20 q-18 28 0 56 q18 28 0 56"/>
+              <path d="M120 20 q-18 28 0 56 q18 28 0 56"/>
+            </g>
+            <line x1="130" y1="14"  x2="160" y2="20"  class="chalk-blue"/>
+            <line x1="130" y1="146" x2="160" y2="140" class="chalk-blue"/>
+            <text x="172" y="80" class="clabel" fill="var(--chalk-blue)" font-weight="700">⚡out</text>
+          </g>
+
+          <!-- Annotations -->
+          <g class="chalk-yel" stroke-dasharray="3 3">
+            <path d="M165 80 q-30 -45 -8 -60" marker-end="url(#yarr)"/>
+            <path d="M395 80 q30 -45 8 -60" marker-end="url(#yarr)"/>
+          </g>
+          <defs>
+            <marker id="yarr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" orient="auto">
+              <path d="M0,0 L10,5 L0,10 z" fill="var(--chalk-yellow)"/>
+            </marker>
+          </defs>
+          <text x="120" y="18" text-anchor="end"   class="clabel-acc" font-size="11">4 turns</text>
+          <text x="445" y="18"                    class="clabel-acc" font-size="11">6 turns</text>
+        </svg>
+      </div>
+
+      <div class="slate-eq">
+        <span class="num">EQ 2</span>
+        <div class="formula">
+          <span class="b">V<sub>s</sub></span>
+          &nbsp;⁄&nbsp;
+          <span class="p">V<sub>p</sub></span>
+          &nbsp;=&nbsp;
+          <span class="b">N<sub>s</sub></span>
+          &nbsp;⁄&nbsp;
+          <span class="p">N<sub>p</sub></span>
+          <span class="caret"></span>
+        </div>
+      </div>
+
+      <p class="slate-narration">
+        Both coils feel the <em>same</em> changing flux <b>Φ(t)</b>. Faraday tells us each turn picks up the same EMF —
+        so a coil with <mark>more turns</mark> stacks more voltage. The ratio of voltages just equals the ratio of turns.
+      </p>
+
+      <div class="slate-callout">
+        <span class="lbl">⚡ key insight</span>
+        Voltage doesn't <em>care</em> about wire thickness, current, or how heavy the brick feels.
+        It cares only about <b>turns</b> and the <b>rate</b> of flux change.
+      </div>
+    </div>
+
+    <div class="slate-foot">
+      <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+        <span class="voice-bars"><span></span><span></span><span></span><span></span><span></span></span>
+        <span style="font: 700 10px 'JetBrains Mono', monospace; color: var(--slate-faint); letter-spacing: .12em">EULER · LIVE</span>
+      </div>
+      <p class="transcript">
+        "…so each turn of the secondary stacks one more dose of voltage on top.
+        <em>That's why a hundred turns is twenty volts, not twenty thousand — the ratio is what carries through.</em>"
+      </p>
+    </div>
+  </section>
+
+  <!-- ── Splitter ── -->
+  <div class="splitter"></div>
+
+  <!-- ════════════════════════════════════════════
+       RIGHT — Your scratchpad (your hand, your mess)
+       ════════════════════════════════════════════ -->
+  <section class="right">
+    <div class="side-head">
+      <span class="who"><span class="dot"></span>You · scratching</span>
+      <span class="meta"><b>0:48</b> · 4 notes</span>
+      <div class="side-tools">
+        <button class="stool active" title="Pen">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 19l7-7 3 3-7 7-3-3z"/></svg>
+        </button>
+        <button class="stool" title="Highlighter">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 2l6 6-12 12-6-6L16 2zM2 22l4-2"/></svg>
+        </button>
+        <button class="stool" title="Sticky">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h-9a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-9z"/><polyline points="14 3 14 10 21 10"/></svg>
+        </button>
+        <button class="stool" title="Eraser">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 13h18M5 21h14M7 13l5-5 8 8-5 5z"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="my-pad">
+      <p class="pad-date">Mon May 4 · transformers</p>
+
+      <p class="my-note h1">Transformers — what to remember</p>
+
+      <p class="my-note body"><span class="arrow">→</span>The rate of Φ change is the <span class="em">whole game</span> (Faraday).</p>
+      <p class="my-note body"><span class="arrow">→</span>Both coils share the same flux.</p>
+
+      <!-- Imported from Euler's side -->
+      <div class="imported">
+        <div class="src"></div>
+        <div class="body">
+          <span class="src-tag">⤵ dragged from Euler · 0:51</span>
+          <div class="eqn">
+            <span class="acc">V<sub>s</sub></span>/V<sub>p</sub> = N<sub>s</sub>/N<sub>p</sub>
+          </div>
+        </div>
+      </div>
+
+      <p class="my-note h2">My attempt at turns ratio:</p>
+      <p class="my-note body">First guess (wrong) →</p>
+      <p class="my-eq"><span class="wrong">V<sub class="sub">s</sub> = V<sub class="sub">p</sub></span> (both coils same flux??)</p>
+      <p class="my-note body">…then I realized:</p>
+      <p class="my-eq">each turn = same EMF, so <span class="ans">N<sub class="sub">s</sub>/N<sub class="sub">p</sub> · V<sub class="sub">p</sub></span></p>
+
+      <!-- Your sticky -->
+      <div class="my-sticky">
+        <span class="src">my note · 1:00</span>
+        the heavy brick on my charger = a tiny transformer ⚡
+      </div>
+
+      <p class="my-note h2">Worked example — my laptop:</p>
+      <p class="my-eq">120 V → 20 V  ⇒  ratio = <span class="ans">1/6</span></p>
+      <p class="my-eq">if N<sub class="sub">p</sub> = 600 → N<sub class="sub">s</sub> = <span class="ans">100</span> <span class="check">✓</span></p>
+
+      <!-- Doodle -->
+      <div class="my-doodle">
+        <svg viewBox="0 0 280 110">
+          <rect x="100" y="22" width="80" height="66" rx="2" stroke="var(--your-color)" stroke-width="2" fill="none" stroke-dasharray="2 3"/>
+          <text x="140" y="58" text-anchor="middle" fill="var(--your-color)" font-family="Caveat" font-size="14" font-weight="600">iron</text>
+          <g stroke="var(--your-color)" stroke-width="1.8" fill="none" stroke-linecap="round">
+            <path d="M80 28 q-10 16 0 32 q10 16 0 32"/>
+            <path d="M90 28 q-10 16 0 32 q10 16 0 32"/>
+          </g>
+          <text x="62" y="62" text-anchor="end" fill="var(--your-color)" font-family="Caveat" font-size="13">600</text>
+          <g stroke="var(--your-color)" stroke-width="1.8" fill="none" stroke-linecap="round">
+            <path d="M190 28 q-10 16 0 32 q10 16 0 32"/>
+          </g>
+          <text x="216" y="62" fill="var(--your-color)" font-family="Caveat" font-size="13">100 turns</text>
+          <path d="M115 60 q25 -10 50 0" stroke="var(--accent)" stroke-width="2" stroke-dasharray="3 2" fill="none"/>
+        </svg>
+        <div class="cap">my redraw of the charger</div>
+      </div>
+
+      <p class="my-note h2">
+        Still confused — ask Euler:
+        <button class="ask-euler">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+          ask
+        </button>
+      </p>
+      <p class="my-note body" style="margin-left: 22px"><span class="arrow">?</span>If both coils share Φ, why doesn't the secondary <span class="em">push back</span> on the primary?</p>
+      <p class="my-note body" style="margin-left: 22px"><span class="arrow">?</span>What's the efficiency in a real charger — where does the lost power go?</p>
+
+    </div>
+  </section>
+</div>
+
+<!-- ── Floating ask bar ── -->
+<div class="ask-bar">
+  <span class="ask-mic">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+  </span>
+  <textarea class="ask-input" rows="1" placeholder="Ask Euler, or scratch a note on your side…"></textarea>
+  <div class="ask-meta">
+    <span>writes to →</span>
+    <span class="which-side">
+      <button>Euler's side</button>
+      <button class="on">My side</button>
+      <button>Both</button>
+    </span>
+    <span>· ↩ <b>add</b></span>
+    <span>· ⌥M <b>speak</b></span>
+    <div class="ask-actions">
+      <button class="ask-quick">Got it</button>
+      <button class="ask-quick">Show me</button>
+      <button class="ask-quick primary">Ask →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function applyInitialMode() {
+    const html = document.documentElement;
+    const hash = (location.hash || '').toLowerCase().replace('#', '');
+    if (hash === 'dark' || hash === 'light') html.dataset.mode = hash;
+    const lbl = document.getElementById('modeLabel');
+    if (lbl) lbl.textContent = html.dataset.mode === 'dark' ? 'Dark' : 'Light';
+  })();
+
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+    history.replaceState(null, '', '#' + next);
+  }
+
+  // Tool active toggles
+  document.querySelectorAll('.side-tools').forEach(group => {
+    group.querySelectorAll('.stool').forEach(t => {
+      t.addEventListener('click', () => {
+        group.querySelectorAll('.stool').forEach(x => x.classList.remove('active'));
+        t.classList.add('active');
+      });
+    });
+  });
+
+  // Splitter
+  (function() {
+    const splitter = document.querySelector('.splitter');
+    const stage = document.querySelector('.stage');
+    if (!splitter || !stage) return;
+    let dragging = false;
+    splitter.addEventListener('mousedown', () => { dragging = true; document.body.style.userSelect = 'none'; });
+    window.addEventListener('mouseup',   () => { dragging = false; document.body.style.userSelect = ''; });
+    window.addEventListener('mousemove', (e) => {
+      if (!dragging) return;
+      if (window.innerWidth < 980) return;
+      const px = e.clientX;
+      const left = Math.max(280, Math.min(window.innerWidth - 280, px));
+      const right = window.innerWidth - left - 12;
+      stage.style.gridTemplateColumns = `${left}px 12px ${right}px`;
+    });
+  })();
+
+  // Which-side toggle
+  document.querySelectorAll('.which-side button').forEach(b => {
+    b.addEventListener('click', () => {
+      b.parentElement.querySelectorAll('button').forEach(x => x.classList.remove('on'));
+      b.classList.add('on');
+    });
+  });
+</script>
+</body>
+</html>

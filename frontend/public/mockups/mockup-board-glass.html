@@ -1,0 +1,557 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Glass Ambient</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+  :root[data-mode="dark"] {
+    --base-1:  #0a0d1f;
+    --base-2:  #0f1330;
+    --aurora-a: 168, 100, 255;     /* violet */
+    --aurora-b:  84, 200, 255;     /* cyan */
+    --aurora-c: 255, 130, 180;     /* rose */
+    --glass:        rgba(255,255,255,0.04);
+    --glass-strong: rgba(255,255,255,0.07);
+    --glass-edge:   rgba(255,255,255,0.10);
+    --glass-edge-strong: rgba(255,255,255,0.18);
+    --ink:        #f3f1ff;
+    --ink-soft:   rgba(243,241,255,0.65);
+    --ink-faint:  rgba(243,241,255,0.40);
+    --accent-1: #a78bfa;     /* lavender */
+    --accent-2: #67e8f9;     /* cyan */
+    --accent-3: #f472b6;     /* pink */
+    --good:     #34d399;
+  }
+  :root[data-mode="light"] {
+    --base-1:  #f5f3ff;
+    --base-2:  #eef2ff;
+    --aurora-a: 168, 100, 255;
+    --aurora-b:  60, 170, 240;
+    --aurora-c: 255, 110, 160;
+    --glass:        rgba(255,255,255,0.55);
+    --glass-strong: rgba(255,255,255,0.70);
+    --glass-edge:   rgba(50,40,90,0.10);
+    --glass-edge-strong: rgba(50,40,90,0.16);
+    --ink:        #1a153a;
+    --ink-soft:   rgba(26,21,58,0.70);
+    --ink-faint:  rgba(26,21,58,0.45);
+    --accent-1: #7c3aed;
+    --accent-2: #0891b2;
+    --accent-3: #db2777;
+    --good:     #059669;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--base-1);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    transition: background .4s ease, color .4s ease;
+  }
+
+  /* ─── Gradient mesh background — "the room" ───────────────────── */
+  .room {
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(60% 50% at 18% 28%, rgba(var(--aurora-a),.45), transparent 70%),
+      radial-gradient(55% 50% at 78% 22%, rgba(var(--aurora-b),.40), transparent 70%),
+      radial-gradient(60% 60% at 50% 90%, rgba(var(--aurora-c),.35), transparent 70%),
+      radial-gradient(80% 80% at 50% 50%, var(--base-2), var(--base-1));
+    transition: background .4s ease;
+    overflow: hidden;
+  }
+  /* Soft blur film over the mesh */
+  .room::after {
+    content:""; position: absolute; inset: 0;
+    backdrop-filter: blur(40px);
+    -webkit-backdrop-filter: blur(40px);
+    background: linear-gradient(180deg, rgba(0,0,0,.05), rgba(0,0,0,.20));
+  }
+  :root[data-mode="light"] .room::after {
+    background: linear-gradient(180deg, rgba(255,255,255,.40), rgba(255,255,255,.55));
+  }
+  /* Gentle drift */
+  .blob { position: absolute; border-radius: 50%; filter: blur(80px); pointer-events:none; mix-blend-mode: screen; opacity: .9; }
+  :root[data-mode="light"] .blob { mix-blend-mode: multiply; opacity: .55; }
+  .blob.a { width: 540px; height: 540px; background: rgba(var(--aurora-a),.5);  top: -10%; left: -8%;  animation: drift1 32s ease-in-out infinite; }
+  .blob.b { width: 480px; height: 480px; background: rgba(var(--aurora-b),.45); top: 10%;  right:-6%;  animation: drift2 38s ease-in-out infinite; }
+  .blob.c { width: 600px; height: 600px; background: rgba(var(--aurora-c),.40); bottom:-15%; left: 20%; animation: drift3 44s ease-in-out infinite; }
+  @keyframes drift1 { 0%,100% { transform: translate(0,0) } 50% { transform: translate(60px, 40px) } }
+  @keyframes drift2 { 0%,100% { transform: translate(0,0) } 50% { transform: translate(-50px, 60px) } }
+  @keyframes drift3 { 0%,100% { transform: translate(0,0) } 50% { transform: translate(40px,-30px) } }
+
+  /* ─── Top concept-orb rail ─────────────────────────────────────── */
+  .orb-rail {
+    position: relative; z-index: 5;
+    display: flex; gap: 14px; align-items: center;
+    padding: 18px 28px;
+  }
+  .logo {
+    font-size: 19px; font-weight: 800; letter-spacing: -.01em; color: var(--ink);
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    margin-right: 4px;
+  }
+  .session-label {
+    font-size: 11px; color: var(--ink-soft); letter-spacing: .06em;
+    text-transform: uppercase; font-weight: 600;
+  }
+  .orbs {
+    display: flex; gap: 8px; align-items: center; margin-left: 18px;
+  }
+  .orb {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 7px 14px;
+    border-radius: 999px;
+    background: var(--glass);
+    border: 1px solid var(--glass-edge);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    font-size: 12px; color: var(--ink-soft); font-weight: 500;
+    cursor: pointer; transition: all .25s ease;
+  }
+  .orb::before {
+    content: ""; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--ink-faint);
+  }
+  .orb.done::before { background: var(--good); box-shadow: 0 0 8px rgba(52,211,153,.7); }
+  .orb.active {
+    background: var(--glass-strong);
+    border-color: var(--glass-edge-strong);
+    color: var(--ink);
+    box-shadow: 0 0 0 4px rgba(167, 139, 250, .12), 0 0 30px rgba(167,139,250,.35);
+  }
+  .orb.active::before {
+    background: var(--accent-1);
+    animation: orbPulse 1.6s ease-in-out infinite;
+    box-shadow: 0 0 14px var(--accent-1);
+  }
+  @keyframes orbPulse { 0%,100% { transform:scale(1); opacity:1 } 50% { transform:scale(1.5); opacity:.6 } }
+  .meta-right {
+    margin-left: auto;
+    display: flex; gap: 12px; align-items: center;
+    font-size: 12px; color: var(--ink-soft); font-weight: 500;
+  }
+  .toggle {
+    display: inline-flex; gap: 8px; align-items: center;
+    padding: 7px 14px; border-radius: 999px;
+    background: var(--glass); border: 1px solid var(--glass-edge);
+    backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px);
+    cursor: pointer; color: var(--ink); font: inherit; font-size: 12px;
+  }
+  .toggle:hover { background: var(--glass-strong); }
+  .toggle svg { width: 14px; height: 14px; }
+
+  /* ─── Main floating board (the diagram lives here) ─────────────── */
+  .stage {
+    position: fixed; left: 50%; top: 50%; transform: translate(-50%,-52%);
+    width: min(880px, 70vw); aspect-ratio: 16/9;
+    z-index: 6;
+  }
+  .board {
+    position: relative;
+    width: 100%; height: 100%;
+    border-radius: 28px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-edge-strong);
+    backdrop-filter: blur(28px) saturate(1.2);
+    -webkit-backdrop-filter: blur(28px) saturate(1.2);
+    box-shadow:
+      0 30px 80px rgba(0,0,0,.45),
+      inset 0 1px 0 rgba(255,255,255,.10);
+    overflow: hidden;
+    padding: 36px 48px;
+    transition: all .35s ease;
+  }
+  :root[data-mode="light"] .board {
+    box-shadow: 0 30px 80px rgba(20, 20, 80, .15), inset 0 1px 0 rgba(255,255,255,.6);
+  }
+  .board::before {
+    content:""; position: absolute; inset: -2px; border-radius: 30px;
+    background: linear-gradient(135deg, rgba(var(--aurora-a),.4), rgba(var(--aurora-b),.4), rgba(var(--aurora-c),.3));
+    opacity: .35;
+    z-index: -1;
+    filter: blur(18px);
+    animation: haloPulse 6s ease-in-out infinite;
+  }
+  @keyframes haloPulse { 0%,100% { opacity: .25 } 50% { opacity: .5 } }
+
+  .board-eyebrow {
+    display: flex; gap: 10px; align-items: center;
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-soft); font-weight: 700;
+    margin-bottom: 4px;
+  }
+  .board-eyebrow .acc {
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-3));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .board-title {
+    font-size: 22px; font-weight: 700; letter-spacing: -.01em; color: var(--ink);
+    margin: 0 0 18px;
+  }
+  .board-canvas { width: 100%; height: calc(100% - 90px); display: block; }
+
+  /* SVG primitives */
+  .g-stroke { stroke: var(--ink); stroke-width: 1.4; fill: none; }
+  .g-stroke-soft { stroke: var(--ink-soft); stroke-width: 1; fill: none; }
+  .g-fill-glass { fill: rgba(255,255,255,.05); stroke: var(--ink-faint); }
+  .g-label { fill: var(--ink); font: 500 13px 'Inter', sans-serif; }
+  .g-label-soft { fill: var(--ink-soft); font: 400 12px 'Inter', sans-serif; }
+
+  /* Glow filters defined inline below */
+
+  /* ─── Side stack: prior beats (left), notes (right) ─── */
+  .side-stack {
+    position: fixed; top: 90px; bottom: 200px;
+    width: 220px;
+    display: flex; flex-direction: column; gap: 12px;
+    padding: 8px;
+    z-index: 5;
+    overflow-y: auto;
+  }
+  .side-stack.left { left: 22px; }
+  .side-stack.right { right: 22px; }
+  .glass-card {
+    background: var(--glass);
+    border: 1px solid var(--glass-edge);
+    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+    border-radius: 14px;
+    padding: 12px 14px;
+    color: var(--ink-soft);
+    font-size: 12px; line-height: 1.45;
+    transition: all .25s ease;
+    cursor: pointer;
+  }
+  .glass-card:hover { background: var(--glass-strong); border-color: var(--glass-edge-strong); transform: translateY(-1px); }
+  .glass-card b { display: block; color: var(--ink); font-size: 12px; margin-bottom: 4px; font-weight: 600; }
+  .glass-card .tiny-svg { display: block; margin-bottom: 6px; }
+  .glass-card.beat::before {
+    content: ""; display: inline-block; width: 4px; height: 4px; border-radius: 50%;
+    background: var(--accent-2); margin-right: 6px;
+    box-shadow: 0 0 6px var(--accent-2);
+  }
+
+  .side-title {
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700;
+    padding: 4px 10px;
+  }
+
+  /* ─── Voice "aurora ribbon" at the bottom ──────────────────────── */
+  .voice-shell {
+    position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%);
+    width: min(720px, calc(100vw - 60px));
+    z-index: 20;
+  }
+  .aurora-frame {
+    position: relative;
+    border-radius: 24px;
+    background: var(--glass-strong);
+    border: 1px solid var(--glass-edge-strong);
+    backdrop-filter: blur(24px) saturate(1.3);
+    -webkit-backdrop-filter: blur(24px) saturate(1.3);
+    padding: 14px 20px 14px 64px;
+    box-shadow: 0 16px 48px rgba(0,0,0,.40), inset 0 1px 0 rgba(255,255,255,.10);
+  }
+  /* The breathing aurora ring around the input */
+  .aurora-frame::before {
+    content:""; position: absolute; inset: -2px; border-radius: 26px;
+    background: conic-gradient(
+      from 0deg,
+      rgba(var(--aurora-a), .8),
+      rgba(var(--aurora-b), .8),
+      rgba(var(--aurora-c), .8),
+      rgba(var(--aurora-a), .8)
+    );
+    z-index: -1;
+    filter: blur(12px);
+    opacity: .65;
+    animation: spin 18s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .voice-pulse {
+    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px; border-radius: 50%;
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-3));
+    display: flex; align-items: center; justify-content: center;
+    color: #fff;
+    box-shadow: 0 0 20px rgba(167,139,250,.6);
+    animation: pulse 2.4s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100% { transform: translateY(-50%) scale(1); } 50% { transform: translateY(-50%) scale(1.06); box-shadow: 0 0 28px rgba(167,139,250,.85); } }
+  .voice-pulse svg { width: 16px; height: 16px; }
+
+  .voice-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--ink); font-size: 15px; font-family: inherit;
+    resize: none;
+  }
+  .voice-input::placeholder { color: var(--ink-faint); }
+  .voice-meta {
+    display: flex; gap: 12px; align-items: center; margin-top: 6px;
+    font-size: 11px; color: var(--ink-faint);
+  }
+  .voice-meta b { color: var(--ink-soft); font-weight: 600; }
+  .voice-meta .send {
+    margin-left: auto;
+    background: linear-gradient(135deg, var(--accent-1), var(--accent-2));
+    border: 0; color: #0d0a26; font-weight: 700;
+    padding: 6px 14px; border-radius: 999px; font-size: 11px;
+    cursor: pointer; letter-spacing: .04em;
+  }
+
+  /* The "aurora" waveform — animated SVG ribbon */
+  .aurora-ribbon {
+    position: absolute; left: 60px; right: 12px; top: 50%; transform: translateY(-50%);
+    height: 22px; pointer-events: none;
+    opacity: .55;
+  }
+  .aurora-ribbon path { fill: none; stroke-width: 1.3; stroke-linecap: round; }
+  .aurora-ribbon .a { stroke: var(--accent-1); animation: ribbon 4s ease-in-out infinite alternate; }
+  .aurora-ribbon .b { stroke: var(--accent-2); animation: ribbon 5.5s ease-in-out infinite alternate-reverse; }
+  .aurora-ribbon .c { stroke: var(--accent-3); animation: ribbon 7s ease-in-out infinite alternate; }
+  @keyframes ribbon {
+    0% { transform: translateY(0) scaleY(1); }
+    100% { transform: translateY(-3px) scaleY(1.4); }
+  }
+
+  /* ─── Bottom progress arc — current beat ──────────────────────── */
+  .progress-arc {
+    position: fixed; left: 50%; bottom: 158px; transform: translateX(-50%);
+    font-size: 11px; letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 600;
+    z-index: 6;
+    display: flex; gap: 12px; align-items: center;
+  }
+  .progress-arc .dot {
+    width: 5px; height: 5px; border-radius: 50%; background: var(--ink-faint);
+  }
+  .progress-arc .dot.on { background: var(--accent-2); box-shadow: 0 0 8px var(--accent-2); }
+
+  /* ─── Layout helpers ──────────────────────────────────────────── */
+  @media (max-width: 1280px) {
+    .side-stack { display: none; }
+    .stage { width: 86vw; }
+  }
+</style>
+</head>
+<body>
+
+<div class="room">
+  <span class="blob a"></span>
+  <span class="blob b"></span>
+  <span class="blob c"></span>
+</div>
+
+<!-- ── Top orb rail ── -->
+<div class="orb-rail">
+  <div class="logo">Euler</div>
+  <span class="session-label">Electromagnetism · transformer</span>
+  <div class="orbs">
+    <span class="orb done">Field</span>
+    <span class="orb done">Flux</span>
+    <span class="orb active">Faraday's law</span>
+    <span class="orb">Geometry</span>
+    <span class="orb">Turns ratio</span>
+  </div>
+  <div class="meta-right">
+    <span>0:38 · 4 / 7</span>
+    <button class="toggle" id="modeToggle" onclick="toggleMode()">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+      <span id="modeLabel">Dark</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Left side: prior beats ── -->
+<div class="side-stack left">
+  <div class="side-title">Prior beats</div>
+  <div class="glass-card beat">
+    <svg class="tiny-svg" viewBox="0 0 100 30" width="100%" height="30">
+      <ellipse cx="20" cy="15" rx="14" ry="6" stroke="currentColor" fill="none" opacity=".5"/>
+      <rect x="14" y="9" width="12" height="12" rx="1" fill="currentColor" opacity=".4"/>
+      <text x="50" y="20" fill="currentColor" font-family="Inter" font-size="10" opacity=".6">meter: 0</text>
+    </svg>
+    <b>Magnet at rest</b>
+    No flux change → no EMF.
+  </div>
+  <div class="glass-card beat">
+    <svg class="tiny-svg" viewBox="0 0 100 30" width="100%" height="30">
+      <ellipse cx="60" cy="15" rx="14" ry="6" stroke="currentColor" fill="none" opacity=".5"/>
+      <rect x="20" y="9" width="12" height="12" rx="1" fill="#f472b6" opacity=".9"/>
+      <path d="M34 15 l16 0" stroke="#f472b6" stroke-width="1.5" stroke-dasharray="2 2"/>
+      <text x="76" y="20" fill="#f472b6" font-family="Inter" font-size="10" font-weight="700">⚡ 1.4 V</text>
+    </svg>
+    <b>Magnet moving</b>
+    Flux changes — voltage appears.
+  </div>
+  <div class="glass-card beat">
+    <b>Faraday's rule</b>
+    EMF = − dΦ / dt
+  </div>
+  <div class="glass-card beat" style="border-color: var(--accent-1); background: var(--glass-strong);">
+    <b style="color: var(--accent-1)">▸ Two coils, one core</b>
+    Primary AC threads secondary.
+  </div>
+</div>
+
+<!-- ── Right side: notes & definitions ── -->
+<div class="side-stack right">
+  <div class="side-title">Your notes</div>
+  <div class="glass-card">
+    <b style="color: var(--accent-2)">flux Φ</b>
+    Field × area through a loop. More turns of wire → more "loops" sharing the same flux.
+  </div>
+  <div class="glass-card">
+    <b style="color: var(--accent-3)">Why AC?</b>
+    Direct current would build a steady field — no <i>change</i>, so no induced EMF on the secondary.
+  </div>
+  <div class="glass-card" style="border-style: dashed; opacity:.7">
+    <b>your scribble</b>
+    "the rate of change is the whole game" ✦
+  </div>
+  <div class="side-title" style="margin-top:8px">Pinned</div>
+  <div class="glass-card">
+    <b>📌 Eq. 2 · Turns ratio</b>
+    Vₛ / Vₚ = Nₛ / Nₚ
+  </div>
+</div>
+
+<!-- ── Center stage: the live diagram ── -->
+<div class="stage">
+  <div class="board">
+    <div class="board-eyebrow">
+      <span class="acc">Beat 4</span>
+      <span>·</span>
+      <span>Two coils, one core</span>
+    </div>
+    <h2 class="board-title">A transformer is two coils sharing the same magnetic flux.</h2>
+    <svg class="board-canvas" viewBox="0 0 720 320">
+      <defs>
+        <filter id="softGlow" x="-50%" y="-50%" width="200%" height="200%">
+          <feGaussianBlur stdDeviation="3" result="b"/>
+          <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+        </filter>
+        <linearGradient id="primaryG" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="var(--accent-1)" stop-opacity="1"/>
+          <stop offset="1" stop-color="var(--accent-1)" stop-opacity=".5"/>
+        </linearGradient>
+        <linearGradient id="secondaryG" x1="0" x2="0" y1="0" y2="1">
+          <stop offset="0" stop-color="var(--accent-2)" stop-opacity="1"/>
+          <stop offset="1" stop-color="var(--accent-2)" stop-opacity=".5"/>
+        </linearGradient>
+        <linearGradient id="fluxG" x1="0" x2="1" y1="0" y2="0">
+          <stop offset="0" stop-color="var(--accent-3)" stop-opacity="0"/>
+          <stop offset=".5" stop-color="var(--accent-3)" stop-opacity="1"/>
+          <stop offset="1" stop-color="var(--accent-3)" stop-opacity="0"/>
+        </linearGradient>
+      </defs>
+
+      <!-- iron core: rounded rectangle frame -->
+      <g filter="url(#softGlow)">
+        <path d="M250 70 h220 v180 h-220 v-30 h190 v-120 h-190 z"
+              stroke="var(--ink-soft)" stroke-width="3.5" fill="rgba(255,255,255,.04)" stroke-linejoin="round"/>
+      </g>
+      <!-- core texture ticks -->
+      <g stroke="var(--ink-faint)" stroke-width="0.6">
+        <line x1="270" y1="90"  x2="450" y2="160"/>
+        <line x1="270" y1="105" x2="450" y2="175"/>
+        <line x1="270" y1="225" x2="450" y2="155"/>
+        <line x1="270" y1="240" x2="450" y2="170"/>
+      </g>
+      <text x="360" y="160" text-anchor="middle" class="g-label-soft" font-style="italic">iron core</text>
+
+      <!-- flux ribbon (animated) -->
+      <path d="M240 160 q120 -28 240 0" stroke="url(#fluxG)" stroke-width="6" fill="none" opacity=".7">
+        <animate attributeName="d" dur="2.4s" repeatCount="indefinite"
+          values="M240 160 q120 -28 240 0; M240 160 q120 28 240 0; M240 160 q120 -28 240 0"/>
+      </path>
+      <text x="360" y="138" text-anchor="middle" class="g-label" fill="var(--accent-3)" font-style="italic">Φ(t)</text>
+
+      <!-- primary coil (left) -->
+      <g transform="translate(150,70)">
+        <text x="60" y="-8" text-anchor="middle" class="g-label" font-weight="700" fill="var(--accent-1)">primary · Nₚ turns</text>
+        <g stroke="url(#primaryG)" stroke-width="3" fill="none" stroke-linecap="round" filter="url(#softGlow)">
+          <path d="M30 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M50 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M70 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M90 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M110 30 q-22 30 0 60 q22 30 0 60"/>
+        </g>
+        <line x1="0" y1="20"  x2="30" y2="30"  stroke="var(--accent-1)" stroke-width="2"/>
+        <line x1="0" y1="160" x2="30" y2="150" stroke="var(--accent-1)" stroke-width="2"/>
+        <text x="-20" y="50" text-anchor="end" class="g-label" fill="var(--accent-1)" font-weight="700">~ AC in</text>
+        <path d="M-20 90 q8 -8 16 0 t16 0" stroke="var(--accent-1)" stroke-width="1.6" fill="none"/>
+      </g>
+      <!-- secondary coil (right) -->
+      <g transform="translate(470,70)">
+        <text x="60" y="-8" text-anchor="middle" class="g-label" font-weight="700" fill="var(--accent-2)">secondary · Nₛ turns</text>
+        <g stroke="url(#secondaryG)" stroke-width="3" fill="none" stroke-linecap="round" filter="url(#softGlow)">
+          <path d="M30 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M50 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M70 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M90 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M110 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M130 30 q-22 30 0 60 q22 30 0 60"/>
+          <path d="M150 30 q-22 30 0 60 q22 30 0 60"/>
+        </g>
+        <line x1="160" y1="20"  x2="190" y2="30"  stroke="var(--accent-2)" stroke-width="2"/>
+        <line x1="160" y1="160" x2="190" y2="150" stroke="var(--accent-2)" stroke-width="2"/>
+        <text x="210" y="50" class="g-label" fill="var(--accent-2)" font-weight="700">⚡ AC out</text>
+        <path d="M198 90 q8 -8 16 0 t16 0" stroke="var(--accent-2)" stroke-width="1.6" fill="none"/>
+      </g>
+    </svg>
+  </div>
+</div>
+
+<!-- ── Bottom progress arc ── -->
+<div class="progress-arc">
+  <span class="dot on"></span>
+  <span class="dot on"></span>
+  <span class="dot on"></span>
+  <span class="dot on"></span>
+  <span>Beat 4 · "now, two coils sharing a core"</span>
+  <span class="dot"></span>
+  <span class="dot"></span>
+  <span class="dot"></span>
+</div>
+
+<!-- ── Voice / aurora ribbon ── -->
+<div class="voice-shell">
+  <div class="aurora-frame">
+    <span class="voice-pulse">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </span>
+    <svg class="aurora-ribbon" viewBox="0 0 600 22" preserveAspectRatio="none">
+      <path class="a" d="M0 11 Q40 4 80 11 T160 11 T240 11 T320 11 T400 11 T480 11 T560 11 T600 11"/>
+      <path class="b" d="M0 11 Q30 16 60 11 T120 11 T180 11 T240 11 T300 11 T360 11 T420 11 T480 11 T540 11 T600 11"/>
+      <path class="c" d="M0 11 Q50 8 100 11 T200 11 T300 11 T400 11 T500 11 T600 11"/>
+    </svg>
+    <textarea class="voice-input" rows="1" placeholder="Ask Euler something — or wait, listen, breathe…"></textarea>
+    <div class="voice-meta">
+      <span>↩ <b>send</b></span>
+      <span>· hold ⌥M to <b>speak</b></span>
+      <span>· /pin to bookmark</span>
+      <button class="send">Ask</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'dark' ? 'light' : 'dark';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'dark' ? 'Dark' : 'Light';
+  }
+</script>
+</body>
+</html>

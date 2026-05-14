@@ -1,0 +1,527 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Whiteboard styles — Euler</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&display=swap" rel="stylesheet">
+<style>
+  :root[data-mode="light"] {
+    --bg:           #f1efe8;
+    --chrome:       #ffffff;
+    --chrome-edge:  #e0ddd2;
+    --ink:          #1a2030;
+    --ink-soft:     #4a5568;
+    --ink-faint:    #94a3b8;
+    --tile-bg:      #ffffff;
+    --tile-edge:    #d1cfc4;
+    --accent:       #f59e0b;
+    --student:      #0891b2;
+    --good:         #16a34a;
+    --shadow:       rgba(20, 30, 60, .08);
+    --shadow-strong: rgba(20, 30, 60, .2);
+  }
+  :root[data-mode="dark"] {
+    --bg:           #0a0d12;
+    --chrome:       #14181f;
+    --chrome-edge:  #2a2f3a;
+    --ink:          #f3f4f6;
+    --ink-soft:     #cbd5e1;
+    --ink-faint:    #64748b;
+    --tile-bg:      #1c2029;
+    --tile-edge:    #3a4150;
+    --accent:       #fbbf24;
+    --student:      #5eead4;
+    --good:         #4ade80;
+    --shadow:       rgba(0, 0, 0, .55);
+    --shadow-strong: rgba(0, 0, 0, .8);
+  }
+
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; min-height: 100%; background: var(--bg); }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s, color .35s;
+  }
+
+  /* ── Topbar ── */
+  .topbar {
+    height: 56px;
+    display: flex; align-items: center; gap: 16px;
+    padding: 0 22px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-edge);
+    position: sticky; top: 0; z-index: 30;
+  }
+  .brand { font-weight: 800; font-size: 18px; letter-spacing: -.01em; }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--student), var(--accent));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb { font: 500 12px 'Inter'; color: var(--ink-soft); }
+  .crumb b { color: var(--ink); }
+  .spacer { flex: 1; }
+  .tab-group {
+    display: inline-flex;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 9px; overflow: hidden;
+  }
+  .tab-group button {
+    padding: 7px 12px;
+    background: transparent; border: 0;
+    font: 600 11px 'Inter';
+    color: var(--ink-soft); cursor: pointer;
+  }
+  .tab-group button.on { background: var(--ink); color: var(--bg); }
+  .tab-group button:hover:not(.on) { background: var(--bg); }
+  .top-btn {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 7px 11px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 8px; cursor: pointer;
+    color: var(--ink); font: 600 11px 'Inter';
+  }
+  .top-btn:hover { background: var(--bg); }
+  .top-btn svg { width: 13px; height: 13px; }
+
+  /* ── Header ── */
+  .header {
+    padding: 32px 28px 14px;
+    max-width: 1480px; margin: 0 auto;
+  }
+  .header h1 {
+    font-family: 'Fraunces', serif; font-weight: 600;
+    font-size: 34px; line-height: 1.1; margin: 0 0 6px;
+    letter-spacing: -.015em;
+  }
+  .header h1 em { color: var(--accent); font-style: italic; }
+  .header p {
+    font: 400 15px 'Inter';
+    color: var(--ink-soft); line-height: 1.5;
+    max-width: 720px; margin: 0;
+  }
+  .header .props-row {
+    margin-top: 12px;
+    display: flex; flex-wrap: wrap; gap: 6px;
+  }
+  .header .pp {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 4px 10px;
+    background: var(--chrome); border: 1px solid var(--chrome-edge);
+    border-radius: 999px;
+    font: 600 11px 'Inter'; color: var(--ink-soft);
+  }
+  .header .pp b { color: var(--ink); }
+  .header .pp::before { content: ""; width: 6px; height: 6px; border-radius: 50%; background: var(--good); }
+
+  /* ── Grid ── */
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 22px;
+    padding: 14px 28px 60px;
+    max-width: 1480px; margin: 0 auto;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+
+  .tile {
+    background: var(--tile-bg);
+    border: 1px solid var(--tile-edge);
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 6px 18px var(--shadow);
+    display: flex; flex-direction: column;
+    transition: transform .15s ease, box-shadow .15s ease, border-color .15s ease;
+  }
+  .tile:hover {
+    transform: translateY(-3px);
+    box-shadow: 0 14px 32px var(--shadow-strong);
+    border-color: var(--ink-faint);
+  }
+
+  .tile-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px;
+    border-bottom: 1px solid var(--tile-edge);
+  }
+  .tile-head .num {
+    width: 28px; height: 28px;
+    border-radius: 8px;
+    background: var(--ink); color: var(--bg);
+    display: flex; align-items: center; justify-content: center;
+    font: 800 13px 'JetBrains Mono';
+  }
+  .tile-head .name {
+    font-family: 'Fraunces', serif;
+    font-weight: 600;
+    font-size: 18px;
+    color: var(--ink); letter-spacing: -.005em;
+  }
+  .tile-head .name small {
+    display: block;
+    font-family: 'Inter';
+    font: 500 11px 'Inter';
+    color: var(--ink-faint);
+    margin-top: 1px;
+  }
+  .tile-head-actions { margin-left: auto; display: flex; gap: 4px; }
+  .tile-mini-btn {
+    padding: 5px 10px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 6px; cursor: pointer;
+    color: var(--ink-soft); font: 600 10px 'Inter';
+  }
+  .tile-mini-btn:hover { background: var(--bg); color: var(--ink); }
+  .tile-mini-btn.primary {
+    background: var(--ink); color: var(--bg); border-color: var(--ink);
+  }
+  .tile-mini-btn svg { width: 10px; height: 10px; vertical-align: -1px; margin-right: 3px; }
+
+  .tile-frame {
+    position: relative;
+    aspect-ratio: 16 / 10;
+    background: var(--bg);
+    overflow: hidden;
+  }
+  .tile-frame iframe {
+    position: absolute; left: 0; top: 0;
+    width: calc(100% * (1 / .52));
+    height: calc(100% * (1 / .52));
+    transform: scale(.52);
+    transform-origin: top left;
+    border: 0;
+    pointer-events: none;
+  }
+  .tile-frame.interactive iframe { pointer-events: auto; }
+
+  .tile-foot {
+    padding: 12px 18px 14px;
+    border-top: 1px solid var(--tile-edge);
+  }
+  .tile-foot .blurb {
+    font: 400 13px 'Inter';
+    color: var(--ink-soft); line-height: 1.45;
+    margin: 0 0 8px;
+  }
+  .tile-foot .blurb b { color: var(--ink); font-weight: 600; }
+  .tile-foot .blurb em { color: var(--accent); font-style: italic; font-weight: 500; }
+  .tile-foot .props {
+    display: flex; flex-wrap: wrap; gap: 4px;
+  }
+  .prop {
+    padding: 2px 7px;
+    background: var(--bg);
+    border: 1px solid var(--tile-edge);
+    border-radius: 4px;
+    font: 600 10px 'JetBrains Mono';
+    color: var(--ink-soft); letter-spacing: .04em;
+  }
+  .prop.material { color: var(--ink); font-weight: 800; }
+  .prop.good { color: var(--good); border-color: rgba(22,163,74,.3); background: rgba(22,163,74,.05); }
+  .prop.acc  { color: var(--accent); border-color: rgba(245,158,11,.35); background: rgba(245,158,11,.07); }
+  .prop.student { color: var(--student); border-color: rgba(8,145,178,.35); background: rgba(8,145,178,.07); }
+
+  /* ── Fullscreen ── */
+  body.fullscreen { overflow: hidden; }
+  body.fullscreen .header,
+  body.fullscreen .grid > .tile:not(.fs),
+  body.fullscreen .grid { display: none; }
+  body.fullscreen .tile.fs {
+    display: flex;
+    position: fixed; inset: 56px 0 0 0;
+    margin: 0; border-radius: 0; border: 0;
+    z-index: 20;
+  }
+  body.fullscreen .tile.fs .tile-frame { flex: 1; aspect-ratio: auto; }
+  body.fullscreen .tile.fs .tile-frame iframe {
+    width: 100%; height: 100%;
+    transform: scale(1); pointer-events: auto;
+  }
+  body.fullscreen .tile.fs .tile-foot, body.fullscreen .tile.fs .tile-head { display: none; }
+  body.fullscreen .fullscreen-bar {
+    display: flex;
+  }
+  .fullscreen-bar { display: none; }
+  body.fullscreen .fullscreen-bar {
+    position: fixed; top: 64px; right: 16px;
+    z-index: 30;
+    gap: 6px;
+    padding: 6px 8px;
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 10px;
+    box-shadow: 0 4px 14px var(--shadow);
+  }
+  .fullscreen-bar button {
+    padding: 6px 10px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 6px; cursor: pointer;
+    font: 600 11px 'Inter'; color: var(--ink-soft);
+  }
+  .fullscreen-bar button:hover { background: var(--bg); color: var(--ink); }
+  .fullscreen-bar button.primary {
+    background: var(--ink); color: var(--bg); border-color: var(--ink);
+  }
+
+  .placeholder {
+    position: absolute; inset: 0;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--ink-faint);
+    font: 600 11px 'JetBrains Mono'; letter-spacing: .14em;
+  }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb">Mockups <b>›</b> Whiteboard styles <b>· 4</b></span>
+  <div class="spacer"></div>
+  <div class="tab-group" id="mode-toggle">
+    <button class="on" data-mode="light">Light</button>
+    <button data-mode="dark">Dark</button>
+  </div>
+  <button class="top-btn" id="interact-toggle" title="Make the previews clickable">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 11.5V5a3 3 0 1 1 6 0v6.5"/><path d="M12 22v-5"/><circle cx="12" cy="14" r="3"/></svg>
+    <span id="interactLabel">Hover-only</span>
+  </button>
+</header>
+
+<div class="fullscreen-bar">
+  <button onclick="exitFullscreen()">← Back to grid</button>
+  <button onclick="cycleMode()">Toggle mode</button>
+  <button class="primary" id="fsTitle">—</button>
+</div>
+
+<section class="header">
+  <h1>Four <em>whiteboard</em> styles, one paradigm.</h1>
+  <p>
+    All four share the same idea — a single shared canvas where Euler and you are co-authors,
+    with a tool palette, a beat timeline, pinned references, and a floating ask bar. They differ in
+    <b>material</b>, <b>spatial model</b>, and <b>where the tools live</b>. Same lesson — Faraday → transformers — rendered four ways.
+  </p>
+  <div class="props-row">
+    <span class="pp"><b>shared canvas</b></span>
+    <span class="pp"><b>visible student work</b></span>
+    <span class="pp"><b>tool palette</b></span>
+    <span class="pp"><b>beat timeline</b></span>
+    <span class="pp"><b>floating ask bar</b></span>
+    <span class="pp"><b>light + dark</b></span>
+  </div>
+</section>
+
+<div class="grid">
+
+  <!-- 1 — Studio -->
+  <article class="tile" data-key="studio" data-name="Studio · marker on matte whiteboard">
+    <div class="tile-head">
+      <span class="num">1</span>
+      <div class="name">Studio<small>marker on matte whiteboard · modern minimal</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-wb-studio.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('studio')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-wb-studio.html" loading="lazy"></iframe>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        <b>Modern + neutral.</b> A matte whiteboard with marker strokes. Left tool-rail, right beat-rail.
+        Your handwriting appears <em>on the board itself</em> in cyan, with sticky-note questions.
+      </p>
+      <div class="props">
+        <span class="prop material">matte whiteboard</span>
+        <span class="prop">marker</span>
+        <span class="prop">left rail · tools</span>
+        <span class="prop">right rail · beats</span>
+        <span class="prop student">your hand on board</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+  <!-- 2 — Slate -->
+  <article class="tile" data-key="slate" data-name="Slate · chalk on blackboard">
+    <div class="tile-head">
+      <span class="num">2</span>
+      <div class="name">Slate<small>chalk on blackboard · classroom theater</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-wb-slate.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('slate')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-wb-slate.html" loading="lazy"></iframe>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        <b>Theatrical + focused.</b> A dark slate, full-bleed. Tools are a <em>wooden chalk tray</em> at the bottom.
+        Beats run as ticks across a top progress bar. Voice waveform up top. Feels like a lecture you're inside of.
+      </p>
+      <div class="props">
+        <span class="prop material">slate + chalk</span>
+        <span class="prop">bottom tray</span>
+        <span class="prop">top progress · beats</span>
+        <span class="prop">voice waveform</span>
+        <span class="prop student">colored chalk</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+  <!-- 3 — Paper -->
+  <article class="tile" data-key="paper" data-name="Paper · ink on ruled notebook">
+    <div class="tile-head">
+      <span class="num">3</span>
+      <div class="name">Paper<small>ink on ruled notebook · personal study</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-wb-paper.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('paper')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-wb-paper.html" loading="lazy"></iframe>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        <b>Warm + personal.</b> Coil-bound notebook with ruled lines, a red margin, and bookmark tabs along the right
+        edge for beats. Tools live in a <em>pen-case</em> on the page. Your notes are real handwriting in the right column.
+      </p>
+      <div class="props">
+        <span class="prop material">ruled paper + ink</span>
+        <span class="prop">pen case · top</span>
+        <span class="prop">right tabs · beats</span>
+        <span class="prop">coil binding</span>
+        <span class="prop student">your handwriting</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+  <!-- 4 — Roll -->
+  <article class="tile" data-key="roll" data-name="Roll · time as horizontal space">
+    <div class="tile-head">
+      <span class="num">4</span>
+      <div class="name">Roll<small>time as horizontal space · cinematic scroll</small></div>
+      <div class="tile-head-actions">
+        <button class="tile-mini-btn" onclick="openTab('mockup-wb-roll.html')">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 3h7v7"/><path d="M5 5h6v2H7v10h10v-4h2v6H5z"/><path d="M21 3l-9 9"/></svg>
+          new tab
+        </button>
+        <button class="tile-mini-btn primary" onclick="enterFullscreen('roll')">Expand →</button>
+      </div>
+    </div>
+    <div class="tile-frame">
+      <div class="placeholder">loading…</div>
+      <iframe src="mockup-wb-roll.html" loading="lazy"></iframe>
+    </div>
+    <div class="tile-foot">
+      <p class="blurb">
+        <b>Cinematic + temporal.</b> Each beat is a <em>panel on a horizontal roll</em>; past beats fade left,
+        future ones ghost right, current one glows in the center. A filmstrip scrubber at the bottom lets you pause, rewind, or jump ahead.
+      </p>
+      <div class="props">
+        <span class="prop material">parchment scroll</span>
+        <span class="prop">floating tools</span>
+        <span class="prop">filmstrip · beats</span>
+        <span class="prop">play / pause / scrub</span>
+        <span class="prop student">sticky on panel</span>
+        <span class="prop acc">light + dark</span>
+      </div>
+    </div>
+  </article>
+
+</div>
+
+<script>
+  // ── Mode toggle ──
+  function setMode(mode) {
+    document.documentElement.dataset.mode = mode;
+    document.querySelectorAll('#mode-toggle button').forEach(x => {
+      x.classList.toggle('on', x.dataset.mode === mode);
+    });
+    document.querySelectorAll('.tile-frame iframe').forEach(f => {
+      try {
+        const u = new URL(f.src, location.href);
+        u.hash = mode;
+        f.src = u.toString();
+      } catch {}
+    });
+  }
+  document.querySelectorAll('#mode-toggle button').forEach(b => {
+    b.addEventListener('click', () => setMode(b.dataset.mode));
+  });
+  function cycleMode() {
+    setMode(document.documentElement.dataset.mode === 'light' ? 'dark' : 'light');
+  }
+
+  // ── Interactive toggle ──
+  const interactBtn = document.getElementById('interact-toggle');
+  const interactLbl = document.getElementById('interactLabel');
+  let interactive = false;
+  interactBtn.addEventListener('click', () => {
+    interactive = !interactive;
+    interactLbl.textContent = interactive ? 'Interactive' : 'Hover-only';
+    document.querySelectorAll('.tile-frame').forEach(f => f.classList.toggle('interactive', interactive));
+  });
+
+  // ── Fullscreen ──
+  function enterFullscreen(key) {
+    document.querySelectorAll('.tile').forEach(t => {
+      const isFs = t.dataset.key === key;
+      t.classList.toggle('fs', isFs);
+      if (isFs) {
+        t.querySelector('.tile-frame').classList.add('interactive');
+        document.getElementById('fsTitle').textContent = t.dataset.name;
+      }
+    });
+    document.body.classList.add('fullscreen');
+    history.replaceState(null, '', '#' + key);
+  }
+  function exitFullscreen() {
+    document.body.classList.remove('fullscreen');
+    document.querySelectorAll('.tile').forEach(t => t.classList.remove('fs'));
+    if (!interactive) {
+      document.querySelectorAll('.tile-frame').forEach(f => f.classList.remove('interactive'));
+    }
+    history.replaceState(null, '', ' ');
+  }
+
+  window.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && document.body.classList.contains('fullscreen')) exitFullscreen();
+  });
+
+  function openTab(file) { window.open(file, '_blank'); }
+
+  (function restore() {
+    const h = (location.hash || '').replace('#', '');
+    if (['studio', 'slate', 'paper', 'roll'].includes(h)) enterFullscreen(h);
+  })();
+
+  document.querySelectorAll('.tile-frame iframe').forEach(f => {
+    f.addEventListener('load', () => {
+      const p = f.parentElement.querySelector('.placeholder');
+      if (p) p.remove();
+    });
+  });
+</script>
+</body>
+</html>

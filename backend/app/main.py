@@ -21,7 +21,24 @@ from app.api.routes import artifacts, auth, events, sessions
 log = logging.getLogger(__name__)
 
 RENDERED_DIR = os.path.join(os.path.dirname(os.path.dirname(__file__)), "rendered")
-FRONTEND_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "frontend")
+
+# Frontend serving: prefer the built React app under frontend/dist/, fall back to
+# the legacy static frontend during the React rewrite. Set FRONTEND_DIR_OVERRIDE
+# to force a specific directory.
+_REPO_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(__file__)))
+_REACT_BUILD_DIR = os.path.join(_REPO_ROOT, "frontend", "dist")
+_LEGACY_FRONTEND_DIR = os.path.join(_REPO_ROOT, "frontend-legacy")
+_PLAIN_FRONTEND_DIR = os.path.join(_REPO_ROOT, "frontend")
+
+FRONTEND_DIR_OVERRIDE = os.environ.get("FRONTEND_DIR_OVERRIDE")
+if FRONTEND_DIR_OVERRIDE and os.path.isdir(FRONTEND_DIR_OVERRIDE):
+    FRONTEND_DIR = FRONTEND_DIR_OVERRIDE
+elif os.path.isfile(os.path.join(_REACT_BUILD_DIR, "index.html")):
+    FRONTEND_DIR = _REACT_BUILD_DIR
+elif os.path.isdir(_LEGACY_FRONTEND_DIR):
+    FRONTEND_DIR = _LEGACY_FRONTEND_DIR
+else:
+    FRONTEND_DIR = _PLAIN_FRONTEND_DIR
 
 
 @asynccontextmanager

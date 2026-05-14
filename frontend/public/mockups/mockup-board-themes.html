@@ -1,0 +1,539 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Theme Showcase</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:        #0e0f15;
+    --bg-soft:   #15171f;
+    --bg-card:   #1a1c26;
+    --rule:      rgba(255,255,255,.10);
+    --rule-strong: rgba(255,255,255,.20);
+    --ink:       #f1f3f8;
+    --ink-soft:  rgba(241,243,248,.66);
+    --ink-faint: rgba(241,243,248,.40);
+    --accent:    #5eead4;
+    --pink:      #f472b6;
+    --cyan:      #67e8f9;
+    --amber:     #fbbf24;
+    --violet:    #a78bfa;
+    --good:      #4ade80;
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    -webkit-font-smoothing: antialiased;
+    overflow: hidden;
+  }
+
+  /* ─── Top control bar ──────────────────────────────────────────── */
+  .top {
+    height: 60px;
+    display: flex; align-items: center; gap: 18px;
+    padding: 0 20px;
+    border-bottom: 1px solid var(--rule);
+    background: var(--bg-soft);
+    position: relative; z-index: 10;
+  }
+  .brand {
+    font-weight: 800; font-size: 18px; letter-spacing: -.01em;
+  }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--pink), var(--cyan));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb {
+    font-size: 11px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700;
+  }
+  .top .spacer { flex: 1; }
+
+  .seg-control {
+    display: inline-flex; align-items: stretch;
+    border: 1px solid var(--rule-strong);
+    border-radius: 10px;
+    overflow: hidden;
+    background: var(--bg);
+  }
+  .seg-control button {
+    background: transparent; border: 0;
+    padding: 8px 14px;
+    font: 600 12px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    border-right: 1px solid var(--rule);
+    letter-spacing: .04em;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .seg-control button:last-child { border-right: 0; }
+  .seg-control button:hover { background: var(--bg-card); color: var(--ink); }
+  .seg-control button.active {
+    background: var(--ink); color: var(--bg);
+  }
+  .seg-control svg { width: 13px; height: 13px; }
+
+  .layout-toggle {
+    display: inline-flex; gap: 4px;
+    background: var(--bg);
+    border: 1px solid var(--rule-strong);
+    border-radius: 10px;
+    padding: 3px;
+  }
+  .layout-toggle button {
+    background: transparent; border: 0;
+    padding: 5px 10px;
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer; border-radius: 7px;
+    display: inline-flex; align-items: center; gap: 4px;
+  }
+  .layout-toggle button.active { background: var(--bg-card); color: var(--ink); }
+  .layout-toggle svg { width: 12px; height: 12px; }
+
+  .meta-info {
+    font: 500 11px 'JetBrains Mono', monospace;
+    color: var(--ink-faint); letter-spacing: .06em;
+  }
+  .meta-info b { color: var(--accent); font-weight: 700; }
+
+  /* ─── Body ────────────────────────────────────────────────────── */
+  .body {
+    height: calc(100vh - 60px);
+    overflow: auto;
+    padding: 20px;
+    background: var(--bg);
+  }
+
+  /* GRID layout */
+  .grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    grid-template-rows: 1fr 1fr;
+    gap: 18px;
+    height: 100%;
+    min-height: 600px;
+  }
+
+  /* SOLO layout — one large preview */
+  .solo {
+    display: none;
+    height: 100%;
+  }
+  .body[data-layout="solo"] .grid { display: none; }
+  .body[data-layout="solo"] .solo { display: block; }
+
+  .tile {
+    position: relative;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 14px;
+    overflow: hidden;
+    display: flex; flex-direction: column;
+    transition: border-color .2s ease;
+  }
+  .tile:hover { border-color: var(--rule-strong); }
+
+  .tile-head {
+    flex: 0 0 auto;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--rule);
+    display: flex; align-items: center; gap: 10px;
+    background: var(--bg-soft);
+  }
+  .tile-name {
+    font-weight: 700; font-size: 14px; color: var(--ink);
+    letter-spacing: -.01em;
+  }
+  .tile-tag {
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint);
+    padding: 2px 8px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+  }
+  .tile-tag.notebook { color: #c2410c; border-color: rgba(194,65,12,.3); background: rgba(194,65,12,.08); }
+  .tile-tag.glass    { color: var(--violet); border-color: rgba(167,139,250,.3); background: rgba(167,139,250,.08); }
+  .tile-tag.editorial{ color: #f59e9e; border-color: rgba(245,158,158,.3); background: rgba(245,158,158,.08); }
+  .tile-tag.stage    { color: var(--pink); border-color: rgba(244,114,182,.3); background: rgba(244,114,182,.08); }
+
+  .tile-actions { margin-left: auto; display: flex; gap: 4px; }
+  .icon-btn {
+    background: transparent; border: 1px solid var(--rule);
+    border-radius: 8px; width: 28px; height: 28px;
+    display: inline-flex; align-items: center; justify-content: center;
+    color: var(--ink-soft); cursor: pointer; transition: all .15s ease;
+  }
+  .icon-btn:hover { background: var(--bg-card); color: var(--ink); border-color: var(--rule-strong); }
+  .icon-btn svg { width: 13px; height: 13px; }
+
+  .tile-frame {
+    flex: 1; min-height: 0;
+    position: relative;
+    background: #000;
+  }
+  .tile-frame iframe {
+    width: 100%; height: 100%;
+    border: 0;
+    display: block;
+  }
+  .tile-frame .label-overlay {
+    position: absolute; bottom: 8px; left: 8px;
+    padding: 4px 10px;
+    background: rgba(0,0,0,.65);
+    color: #fff;
+    border-radius: 6px;
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .12em;
+    pointer-events: none;
+    backdrop-filter: blur(6px);
+  }
+  .tile-frame .label-overlay b { color: var(--accent); }
+
+  /* SOLO frame */
+  .solo-tile {
+    position: relative;
+    background: #000;
+    border: 1px solid var(--rule-strong);
+    border-radius: 14px;
+    overflow: hidden;
+    height: 100%;
+  }
+  .solo-tile iframe { width: 100%; height: 100%; border: 0; display: block; }
+
+  /* ─── The brief / theme description bar ─── */
+  .brief {
+    margin: 0 0 18px;
+    padding: 14px 18px;
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+    background: var(--bg-soft);
+    display: flex; gap: 18px; align-items: stretch;
+    overflow: hidden;
+  }
+  .brief-col {
+    flex: 1; min-width: 0;
+    display: flex; flex-direction: column; gap: 4px;
+    padding-right: 18px;
+    border-right: 1px solid var(--rule);
+  }
+  .brief-col:last-child { border-right: 0; padding-right: 0; }
+  .brief-col .name {
+    font-weight: 700; font-size: 13px; color: var(--ink);
+    display: flex; gap: 8px; align-items: center;
+  }
+  .brief-col .name .swatch {
+    width: 12px; height: 12px; border-radius: 3px;
+  }
+  .brief-col .name .swatch.notebook  { background: linear-gradient(135deg, #faf6ec, #c2410c); }
+  .brief-col .name .swatch.glass     { background: linear-gradient(135deg, #a78bfa, #67e8f9); }
+  .brief-col .name .swatch.editorial { background: linear-gradient(135deg, #f5f1e8, #7e1d2c); }
+  .brief-col .name .swatch.stage     { background: linear-gradient(135deg, #f472b6, #22d3ee); }
+  .brief-col .desc { font-size: 11px; color: var(--ink-faint); line-height: 1.45; }
+
+  /* ─── The "go fullscreen" indicator on hover ─── */
+  .tile-frame::after {
+    content: "Click ⛶ to view full-size";
+    position: absolute; top: 8px; right: 10px;
+    color: var(--ink-faint);
+    font: 500 10px 'JetBrains Mono', monospace;
+    letter-spacing: .08em;
+    opacity: 0;
+    transition: opacity .2s ease;
+    pointer-events: none;
+  }
+  .tile:hover .tile-frame::after { opacity: 1; }
+
+  /* ─── Solo nav ─── */
+  .solo-bar {
+    display: flex; gap: 10px; align-items: center;
+    margin-bottom: 14px;
+    padding: 10px 14px;
+    background: var(--bg-soft);
+    border: 1px solid var(--rule);
+    border-radius: 12px;
+  }
+  .solo-tab {
+    background: transparent; border: 1px solid var(--rule);
+    border-radius: 8px; padding: 7px 14px;
+    font: 600 12px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 8px;
+    transition: all .15s ease;
+  }
+  .solo-tab:hover { background: var(--bg-card); color: var(--ink); }
+  .solo-tab.active { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .solo-tab .swatch { width: 10px; height: 10px; border-radius: 2px; }
+  .solo-tab .swatch.notebook  { background: linear-gradient(135deg, #faf6ec, #c2410c); }
+  .solo-tab .swatch.glass     { background: linear-gradient(135deg, #a78bfa, #67e8f9); }
+  .solo-tab .swatch.editorial { background: linear-gradient(135deg, #f5f1e8, #7e1d2c); }
+  .solo-tab .swatch.stage     { background: linear-gradient(135deg, #f472b6, #22d3ee); }
+
+  .solo-bar .spacer { flex: 1; }
+  .solo-bar .open-tab {
+    background: transparent; border: 1px solid var(--rule);
+    border-radius: 8px; padding: 7px 12px;
+    font: 600 11px 'Inter', sans-serif;
+    color: var(--ink-soft); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 6px;
+  }
+  .solo-bar .open-tab:hover { background: var(--bg-card); color: var(--ink); }
+  .solo-bar .open-tab svg { width: 12px; height: 12px; }
+
+  /* ─── Hint ─── */
+  .hint {
+    text-align: center;
+    margin-top: 14px;
+    font: 500 11px 'JetBrains Mono', monospace;
+    letter-spacing: .08em; color: var(--ink-faint);
+  }
+  .hint kbd {
+    background: var(--bg-card);
+    border: 1px solid var(--rule-strong);
+    border-bottom-width: 2px;
+    padding: 1px 6px;
+    border-radius: 4px;
+    font: inherit; color: var(--ink);
+  }
+</style>
+</head>
+<body>
+
+<div class="top">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb">Theme · Showcase</span>
+
+  <div class="spacer"></div>
+
+  <div class="meta-info">scenario · <b>transformer (electromagnetic induction)</b></div>
+
+  <div class="layout-toggle" id="layoutToggle">
+    <button class="active" data-layout="grid">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/></svg>
+      Grid
+    </button>
+    <button data-layout="solo">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="1"/></svg>
+      Solo
+    </button>
+  </div>
+</div>
+
+<div class="body" id="body" data-layout="grid">
+
+  <!-- Brief / theme summary -->
+  <div class="brief">
+    <div class="brief-col">
+      <div class="name"><span class="swatch notebook"></span> Studio Notebook</div>
+      <div class="desc">Single scrolling page. Sketches inset, margin scribbles, paperclip pin strip. <b>Calm, warm, paper.</b></div>
+    </div>
+    <div class="brief-col">
+      <div class="name"><span class="swatch glass"></span> Glass Ambient</div>
+      <div class="desc">Floating panels over a gradient mesh. Concept orbs, breathing aurora ribbon. <b>Modern AI.</b></div>
+    </div>
+    <div class="brief-col">
+      <div class="name"><span class="swatch editorial"></span> Editorial Spread</div>
+      <div class="desc">Two-column magazine. Drop caps, pull-quotes, marginalia. Narration becomes prose. <b>Calm reading.</b></div>
+    </div>
+    <div class="brief-col">
+      <div class="name"><span class="swatch stage"></span> Studio Stage</div>
+      <div class="desc">Big center stage, deck of prior beats, beat scrubber, live thinking column. <b>High-energy creative tool.</b></div>
+    </div>
+  </div>
+
+  <!-- ── Grid layout: 2x2 ── -->
+  <div class="grid" id="grid">
+    <div class="tile">
+      <div class="tile-head">
+        <span class="tile-name">Studio Notebook</span>
+        <span class="tile-tag notebook">Light · default</span>
+        <div class="tile-actions">
+          <button class="icon-btn" title="Toggle light/dark inside" onclick="toggleInside('frame-notebook')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+          </button>
+          <button class="icon-btn" title="Open full-size" onclick="openFull('mockup-board-studio.html')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="tile-frame">
+        <iframe id="frame-notebook" src="mockup-board-studio.html" loading="lazy"></iframe>
+        <div class="label-overlay"><b>01</b> · Notebook</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile-head">
+        <span class="tile-name">Glass Ambient</span>
+        <span class="tile-tag glass">Dark · default</span>
+        <div class="tile-actions">
+          <button class="icon-btn" title="Toggle light/dark inside" onclick="toggleInside('frame-glass')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2"/></svg>
+          </button>
+          <button class="icon-btn" title="Open full-size" onclick="openFull('mockup-board-glass.html')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="tile-frame">
+        <iframe id="frame-glass" src="mockup-board-glass.html" loading="lazy"></iframe>
+        <div class="label-overlay"><b>02</b> · Glass Ambient</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile-head">
+        <span class="tile-name">Editorial Spread</span>
+        <span class="tile-tag editorial">Light · default</span>
+        <div class="tile-actions">
+          <button class="icon-btn" title="Toggle light/dark inside" onclick="toggleInside('frame-editorial')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2"/></svg>
+          </button>
+          <button class="icon-btn" title="Open full-size" onclick="openFull('mockup-board-editorial.html')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="tile-frame">
+        <iframe id="frame-editorial" src="mockup-board-editorial.html" loading="lazy"></iframe>
+        <div class="label-overlay"><b>03</b> · Editorial</div>
+      </div>
+    </div>
+
+    <div class="tile">
+      <div class="tile-head">
+        <span class="tile-name">Studio Stage</span>
+        <span class="tile-tag stage">Dark · default</span>
+        <div class="tile-actions">
+          <button class="icon-btn" title="Toggle light/dark inside" onclick="toggleInside('frame-stage')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2"/></svg>
+          </button>
+          <button class="icon-btn" title="Open full-size" onclick="openFull('mockup-board-stage.html')">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="tile-frame">
+        <iframe id="frame-stage" src="mockup-board-stage.html" loading="lazy"></iframe>
+        <div class="label-overlay"><b>04</b> · Stage</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Solo layout ── -->
+  <div class="solo" id="solo">
+    <div class="solo-bar">
+      <button class="solo-tab active" data-src="mockup-board-studio.html">
+        <span class="swatch notebook"></span> Studio Notebook
+      </button>
+      <button class="solo-tab" data-src="mockup-board-glass.html">
+        <span class="swatch glass"></span> Glass Ambient
+      </button>
+      <button class="solo-tab" data-src="mockup-board-editorial.html">
+        <span class="swatch editorial"></span> Editorial Spread
+      </button>
+      <button class="solo-tab" data-src="mockup-board-stage.html">
+        <span class="swatch stage"></span> Studio Stage
+      </button>
+      <div class="spacer"></div>
+      <button class="open-tab" onclick="openCurrent()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><line x1="21" y1="3" x2="10" y2="14"/></svg>
+        Open in new tab
+      </button>
+    </div>
+    <div class="solo-tile" style="height: calc(100% - 64px)">
+      <iframe id="solo-frame" src="mockup-board-studio.html"></iframe>
+    </div>
+  </div>
+
+  <div class="hint">
+    Press <kbd>1</kbd>–<kbd>4</kbd> to switch themes &nbsp;·&nbsp; <kbd>G</kbd> for grid &nbsp;·&nbsp; <kbd>S</kbd> for solo
+  </div>
+</div>
+
+<script>
+  // ── Layout toggle ──
+  const body = document.getElementById('body');
+  document.querySelectorAll('#layoutToggle button').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('#layoutToggle button').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      body.dataset.layout = b.dataset.layout;
+    });
+  });
+
+  // ── Solo tabs ──
+  const soloFrame = document.getElementById('solo-frame');
+  document.querySelectorAll('.solo-tab').forEach(b => {
+    b.addEventListener('click', () => {
+      document.querySelectorAll('.solo-tab').forEach(x => x.classList.remove('active'));
+      b.classList.add('active');
+      soloFrame.src = b.dataset.src;
+    });
+  });
+
+  function openCurrent() {
+    const active = document.querySelector('.solo-tab.active');
+    if (active) window.open(active.dataset.src, '_blank');
+  }
+  function openFull(src) { window.open(src, '_blank'); }
+
+  // ── Toggle light/dark inside an iframe ──
+  function toggleInside(id) {
+    const f = document.getElementById(id);
+    if (!f || !f.contentWindow) return;
+    try {
+      const html = f.contentDocument.documentElement;
+      const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+      html.dataset.mode = next;
+      const lbl = f.contentDocument.getElementById('modeLabel');
+      if (lbl) lbl.textContent = next === 'light' ? 'Light' : 'Dark';
+    } catch (e) {
+      // cross-origin — shouldn't happen for same-origin iframes
+      console.warn('Could not toggle inside iframe', e);
+    }
+  }
+
+  // ── Keyboard shortcuts ──
+  const themes = [
+    'mockup-board-studio.html',
+    'mockup-board-glass.html',
+    'mockup-board-editorial.html',
+    'mockup-board-stage.html'
+  ];
+  document.addEventListener('keydown', (e) => {
+    if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA') return;
+    const k = e.key.toLowerCase();
+    if (k === 'g') {
+      body.dataset.layout = 'grid';
+      document.querySelectorAll('#layoutToggle button').forEach(b => b.classList.toggle('active', b.dataset.layout === 'grid'));
+    } else if (k === 's') {
+      body.dataset.layout = 'solo';
+      document.querySelectorAll('#layoutToggle button').forEach(b => b.classList.toggle('active', b.dataset.layout === 'solo'));
+    } else if (['1','2','3','4'].includes(k)) {
+      const idx = parseInt(k, 10) - 1;
+      const src = themes[idx];
+      // If solo, switch the solo frame; if grid, just bring it into focus
+      if (body.dataset.layout === 'solo') {
+        document.querySelectorAll('.solo-tab').forEach((x, i) => x.classList.toggle('active', i === idx));
+        soloFrame.src = src;
+      } else {
+        // Switch to solo and focus
+        body.dataset.layout = 'solo';
+        document.querySelectorAll('#layoutToggle button').forEach(b => b.classList.toggle('active', b.dataset.layout === 'solo'));
+        document.querySelectorAll('.solo-tab').forEach((x, i) => x.classList.toggle('active', i === idx));
+        soloFrame.src = src;
+      }
+    }
+  });
+</script>
+</body>
+</html>

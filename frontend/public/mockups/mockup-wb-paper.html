@@ -1,0 +1,756 @@
+<!doctype html>
+<html lang="en" data-mode="light">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler · Paper Notebook</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  /* ─── Paper Notebook: ink on ruled paper, coil binding ────── */
+  :root[data-mode="light"] {
+    --bg:           #d8d3c3;            /* desk-leather backdrop */
+    --paper:        #fdfaf2;
+    --paper-rule:   rgba(150, 140, 110, .35);
+    --paper-marg:   #d83a3a;            /* the red margin line */
+    --paper-edge:   #c4bea8;
+    --paper-shadow: rgba(60, 50, 30, .25);
+    --hole:         #b9b09a;            /* coil punch hole */
+    --hole-shadow:  rgba(0, 0, 0, .25);
+    --coil:         #8a7d5e;            /* coil/wire color */
+    --chrome:       #ffffff;
+    --chrome-edge:  #e3e1d8;
+    --ink:          #1a2030;
+    --ink-soft:     #4a5568;
+    --ink-faint:    #94a3b8;
+    --pen:          #1a2845;            /* primary ink */
+    --pen-blue:     #1d3a78;
+    --pen-you:      #0e5a8a;            /* student blue */
+    --pen-red:      #b8312c;
+    --pen-acc:      #b86b1d;
+    --pen-good:     #2f7d3a;
+    --highlight:    #ffeb88;
+    --shadow:       rgba(60, 50, 30, .12);
+    --shadow-strong: rgba(60, 50, 30, .25);
+  }
+  :root[data-mode="dark"] {
+    --bg:           #0c0f15;
+    --paper:        #1e2129;
+    --paper-rule:   rgba(255, 255, 255, .07);
+    --paper-marg:   #ef4444;
+    --paper-edge:   #2a2f3a;
+    --paper-shadow: rgba(0, 0, 0, .5);
+    --hole:         #0a0d12;
+    --hole-shadow:  rgba(0, 0, 0, .8);
+    --coil:         #707070;
+    --chrome:       #14181f;
+    --chrome-edge:  #2a2f3a;
+    --ink:          #f3f4f6;
+    --ink-soft:     #cbd5e1;
+    --ink-faint:    #64748b;
+    --pen:          #e2e8f0;
+    --pen-blue:     #93c5fd;
+    --pen-you:      #5eead4;
+    --pen-red:      #fca5a5;
+    --pen-acc:      #fbbf24;
+    --pen-good:     #86efac;
+    --highlight:    rgba(250, 204, 21, .22);
+    --shadow:       rgba(0, 0, 0, .5);
+    --shadow-strong: rgba(0, 0, 0, .75);
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg);
+    background-image:
+      radial-gradient(ellipse at 30% 20%, rgba(255,255,255,.04), transparent 50%),
+      radial-gradient(ellipse at 70% 80%, rgba(0,0,0,.05), transparent 50%);
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+
+  /* ─── Thin top chrome ─── */
+  .topbar {
+    height: 48px;
+    display: flex; align-items: center; gap: 12px;
+    padding: 0 18px;
+    background: var(--chrome);
+    border-bottom: 1px solid var(--chrome-edge);
+    position: relative; z-index: 30;
+  }
+  .brand { font-weight: 800; font-size: 16px; letter-spacing: -.01em; }
+  .brand em {
+    font-style: normal;
+    background: linear-gradient(135deg, var(--pen-you), var(--pen-acc));
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .crumb { font: 500 12px 'Inter'; color: var(--ink-soft); }
+  .crumb b { color: var(--ink); }
+  .crumb .sep { color: var(--ink-faint); margin: 0 5px; }
+  .spacer { flex: 1; }
+  .ribbon { display: inline-flex; gap: 5px; }
+  .concept {
+    padding: 4px 9px; border-radius: 999px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    font: 600 11px 'Inter'; color: var(--ink-soft); cursor: pointer;
+    display: inline-flex; align-items: center; gap: 5px;
+  }
+  .concept::before { content:""; width:5px; height:5px; border-radius:50%; background: var(--ink-faint); }
+  .concept.done    { color: var(--pen-good); border-color: rgba(47,125,58,.3); }
+  .concept.done::before { background: var(--pen-good); }
+  .concept.active  { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+  .concept.active::before { background: var(--pen-you); }
+  .topmeta {
+    font: 700 11px 'JetBrains Mono'; color: var(--ink-faint); letter-spacing: .06em;
+  }
+  .topmeta b { color: var(--ink); }
+  .top-btn {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 5px 10px;
+    background: transparent; border: 1px solid var(--chrome-edge);
+    border-radius: 6px; cursor: pointer;
+    color: var(--ink); font: 600 11px 'Inter';
+  }
+  .top-btn:hover { background: var(--bg); }
+  .top-btn svg { width: 12px; height: 12px; }
+
+  /* ─── Stage = notebook on desk ─── */
+  .stage {
+    height: calc(100vh - 48px);
+    padding: 20px 60px 20px 20px;     /* extra space on right for bookmark tabs */
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* ─── Notebook paper (with coil binding) ─── */
+  .notebook {
+    height: 100%;
+    background: var(--paper);
+    background-image:
+      /* horizontal rule lines */
+      repeating-linear-gradient(180deg, transparent 0 31px, var(--paper-rule) 31px 32px);
+    border-radius: 4px;
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.4),
+      0 2px 4px var(--shadow),
+      0 14px 36px var(--paper-shadow);
+    position: relative;
+    overflow: hidden;
+    padding-left: 70px;                /* room for coil binding */
+  }
+  :root[data-mode="dark"] .notebook {
+    box-shadow:
+      inset 0 0 0 1px rgba(255,255,255,.04),
+      0 14px 36px var(--paper-shadow);
+  }
+
+  /* Red margin line */
+  .notebook::before {
+    content: ""; position: absolute;
+    top: 0; bottom: 0; left: 86px;
+    width: 1.5px;
+    background: var(--paper-marg); opacity: .55;
+    z-index: 1;
+  }
+
+  /* Coil binding strip — punch holes on the left edge */
+  .coil {
+    position: absolute;
+    left: 0; top: 0; bottom: 0; width: 44px;
+    background:
+      linear-gradient(90deg, rgba(0,0,0,.06), transparent 30%, transparent 70%, rgba(0,0,0,.08));
+    z-index: 4;
+  }
+  .coil .hole {
+    position: absolute;
+    left: 50%; transform: translateX(-50%);
+    width: 18px; height: 18px;
+    border-radius: 50%;
+    background: var(--hole);
+    box-shadow:
+      inset 0 1px 2px var(--hole-shadow),
+      inset 0 -1px 0 rgba(255,255,255,.15);
+  }
+  .coil .wire {
+    position: absolute;
+    left: 50%; transform: translateX(-50%);
+    width: 26px; height: 6px;
+    background: var(--coil);
+    border-radius: 999px;
+    box-shadow:
+      0 1px 2px rgba(0,0,0,.2),
+      inset 0 1px 0 rgba(255,255,255,.3);
+  }
+
+  /* ─── Pen-case (floating tool palette top-right) ─── */
+  .pen-case {
+    position: absolute; top: 30px; right: 32px;
+    z-index: 12;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.6), transparent 40%),
+      #5b412a;
+    background-color: #5b412a;
+    border-radius: 10px;
+    padding: 8px 10px;
+    display: inline-flex; gap: 6px; align-items: center;
+    box-shadow: 0 4px 12px rgba(0,0,0,.25);
+    transform: rotate(-1.2deg);
+  }
+  :root[data-mode="dark"] .pen-case {
+    background-color: #3a2818;
+  }
+  .pen {
+    width: 8px; height: 38px;
+    border-radius: 4px;
+    background: linear-gradient(180deg, #fff, #e0dbc8 40%, #2a2a2a);
+    cursor: pointer; position: relative;
+    transition: transform .12s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,.3);
+  }
+  .pen:hover { transform: translateY(-4px); }
+  .pen.active { transform: translateY(-6px); box-shadow: 0 4px 8px rgba(0,0,0,.35); }
+  .pen.blue   { background: linear-gradient(180deg, #fff, #88a8d4 40%, #1d3a78); }
+  .pen.you    { background: linear-gradient(180deg, #fff, #67cae8 40%, #0e5a8a); }
+  .pen.red    { background: linear-gradient(180deg, #fff, #e9938f 40%, #b8312c); }
+  .pen.green  { background: linear-gradient(180deg, #fff, #85bf90 40%, #2f7d3a); }
+  .pen.acc    { background: linear-gradient(180deg, #fff, #e2bd86 40%, #b86b1d); }
+  .pen.yellow { background: linear-gradient(180deg, #fff, #ffeb88 40%, #c2a216); width: 14px; border-radius: 7px; }   /* highlighter */
+  .pen::after {
+    content: attr(data-tip);
+    position: absolute; bottom: -22px; left: 50%; transform: translateX(-50%);
+    background: var(--ink); color: var(--bg);
+    padding: 2px 6px; font: 600 9px 'Inter'; letter-spacing: .04em;
+    border-radius: 3px; white-space: nowrap;
+    opacity: 0; pointer-events: none; transition: opacity .15s ease;
+    z-index: 30;
+  }
+  .pen:hover::after { opacity: 1; }
+  .pen-divider { width: 1px; height: 32px; background: rgba(255,255,255,.2); margin: 0 4px; }
+
+  /* ─── Bookmark tabs (right edge) — beat timeline ─── */
+  .tabs {
+    position: absolute;
+    right: 0; top: 80px;
+    z-index: 12;
+    display: flex; flex-direction: column; gap: 4px;
+  }
+  .tab {
+    background: var(--paper);
+    border: 1px solid var(--paper-edge);
+    border-right: 0;
+    padding: 9px 12px 9px 14px;
+    border-radius: 6px 0 0 6px;
+    cursor: pointer;
+    font: 600 11px 'Inter';
+    color: var(--ink-soft);
+    box-shadow: 1px 1px 3px var(--shadow);
+    display: flex; gap: 8px; align-items: center;
+    transition: transform .12s ease, padding-right .12s ease;
+    max-width: 36px;
+    overflow: hidden;
+    white-space: nowrap;
+  }
+  .tab:hover { max-width: 200px; padding-right: 16px; }
+  .tab .n {
+    font: 800 10px 'JetBrains Mono';
+    color: var(--ink-faint);
+    flex-shrink: 0;
+  }
+  .tab .name {
+    opacity: 0;
+    transition: opacity .12s ease;
+  }
+  .tab:hover .name { opacity: 1; }
+  .tab.done    { background: rgba(47, 125, 58, .12); border-color: rgba(47, 125, 58, .3); color: var(--pen-good); }
+  .tab.done .n { color: var(--pen-good); }
+  .tab.active {
+    background: var(--pen-acc);
+    color: #fff;
+    border-color: var(--pen-acc);
+    max-width: 200px; padding-right: 16px;
+    transform: translateX(-4px);
+    box-shadow: -2px 2px 6px var(--shadow);
+  }
+  :root[data-mode="dark"] .tab.active { color: var(--bg); }
+  .tab.active .n { color: rgba(255,255,255,.85); }
+  :root[data-mode="dark"] .tab.active .n { color: rgba(0,0,0,.55); }
+  .tab.active .name { opacity: 1; }
+
+  /* ─── Page content ─── */
+  .page-content {
+    position: relative;
+    z-index: 3;
+    padding: 24px 50px 110px 24px;
+    height: 100%;
+    overflow: hidden;
+  }
+
+  .date-line {
+    font-family: 'Caveat', cursive;
+    color: var(--pen-blue);
+    font-size: 20px; font-weight: 600;
+    margin: 0 0 6px;
+    display: flex; align-items: center; gap: 10px;
+  }
+  .date-line::after {
+    content: ""; flex: 1; height: 1px;
+    background: var(--paper-rule); opacity: .8;
+  }
+  .date-line .stamp {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; font-weight: 700;
+    color: var(--ink-faint);
+    letter-spacing: .12em;
+    padding: 2px 8px;
+    border: 1px solid var(--paper-edge);
+    border-radius: 4px;
+  }
+
+  .lesson-h {
+    font-family: 'Fraunces', serif;
+    font-size: 30px; font-weight: 600;
+    color: var(--pen);
+    margin: 4px 0 12px;
+    letter-spacing: -.015em;
+    line-height: 1;
+  }
+  .lesson-h em { color: var(--pen-acc); font-style: italic; }
+  .lesson-h .ul { border-bottom: 2px solid var(--pen-acc); padding-bottom: 2px; }
+
+  /* Two-column layout inside the page */
+  .columns {
+    display: grid;
+    grid-template-columns: 1.4fr 1fr;
+    gap: 32px;
+    margin-top: 12px;
+    height: calc(100% - 80px);
+  }
+
+  /* Left column: the diagram + Euler's prose */
+  .col-l {
+    display: flex; flex-direction: column;
+    gap: 12px;
+  }
+  .figure-block {
+    background: rgba(0,0,0,.02);
+    border: 1px solid var(--paper-edge);
+    border-radius: 4px;
+    padding: 10px 14px;
+    margin: 4px 0;
+  }
+  :root[data-mode="dark"] .figure-block { background: rgba(255,255,255,.02); }
+  .figure-block .caption {
+    font-family: 'Caveat', cursive;
+    font-size: 16px;
+    color: var(--pen-blue);
+    text-align: center;
+    margin-top: 4px;
+  }
+  .figure-block svg { display: block; width: 100%; height: auto; max-height: 240px; }
+
+  /* Pen strokes (for SVG figure) */
+  .pen-stroke { stroke: var(--pen); fill: none; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+  .pen-soft   { stroke: var(--ink-soft); fill: none; stroke-width: 1.2; }
+  .pen-acc-s  { stroke: var(--pen-acc); fill: none; stroke-width: 2; }
+  .pen-blue-s { stroke: var(--pen-blue); fill: none; stroke-width: 1.6; }
+  .pen-red-s  { stroke: var(--pen-red); fill: none; stroke-width: 1.6; }
+  .plab       { fill: var(--pen); font: 600 12px 'Inter'; }
+  .plab-soft  { fill: var(--ink-soft); font: 500 11px 'Inter'; }
+  .plab-acc   { fill: var(--pen-acc); font: 700 13px 'Inter'; font-style: italic; }
+
+  /* Euler's prose */
+  .prose {
+    font: 400 15px 'Inter';
+    color: var(--pen); line-height: 1.55;
+    margin: 0;
+  }
+  .prose b { color: var(--pen); font-weight: 700; }
+  .prose em { color: var(--pen-acc); font-style: italic; font-weight: 500; }
+  .prose mark { background: var(--highlight); padding: 0 4px; border-radius: 2px; color: var(--pen); }
+  .prose .caret {
+    display: inline-block;
+    width: 3px; height: 17px;
+    background: var(--pen-good);
+    margin-left: 3px; vertical-align: -3px;
+    animation: caret 1s infinite;
+  }
+  @keyframes caret { 0%,49% { opacity: 1; } 50%,100% { opacity: 0; } }
+
+  /* Right column: your handwritten notes */
+  .col-r {
+    position: relative;
+    padding: 0 8px;
+  }
+  .col-r-head {
+    font: 700 10px 'JetBrains Mono';
+    color: var(--ink-faint);
+    letter-spacing: .14em; text-transform: uppercase;
+    margin-bottom: 4px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .col-r-head::after {
+    content: ""; flex: 1; height: 1px; background: var(--paper-rule);
+  }
+
+  .my-write {
+    font-family: 'Caveat', cursive;
+    font-size: 22px;
+    line-height: 1.45;
+    color: var(--pen-you);
+    margin: 6px 0;
+    font-weight: 600;
+  }
+  .my-write .arrow { margin-right: 4px; color: var(--pen-you); font-weight: 700; }
+  .my-write mark { background: var(--highlight); padding: 0 4px; border-radius: 2px; color: var(--pen-you); }
+  .my-write .strike { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--pen-red); }
+  .my-write .check  { color: var(--pen-good); font-weight: 700; }
+
+  .my-eq {
+    font-family: 'Caveat', cursive;
+    font-size: 24px; font-weight: 700;
+    color: var(--pen-you);
+    margin: 8px 0 8px 18px;
+    letter-spacing: .02em;
+  }
+  .my-eq .sub { font-size: 16px; vertical-align: sub; }
+  .my-eq .ans {
+    color: var(--pen-good);
+    border-bottom: 2px solid var(--pen-good);
+    padding: 0 4px;
+    margin-left: 4px;
+  }
+  .my-eq .wrong { text-decoration: line-through; text-decoration-thickness: 2px; color: var(--pen-red); }
+
+  /* Sticky note on the page */
+  .sticky-tape {
+    background: #fff3a8;
+    color: #4a4a2c;
+    padding: 10px 14px;
+    border-radius: 2px;
+    box-shadow: 1px 2px 6px rgba(0,0,0,.15);
+    transform: rotate(1.8deg);
+    margin: 10px 0 10px 6px;
+    font-family: 'Caveat', cursive;
+    font-size: 17px; font-weight: 600;
+    line-height: 1.25;
+    max-width: 240px;
+    position: relative;
+  }
+  :root[data-mode="dark"] .sticky-tape { background: #d4c374; color: #1a1a0a; }
+  .sticky-tape::before {
+    content: ""; position: absolute;
+    top: -8px; left: 50%; transform: translateX(-50%) rotate(-3deg);
+    width: 50px; height: 16px;
+    background: rgba(255, 255, 255, .55);
+    border: 1px solid rgba(0, 0, 0, .08);
+  }
+  :root[data-mode="dark"] .sticky-tape::before {
+    background: rgba(255, 255, 255, .15);
+    border-color: rgba(255, 255, 255, .1);
+  }
+  .sticky-tape .src {
+    display: block;
+    font: 700 9px 'JetBrains Mono'; letter-spacing: .12em;
+    color: rgba(74,74,44,.7); margin-bottom: 4px; text-transform: uppercase;
+  }
+
+  /* Equation displayed in print (Fraunces) inline in Euler's column */
+  .display-eq {
+    margin: 4px 0;
+    padding: 10px 16px;
+    text-align: center;
+    border: 1px dashed var(--paper-edge);
+    border-radius: 4px;
+    background: rgba(0,0,0,.025);
+    font-family: 'Fraunces', serif;
+    font-size: 22px; font-weight: 500;
+    color: var(--pen);
+    position: relative;
+  }
+  :root[data-mode="dark"] .display-eq { background: rgba(255,255,255,.02); }
+  .display-eq .acc { color: var(--pen-acc); font-weight: 600; }
+  .display-eq .pin {
+    position: absolute; top: 6px; right: 8px;
+    font: 700 9px 'JetBrains Mono'; letter-spacing: .12em;
+    color: var(--ink-faint); text-transform: uppercase;
+  }
+
+  /* Now-writing badge */
+  .now-badge {
+    display: inline-flex; align-items: center; gap: 6px;
+    padding: 3px 8px;
+    background: rgba(47, 125, 58, .12);
+    border: 1px solid rgba(47, 125, 58, .3);
+    color: var(--pen-good);
+    border-radius: 999px;
+    font: 700 9px 'JetBrains Mono'; letter-spacing: .14em;
+  }
+  .now-badge::before {
+    content: ""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--pen-good);
+    box-shadow: 0 0 6px var(--pen-good);
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+
+  /* ─── Floating ask bar ─── */
+  .ask-bar {
+    position: fixed;
+    bottom: 16px; left: 50%; transform: translateX(-50%);
+    z-index: 30;
+    width: min(580px, calc(100vw - 100px));
+    background: var(--chrome);
+    border: 1px solid var(--chrome-edge);
+    border-radius: 14px;
+    box-shadow: 0 10px 32px var(--shadow-strong);
+    padding: 10px 14px 10px 52px;
+  }
+  .ask-mic {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 36px; height: 36px;
+    border-radius: 10px;
+    background: var(--pen-you);
+    color: #fff;
+    display: flex; align-items: center; justify-content: center;
+    box-shadow: 0 2px 8px rgba(14, 90, 138, .25);
+  }
+  :root[data-mode="dark"] .ask-mic { color: var(--bg); }
+  .ask-mic svg { width: 14px; height: 14px; }
+  .ask-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--ink); font: 400 14px 'Inter'; resize: none;
+  }
+  .ask-input::placeholder { color: var(--ink-faint); }
+  .ask-meta {
+    margin-top: 4px;
+    display: flex; gap: 10px; align-items: center;
+    font: 600 10px 'JetBrains Mono'; letter-spacing: .08em; color: var(--ink-faint);
+  }
+  .ask-meta b { color: var(--ink-soft); }
+  .ask-actions { margin-left: auto; display: flex; gap: 4px; }
+  .ask-quick {
+    padding: 4px 10px;
+    border: 1px solid var(--chrome-edge);
+    border-radius: 6px; background: transparent;
+    font: 600 10px 'Inter'; color: var(--ink-soft); cursor: pointer;
+  }
+  .ask-quick:hover { background: var(--bg); }
+  .ask-quick.primary { background: var(--pen); color: var(--paper); border-color: var(--pen); }
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><em>e</em>uler</div>
+  <span class="crumb"><b>Paper</b> <span class="sep">›</span> Transformers <span class="sep">›</span> <b style="color: var(--pen-good)">turns ratio</b></span>
+  <div class="spacer"></div>
+  <div class="ribbon">
+    <span class="concept done">Field</span>
+    <span class="concept done">Flux</span>
+    <span class="concept done">Faraday</span>
+    <span class="concept active">Turns ratio</span>
+    <span class="concept">Iron</span>
+  </div>
+  <span class="topmeta"><b>0:51</b> · pg 4/7</span>
+  <button class="top-btn" onclick="toggleMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+    <span id="modeLabel">Light</span>
+  </button>
+</header>
+
+<div class="stage">
+  <div class="notebook">
+
+    <!-- Coil binding -->
+    <div class="coil">
+      <div class="hole" style="top: 4%"></div>
+      <div class="wire" style="top: 4%"></div>
+      <div class="hole" style="top: 16%"></div>
+      <div class="wire" style="top: 16%"></div>
+      <div class="hole" style="top: 28%"></div>
+      <div class="wire" style="top: 28%"></div>
+      <div class="hole" style="top: 40%"></div>
+      <div class="wire" style="top: 40%"></div>
+      <div class="hole" style="top: 52%"></div>
+      <div class="wire" style="top: 52%"></div>
+      <div class="hole" style="top: 64%"></div>
+      <div class="wire" style="top: 64%"></div>
+      <div class="hole" style="top: 76%"></div>
+      <div class="wire" style="top: 76%"></div>
+      <div class="hole" style="top: 88%"></div>
+      <div class="wire" style="top: 88%"></div>
+    </div>
+
+    <!-- Pen-case (top right) -->
+    <div class="pen-case">
+      <div class="pen active" data-tip="Black pen"></div>
+      <div class="pen blue" data-tip="Blue"></div>
+      <div class="pen you" data-tip="Your color"></div>
+      <div class="pen red" data-tip="Red · correct"></div>
+      <div class="pen green" data-tip="Green · check"></div>
+      <div class="pen acc" data-tip="Accent"></div>
+      <div class="pen-divider"></div>
+      <div class="pen yellow" data-tip="Highlighter"></div>
+    </div>
+
+    <!-- Right edge bookmark tabs -->
+    <nav class="tabs">
+      <div class="tab done"><span class="n">01</span><span class="name">Field</span></div>
+      <div class="tab done"><span class="n">02</span><span class="name">Flux Φ</span></div>
+      <div class="tab done"><span class="n">03</span><span class="name">Faraday's law</span></div>
+      <div class="tab active"><span class="n">04</span><span class="name">Turns ratio · now</span></div>
+      <div class="tab"><span class="n">05</span><span class="name">Worked example</span></div>
+      <div class="tab"><span class="n">06</span><span class="name">Iron core</span></div>
+      <div class="tab"><span class="n">07</span><span class="name">Recap</span></div>
+    </nav>
+
+    <!-- Page content -->
+    <div class="page-content">
+      <div class="date-line">
+        Mon · May 4
+        <span class="stamp">PG 04 · 0:51</span>
+        <span class="now-badge">EULER WRITING</span>
+      </div>
+
+      <h1 class="lesson-h">Two coils. <em>One</em> <span class="ul">shared</span> flux.</h1>
+
+      <div class="columns">
+
+        <!-- LEFT — Euler's lesson -->
+        <div class="col-l">
+
+          <div class="figure-block">
+            <svg viewBox="0 0 540 220">
+              <defs>
+                <linearGradient id="fluxPaper" x1="0" x2="1">
+                  <stop offset="0"  stop-color="var(--pen-acc)" stop-opacity="0"/>
+                  <stop offset=".5" stop-color="var(--pen-acc)" stop-opacity="1"/>
+                  <stop offset="1"  stop-color="var(--pen-acc)" stop-opacity="0"/>
+                </linearGradient>
+                <marker id="arrAcc" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+                  <path d="M0,0 L10,5 L0,10 z" fill="var(--pen-acc)"/>
+                </marker>
+              </defs>
+
+              <path d="M210 36 h140 v144 h-140 v-22 h118 v-100 h-118 z" class="pen-soft" stroke-width="2.6"/>
+              <text x="280" y="118" text-anchor="middle" class="plab-soft" font-style="italic">iron core</text>
+
+              <path d="M200 108 q80 -22 160 0" stroke="url(#fluxPaper)" stroke-width="5" fill="none" opacity=".9">
+                <animate attributeName="d" dur="2.4s" repeatCount="indefinite"
+                  values="M200 108 q80 -22 160 0; M200 108 q80 22 160 0; M200 108 q80 -22 160 0"/>
+              </path>
+              <text x="280" y="92" text-anchor="middle" class="plab-acc">Φ(t)</text>
+
+              <g transform="translate(110,36)">
+                <text x="50" y="-10" text-anchor="middle" class="plab" font-weight="700">primary · Nₚ</text>
+                <g class="pen-stroke">
+                  <path d="M30 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M48 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M66 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M84 22 q-14 30 0 60 q14 30 0 60"/>
+                </g>
+                <line x1="0" y1="14"  x2="30" y2="22"  class="pen-stroke"/>
+                <line x1="0" y1="158" x2="30" y2="150" class="pen-stroke"/>
+                <text x="-22" y="86" text-anchor="end" class="plab" font-weight="700">~AC</text>
+              </g>
+
+              <g transform="translate(350,36)">
+                <text x="58" y="-10" text-anchor="middle" class="plab" font-weight="700">secondary · Nₛ</text>
+                <g class="pen-stroke">
+                  <path d="M30 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M48 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M66 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M84 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M102 22 q-14 30 0 60 q14 30 0 60"/>
+                  <path d="M120 22 q-14 30 0 60 q14 30 0 60"/>
+                </g>
+                <line x1="130" y1="14"  x2="160" y2="22"  class="pen-stroke"/>
+                <line x1="130" y1="158" x2="160" y2="150" class="pen-stroke"/>
+                <text x="172" y="86" class="plab" font-weight="700">⚡out</text>
+              </g>
+            </svg>
+            <div class="caption">fig 1 · primary + secondary share the iron-core flux Φ(t)</div>
+          </div>
+
+          <p class="prose">
+            Both coils sit in the same iron core, so they share the same flux <b>Φ(t)</b>.
+            By Faraday's law, each <em>turn</em> of wire picks up the same induced EMF.
+            More turns = more voltage stacked — that's why the brick on your charger is a tiny <mark>step-down transformer</mark>.<span class="caret"></span>
+          </p>
+
+          <div class="display-eq">
+            <span class="pin">EQ 2</span>
+            <span class="acc">V<sub>s</sub></span>/V<sub>p</sub> = <span class="acc">N<sub>s</sub></span>/N<sub>p</sub>
+          </div>
+        </div>
+
+        <!-- RIGHT — Your handwritten notes -->
+        <div class="col-r">
+          <div class="col-r-head">My notes · 0:38</div>
+
+          <p class="my-write"><span class="arrow">→</span>each turn = same dΦ/dt — so they <mark>stack</mark></p>
+          <p class="my-write"><span class="arrow">→</span>more turns ⇒ more V <span class="check">✓</span></p>
+
+          <p class="my-write" style="margin-top: 14px"><b>my charger:</b> 120 V → 20 V</p>
+          <p class="my-eq">ratio = <span class="ans">1/6</span></p>
+          <p class="my-eq">N<sub class="sub">p</sub>=600 → N<sub class="sub">s</sub>=<span class="ans">100</span></p>
+
+          <div class="sticky-tape">
+            <span class="src">my reminder</span>
+            the heavy <i>brick</i> on the charger = a tiny transformer ⚡
+          </div>
+
+          <p class="my-write" style="margin-top: 14px"><span class="arrow">?</span>but where does power go in real chargers?</p>
+        </div>
+
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Floating ask bar ── -->
+<div class="ask-bar">
+  <span class="ask-mic">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+  </span>
+  <textarea class="ask-input" rows="1" placeholder="Scribble a question, or ask Euler…"></textarea>
+  <div class="ask-meta">
+    <span>↩ <b>add</b></span>
+    <span>· /math · /sketch</span>
+    <span>· ⌥M <b>speak</b></span>
+    <div class="ask-actions">
+      <button class="ask-quick">Got it</button>
+      <button class="ask-quick">Slow down</button>
+      <button class="ask-quick primary">Ask →</button>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function applyInitialMode() {
+    const html = document.documentElement;
+    const hash = (location.hash || '').toLowerCase().replace('#', '');
+    if (hash === 'dark' || hash === 'light') html.dataset.mode = hash;
+    const lbl = document.getElementById('modeLabel');
+    if (lbl) lbl.textContent = html.dataset.mode === 'dark' ? 'Dark' : 'Light';
+  })();
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'light' ? 'dark' : 'light';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'light' ? 'Light' : 'Dark';
+    history.replaceState(null, '', '#' + next);
+  }
+  document.querySelectorAll('.pen').forEach(p => {
+    p.addEventListener('click', () => {
+      document.querySelectorAll('.pen').forEach(x => x.classList.remove('active'));
+      p.classList.add('active');
+    });
+  });
+</script>
+</body>
+</html>

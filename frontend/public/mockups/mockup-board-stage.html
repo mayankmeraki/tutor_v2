@@ -1,0 +1,679 @@
+<!doctype html>
+<html lang="en" data-mode="dark">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Euler — Studio Stage</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+  :root[data-mode="dark"] {
+    --bg-0:        #0a0911;
+    --bg-1:        #11101c;
+    --bg-2:        #1a1830;
+    --stage:       #0e0c19;
+    --ink:         #ffffff;
+    --ink-soft:    rgba(255,255,255,0.66);
+    --ink-faint:   rgba(255,255,255,0.36);
+    --rule:        rgba(255,255,255,0.08);
+    --rule-strong: rgba(255,255,255,0.16);
+    --pink:        #f472b6;
+    --pink-bright: #f9a8d4;
+    --cyan:        #22d3ee;
+    --cyan-bright: #67e8f9;
+    --lime:        #bef264;
+    --amber:       #fbbf24;
+    --grad-1:      linear-gradient(135deg, #f472b6, #f9a8d4);
+    --grad-2:      linear-gradient(135deg, #22d3ee, #67e8f9);
+    --grad-3:      linear-gradient(135deg, #f472b6, #22d3ee);
+    --scan-rgba:   rgba(255,255,255,0.025);
+  }
+  :root[data-mode="light"] {
+    --bg-0:        #fdfdf3;
+    --bg-1:        #f8f6e5;
+    --bg-2:        #fff1f8;
+    --stage:       #ffffff;
+    --ink:         #0c0a1f;
+    --ink-soft:    rgba(12,10,31,0.66);
+    --ink-faint:   rgba(12,10,31,0.42);
+    --rule:        rgba(12,10,31,0.10);
+    --rule-strong: rgba(12,10,31,0.18);
+    --pink:        #db2777;
+    --pink-bright: #ec4899;
+    --cyan:        #0891b2;
+    --cyan-bright: #06b6d4;
+    --lime:        #65a30d;
+    --amber:       #d97706;
+    --grad-1:      linear-gradient(135deg, #db2777, #ec4899);
+    --grad-2:      linear-gradient(135deg, #0891b2, #06b6d4);
+    --grad-3:      linear-gradient(135deg, #db2777, #0891b2);
+    --scan-rgba:   rgba(12,10,31,0.025);
+  }
+
+  *,*::before,*::after { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; }
+  body {
+    font-family: 'Inter', system-ui, sans-serif;
+    color: var(--ink);
+    background: var(--bg-0);
+    overflow: hidden;
+    -webkit-font-smoothing: antialiased;
+    transition: background .35s ease, color .35s ease;
+  }
+  /* Subtle scanline texture */
+  body::before {
+    content:""; position: fixed; inset: 0;
+    background:
+      repeating-linear-gradient(0deg, transparent 0 2px, var(--scan-rgba) 2px 3px);
+    pointer-events: none; z-index: 1;
+  }
+
+  /* ─── Top utility bar (sharp, brutalist) ───────────────────────── */
+  .topbar {
+    position: relative; z-index: 30;
+    display: flex; gap: 0; align-items: stretch;
+    height: 56px;
+    border-bottom: 1px solid var(--rule);
+  }
+  .topcell {
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 18px;
+    border-right: 1px solid var(--rule);
+    color: var(--ink-soft);
+    font-size: 12px;
+    font-family: 'Space Grotesk', sans-serif;
+  }
+  .topcell.brand { font-weight: 700; font-size: 18px; color: var(--ink); padding-right: 22px; }
+  .topcell.brand em {
+    font-style: normal;
+    background: var(--grad-3); -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+  }
+  .topcell.path { font-weight: 600; }
+  .topcell.path em { font-style: normal; color: var(--pink); }
+  .topcell.spacer { flex: 1; border-right: 0; }
+  .topcell.beat-counter {
+    font-family: 'JetBrains Mono', monospace;
+    font-weight: 700;
+    font-size: 13px; letter-spacing: -.02em;
+  }
+  .topcell.beat-counter b { color: var(--ink); }
+  .topcell.live {
+    color: var(--lime); font-weight: 700; letter-spacing: .14em; text-transform: uppercase; font-size: 11px;
+  }
+  .topcell.live::before {
+    content:""; width: 8px; height: 8px; border-radius: 50%;
+    background: var(--lime); box-shadow: 0 0 8px var(--lime);
+    animation: blink 1.4s infinite;
+  }
+  @keyframes blink { 0%,100% { opacity: 1; } 50% { opacity: .3; } }
+  .toggle {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 100%; padding: 0 18px;
+    background: transparent; border: 0;
+    border-left: 1px solid var(--rule);
+    color: var(--ink); font: 600 11px 'Space Grotesk', sans-serif;
+    letter-spacing: .14em; text-transform: uppercase;
+    cursor: pointer;
+  }
+  .toggle:hover { background: var(--bg-1); }
+  .toggle svg { width: 14px; height: 14px; }
+
+  /* ─── Concept ribbon ───────────────────────────────────────────── */
+  .ribbon {
+    position: relative; z-index: 25;
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 24px;
+    border-bottom: 1px solid var(--rule);
+    overflow-x: auto;
+  }
+  .concept-pill {
+    flex: 0 0 auto;
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 8px 16px;
+    border: 1px solid var(--rule-strong);
+    border-radius: 999px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px; font-weight: 600;
+    color: var(--ink-soft);
+    background: transparent;
+    cursor: pointer;
+    transition: all .2s ease;
+    letter-spacing: -.005em;
+  }
+  .concept-pill:hover { background: var(--bg-1); color: var(--ink); }
+  .concept-pill::before {
+    content:""; width: 6px; height: 6px; border-radius: 50%;
+    background: var(--ink-faint);
+  }
+  .concept-pill.done { color: var(--lime); }
+  .concept-pill.done::before { background: var(--lime); box-shadow: 0 0 6px var(--lime); }
+  .concept-pill.active {
+    background: var(--ink); color: var(--bg-0);
+    border-color: var(--ink);
+    box-shadow: 0 6px 24px rgba(244, 114, 182, .35);
+  }
+  .concept-pill.active::before {
+    background: var(--pink); box-shadow: 0 0 10px var(--pink);
+    animation: pulse 1.2s ease-in-out infinite;
+  }
+  @keyframes pulse { 50% { transform: scale(1.5); opacity: .6; } }
+
+  /* ─── Main: stage + deck + scrubber ────────────────────────────── */
+  .layout {
+    position: relative; z-index: 5;
+    height: calc(100vh - 56px - 53px);
+    display: flex; flex-direction: column;
+  }
+
+  /* The "stage" — one massive area with the current beat */
+  .stage-wrap {
+    flex: 1;
+    position: relative;
+    overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    padding: 18px 24px 0;
+  }
+
+  /* Deck of prior beats — small cards stacked behind the stage */
+  .deck {
+    position: absolute;
+    left: 24px; top: 50%; transform: translateY(-50%);
+    display: flex; flex-direction: column; gap: 6px;
+    z-index: 6;
+  }
+  .deck-label {
+    font: 700 9px 'Space Grotesk', sans-serif;
+    letter-spacing: .2em; text-transform: uppercase;
+    color: var(--ink-faint);
+    margin-bottom: 4px;
+  }
+  .deck-card {
+    width: 168px;
+    background: var(--bg-1);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 10px 12px;
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px;
+    color: var(--ink-soft);
+    cursor: pointer;
+    transition: all .2s ease;
+    position: relative;
+    line-height: 1.35;
+  }
+  .deck-card:hover { transform: translateX(4px); border-color: var(--rule-strong); }
+  .deck-card b { display: block; color: var(--ink); margin-bottom: 2px; font-size: 12px; font-weight: 600; }
+  .deck-card .num {
+    position: absolute; right: 8px; top: 8px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; color: var(--ink-faint); font-weight: 700;
+  }
+  .deck-card.done { opacity: .7; }
+  .deck-card.done b::before { content: "✓ "; color: var(--lime); }
+  .deck-card.next { opacity: .4; border-style: dashed; }
+
+  /* Right side: live thinking column */
+  .think {
+    position: absolute; right: 24px; top: 50%; transform: translateY(-50%);
+    width: 224px;
+    z-index: 6;
+  }
+  .think-label {
+    font: 700 9px 'Space Grotesk', sans-serif;
+    letter-spacing: .2em; text-transform: uppercase;
+    color: var(--ink-faint); margin-bottom: 6px;
+  }
+  .think-card {
+    background: var(--bg-1);
+    border: 1px solid var(--rule);
+    border-radius: 10px;
+    padding: 12px 14px;
+    color: var(--ink-soft);
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 12px;
+    line-height: 1.45;
+    margin-bottom: 8px;
+  }
+  .think-card .key {
+    font: 700 9px 'JetBrains Mono', monospace; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--cyan);
+    margin-bottom: 4px; display: block;
+  }
+  .think-card.energy {
+    background: linear-gradient(135deg, rgba(244,114,182,.12), rgba(34,211,238,.06));
+    border-color: rgba(244,114,182,.3);
+  }
+  .energy-meter {
+    display: flex; gap: 3px; margin-top: 8px;
+  }
+  .energy-meter span {
+    flex: 1; height: 10px; border-radius: 2px; background: var(--rule);
+  }
+  .energy-meter span.on   { background: var(--pink); box-shadow: 0 0 6px var(--pink); }
+  .energy-meter span.lit  { background: var(--cyan); }
+
+  /* The big stage card itself */
+  .stage {
+    width: min(900px, 60vw); max-width: 900px;
+    aspect-ratio: 16/10;
+    background: var(--stage);
+    border: 1px solid var(--rule-strong);
+    border-radius: 18px;
+    padding: 28px 36px;
+    display: flex; flex-direction: column;
+    position: relative;
+    box-shadow: 0 30px 60px rgba(0,0,0,.4);
+    overflow: hidden;
+  }
+  :root[data-mode="light"] .stage {
+    box-shadow: 0 20px 48px rgba(50, 30, 80, .12);
+  }
+  /* Hot border ribbon top */
+  .stage::before {
+    content:""; position: absolute; top: 0; left: 0; right: 0; height: 4px;
+    background: var(--grad-3);
+  }
+  .stage-eyebrow {
+    display: flex; gap: 12px; align-items: center;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 10px; letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint); font-weight: 700;
+    margin-bottom: 12px;
+  }
+  .stage-eyebrow .num {
+    background: var(--grad-1); color: #0a0911; font-weight: 800;
+    padding: 3px 8px; border-radius: 3px; font-size: 10px;
+  }
+  .stage-title {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 36px; font-weight: 700; letter-spacing: -.02em;
+    line-height: 1.05;
+    margin: 0 0 6px;
+    color: var(--ink);
+    max-width: 24ch;
+  }
+  .stage-title em {
+    background: var(--grad-1);
+    -webkit-background-clip: text; background-clip: text; -webkit-text-fill-color: transparent;
+    font-style: normal;
+  }
+  .stage-subtitle {
+    font: 400 14px 'Space Grotesk', sans-serif;
+    color: var(--ink-soft);
+    max-width: 60ch;
+    margin: 0 0 16px;
+  }
+  .stage-canvas {
+    flex: 1; min-height: 0;
+    width: 100%;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .stage-canvas svg { display: block; max-width: 100%; max-height: 100%; }
+
+  /* SVG primitive styling */
+  .gv-stroke   { stroke: var(--ink); fill: none; stroke-width: 1.6; stroke-linecap: round; }
+  .gv-soft     { stroke: var(--ink-soft); fill: none; stroke-width: 1; }
+  .gv-pink     { stroke: var(--pink); fill: none; stroke-width: 2; }
+  .gv-cyan     { stroke: var(--cyan); fill: none; stroke-width: 2; }
+  .gv-amber    { stroke: var(--amber); fill: none; stroke-width: 1.4; }
+  .gv-label    { fill: var(--ink); font: 600 13px 'Space Grotesk', sans-serif; }
+  .gv-label-pink  { fill: var(--pink); font: 700 13px 'Space Grotesk', sans-serif; }
+  .gv-label-cyan  { fill: var(--cyan); font: 700 13px 'Space Grotesk', sans-serif; }
+  .gv-label-soft  { fill: var(--ink-soft); font: 500 11px 'JetBrains Mono', monospace; }
+
+  /* ─── Beat scrubber — the chunky bottom bar ────────────────────── */
+  .scrubber {
+    position: relative; z-index: 20;
+    height: 53px;
+    border-top: 1px solid var(--rule);
+    background: var(--bg-1);
+    display: flex; align-items: center; gap: 0;
+    padding: 0;
+  }
+  .scrubber-cell {
+    flex: 1; height: 100%;
+    border-right: 1px solid var(--rule);
+    padding: 8px 14px;
+    display: flex; flex-direction: column; justify-content: center; gap: 3px;
+    cursor: pointer;
+    transition: background .15s ease;
+    position: relative;
+    overflow: hidden;
+  }
+  .scrubber-cell:hover { background: var(--bg-2); }
+  .scrubber-cell .stamp {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 9px; font-weight: 700;
+    letter-spacing: .14em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .scrubber-cell .label {
+    font-family: 'Space Grotesk', sans-serif;
+    font-size: 11px; font-weight: 600;
+    color: var(--ink-soft);
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .scrubber-cell.done .label { color: var(--ink); }
+  .scrubber-cell.done .stamp { color: var(--lime); }
+  .scrubber-cell.done::before {
+    content:""; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 2px; background: var(--lime);
+  }
+  .scrubber-cell.active {
+    background: var(--ink);
+    color: var(--bg-0);
+  }
+  .scrubber-cell.active .stamp { color: var(--pink); }
+  .scrubber-cell.active .label { color: var(--bg-0); font-weight: 700; }
+  .scrubber-cell.active::before {
+    content:""; position: absolute; left: 0; right: 0; bottom: 0;
+    height: 4px; background: var(--grad-1);
+  }
+  .scrubber-cell.future .label { color: var(--ink-faint); }
+  .scrubber-cell.future .stamp { color: var(--ink-faint); }
+
+  /* ─── Voice input — chunky pill at the very bottom ─────────────── */
+  .voice-shell {
+    position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%);
+    width: min(640px, calc(100vw - 60px));
+    z-index: 25;
+    pointer-events: auto;
+  }
+  .voice-pill {
+    position: relative;
+    background: var(--bg-1);
+    border: 1px solid var(--rule-strong);
+    border-radius: 14px;
+    padding: 10px 14px 10px 56px;
+    box-shadow: 0 18px 50px rgba(0, 0, 0, .35);
+    transition: all .25s ease;
+  }
+  :root[data-mode="light"] .voice-pill {
+    box-shadow: 0 16px 40px rgba(50,30,80,.10);
+  }
+  .voice-pill::before {
+    content:""; position: absolute; inset: -1px; border-radius: 15px;
+    background: var(--grad-3); z-index: -1;
+    opacity: .5;
+    filter: blur(6px);
+  }
+  .voice-mic {
+    position: absolute; left: 8px; top: 50%; transform: translateY(-50%);
+    width: 40px; height: 40px;
+    border-radius: 12px;
+    background: var(--grad-1);
+    display: flex; align-items: center; justify-content: center;
+    color: #0a0911;
+    box-shadow: 0 4px 16px rgba(244,114,182,.45);
+  }
+  .voice-mic svg { width: 16px; height: 16px; }
+  .voice-input {
+    width: 100%; border: 0; background: transparent; outline: none;
+    color: var(--ink); font: 400 14px 'Space Grotesk', sans-serif;
+    resize: none;
+    line-height: 1.4;
+  }
+  .voice-input::placeholder { color: var(--ink-faint); }
+  .voice-meta {
+    margin-top: 4px;
+    display: flex; gap: 12px; align-items: center;
+    font: 600 10px 'JetBrains Mono', monospace;
+    letter-spacing: .12em; text-transform: uppercase;
+    color: var(--ink-faint);
+  }
+  .voice-meta b { color: var(--ink-soft); }
+  .voice-meta .quick {
+    margin-left: auto;
+    display: flex; gap: 6px;
+  }
+  .voice-meta .quick button {
+    background: transparent; border: 1px solid var(--rule-strong);
+    border-radius: 6px;
+    padding: 4px 10px;
+    font: inherit;
+    color: var(--ink-soft); cursor: pointer;
+  }
+  .voice-meta .quick button:hover { background: var(--bg-2); color: var(--ink); }
+  .voice-meta .quick button.send {
+    background: var(--ink); color: var(--bg-0); border-color: var(--ink);
+  }
+
+  /* Hide deck on small screens */
+  @media (max-width: 1300px) {
+    .deck, .think { display: none; }
+    .stage { width: 90vw; }
+  }
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topcell brand"><em>e</em>uler</div>
+  <div class="topcell path">PATH · <em>Electromagnetism</em></div>
+  <div class="topcell spacer"></div>
+  <div class="topcell live">live</div>
+  <div class="topcell beat-counter"><b>04</b> / 07</div>
+  <div class="topcell beat-counter">0:38</div>
+  <button class="toggle" onclick="toggleMode()">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+    <span id="modeLabel">Dark</span>
+  </button>
+</div>
+
+<!-- ── Concept ribbon ── -->
+<div class="ribbon">
+  <span class="concept-pill done">Magnetic field</span>
+  <span class="concept-pill done">Flux Φ</span>
+  <span class="concept-pill done">Faraday's law</span>
+  <span class="concept-pill active">Two coils, one core</span>
+  <span class="concept-pill">Iron core</span>
+  <span class="concept-pill">Turns ratio</span>
+  <span class="concept-pill">Worked example</span>
+</div>
+
+<!-- ── Main layout ── -->
+<div class="layout">
+  <div class="stage-wrap">
+
+    <!-- Deck (prior beats) on left -->
+    <aside class="deck">
+      <div class="deck-label">Prior beats</div>
+      <div class="deck-card done">
+        <span class="num">01</span>
+        <b>Magnet at rest</b>
+        Stationary → 0 V on the meter.
+      </div>
+      <div class="deck-card done">
+        <span class="num">02</span>
+        <b>Magnet moving</b>
+        Flux changes → 1.4 V flicks.
+      </div>
+      <div class="deck-card done">
+        <span class="num">03</span>
+        <b>Faraday's law</b>
+        ℰ = − dΦ/dt
+      </div>
+    </aside>
+
+    <!-- The stage (current beat takes center) -->
+    <main class="stage">
+      <div class="stage-eyebrow">
+        <span class="num">04</span>
+        <span>· current beat</span>
+        <span style="margin-left:auto">→ next: iron core</span>
+      </div>
+      <h1 class="stage-title">Two coils, sharing a <em>changing</em> magnetic field.</h1>
+      <p class="stage-subtitle">The primary's alternating current makes the flux through the core swing back and forth — and that swinging flux <em>induces</em> a voltage in the secondary.</p>
+
+      <div class="stage-canvas">
+        <svg viewBox="0 0 720 320" width="100%" height="100%">
+          <defs>
+            <linearGradient id="pinkG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#f472b6"/><stop offset="1" stop-color="#f9a8d4"/></linearGradient>
+            <linearGradient id="cyanG" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#22d3ee"/><stop offset="1" stop-color="#67e8f9"/></linearGradient>
+            <linearGradient id="amberG" x1="0" y1="0" x2="1" y2="0">
+              <stop offset="0"  stop-color="#fbbf24" stop-opacity="0"/>
+              <stop offset=".5" stop-color="#fbbf24" stop-opacity="1"/>
+              <stop offset="1"  stop-color="#fbbf24" stop-opacity="0"/>
+            </linearGradient>
+          </defs>
+
+          <!-- iron core -->
+          <path d="M252 70 h216 v180 h-216 v-30 h184 v-120 h-184 z"
+                stroke="var(--ink-soft)" stroke-width="3.5" fill="none" stroke-linejoin="round"/>
+          <g stroke="var(--ink-faint)" stroke-width="0.6">
+            <line x1="270" y1="84"  x2="436" y2="158"/>
+            <line x1="270" y1="100" x2="436" y2="174"/>
+            <line x1="270" y1="226" x2="436" y2="152"/>
+            <line x1="270" y1="240" x2="436" y2="166"/>
+          </g>
+          <text x="360" y="160" text-anchor="middle" class="gv-label-soft" font-style="italic">iron core</text>
+
+          <!-- flux ribbon (animated) -->
+          <path d="M242 160 q120 -28 236 0" stroke="url(#amberG)" stroke-width="6" fill="none" opacity=".85">
+            <animate attributeName="d" dur="2.4s" repeatCount="indefinite"
+              values="M242 160 q120 -28 236 0; M242 160 q120 28 236 0; M242 160 q120 -28 236 0"/>
+          </path>
+          <text x="360" y="138" text-anchor="middle" font: 700 14px 'Space Grotesk', sans-serif; class="gv-label" fill="var(--amber)" font-style="italic">Φ(t) — alternating</text>
+
+          <!-- primary coil (left) -->
+          <g transform="translate(150,70)">
+            <text x="60" y="-12" text-anchor="middle" class="gv-label-pink" font-size="14">PRIMARY · Nₚ</text>
+            <g stroke="url(#pinkG)" stroke-width="3" fill="none" stroke-linecap="round">
+              <path d="M30 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M50 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M70 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M90 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M110 30 q-22 30 0 60 q22 30 0 60"/>
+            </g>
+            <line x1="0" y1="20"  x2="30" y2="30"  stroke="var(--pink)" stroke-width="2.5"/>
+            <line x1="0" y1="160" x2="30" y2="150" stroke="var(--pink)" stroke-width="2.5"/>
+            <text x="-22" y="55" text-anchor="end" class="gv-label-pink" font-size="14">~ AC in</text>
+            <path d="M-22 90 q8 -8 16 0 t16 0" stroke="var(--pink)" stroke-width="2" fill="none">
+              <animate attributeName="d" dur="1.5s" repeatCount="indefinite"
+                values="M-22 90 q8 -8 16 0 t16 0; M-22 90 q8 8 16 0 t16 0; M-22 90 q8 -8 16 0 t16 0"/>
+            </path>
+          </g>
+
+          <!-- secondary coil (right) -->
+          <g transform="translate(470,70)">
+            <text x="60" y="-12" text-anchor="middle" class="gv-label-cyan" font-size="14">SECONDARY · Nₛ</text>
+            <g stroke="url(#cyanG)" stroke-width="3" fill="none" stroke-linecap="round">
+              <path d="M30 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M50 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M70 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M90 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M110 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M130 30 q-22 30 0 60 q22 30 0 60"/>
+              <path d="M150 30 q-22 30 0 60 q22 30 0 60"/>
+            </g>
+            <line x1="160" y1="20"  x2="190" y2="30"  stroke="var(--cyan)" stroke-width="2.5"/>
+            <line x1="160" y1="160" x2="190" y2="150" stroke="var(--cyan)" stroke-width="2.5"/>
+            <text x="200" y="55" class="gv-label-cyan" font-size="14">⚡ AC out</text>
+            <path d="M198 90 q8 -8 16 0 t16 0" stroke="var(--cyan)" stroke-width="2" fill="none">
+              <animate attributeName="d" dur="1.5s" repeatCount="indefinite"
+                values="M198 90 q8 -8 16 0 t16 0; M198 90 q8 8 16 0 t16 0; M198 90 q8 -8 16 0 t16 0"/>
+            </path>
+          </g>
+        </svg>
+      </div>
+    </main>
+
+    <!-- Live thinking column on right -->
+    <aside class="think">
+      <div class="think-label">Live · Euler is thinking</div>
+
+      <div class="think-card">
+        <span class="key">heuristic</span>
+        Pace: clear example → equation → device. Don't introduce iron core until the rule lands.
+      </div>
+
+      <div class="think-card">
+        <span class="key">checking</span>
+        Will skip "Why iron?" if you nail the next exercise. Otherwise scaffold up.
+      </div>
+
+      <div class="think-card energy">
+        <span class="key">your energy</span>
+        Engaged — last 2 replies were sharp.
+        <div class="energy-meter">
+          <span class="on"></span>
+          <span class="on"></span>
+          <span class="on"></span>
+          <span class="on"></span>
+          <span class="lit"></span>
+          <span></span>
+          <span></span>
+        </div>
+      </div>
+
+      <div class="think-card">
+        <span class="key">queued</span>
+        After this beat: a 1-question check on which side steps up.
+      </div>
+    </aside>
+  </div>
+
+  <!-- Beat scrubber -->
+  <div class="scrubber">
+    <div class="scrubber-cell done">
+      <span class="stamp">01 · 0:00</span>
+      <span class="label">Magnet at rest</span>
+    </div>
+    <div class="scrubber-cell done">
+      <span class="stamp">02 · 0:08</span>
+      <span class="label">Magnet moving — meter flicks</span>
+    </div>
+    <div class="scrubber-cell done">
+      <span class="stamp">03 · 0:22</span>
+      <span class="label">Faraday's law — ℰ = −dΦ/dt</span>
+    </div>
+    <div class="scrubber-cell active">
+      <span class="stamp">04 · 0:38 · live</span>
+      <span class="label">Two coils, one core</span>
+    </div>
+    <div class="scrubber-cell future">
+      <span class="stamp">05 · ~ 1:30</span>
+      <span class="label">Why iron matters</span>
+    </div>
+    <div class="scrubber-cell future">
+      <span class="stamp">06 · ~ 2:10</span>
+      <span class="label">Turns ratio</span>
+    </div>
+    <div class="scrubber-cell future">
+      <span class="stamp">07 · ~ 3:00</span>
+      <span class="label">Worked example: laptop charger</span>
+    </div>
+  </div>
+</div>
+
+<!-- ── Voice pill at the very bottom ── -->
+<div class="voice-shell">
+  <div class="voice-pill">
+    <span class="voice-mic">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/></svg>
+    </span>
+    <textarea class="voice-input" rows="1" placeholder="Push back. Ask. Or hit space to interrupt."></textarea>
+    <div class="voice-meta">
+      <span>↩ <b>send</b></span>
+      <span>· ⌥M <b>speak</b></span>
+      <span>· /pin <b>bookmark</b></span>
+      <div class="quick">
+        <button>Show me</button>
+        <button>Slow down</button>
+        <button class="send">Ask →</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  function toggleMode() {
+    const html = document.documentElement;
+    const next = html.dataset.mode === 'dark' ? 'light' : 'dark';
+    html.dataset.mode = next;
+    document.getElementById('modeLabel').textContent = next === 'dark' ? 'Dark' : 'Light';
+  }
+</script>
+</body>
+</html>
