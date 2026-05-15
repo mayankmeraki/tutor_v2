@@ -1,0 +1,342 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — One smart bar (mockup v8 · smartbar)</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Lexend:wght@300;400;500;600;700;800&family=Caveat:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="./styles.css">
+<style>
+  body { overflow:auto !important; height:100vh !important; min-height:100vh; }
+  #app { height:100vh !important; min-height:100vh; }
+  .app-screen { display:none; }
+  #v8-screen { display:flex !important; flex-direction:column; height:100vh; }
+
+  #v8-screen { font-family:'Inter',sans-serif; color:#e7e7e5; }
+  #v8-screen .v8-main {
+    flex:1; display:flex; flex-direction:column; justify-content:center;
+    max-width:840px; margin:0 auto; padding:24px 24px;
+    width:100%;
+  }
+
+  /* Hero */
+  #v8-screen .v8-hero { text-align:center; margin-bottom:26px; }
+  #v8-screen .v8-eyebrow {
+    display:inline-flex; align-items:center; gap:6px; padding:4px 11px;
+    background:rgba(52,211,153,0.08); border:1px solid rgba(52,211,153,0.20);
+    border-radius:30px; font-size:11px; font-weight:500; color:#34d399;
+    letter-spacing:0.04em; margin-bottom:16px;
+  }
+  #v8-screen .v8-eyebrow .dot { width:5px; height:5px; border-radius:50%;
+    background:#34d399; animation:v8Pulse 2s infinite; }
+  @keyframes v8Pulse { 50% { opacity:0.35; } }
+
+  #v8-screen .v8-h1 {
+    font-family:'Lexend',sans-serif; font-size:clamp(32px,4vw,46px);
+    font-weight:700; line-height:1.1; letter-spacing:-1.2px; color:#fff;
+    margin-bottom:10px;
+  }
+  #v8-screen .v8-h1 em { font-style:normal;
+    background:linear-gradient(135deg,#34d399,#a78bfa);
+    -webkit-background-clip:text; -webkit-text-fill-color:transparent; }
+  #v8-screen .v8-sub { font-size:14px; color:#9b9b97; max-width:520px;
+    margin:0 auto; line-height:1.6; }
+
+  /* The smart bar — primary input with prominent send */
+  #v8-screen .v8-bar-wrap {
+    max-width:680px; margin:0 auto 14px; position:relative;
+  }
+  #v8-screen .v8-bar {
+    display:flex; align-items:center; gap:0;
+    background:#161513; border:1.5px solid rgba(52,211,153,0.25);
+    border-radius:16px; padding:8px;
+    transition:all 0.2s; box-shadow:0 0 0 0 rgba(52,211,153,0);
+  }
+  #v8-screen .v8-bar:focus-within {
+    border-color:#34d399;
+    box-shadow:0 0 0 5px rgba(52,211,153,0.10), 0 12px 40px rgba(0,0,0,0.35);
+  }
+  #v8-screen .v8-bar input {
+    flex:1; background:transparent; border:none; outline:none; color:#fff;
+    font-family:inherit; font-size:16px; padding:14px 14px;
+  }
+  #v8-screen .v8-bar input::placeholder {
+    color:#6f6e6b; font-style:normal;
+  }
+  #v8-screen .v8-bar .v8-send {
+    background:#34d399; color:#0a0d0b; border:none; border-radius:11px;
+    padding:12px 20px; font-family:inherit; font-size:14px; font-weight:600;
+    cursor:pointer; transition:all 0.15s; display:flex; align-items:center;
+    gap:8px;
+  }
+  #v8-screen .v8-bar .v8-send:hover {
+    background:#2dd4a0; transform:translateY(-1px);
+  }
+
+  /* Tip line right under the bar */
+  #v8-screen .v8-tip {
+    text-align:center; font-size:11.5px; color:#6f6e6b;
+    margin-bottom:18px; font-family:inherit;
+  }
+  #v8-screen .v8-tip kbd {
+    padding:1px 6px; border-radius:4px; border:1px solid rgba(255,255,255,0.10);
+    background:rgba(255,255,255,0.03); color:#9b9b97; font-size:10px;
+    font-family:'JetBrains Mono',monospace;
+  }
+
+  /* The "or" divider */
+  #v8-screen .v8-or {
+    display:flex; align-items:center; max-width:560px; margin:0 auto 16px;
+    color:#5a5a56; font-size:11px; letter-spacing:1.2px;
+    font-family:'JetBrains Mono',monospace; text-transform:uppercase;
+  }
+  #v8-screen .v8-or::before, #v8-screen .v8-or::after {
+    content:''; flex:1; height:1px; background:rgba(255,255,255,0.05);
+  }
+  #v8-screen .v8-or::before { margin-right:14px; }
+  #v8-screen .v8-or::after { margin-left:14px; }
+
+  /* Action bar — labeled buttons (NOT icons alone) */
+  #v8-screen .v8-actions {
+    display:grid; grid-template-columns:repeat(4,1fr); gap:10px;
+    max-width:680px; margin:0 auto 22px;
+  }
+  @media (max-width:680px) {
+    #v8-screen .v8-actions { grid-template-columns:1fr 1fr; }
+  }
+
+  #v8-screen .v8-act {
+    display:flex; align-items:center; gap:10px; padding:11px 14px;
+    background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.07);
+    border-radius:11px; cursor:pointer; transition:all 0.15s;
+    text-align:left; font-family:inherit;
+  }
+  #v8-screen .v8-act:hover {
+    border-color:rgba(var(--_c),0.45); background:rgba(var(--_c),0.04);
+    transform:translateY(-1px);
+  }
+  #v8-screen .v8-act .v8-act-icon {
+    width:28px; height:28px; border-radius:7px;
+    background:rgba(var(--_c),0.12); color:rgb(var(--_c));
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  #v8-screen .v8-act .v8-act-text { line-height:1.2; }
+  #v8-screen .v8-act .v8-act-label {
+    display:block; font-size:12.5px; font-weight:600; color:#fff;
+    margin-bottom:1px; letter-spacing:-0.005em;
+  }
+  #v8-screen .v8-act .v8-act-hint {
+    display:block; font-size:10.5px; color:#9b9b97;
+  }
+
+  /* Subject chips — quick start */
+  #v8-screen .v8-subjects {
+    text-align:center; max-width:760px; margin:0 auto;
+  }
+  #v8-screen .v8-subjects-label {
+    font-size:11px; color:#6f6e6b; letter-spacing:0.4px;
+    font-family:'JetBrains Mono',monospace; margin-bottom:10px;
+  }
+  #v8-screen .v8-subjects-row {
+    display:flex; flex-wrap:wrap; justify-content:center; gap:6px;
+  }
+  #v8-screen .v8-subj {
+    padding:5px 12px; border-radius:14px;
+    background:rgba(255,255,255,0.025); border:1px solid rgba(255,255,255,0.06);
+    font-size:11.5px; color:#9b9b97; cursor:pointer; transition:all 0.15s;
+    font-family:inherit;
+  }
+  #v8-screen .v8-subj:hover {
+    border-color:#34d399; color:#fff; background:rgba(52,211,153,0.06);
+  }
+
+  /* Footer */
+  #v8-screen .v8-foot {
+    text-align:center; padding:14px 24px 18px; font-size:10.5px; color:#6f6e6b;
+    flex-shrink:0;
+  }
+  #v8-screen .v8-foot a { color:#9b9b97; text-decoration:none; }
+
+  /* Keep above the fold on shorter laptops */
+  @media (max-height:720px) {
+    #v8-screen .v8-h1 { font-size:28px; margin-bottom:8px; }
+    #v8-screen .v8-sub { font-size:13px; }
+    #v8-screen .v8-bar input { font-size:15px; padding:12px; }
+    #v8-screen .v8-act { padding:10px 12px; }
+  }
+
+  /* Tooltip on action hover — "see what this does" */
+  #v8-screen .v8-act { position:relative; }
+  #v8-screen .v8-act .v8-tooltip {
+    position:absolute; bottom:calc(100% + 6px); left:50%; transform:translateX(-50%);
+    background:#0a0d0b; border:1px solid rgba(var(--_c),0.4); border-radius:8px;
+    padding:8px 12px; font-size:11px; color:#e7e7e5; white-space:nowrap;
+    opacity:0; pointer-events:none; transition:opacity 0.15s;
+    box-shadow:0 8px 20px rgba(0,0,0,0.4); z-index:5;
+  }
+  #v8-screen .v8-act .v8-tooltip::after {
+    content:''; position:absolute; top:100%; left:50%; transform:translateX(-50%);
+    border:5px solid transparent; border-top-color:rgba(var(--_c),0.4);
+  }
+  #v8-screen .v8-act:hover .v8-tooltip { opacity:1; }
+</style>
+</head>
+<body>
+<div id="app">
+
+<div id="v8-screen" class="app-screen">
+
+  <!-- ═══ NAV ═══ -->
+  <nav class="sc-nav">
+    <a class="sc-logo" href="#"><em>E</em>uler <sup style="font-size:9px;font-weight:500;color:rgba(255,255,255,.25);letter-spacing:.5px;vertical-align:super">beta</sup></a>
+    <div class="sc-nav-r">
+      <a class="sc-btn sc-btn-ghost" href="#">For Schools</a>
+      <button class="sc-btn sc-btn-ghost" onclick="openLogin()">Sign in</button>
+      <button class="sc-btn sc-btn-accent" onclick="openLogin()">Get started</button>
+    </div>
+  </nav>
+
+  <main class="v8-main">
+
+    <!-- ═══ HERO ═══ -->
+    <section class="v8-hero">
+      <div class="v8-eyebrow">
+        <span class="dot"></span>
+        Live AI tutor · Free to try
+      </div>
+      <h1 class="v8-h1">Tell me what you're <em>stuck on</em>.</h1>
+      <p class="v8-sub">Type, upload a PDF, paste a YouTube link, or hold the mic — Euler teaches it on a live board with voice.</p>
+    </section>
+
+    <!-- ═══ SMART BAR (primary input) ═══ -->
+    <div class="v8-bar-wrap">
+      <form class="v8-bar" onsubmit="event.preventDefault();openLogin()">
+        <input id="v8-input" type="text" placeholder='try "teach me eigenvectors" or "explain Q3 in this PDF"' autocomplete="off">
+        <button type="submit" class="v8-send">
+          Start
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+    </div>
+
+    <div class="v8-tip">
+      Press <kbd>Enter</kbd> to start · or pick one of the four below
+    </div>
+
+    <!-- ═══ OR divider ═══ -->
+    <div class="v8-or">other ways in</div>
+
+    <!-- ═══ ACTION BAR — visibly LABELED buttons ═══ -->
+    <div class="v8-actions">
+
+      <!-- Upload -->
+      <button class="v8-act" style="--_c:167,139,250" onclick="document.getElementById('v8-file').click()">
+        <div class="v8-act-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+        </div>
+        <div class="v8-act-text">
+          <span class="v8-act-label">Upload PDF</span>
+          <span class="v8-act-hint">homework · slides · notes</span>
+        </div>
+        <span class="v8-tooltip">Drop your textbook, scanned notes, or worksheet</span>
+      </button>
+      <input id="v8-file" type="file" multiple accept=".pdf,.docx,image/*" style="display:none" onchange="openLogin()">
+
+      <!-- YouTube -->
+      <button class="v8-act" style="--_c:96,165,250" onclick="promptYT()">
+        <div class="v8-act-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+        </div>
+        <div class="v8-act-text">
+          <span class="v8-act-label">Paste video</span>
+          <span class="v8-act-hint">YouTube link · pause to ask</span>
+        </div>
+        <span class="v8-tooltip">Paste a YouTube URL to follow along</span>
+      </button>
+
+      <!-- Voice -->
+      <button class="v8-act" style="--_c:251,146,60" onclick="openLogin()">
+        <div class="v8-act-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M12 2v8m0 0a4 4 0 0 1 4 4v6m-4-10a4 4 0 0 0-4 4v6m12 0H4"/></svg>
+        </div>
+        <div class="v8-act-text">
+          <span class="v8-act-label">Speak to it</span>
+          <span class="v8-act-hint">hold the mic · 30+ langs</span>
+        </div>
+        <span class="v8-tooltip">Hold the mic and ask out loud</span>
+      </button>
+
+      <!-- My folders -->
+      <button class="v8-act" style="--_c:52,211,153" onclick="openLogin()">
+        <div class="v8-act-icon">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+        </div>
+        <div class="v8-act-text">
+          <span class="v8-act-label">My folders</span>
+          <span class="v8-act-hint">saved books · courses</span>
+        </div>
+        <span class="v8-tooltip">Group your study material into folders</span>
+      </button>
+
+    </div>
+
+    <!-- ═══ Subject chips ═══ -->
+    <div class="v8-subjects">
+      <div class="v8-subjects-label">— or jump in with —</div>
+      <div class="v8-subjects-row">
+        <button class="v8-subj" onclick="prefill('teach me the chain rule with examples')">🧮 Math</button>
+        <button class="v8-subj" onclick="prefill('explain Schrödinger equation')">⚛️ Physics</button>
+        <button class="v8-subj" onclick="prefill('walk me through SN1 vs SN2')">🧪 Chemistry</button>
+        <button class="v8-subj" onclick="prefill('how does DNA transcription work')">🧬 Biology</button>
+        <button class="v8-subj" onclick="prefill('explain transformers in ML')">💻 CS &amp; ML</button>
+        <button class="v8-subj" onclick="prefill('mock interview me — Google · DSA · 45 min')">🎯 Mock interview</button>
+        <button class="v8-subj" onclick="prefill('AP Bio in 3 weeks — focus on genetics')">📚 Exam prep</button>
+      </div>
+    </div>
+
+  </main>
+
+  <div class="v8-foot">
+    Free until your 10th session · No credit card · <a href="mailto:mayank@seekcapacity.ai">mayank@seekcapacity.ai</a>
+  </div>
+
+</div>
+
+<!-- Login modal -->
+<div id="login-overlay" style="display:none;position:fixed;inset:0;z-index:9998;background:rgba(5,7,12,0.72);backdrop-filter:blur(10px);align-items:center;justify-content:center;padding:20px" onclick="if(event.target===this)closeLogin()">
+  <div style="background:linear-gradient(180deg,rgba(22,25,37,0.98),rgba(13,17,23,0.98));border:1px solid rgba(255,255,255,0.08);border-radius:20px;padding:40px 36px 32px;width:100%;max-width:400px;text-align:center;position:relative">
+    <button onclick="closeLogin()" style="position:absolute;top:14px;right:16px;background:none;border:none;color:rgba(255,255,255,0.35);font-size:24px;cursor:pointer">&times;</button>
+    <div style="display:inline-flex;align-items:center;justify-content:center;width:48px;height:48px;border-radius:14px;background:linear-gradient(135deg,rgba(52,211,153,0.18),rgba(167,139,250,0.12));font-family:'Lexend',sans-serif;font-weight:800;font-size:24px;color:#34d399;margin-bottom:18px">E</div>
+    <h2 style="font-family:'Lexend',sans-serif;font-size:22px;font-weight:700;margin-bottom:8px;color:#fff">Welcome to Euler</h2>
+    <p style="font-size:13px;color:rgba(255,255,255,0.6);margin-bottom:24px;line-height:1.5">Sign in to start. We'll create your account automatically.</p>
+    <button onclick="alert('Mockup — real Google flow opens here')" style="display:inline-flex;align-items:center;gap:12px;padding:11px 22px;background:#fff;color:#0a0b10;border:none;border-radius:999px;font-size:14px;font-weight:500;cursor:pointer">
+      <span style="display:inline-block;width:18px;height:18px;border-radius:50%;background:conic-gradient(from 0deg,#ea4335,#fbbc04,#34a853,#4285f4,#ea4335)"></span>
+      Sign in with Google
+    </button>
+  </div>
+</div>
+
+</div>
+
+<script>
+  function openLogin() {
+    document.getElementById('login-overlay').style.display = 'flex';
+    document.body.style.overflow = 'hidden';
+  }
+  function closeLogin() {
+    document.getElementById('login-overlay').style.display = 'none';
+    document.body.style.overflow = '';
+  }
+  function prefill(text) {
+    var el = document.getElementById('v8-input');
+    if (el) { el.value = text; el.focus(); }
+  }
+  function promptYT() {
+    var el = document.getElementById('v8-input');
+    if (el) { el.value = 'https://youtube.com/watch?v='; el.focus(); }
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') closeLogin(); });
+</script>
+</body>
+</html>

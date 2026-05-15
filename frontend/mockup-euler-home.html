@@ -1,0 +1,565 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — Home Experience Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #0a0f1a; color: #e2e8f0; font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif; min-height: 100vh; overflow-x: hidden; }
+
+  /* ── Nav ── */
+  .nav { display: flex; align-items: center; justify-content: space-between; padding: 16px 32px; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .nav-logo { font-size: 20px; font-weight: 800; letter-spacing: -0.5px; }
+  .nav-logo span { color: #34d399; }
+  .nav-tabs { display: flex; gap: 4px; background: rgba(255,255,255,.03); border-radius: 10px; padding: 3px; }
+  .nav-tab { padding: 7px 18px; border-radius: 8px; font-size: 12px; font-weight: 500; color: rgba(255,255,255,.4); cursor: pointer; border: none; background: none; transition: all .15s; }
+  .nav-tab.active { background: rgba(255,255,255,.08); color: #fff; }
+  .nav-tab:hover { color: rgba(255,255,255,.7); }
+  .nav-user { display: flex; align-items: center; gap: 10px; }
+  .nav-avatar { width: 30px; height: 30px; border-radius: 50%; background: linear-gradient(135deg, #34d399, #60a5fa); display: grid; place-items: center; font-size: 12px; font-weight: 700; }
+
+  /* ── Main Container ── */
+  .main { max-width: 1100px; margin: 0 auto; padding: 40px 28px 80px; }
+
+  /* ── Hero / Search ── */
+  .hero { text-align: center; margin-bottom: 40px; }
+  .hero h1 { font-size: 28px; font-weight: 800; letter-spacing: -0.5px; margin-bottom: 8px; }
+  .hero h1 span { background: linear-gradient(135deg, #34d399, #60a5fa); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+  .hero p { font-size: 13px; color: rgba(255,255,255,.3); margin-bottom: 24px; }
+  .search-box { position: relative; max-width: 600px; margin: 0 auto; }
+  .search-box input { width: 100%; padding: 16px 20px 16px 44px; border-radius: 14px; border: 1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.03); color: #fff; font-size: 14px; outline: none; transition: border-color .15s; }
+  .search-box input:focus { border-color: rgba(52,211,153,.3); }
+  .search-box input::placeholder { color: rgba(255,255,255,.2); }
+  .search-icon { position: absolute; left: 16px; top: 50%; transform: translateY(-50%); color: rgba(255,255,255,.2); font-size: 16px; }
+
+  /* ── Intent Cards ── */
+  .intent-section { margin-bottom: 40px; }
+  .intent-label { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.2px; color: rgba(255,255,255,.15); margin-bottom: 14px; }
+  .intent-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .intent-card { padding: 20px 18px; border-radius: 14px; border: 1px solid rgba(255,255,255,.05); background: rgba(255,255,255,.02); cursor: pointer; transition: all .15s; position: relative; overflow: hidden; }
+  .intent-card:hover { border-color: rgba(255,255,255,.12); background: rgba(255,255,255,.04); transform: translateY(-1px); }
+  .intent-card .ic-icon { font-size: 24px; margin-bottom: 10px; }
+  .intent-card .ic-title { font-size: 14px; font-weight: 700; margin-bottom: 4px; }
+  .intent-card .ic-desc { font-size: 11px; color: rgba(255,255,255,.3); line-height: 1.5; }
+  .intent-card .ic-examples { margin-top: 10px; display: flex; flex-wrap: wrap; gap: 5px; }
+  .intent-card .ic-eg { font-size: 9px; padding: 3px 8px; border-radius: 5px; background: rgba(255,255,255,.04); color: rgba(255,255,255,.25); }
+  .intent-card.learn { border-color: rgba(52,211,153,.1); }
+  .intent-card.learn:hover { border-color: rgba(52,211,153,.25); background: rgba(52,211,153,.04); }
+  .intent-card.solve { border-color: rgba(96,165,250,.1); }
+  .intent-card.solve:hover { border-color: rgba(96,165,250,.25); background: rgba(96,165,250,.04); }
+  .intent-card.mock { border-color: rgba(251,191,36,.1); }
+  .intent-card.mock:hover { border-color: rgba(251,191,36,.25); background: rgba(251,191,36,.04); }
+  .intent-card.byo { border-color: rgba(167,139,250,.1); }
+  .intent-card.byo:hover { border-color: rgba(167,139,250,.25); background: rgba(167,139,250,.04); }
+  .ic-accent-learn { color: #34d399; }
+  .ic-accent-solve { color: #60a5fa; }
+  .ic-accent-mock { color: #fbbf24; }
+  .ic-accent-byo { color: #a78bfa; }
+
+  /* ── Continue Section ── */
+  .continue-section { margin-bottom: 40px; }
+  .section-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .section-title { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.5); }
+  .section-link { font-size: 11px; color: rgba(52,211,153,.5); text-decoration: none; }
+  .session-cards { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .session-card { padding: 14px 16px; border-radius: 12px; border: 1px solid rgba(255,255,255,.04); background: rgba(255,255,255,.015); cursor: pointer; transition: all .12s; }
+  .session-card:hover { border-color: rgba(255,255,255,.1); background: rgba(255,255,255,.03); }
+  .sc-mode { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: .8px; margin-bottom: 4px; }
+  .sc-mode.dsa { color: rgba(52,211,153,.6); }
+  .sc-mode.sd { color: rgba(96,165,250,.6); }
+  .sc-mode.byo { color: rgba(167,139,250,.6); }
+  .sc-title { font-size: 13px; font-weight: 600; margin-bottom: 4px; color: rgba(255,255,255,.8); }
+  .sc-meta { font-size: 10px; color: rgba(255,255,255,.2); }
+
+  /* ── Topics Grid ── */
+  .topics-section { margin-bottom: 40px; }
+  .topic-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+  .topic-chip { padding: 8px 14px; border-radius: 9px; border: 1px solid rgba(255,255,255,.05); background: rgba(255,255,255,.02); font-size: 12px; color: rgba(255,255,255,.5); cursor: pointer; transition: all .12s; display: flex; align-items: center; gap: 6px; }
+  .topic-chip:hover { border-color: rgba(52,211,153,.2); color: rgba(255,255,255,.8); background: rgba(52,211,153,.04); }
+  .topic-chip .tc-dot { width: 6px; height: 6px; border-radius: 50%; }
+  .tc-dot.new { background: rgba(255,255,255,.1); }
+  .tc-dot.started { background: #fbbf24; }
+  .tc-dot.solid { background: #34d399; }
+
+  /* ── Problems Table ── */
+  .problems-section { margin-bottom: 40px; }
+  .problems-filters { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+  .pf-btn { padding: 5px 12px; border-radius: 7px; border: 1px solid rgba(255,255,255,.05); background: none; color: rgba(255,255,255,.3); font-size: 10px; cursor: pointer; font-family: inherit; }
+  .pf-btn.active { background: rgba(52,211,153,.08); border-color: rgba(52,211,153,.2); color: rgba(52,211,153,.8); }
+  .problems-table { width: 100%; border-collapse: collapse; }
+  .problems-table th { text-align: left; padding: 8px 12px; font-size: 10px; font-weight: 600; color: rgba(255,255,255,.2); text-transform: uppercase; letter-spacing: .5px; border-bottom: 1px solid rgba(255,255,255,.04); }
+  .problems-table td { padding: 10px 12px; font-size: 12px; border-bottom: 1px solid rgba(255,255,255,.02); }
+  .problems-table tr:hover td { background: rgba(255,255,255,.015); }
+  .p-name { color: rgba(255,255,255,.8); font-weight: 500; }
+  .p-diff { font-size: 10px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .p-diff.easy { background: rgba(52,211,153,.1); color: #34d399; }
+  .p-diff.medium { background: rgba(251,191,36,.1); color: #fbbf24; }
+  .p-diff.hard { background: rgba(239,68,68,.1); color: #ef4444; }
+  .p-topic { font-size: 10px; color: rgba(255,255,255,.25); }
+  .p-status { font-size: 10px; }
+  .p-btn { padding: 4px 10px; border-radius: 6px; border: 1px solid rgba(52,211,153,.15); background: none; color: rgba(52,211,153,.6); font-size: 10px; cursor: pointer; font-family: inherit; }
+  .p-btn:hover { background: rgba(52,211,153,.08); }
+
+  /* ── SD Section ── */
+  .sd-section { margin-bottom: 40px; }
+  .sd-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+  .sd-card { padding: 16px; border-radius: 12px; border: 1px solid rgba(96,165,250,.06); background: rgba(96,165,250,.02); cursor: pointer; transition: all .12s; }
+  .sd-card:hover { border-color: rgba(96,165,250,.2); background: rgba(96,165,250,.04); }
+  .sd-card .sd-name { font-size: 13px; font-weight: 600; color: rgba(255,255,255,.8); margin-bottom: 3px; }
+  .sd-card .sd-desc { font-size: 10px; color: rgba(255,255,255,.25); line-height: 1.4; }
+  .sd-card .sd-concepts { margin-top: 8px; display: flex; gap: 4px; flex-wrap: wrap; }
+  .sd-card .sd-tag { font-size: 9px; padding: 2px 6px; border-radius: 4px; background: rgba(96,165,250,.06); color: rgba(96,165,250,.5); }
+
+  /* ── BYO Section ── */
+  .byo-section { margin-bottom: 40px; }
+  .byo-upload { padding: 28px; border-radius: 14px; border: 2px dashed rgba(167,139,250,.12); background: rgba(167,139,250,.02); text-align: center; cursor: pointer; transition: all .15s; }
+  .byo-upload:hover { border-color: rgba(167,139,250,.25); background: rgba(167,139,250,.04); }
+  .byo-upload .bu-icon { font-size: 28px; margin-bottom: 8px; color: rgba(167,139,250,.3); }
+  .byo-upload .bu-title { font-size: 14px; font-weight: 600; color: rgba(255,255,255,.6); margin-bottom: 4px; }
+  .byo-upload .bu-desc { font-size: 11px; color: rgba(255,255,255,.2); }
+  .byo-collections { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 12px; }
+  .byo-col { padding: 12px 14px; border-radius: 10px; border: 1px solid rgba(167,139,250,.06); background: rgba(167,139,250,.02); cursor: pointer; }
+  .byo-col:hover { border-color: rgba(167,139,250,.15); }
+  .byo-col .bc-name { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.7); margin-bottom: 2px; }
+  .byo-col .bc-meta { font-size: 10px; color: rgba(255,255,255,.2); }
+
+  /* ── Tab content toggle ── */
+  .tab-content { display: none; }
+  .tab-content.active { display: block; }
+
+  /* ── Responsive ── */
+  @media (max-width: 768px) {
+    .intent-grid { grid-template-columns: 1fr 1fr; }
+    .session-cards { grid-template-columns: 1fr; }
+    .sd-grid { grid-template-columns: 1fr; }
+    .byo-collections { grid-template-columns: 1fr; }
+  }
+</style>
+</head>
+<body>
+
+<!-- ══ Navigation ══ -->
+<nav class="nav">
+  <div class="nav-logo"><span>Euler</span></div>
+  <div class="nav-tabs">
+    <button class="nav-tab active" onclick="switchTab('home')">Home</button>
+    <button class="nav-tab" onclick="switchTab('dsa')">DSA</button>
+    <button class="nav-tab" onclick="switchTab('sd')">System Design</button>
+    <button class="nav-tab" onclick="switchTab('materials')">My Materials</button>
+  </div>
+  <div class="nav-user">
+    <div class="nav-avatar">M</div>
+  </div>
+</nav>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- ══ HOME TAB ══ -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="tab-home" class="tab-content active">
+<div class="main">
+
+  <!-- Hero -->
+  <div class="hero">
+    <h1>What do you want to <span>learn</span> today?</h1>
+    <p>Type anything — Euler adapts to you. Or pick a path below.</p>
+    <div class="search-box">
+      <span class="search-icon">&#x1F50D;</span>
+      <input type="text" placeholder='Try: "teach me DP", "help with Two Sum", "mock Google interview", or paste a LeetCode URL...' />
+    </div>
+  </div>
+
+  <!-- Intent Cards -->
+  <div class="intent-section">
+    <div class="intent-label">Choose your path</div>
+    <div class="intent-grid">
+
+      <div class="intent-card learn" onclick="switchTab('dsa')">
+        <div class="ic-icon">&#x1F3AF;</div>
+        <div class="ic-title ic-accent-learn">Learn a Topic</div>
+        <div class="ic-desc">Euler teaches you step by step with animations, real-world examples, and practice problems.</div>
+        <div class="ic-examples">
+          <span class="ic-eg">Sliding Window</span>
+          <span class="ic-eg">Trees</span>
+          <span class="ic-eg">Dynamic Programming</span>
+        </div>
+      </div>
+
+      <div class="intent-card solve">
+        <div class="ic-icon">&#x1F4DD;</div>
+        <div class="ic-title ic-accent-solve">Solve a Problem</div>
+        <div class="ic-desc">Pick a problem or paste a LeetCode URL. Euler guides you through it without giving the answer.</div>
+        <div class="ic-examples">
+          <span class="ic-eg">Two Sum</span>
+          <span class="ic-eg">LRU Cache</span>
+          <span class="ic-eg">Paste URL</span>
+        </div>
+      </div>
+
+      <div class="intent-card mock">
+        <div class="ic-icon">&#x1F3A4;</div>
+        <div class="ic-title ic-accent-mock">Mock Interview</div>
+        <div class="ic-desc">Simulate a real interview. Timed. No hints. Euler plays the interviewer and evaluates you after.</div>
+        <div class="ic-examples">
+          <span class="ic-eg">Google L5</span>
+          <span class="ic-eg">Meta SDE</span>
+          <span class="ic-eg">System Design</span>
+        </div>
+      </div>
+
+      <div class="intent-card byo" onclick="switchTab('materials')">
+        <div class="ic-icon">&#x1F4DA;</div>
+        <div class="ic-title ic-accent-byo">My Materials</div>
+        <div class="ic-desc">Upload your textbook, class notes, or video lecture. Euler teaches you from YOUR content.</div>
+        <div class="ic-examples">
+          <span class="ic-eg">PDF</span>
+          <span class="ic-eg">YouTube</span>
+          <span class="ic-eg">Notes</span>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Continue Where You Left Off -->
+  <div class="continue-section">
+    <div class="section-header">
+      <div class="section-title">Continue where you left off</div>
+      <a href="#" class="section-link">View all sessions</a>
+    </div>
+    <div class="session-cards">
+      <div class="session-card">
+        <div class="sc-mode dsa">DSA</div>
+        <div class="sc-title">Sliding Window Pattern</div>
+        <div class="sc-meta">2 problems solved &middot; 25 min &middot; yesterday</div>
+      </div>
+      <div class="session-card">
+        <div class="sc-mode sd">System Design</div>
+        <div class="sc-title">Design a URL Shortener</div>
+        <div class="sc-meta">HLD complete &middot; 40 min &middot; 2 days ago</div>
+      </div>
+      <div class="session-card">
+        <div class="sc-mode byo">My Materials</div>
+        <div class="sc-title">Special Relativity Notes</div>
+        <div class="sc-meta">Lorentz transforms &middot; 15 min &middot; today</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Quick Progress -->
+  <div class="topics-section">
+    <div class="section-header">
+      <div class="section-title">Your DSA Progress</div>
+    </div>
+    <div class="topic-chips">
+      <div class="topic-chip"><span class="tc-dot solid"></span> Arrays</div>
+      <div class="topic-chip"><span class="tc-dot solid"></span> Hash Maps</div>
+      <div class="topic-chip"><span class="tc-dot started"></span> Two Pointers</div>
+      <div class="topic-chip"><span class="tc-dot started"></span> Sliding Window</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Binary Search</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Stack</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Trees</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Graphs</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Dynamic Programming</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Backtracking</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Greedy</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Heap</div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- ══ DSA TAB ══ -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="tab-dsa" class="tab-content">
+<div class="main">
+
+  <div class="hero" style="margin-bottom:28px">
+    <h1>DSA & <span>Interview Prep</span></h1>
+    <p>Learn patterns, solve problems, and prep for FAANG</p>
+    <div class="search-box">
+      <span class="search-icon">&#x1F50D;</span>
+      <input type="text" placeholder='Try: "teach me DP", "two sum", "random medium", "sliding window pattern"...' />
+    </div>
+  </div>
+
+  <!-- Topics with Progress -->
+  <div class="topics-section">
+    <div class="section-header">
+      <div class="section-title">Topics &middot; click to learn</div>
+    </div>
+    <div class="topic-chips">
+      <div class="topic-chip"><span class="tc-dot solid"></span> Arrays & Hashing <span style="font-size:9px;color:rgba(52,211,153,.5);margin-left:4px">5 solved</span></div>
+      <div class="topic-chip"><span class="tc-dot solid"></span> Two Pointers <span style="font-size:9px;color:rgba(52,211,153,.5);margin-left:4px">3 solved</span></div>
+      <div class="topic-chip"><span class="tc-dot started"></span> Sliding Window <span style="font-size:9px;color:rgba(251,191,36,.5);margin-left:4px">1 solved</span></div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Binary Search</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Stack</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Linked List</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Trees</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Graphs</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Dynamic Programming</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Backtracking</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Greedy</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Heap</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Intervals</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Trie</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Union Find</div>
+    </div>
+  </div>
+
+  <!-- Problems Browser -->
+  <div class="problems-section">
+    <div class="section-header">
+      <div class="section-title">Problems</div>
+    </div>
+    <div class="problems-filters">
+      <button class="pf-btn active">All</button>
+      <button class="pf-btn">Easy</button>
+      <button class="pf-btn">Medium</button>
+      <button class="pf-btn">Hard</button>
+      <button class="pf-btn">NeetCode 150</button>
+      <button class="pf-btn">Blind 75</button>
+    </div>
+    <table class="problems-table">
+      <thead>
+        <tr><th>Problem</th><th>Difficulty</th><th>Topic</th><th>Status</th><th></th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="p-name">Two Sum</td>
+          <td><span class="p-diff easy">Easy</span></td>
+          <td class="p-topic">Arrays, Hash Map</td>
+          <td class="p-status" style="color:#34d399">Solved</td>
+          <td><button class="p-btn">Practice</button></td>
+        </tr>
+        <tr>
+          <td class="p-name">3Sum</td>
+          <td><span class="p-diff medium">Medium</span></td>
+          <td class="p-topic">Two Pointers, Sorting</td>
+          <td class="p-status" style="color:#fbbf24">Attempted</td>
+          <td><button class="p-btn">Continue</button></td>
+        </tr>
+        <tr>
+          <td class="p-name">Longest Substring Without Repeating</td>
+          <td><span class="p-diff medium">Medium</span></td>
+          <td class="p-topic">Sliding Window, Hash Map</td>
+          <td class="p-status" style="color:rgba(255,255,255,.15)">New</td>
+          <td><button class="p-btn">Solve</button></td>
+        </tr>
+        <tr>
+          <td class="p-name">Binary Search</td>
+          <td><span class="p-diff easy">Easy</span></td>
+          <td class="p-topic">Binary Search</td>
+          <td class="p-status" style="color:rgba(255,255,255,.15)">New</td>
+          <td><button class="p-btn">Solve</button></td>
+        </tr>
+        <tr>
+          <td class="p-name">Valid Parentheses</td>
+          <td><span class="p-diff easy">Easy</span></td>
+          <td class="p-topic">Stack</td>
+          <td class="p-status" style="color:#34d399">Solved</td>
+          <td><button class="p-btn">Practice</button></td>
+        </tr>
+        <tr>
+          <td class="p-name">Merge K Sorted Lists</td>
+          <td><span class="p-diff hard">Hard</span></td>
+          <td class="p-topic">Heap, Linked List</td>
+          <td class="p-status" style="color:rgba(255,255,255,.15)">New</td>
+          <td><button class="p-btn">Solve</button></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- ══ SYSTEM DESIGN TAB ══ -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="tab-sd" class="tab-content">
+<div class="main">
+
+  <div class="hero" style="margin-bottom:28px">
+    <h1>System <span>Design</span></h1>
+    <p>Learn concepts, design architectures, and practice interview problems</p>
+    <div class="search-box">
+      <span class="search-icon">&#x1F50D;</span>
+      <input type="text" placeholder='Try: "design Uber", "explain caching", "teach me sharding"...' />
+    </div>
+  </div>
+
+  <!-- Concepts -->
+  <div class="topics-section">
+    <div class="section-header">
+      <div class="section-title">Concepts &middot; learn the building blocks</div>
+    </div>
+    <div class="topic-chips">
+      <div class="topic-chip"><span class="tc-dot new"></span> Caching</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Load Balancing</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Database Sharding</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Message Queues</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> CAP Theorem</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Consistent Hashing</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> API Design</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> SQL vs NoSQL</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Redis</div>
+      <div class="topic-chip"><span class="tc-dot new"></span> Kafka</div>
+    </div>
+  </div>
+
+  <!-- HLD Problems -->
+  <div class="sd-section">
+    <div class="section-header">
+      <div class="section-title">High-Level Design Problems</div>
+    </div>
+    <div class="sd-grid">
+      <div class="sd-card">
+        <div class="sd-name">URL Shortener</div>
+        <div class="sd-desc">Design a system like bit.ly — ID generation, caching, analytics</div>
+        <div class="sd-concepts"><span class="sd-tag">Hashing</span><span class="sd-tag">Caching</span><span class="sd-tag">Sharding</span></div>
+      </div>
+      <div class="sd-card">
+        <div class="sd-name">Chat System</div>
+        <div class="sd-desc">Design WhatsApp — real-time messaging, presence, delivery</div>
+        <div class="sd-concepts"><span class="sd-tag">WebSocket</span><span class="sd-tag">Queues</span><span class="sd-tag">Storage</span></div>
+      </div>
+      <div class="sd-card">
+        <div class="sd-name">News Feed</div>
+        <div class="sd-desc">Design Facebook feed — fan-out, ranking, real-time updates</div>
+        <div class="sd-concepts"><span class="sd-tag">Fan-out</span><span class="sd-tag">Caching</span><span class="sd-tag">Ranking</span></div>
+      </div>
+      <div class="sd-card">
+        <div class="sd-name">Rate Limiter</div>
+        <div class="sd-desc">Design an API rate limiter — token bucket, sliding window</div>
+        <div class="sd-concepts"><span class="sd-tag">Algorithms</span><span class="sd-tag">Redis</span><span class="sd-tag">Distributed</span></div>
+      </div>
+      <div class="sd-card">
+        <div class="sd-name">Ride Sharing</div>
+        <div class="sd-desc">Design Uber — geospatial matching, dispatch, ETA</div>
+        <div class="sd-concepts"><span class="sd-tag">Geo</span><span class="sd-tag">Matching</span><span class="sd-tag">Real-time</span></div>
+      </div>
+      <div class="sd-card">
+        <div class="sd-name">Notification System</div>
+        <div class="sd-desc">Design push notifications — priority, batching, delivery</div>
+        <div class="sd-concepts"><span class="sd-tag">Queues</span><span class="sd-tag">Priority</span><span class="sd-tag">Scale</span></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- LLD Problems -->
+  <div class="sd-section">
+    <div class="section-header">
+      <div class="section-title">Low-Level Design Problems</div>
+    </div>
+    <div class="sd-grid">
+      <div class="sd-card" style="border-color:rgba(167,139,250,.06);background:rgba(167,139,250,.02)">
+        <div class="sd-name">Parking Lot</div>
+        <div class="sd-desc">OOP design — classes, relationships, state management</div>
+        <div class="sd-concepts"><span class="sd-tag" style="background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">OOP</span><span class="sd-tag" style="background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">State</span></div>
+      </div>
+      <div class="sd-card" style="border-color:rgba(167,139,250,.06);background:rgba(167,139,250,.02)">
+        <div class="sd-name">LRU Cache</div>
+        <div class="sd-desc">Implement with O(1) get/put — HashMap + Doubly Linked List</div>
+        <div class="sd-concepts"><span class="sd-tag" style="background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">DS</span><span class="sd-tag" style="background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">Design</span></div>
+      </div>
+      <div class="sd-card" style="border-color:rgba(167,139,250,.06);background:rgba(167,139,250,.02)">
+        <div class="sd-name">Elevator System</div>
+        <div class="sd-desc">State machines, scheduling algorithms, concurrency</div>
+        <div class="sd-concepts"><span class="sd-tag" style="background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">State Machine</span><span class="sd-tag" style="background:rgba(167,139,250,.06);color:rgba(167,139,250,.5)">Scheduling</span></div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<!-- ══════════════════════════════════════════════ -->
+<!-- ══ MY MATERIALS TAB ══ -->
+<!-- ══════════════════════════════════════════════ -->
+<div id="tab-materials" class="tab-content">
+<div class="main">
+
+  <div class="hero" style="margin-bottom:28px">
+    <h1>My <span>Materials</span></h1>
+    <p>Upload your textbook, notes, or lecture videos. Euler becomes your personal tutor for YOUR content.</p>
+  </div>
+
+  <!-- Upload Area -->
+  <div class="byo-section">
+    <div class="byo-upload">
+      <div class="bu-icon">&#x2B06;</div>
+      <div class="bu-title">Drop files here or <span style="color:#a78bfa;text-decoration:underline;cursor:pointer">browse</span></div>
+      <div class="bu-desc">PDF, DOCX, video, audio, images, or text &middot; Max 50 MB</div>
+    </div>
+
+    <div style="text-align:center;margin:16px 0;font-size:11px;color:rgba(255,255,255,.15)">or paste a link</div>
+
+    <div style="display:flex;gap:8px;max-width:500px;margin:0 auto">
+      <input type="text" placeholder="YouTube URL or article link..." style="flex:1;padding:10px 14px;border-radius:10px;border:1px solid rgba(255,255,255,.06);background:rgba(255,255,255,.03);color:#fff;font-size:12px;outline:none" />
+      <button style="padding:10px 18px;border-radius:10px;border:1px solid rgba(167,139,250,.15);background:rgba(167,139,250,.06);color:rgba(167,139,250,.8);font-size:12px;cursor:pointer;font-family:inherit">Add link</button>
+    </div>
+  </div>
+
+  <!-- Existing Collections -->
+  <div class="byo-section" style="margin-top:32px">
+    <div class="section-header">
+      <div class="section-title">Your Collections</div>
+    </div>
+    <div class="byo-collections">
+      <div class="byo-col">
+        <div class="bc-name">Special Relativity Notes</div>
+        <div class="bc-meta">3 files &middot; 47 sections &middot; Lorentz, spacetime</div>
+      </div>
+      <div class="byo-col">
+        <div class="bc-name">Eye Movement Research</div>
+        <div class="bc-meta">1 file &middot; 6 sections &middot; saccades, fixations</div>
+      </div>
+      <div class="byo-col" style="border-style:dashed;text-align:center;padding:20px">
+        <div class="bc-name" style="color:rgba(167,139,250,.4)">+ New Collection</div>
+        <div class="bc-meta">Organize your materials by subject</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- How it Works -->
+  <div style="margin-top:40px;padding:24px;border-radius:14px;border:1px solid rgba(255,255,255,.04);background:rgba(255,255,255,.015)">
+    <div style="font-size:13px;font-weight:700;color:rgba(255,255,255,.6);margin-bottom:12px">How it works</div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:20px">
+      <div>
+        <div style="font-size:20px;margin-bottom:6px">1.</div>
+        <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);margin-bottom:3px">Upload</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.25);line-height:1.5">Drop a PDF, paste a YouTube link, or type your notes. Euler reads and understands it.</div>
+      </div>
+      <div>
+        <div style="font-size:20px;margin-bottom:6px">2.</div>
+        <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);margin-bottom:3px">Ask anything</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.25);line-height:1.5">Start a session. Ask "teach me chapter 3" or "explain this formula." Euler teaches from YOUR material.</div>
+      </div>
+      <div>
+        <div style="font-size:20px;margin-bottom:6px">3.</div>
+        <div style="font-size:12px;font-weight:600;color:rgba(255,255,255,.7);margin-bottom:3px">Learn deeply</div>
+        <div style="font-size:11px;color:rgba(255,255,255,.25);line-height:1.5">Animated explanations, practice problems, and Q&A — all grounded in your specific content.</div>
+      </div>
+    </div>
+  </div>
+
+</div>
+</div>
+
+<script>
+function switchTab(tab) {
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+  document.querySelectorAll('.nav-tab').forEach(el => el.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  // Highlight nav tab
+  const tabs = document.querySelectorAll('.nav-tab');
+  const map = { home: 0, dsa: 1, sd: 2, materials: 3 };
+  if (map[tab] !== undefined) tabs[map[tab]].classList.add('active');
+}
+</script>
+
+</body>
+</html>

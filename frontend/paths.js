@@ -672,13 +672,13 @@ function showScopeHint(intentText, blueprint) {
           ${scope} scope · ~30s setup
         </div>
       </div>
-      <button onclick="PathUI.dismissScopeHint();_startOnDemandSession('${_escHtml(intentText)}')"
+      <button onclick="PathUI.dismissScopeHint();_startOnDemandSession('${_jsAttr(intentText)}',{skipScopeHint:true})"
         class="scope-hint-btn-secondary" style="
         padding:7px 13px;border-radius:8px;border:1px solid rgba(255,255,255,.1);
         background:none;color:rgba(255,255,255,.6);font-size:11px;font-weight:600;
         cursor:pointer;font-family:inherit;flex-shrink:0;white-space:nowrap;
       ">Just one session</button>
-      <button onclick="PathUI.startWizard('${_escHtml(intentText)}', '${blueprint.mode}')"
+      <button onclick="PathUI.startWizard('${_jsAttr(intentText)}','${_jsAttr(blueprint.mode)}')"
         style="
         padding:7px 13px;border-radius:8px;border:none;
         background:linear-gradient(135deg,#34d399,#22c584);color:#0a0f1a;

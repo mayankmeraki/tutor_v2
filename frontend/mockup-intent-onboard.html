@@ -1,0 +1,1060 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — Broad Intent Onboarding</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0f1a; color: #e2e8f0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Inter', sans-serif;
+    min-height: 100vh; overflow-x: hidden;
+  }
+
+  /* ── Fake home in background ── */
+  .bg { position: fixed; inset: 0; background: #060b14; z-index: 0; }
+  .bg-nav {
+    height: 56px; padding: 0 28px; display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+  }
+  .bg-logo { font-size: 18px; font-weight: 800; }
+  .bg-logo em { color: #34d399; font-style: normal; }
+  .bg-search {
+    flex: 1; max-width: 600px; margin: 0 32px; padding: 10px 16px;
+    border-radius: 10px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05);
+    font-size: 12px; color: rgba(255,255,255,.4);
+  }
+  .bg-avatar {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg,#34d399,#60a5fa);
+    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+  }
+
+  /* ── Note banner ── */
+  .note {
+    position: fixed; top: 12px; left: 12px; z-index: 50;
+    background: rgba(0,0,0,.6); border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px; padding: 8px 14px; max-width: 520px;
+    font-size: 11px; color: rgba(255,255,255,.5);
+  }
+  .note strong { color: rgba(52,211,153,.85); font-weight: 700; }
+
+  /* ═══ Overlay ═══ */
+  .overlay {
+    position: fixed; inset: 0; z-index: 100;
+    background: rgba(0,0,0,.78); backdrop-filter: blur(8px);
+    display: flex; justify-content: center;
+    padding: 50px 20px 100px;
+    overflow-y: auto;
+    animation: fadeIn .3s ease;
+  }
+  @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+
+  /* ═══ Single shell ═══ */
+  .shell {
+    width: 100%; max-width: 720px;
+    background: #0f172a; border: 1px solid rgba(255,255,255,.06);
+    border-radius: 18px;
+    box-shadow: 0 30px 80px rgba(0,0,0,.6);
+    overflow: hidden; height: fit-content;
+    animation: slideUp .35s ease;
+  }
+  @keyframes slideUp { from { transform: translateY(16px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+
+  /* ── Topbar ── */
+  .topbar {
+    padding: 14px 22px; display: flex; align-items: center; gap: 10px;
+    border-bottom: 1px solid rgba(255,255,255,.04);
+    background: rgba(255,255,255,.01);
+  }
+  .euler-av {
+    width: 28px; height: 28px; border-radius: 50%;
+    background: linear-gradient(135deg, #34d399, #22c584);
+    display: grid; place-items: center; font-size: 13px; font-weight: 800; color: #0a0f1a;
+    flex-shrink: 0;
+  }
+  .topbar-meta { flex: 1; }
+  .topbar-name { font-size: 13px; font-weight: 700; color: rgba(255,255,255,.92); }
+  .topbar-status {
+    font-size: 10.5px; color: rgba(52,211,153,.7); margin-top: 1px;
+    display: flex; align-items: center; gap: 5px;
+  }
+  .topbar-status::before {
+    content: ''; width: 6px; height: 6px; border-radius: 50%; background: #34d399;
+    animation: pulse 1.5s infinite;
+  }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: .4; } }
+  .topbar-x {
+    background: none; border: none; color: rgba(255,255,255,.3); cursor: pointer;
+    font-size: 16px; padding: 6px; border-radius: 6px;
+  }
+  .topbar-x:hover { color: rgba(255,255,255,.7); background: rgba(255,255,255,.04); }
+
+  /* ── Stream ── */
+  .stream { padding: 20px 24px 8px; display: flex; flex-direction: column; gap: 14px; }
+
+  /* ── Chat messages ── */
+  .row { display: flex; gap: 10px; align-items: flex-start; }
+  .row.bot { align-self: flex-start; max-width: 90%; }
+  .row.user { align-self: flex-end; flex-direction: row-reverse; max-width: 80%; }
+  .row .av {
+    width: 24px; height: 24px; border-radius: 50%; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 10px; font-weight: 800;
+  }
+  .row.bot .av { background: linear-gradient(135deg, #34d399, #22c584); color: #0a0f1a; }
+  .row.user .av { background: linear-gradient(135deg, #60a5fa, #818cf8); color: #fff; }
+  .bubble {
+    padding: 9px 13px; border-radius: 12px; font-size: 13px; line-height: 1.5;
+  }
+  .row.bot .bubble {
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.04);
+    color: rgba(255,255,255,.9); border-top-left-radius: 4px;
+  }
+  .row.bot .bubble strong { color: #34d399; font-weight: 600; }
+  .row.user .bubble {
+    background: rgba(96,165,250,.1); border: 1px solid rgba(96,165,250,.18);
+    color: rgba(255,255,255,.95); border-top-right-radius: 4px;
+    cursor: pointer; transition: all .12s;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .row.user .bubble:hover { background: rgba(96,165,250,.16); border-color: rgba(96,165,250,.35); }
+  .row.user .bubble::after {
+    content: '✓'; font-size: 11px; color: rgba(52,211,153,.8); font-weight: 700; margin-left: 2px;
+    transition: all .12s;
+  }
+  .row.user .bubble:hover::after {
+    content: 'edit ✏'; font-size: 10px; color: rgba(96,165,250,.95); font-weight: 600;
+  }
+
+  /* ── Card group (response options) ── */
+  .opts {
+    margin-left: 34px; display: grid; gap: 8px;
+    animation: optsIn .3s ease;
+  }
+  @keyframes optsIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: translateY(0); } }
+  .opts.cols-2 { grid-template-columns: 1fr 1fr; }
+  .opts.cols-4 { grid-template-columns: repeat(4, 1fr); }
+  .opts.flow { display: flex; flex-wrap: wrap; gap: 7px; }
+
+  /* ── Selectable card (icon + title + desc) ── */
+  .card {
+    padding: 11px 13px; border-radius: 11px; border: 1px solid rgba(255,255,255,.06);
+    background: rgba(255,255,255,.025); cursor: pointer; transition: all .12s;
+    display: flex; align-items: flex-start; gap: 10px; text-align: left;
+    font-family: inherit; color: inherit;
+  }
+  .card:hover { border-color: rgba(255,255,255,.18); background: rgba(255,255,255,.045); transform: translateY(-1px); }
+  .card.selected { border-color: rgba(52,211,153,.45); background: rgba(52,211,153,.07); }
+  .card-icon {
+    width: 28px; height: 28px; border-radius: 7px; flex-shrink: 0;
+    display: grid; place-items: center; font-size: 14px;
+    background: rgba(255,255,255,.05);
+  }
+  .card.selected .card-icon { background: rgba(52,211,153,.14); }
+  .card-text { flex: 1; min-width: 0; }
+  .card-title { font-size: 12.5px; font-weight: 600; color: rgba(255,255,255,.9); margin-bottom: 1px; line-height: 1.3; }
+  .card-desc { font-size: 10.5px; color: rgba(255,255,255,.4); line-height: 1.4; }
+
+  /* ── Compact card (for depth — horizontal row) ── */
+  .card-compact { flex-direction: column; align-items: flex-start; padding: 10px 11px; }
+  .card-compact .card-icon { margin-bottom: 4px; }
+  .card-compact .card-title { font-size: 12px; }
+  .card-compact .card-desc { font-size: 10px; }
+
+  /* ── Chip (multi-select for prereqs) ── */
+  .chip {
+    padding: 6px 11px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.07); background: rgba(255,255,255,.025);
+    cursor: pointer; transition: all .12s;
+    font-size: 11.5px; color: rgba(255,255,255,.6); user-select: none;
+    font-family: inherit;
+  }
+  .chip:hover { border-color: rgba(255,255,255,.18); color: rgba(255,255,255,.85); }
+  .chip.selected {
+    background: rgba(52,211,153,.1); border-color: rgba(52,211,153,.4);
+    color: rgba(52,211,153,.95);
+  }
+  .chip.selected::before { content: '✓ '; }
+  .chip.none {
+    margin-left: 4px; border-style: dashed; color: rgba(251,191,36,.7);
+    border-color: rgba(251,191,36,.25); background: none;
+  }
+  .chip.none:hover { background: rgba(251,191,36,.05); }
+
+  /* ── Confirm button (after multi-select) ── */
+  .confirm-btn {
+    padding: 7px 14px; border-radius: 999px; border: none;
+    background: linear-gradient(135deg, #34d399, #22c584); color: #0a0f1a;
+    font-size: 11.5px; font-weight: 700; cursor: pointer; font-family: inherit;
+    margin-left: auto;
+  }
+  .confirm-btn:hover { transform: translateY(-1px); box-shadow: 0 3px 10px rgba(52,211,153,.3); }
+
+  /* ── Typing dots ── */
+  .typing {
+    display: flex; gap: 3px; padding: 10px 13px; background: rgba(255,255,255,.04);
+    border-radius: 12px; border-top-left-radius: 4px; align-items: center;
+    border: 1px solid rgba(255,255,255,.04);
+  }
+  .typing span {
+    width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.3);
+    animation: typingDot 1.2s infinite;
+  }
+  .typing span:nth-child(2) { animation-delay: .2s; }
+  .typing span:nth-child(3) { animation-delay: .4s; }
+  @keyframes typingDot { 0%, 80%, 100% { opacity: .25; } 40% { opacity: 1; } }
+
+  /* ── Track block (rendered inline at end of chat) ── */
+  .track {
+    margin: 8px 0 10px 34px; max-width: calc(100% - 34px);
+    border-radius: 14px; border: 1px solid rgba(52,211,153,.18);
+    background: linear-gradient(135deg, rgba(52,211,153,.04), rgba(96,165,250,.02));
+    overflow: hidden;
+    animation: optsIn .35s ease;
+  }
+  .track-hero {
+    padding: 16px 18px 14px; border-bottom: 1px solid rgba(255,255,255,.05);
+  }
+  .track-eyebrow {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 1.3px;
+    color: rgba(52,211,153,.85); text-transform: uppercase; margin-bottom: 5px;
+  }
+  .track-title {
+    font-size: 17px; font-weight: 800; color: rgba(255,255,255,.95);
+    letter-spacing: -.3px; margin-bottom: 4px;
+  }
+  .track-sub {
+    font-size: 11.5px; color: rgba(255,255,255,.45); line-height: 1.5;
+  }
+  .track-stats { display: flex; gap: 18px; margin-top: 12px; }
+  .track-stat-num { font-size: 16px; font-weight: 800; color: #fff; letter-spacing: -.2px; }
+  .track-stat-num em { color: #34d399; font-style: normal; }
+  .track-stat-label { font-size: 9px; font-weight: 600; letter-spacing: .8px; color: rgba(255,255,255,.3); text-transform: uppercase; margin-top: 1px; }
+
+  /* Phases & nodes */
+  .track-body { padding: 14px 16px 16px; }
+  .phase {
+    margin-top: 10px;
+  }
+  .phase:first-child { margin-top: 0; }
+  .phase-head {
+    font-size: 9.5px; font-weight: 700; letter-spacing: 1.2px; text-transform: uppercase;
+    color: rgba(255,255,255,.4); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 8px;
+  }
+  .phase-head em {
+    color: rgba(96,165,250,.85); font-style: normal;
+  }
+  .phase-tag {
+    font-size: 8.5px; padding: 2px 6px; border-radius: 4px;
+    background: rgba(255,255,255,.04); color: rgba(255,255,255,.5); font-weight: 600;
+    letter-spacing: .3px;
+  }
+  .phase-row {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 6px;
+    margin-bottom: 6px;
+  }
+  .phase-row.solo { grid-template-columns: 1fr; }
+  .node {
+    padding: 9px 11px; border-radius: 9px;
+    background: rgba(255,255,255,.025); border: 1px solid rgba(255,255,255,.05);
+    display: grid; grid-template-columns: 22px 1fr auto; gap: 9px; align-items: center;
+    cursor: pointer; transition: all .12s;
+  }
+  .node:hover { border-color: rgba(255,255,255,.16); background: rgba(255,255,255,.045); }
+  /* Session types — colors */
+  .node.t-learn    { border-color: rgba(52,211,153,.16);  background: rgba(52,211,153,.03); }
+  .node.t-learn:hover    { border-color: rgba(52,211,153,.34); }
+  .node.t-practice { border-color: rgba(251,146,60,.18);  background: rgba(251,146,60,.035); }
+  .node.t-practice:hover { border-color: rgba(251,146,60,.36); }
+  .node.t-quiz     { border-color: rgba(167,139,250,.18); background: rgba(167,139,250,.03); }
+  .node.t-quiz:hover     { border-color: rgba(167,139,250,.36); }
+  .node.t-review   { border-color: rgba(96,165,250,.18);  background: rgba(96,165,250,.03); }
+  .node.t-review:hover   { border-color: rgba(96,165,250,.36); }
+  .node.t-mock     { border-color: rgba(248,113,113,.18); background: rgba(248,113,113,.035); }
+  .node.t-mock:hover     { border-color: rgba(248,113,113,.36); }
+  .node.t-project  { border-color: rgba(251,191,36,.22);  background: rgba(251,191,36,.04); }
+  .node.t-project:hover  { border-color: rgba(251,191,36,.4); }
+  .node.t-byo      { border-color: rgba(244,114,182,.2);  background: rgba(244,114,182,.035); }
+  .node.t-byo:hover      { border-color: rgba(244,114,182,.4); }
+
+  .node-num {
+    width: 22px; height: 22px; border-radius: 50%;
+    display: grid; place-items: center; font-size: 11px; font-weight: 700;
+    background: rgba(255,255,255,.05); color: rgba(255,255,255,.5);
+  }
+  .node.t-learn    .node-num { background: rgba(52,211,153,.14);  color: rgba(52,211,153,.95); }
+  .node.t-practice .node-num { background: rgba(251,146,60,.16);  color: rgba(251,146,60,.98); }
+  .node.t-quiz     .node-num { background: rgba(167,139,250,.14); color: rgba(167,139,250,.95); }
+  .node.t-review   .node-num { background: rgba(96,165,250,.14);  color: rgba(96,165,250,.95); }
+  .node.t-mock     .node-num { background: rgba(248,113,113,.16); color: rgba(248,113,113,.98); }
+  .node.t-project  .node-num { background: rgba(251,191,36,.18);  color: rgba(251,191,36,.98); }
+  .node.t-byo      .node-num { background: rgba(244,114,182,.18); color: rgba(244,114,182,.98); }
+
+  .node-text { display: flex; flex-direction: column; min-width: 0; }
+  .node-title-row { display: flex; align-items: center; gap: 6px; min-width: 0; }
+  .node-title { font-size: 12px; font-weight: 600; color: rgba(255,255,255,.9); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .node-sub { font-size: 10px; color: rgba(255,255,255,.35); margin-top: 1px; line-height: 1.3; }
+  .node-meta { font-size: 9.5px; font-weight: 600; color: rgba(255,255,255,.45); flex-shrink: 0; }
+
+  /* Type badge (always shown on each node) */
+  .node-type {
+    font-size: 8.5px; font-weight: 700; letter-spacing: .4px; text-transform: uppercase;
+    padding: 2px 6px; border-radius: 4px; flex-shrink: 0; white-space: nowrap;
+    background: rgba(255,255,255,.05); color: rgba(255,255,255,.4);
+  }
+  .node.t-learn    .node-type { background: rgba(52,211,153,.12);  color: rgba(52,211,153,.9); }
+  .node.t-practice .node-type { background: rgba(251,146,60,.14);  color: rgba(251,146,60,.95); }
+  .node.t-quiz     .node-type { background: rgba(167,139,250,.14); color: rgba(167,139,250,.95); }
+  .node.t-review   .node-type { background: rgba(96,165,250,.14);  color: rgba(96,165,250,.95); }
+  .node.t-mock     .node-type { background: rgba(248,113,113,.14); color: rgba(248,113,113,.95); }
+  .node.t-project  .node-type { background: rgba(251,191,36,.16);  color: rgba(251,191,36,.98); }
+  .node.t-byo      .node-type { background: rgba(244,114,182,.16); color: rgba(244,114,182,.98); }
+
+  /* BYO badge — overlay on nodes that pull from student uploads */
+  .node-byo {
+    font-size: 8.5px; font-weight: 600; padding: 2px 6px 2px 4px; border-radius: 4px;
+    background: rgba(244,114,182,.1); color: rgba(244,114,182,.95);
+    border: 1px solid rgba(244,114,182,.2);
+    display: inline-flex; align-items: center; gap: 3px;
+    margin-top: 3px; max-width: fit-content;
+  }
+  .node-byo::before { content: '📦'; font-size: 9px; }
+
+  /* Path legend — session type counts at top of path */
+  .track-legend {
+    display: flex; flex-wrap: wrap; gap: 5px; margin-top: 12px;
+  }
+  .legend-pill {
+    font-size: 9.5px; font-weight: 600; padding: 3px 8px; border-radius: 999px;
+    border: 1px solid rgba(255,255,255,.06); background: rgba(255,255,255,.02);
+    color: rgba(255,255,255,.55);
+    display: flex; align-items: center; gap: 4px;
+  }
+  .legend-pill .lp-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .lp-learn    .lp-dot { background: #34d399; }
+  .lp-practice .lp-dot { background: #fb923c; }
+  .lp-quiz     .lp-dot { background: #a78bfa; }
+  .lp-review   .lp-dot { background: #60a5fa; }
+  .lp-mock     .lp-dot { background: #f87171; }
+  .lp-project  .lp-dot { background: #fbbf24; }
+  .lp-byo      .lp-dot { background: #f472b6; }
+  .legend-pill strong { color: rgba(255,255,255,.85); font-weight: 700; margin-right: 1px; }
+
+  /* Toolkit footer — what the agent has access to */
+  .toolkit {
+    margin-top: 12px; padding: 12px 14px; border-radius: 10px;
+    background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.05);
+  }
+  .toolkit-head {
+    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
+    color: rgba(255,255,255,.4); margin-bottom: 8px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .toolkit-head em { color: rgba(52,211,153,.85); font-style: normal; }
+  .toolkit-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 5px; }
+  .tool {
+    padding: 7px 10px; border-radius: 7px;
+    background: rgba(255,255,255,.02); border: 1px solid rgba(255,255,255,.04);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .tool-ic {
+    width: 22px; height: 22px; border-radius: 5px;
+    display: grid; place-items: center; font-size: 12px;
+    background: rgba(255,255,255,.04); flex-shrink: 0;
+  }
+  .tool-text { flex: 1; min-width: 0; }
+  .tool-name { font-size: 11px; font-weight: 600; color: rgba(255,255,255,.85); }
+  .tool-sub { font-size: 9.5px; color: rgba(255,255,255,.35); margin-top: 1px; line-height: 1.3; }
+  .tool.active { background: rgba(244,114,182,.04); border-color: rgba(244,114,182,.15); }
+  .tool.active .tool-ic { background: rgba(244,114,182,.12); }
+  .tool.active .tool-name { color: rgba(244,114,182,.95); }
+  .tool-status {
+    font-size: 8.5px; font-weight: 700; letter-spacing: .5px; padding: 2px 6px;
+    border-radius: 999px; background: rgba(52,211,153,.12); color: rgba(52,211,153,.95);
+    flex-shrink: 0; text-transform: uppercase;
+  }
+  @media (max-width: 600px) {
+    .toolkit-grid { grid-template-columns: 1fr; }
+  }
+
+  /* ── Sticky action bar ── */
+  .actions {
+    padding: 14px 22px; display: flex; gap: 8px; align-items: center;
+    border-top: 1px solid rgba(255,255,255,.04);
+    background: rgba(0,0,0,.2);
+  }
+  .actions-left { font-size: 11px; color: rgba(255,255,255,.4); flex: 1; }
+  .actions-left strong { color: rgba(255,255,255,.7); }
+  .btn {
+    padding: 9px 16px; border-radius: 9px; border: 1px solid rgba(255,255,255,.06);
+    background: rgba(255,255,255,.03); color: rgba(255,255,255,.65);
+    font-size: 12px; font-weight: 600; cursor: pointer; font-family: inherit;
+    transition: all .12s;
+  }
+  .btn:hover { color: #fff; background: rgba(255,255,255,.07); border-color: rgba(255,255,255,.12); }
+  .btn-primary {
+    border: none; background: linear-gradient(135deg, #34d399, #22c584); color: #0a0f1a;
+    padding: 9px 20px;
+  }
+  .btn-primary:hover {
+    transform: translateY(-1px); box-shadow: 0 4px 14px rgba(52,211,153,.3);
+    color: #0a0f1a; background: linear-gradient(135deg, #34d399, #22c584);
+  }
+
+  /* ── Hidden by default (built up step by step) ── */
+  .step { display: contents; }
+  .step.pending { display: none; }
+  .pending-bubble { display: none; }
+
+  /* ── Inline edit indicator ── */
+  .editing-hint {
+    margin-left: 34px; padding: 5px 10px; border-radius: 6px;
+    background: rgba(96,165,250,.06); border: 1px solid rgba(96,165,250,.15);
+    font-size: 10.5px; color: rgba(96,165,250,.85);
+  }
+
+  @media (max-width: 600px) {
+    .opts.cols-2 { grid-template-columns: 1fr; }
+    .opts.cols-4 { grid-template-columns: 1fr 1fr; }
+    .phase-row { grid-template-columns: 1fr; }
+    .track { margin-left: 0; max-width: 100%; }
+    .opts { margin-left: 0; }
+    .stream { padding: 16px 16px 8px; }
+    .actions { padding: 12px 16px; flex-wrap: wrap; }
+    .actions-left { width: 100%; order: -1; margin-bottom: 4px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="note">
+  <strong>Inline intent wizard.</strong> Same shell handles any broad intent — learn, exam prep, crash course, practice/drill, BYO study, mock prep. Output is a path of mixed session types (Learn · Drill · Quiz · Build · Mock · Review · BYO), each pulling from the agent's toolkit + your uploads.
+</div>
+
+<!-- Background -->
+<div class="bg">
+  <div class="bg-nav">
+    <div class="bg-logo"><em>E</em>uler</div>
+    <div class="bg-search">teach me embedded c</div>
+    <div class="bg-avatar">M</div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════ -->
+<!-- The single inline chat wizard               -->
+<!-- ═══════════════════════════════════════════ -->
+<div class="overlay">
+  <div class="shell">
+
+    <!-- Topbar -->
+    <div class="topbar">
+      <div class="euler-av">E</div>
+      <div class="topbar-meta">
+        <div class="topbar-name">Euler</div>
+        <div class="topbar-status"><span id="step-status">path ready · 13 sessions</span></div>
+      </div>
+      <button class="topbar-x" onclick="alert('Would dismiss → fallback to generic session')">✕</button>
+    </div>
+
+    <!-- Chat stream -->
+    <div class="stream" id="stream">
+
+      <!-- Intent confirmation -->
+      <div class="row bot">
+        <div class="av">E</div>
+        <div class="bubble">
+          <strong>Embedded C</strong> — broad topic. 4 quick taps and I've got your path.
+        </div>
+      </div>
+
+      <!-- ─── STEP 1: Background ─── -->
+      <div class="row bot">
+        <div class="av">E</div>
+        <div class="bubble">Where are you starting from?</div>
+      </div>
+
+      <!-- Pending state (shown when editing) -->
+      <div class="opts cols-2" id="opts-1">
+        <button class="card" data-step="1" data-label="Total beginner" onclick="pickCard(this)">
+          <div class="card-icon">🌱</div>
+          <div class="card-text">
+            <div class="card-title">Total beginner</div>
+            <div class="card-desc">Haven't really coded before</div>
+          </div>
+        </button>
+        <button class="card selected" data-step="1" data-label="Python / JS background" onclick="pickCard(this)">
+          <div class="card-icon">🐍</div>
+          <div class="card-text">
+            <div class="card-title">Python / JS background</div>
+            <div class="card-desc">Can code, C is new</div>
+          </div>
+        </button>
+        <button class="card" data-step="1" data-label="Know C / C++ already" onclick="pickCard(this)">
+          <div class="card-icon">⚙️</div>
+          <div class="card-text">
+            <div class="card-title">Know C / C++ already</div>
+            <div class="card-desc">Skip the language basics</div>
+          </div>
+        </button>
+        <button class="card" data-step="1" data-label="Done some embedded" onclick="pickCard(this)">
+          <div class="card-icon">🔧</div>
+          <div class="card-text">
+            <div class="card-title">Done some embedded</div>
+            <div class="card-desc">Want to go deeper</div>
+          </div>
+        </button>
+      </div>
+
+      <!-- Answered (collapsed) -->
+      <div class="row user" id="ans-1" style="display:none">
+        <div class="av">M</div>
+        <div class="bubble" onclick="reopenStep(1)">Python / JS background</div>
+      </div>
+
+      <!-- ─── STEP 2: Goal ─── -->
+      <div class="step pending" id="step-2-block">
+        <div class="row bot">
+          <div class="av">E</div>
+          <div class="bubble">What's the goal?</div>
+        </div>
+
+        <div class="opts cols-2" id="opts-2">
+          <button class="card" data-step="2" data-label="Job / interview prep" onclick="pickCard(this)">
+            <div class="card-icon">💼</div>
+            <div class="card-text">
+              <div class="card-title">Job / interview prep</div>
+              <div class="card-desc">Firmware, embedded roles</div>
+            </div>
+          </button>
+          <button class="card" data-step="2" data-label="Side project" onclick="pickCard(this)">
+            <div class="card-icon">🛠️</div>
+            <div class="card-text">
+              <div class="card-title">Side project</div>
+              <div class="card-desc">Arduino / ESP32 / STM32</div>
+            </div>
+          </button>
+          <button class="card" data-step="2" data-label="Academic course" onclick="pickCard(this)">
+            <div class="card-icon">🎓</div>
+            <div class="card-text">
+              <div class="card-title">Academic course</div>
+              <div class="card-desc">Following a syllabus</div>
+            </div>
+          </button>
+          <button class="card" data-step="2" data-label="Career switch / curious" onclick="pickCard(this)">
+            <div class="card-icon">🧭</div>
+            <div class="card-text">
+              <div class="card-title">Career switch / curious</div>
+              <div class="card-desc">Just want to understand it</div>
+            </div>
+          </button>
+        </div>
+
+        <div class="row user" id="ans-2" style="display:none">
+          <div class="av">M</div>
+          <div class="bubble" onclick="reopenStep(2)">Side project</div>
+        </div>
+      </div>
+
+      <!-- ─── STEP 3: Depth ─── -->
+      <div class="step pending" id="step-3-block">
+        <div class="row bot">
+          <div class="av">E</div>
+          <div class="bubble">How deep?</div>
+        </div>
+
+        <div class="opts cols-4" id="opts-3">
+          <button class="card card-compact" data-step="3" data-label="Surface" onclick="pickCard(this)">
+            <div class="card-icon">💧</div>
+            <div class="card-text">
+              <div class="card-title">Surface</div>
+              <div class="card-desc">Get the gist</div>
+            </div>
+          </button>
+          <button class="card card-compact selected" data-step="3" data-label="Build small projects" onclick="pickCard(this)">
+            <div class="card-icon">🧱</div>
+            <div class="card-text">
+              <div class="card-title">Build stuff</div>
+              <div class="card-desc">A few projects</div>
+            </div>
+          </button>
+          <button class="card card-compact" data-step="3" data-label="Production-ready" onclick="pickCard(this)">
+            <div class="card-icon">🏗️</div>
+            <div class="card-text">
+              <div class="card-title">Production</div>
+              <div class="card-desc">Real firmware</div>
+            </div>
+          </button>
+          <button class="card card-compact" data-step="3" data-label="Expert" onclick="pickCard(this)">
+            <div class="card-icon">🧠</div>
+            <div class="card-text">
+              <div class="card-title">Expert</div>
+              <div class="card-desc">RTOS, drivers</div>
+            </div>
+          </button>
+        </div>
+
+        <div class="row user" id="ans-3" style="display:none">
+          <div class="av">M</div>
+          <div class="bubble" onclick="reopenStep(3)">Build small projects</div>
+        </div>
+      </div>
+
+      <!-- ─── STEP 4: Prereqs ─── -->
+      <div class="step pending" id="step-4-block">
+        <div class="row bot">
+          <div class="av">E</div>
+          <div class="bubble">Anything here you already know? Tap any. Skip if unsure.</div>
+        </div>
+
+        <div class="opts flow" id="opts-4">
+          <button class="chip selected" onclick="toggleChip(this)">pointers</button>
+          <button class="chip selected" onclick="toggleChip(this)">structs</button>
+          <button class="chip" onclick="toggleChip(this)">bit ops</button>
+          <button class="chip" onclick="toggleChip(this)">CPU registers</button>
+          <button class="chip" onclick="toggleChip(this)">interrupts</button>
+          <button class="chip" onclick="toggleChip(this)">GPIO</button>
+          <button class="chip" onclick="toggleChip(this)">UART / SPI / I²C</button>
+          <button class="chip" onclick="toggleChip(this)">RTOS</button>
+          <button class="chip" onclick="toggleChip(this)">Makefile / linker</button>
+          <button class="chip" onclick="toggleChip(this)">gdb / JTAG</button>
+          <button class="chip none" onclick="pickNone(this)">None / not sure</button>
+          <button class="confirm-btn" onclick="finishPrereqs()">Done →</button>
+        </div>
+
+        <div class="row user" id="ans-4" style="display:none">
+          <div class="av">M</div>
+          <div class="bubble" onclick="reopenStep(4)">Knows: pointers, structs</div>
+        </div>
+      </div>
+
+      <!-- ─── STEP 5: Generating + Track preview ─── -->
+      <div class="step pending" id="step-5-block">
+        <div class="row bot">
+          <div class="av">E</div>
+          <div class="typing"><span></span><span></span><span></span></div>
+        </div>
+
+        <div class="step pending" id="track-block">
+          <div class="row bot">
+            <div class="av">E</div>
+            <div class="bubble">Built it. <strong>13 sessions, ~8h over 2 weeks</strong> — mix of teaching, drills, a quiz checkpoint &amp; 3 build milestones. I'll pull from your <strong>ESP32 datasheet</strong> when it helps.</div>
+          </div>
+
+          <!-- Inline path render -->
+          <div class="track">
+            <div class="track-hero">
+              <div class="track-eyebrow">Your path</div>
+              <div class="track-title">ESP32 firmware — from C to a Wi-Fi temp logger</div>
+              <div class="track-sub">Skipped pointers &amp; structs — you've got those. Project-driven, ends with a working logger you can put on your shelf.</div>
+              <div class="track-stats">
+                <div><div class="track-stat-num"><em>13</em></div><div class="track-stat-label">sessions</div></div>
+                <div><div class="track-stat-num"><em>~8h</em></div><div class="track-stat-label">total</div></div>
+                <div><div class="track-stat-num"><em>3</em></div><div class="track-stat-label">milestones</div></div>
+                <div><div class="track-stat-num"><em>2w</em></div><div class="track-stat-label">pace</div></div>
+              </div>
+              <div class="track-legend">
+                <div class="legend-pill lp-learn"><span class="lp-dot"></span><strong>7</strong> Learn</div>
+                <div class="legend-pill lp-practice"><span class="lp-dot"></span><strong>2</strong> Drill</div>
+                <div class="legend-pill lp-quiz"><span class="lp-dot"></span><strong>1</strong> Quiz</div>
+                <div class="legend-pill lp-project"><span class="lp-dot"></span><strong>3</strong> Build</div>
+              </div>
+            </div>
+
+            <div class="track-body">
+
+              <!-- Phase 1: Foundations -->
+              <div class="phase">
+                <div class="phase-head"><em>Phase 1</em> Foundations <span class="phase-tag">2 sessions · 1h</span></div>
+                <div class="phase-row">
+                  <div class="node t-learn">
+                    <div class="node-num">1</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">C for embedded</span>
+                      </div>
+                      <div class="node-sub">Memory layout, types, const</div>
+                    </div>
+                    <div class="node-meta">30m</div>
+                  </div>
+                  <div class="node t-learn">
+                    <div class="node-num">2</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">Bit manipulation</span>
+                      </div>
+                      <div class="node-sub">Bitfields, masks, flags</div>
+                    </div>
+                    <div class="node-meta">30m</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Phase 2: Talk to the hardware -->
+              <div class="phase">
+                <div class="phase-head"><em>Phase 2</em> Talk to the hardware <span class="phase-tag">6 sessions · ~3h</span></div>
+                <div class="phase-row">
+                  <div class="node t-learn">
+                    <div class="node-num">3</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">Memory-mapped I/O</span>
+                      </div>
+                      <div class="node-sub">How software hits silicon</div>
+                      <div class="node-byo">your ESP32 datasheet — register map</div>
+                    </div>
+                    <div class="node-meta">40m</div>
+                  </div>
+                  <div class="node t-practice">
+                    <div class="node-num">4</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Drill</span>
+                        <span class="node-title">GPIO drills · 3 problems</span>
+                      </div>
+                      <div class="node-sub">Set, toggle, read pins — bare metal</div>
+                    </div>
+                    <div class="node-meta">25m</div>
+                  </div>
+                </div>
+                <div class="phase-row solo">
+                  <div class="node t-project">
+                    <div class="node-num">5</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Build · Milestone</span>
+                        <span class="node-title">Blink an LED — no Arduino lib</span>
+                      </div>
+                      <div class="node-sub">First real bare-metal firmware</div>
+                    </div>
+                    <div class="node-meta">45m</div>
+                  </div>
+                </div>
+                <div class="phase-row">
+                  <div class="node t-learn">
+                    <div class="node-num">6</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">Interrupts (ISRs)</span>
+                      </div>
+                      <div class="node-sub">Event-driven over polling</div>
+                    </div>
+                    <div class="node-meta">35m</div>
+                  </div>
+                  <div class="node t-learn">
+                    <div class="node-num">7</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">UART → laptop</span>
+                      </div>
+                      <div class="node-sub">printf-style debugging</div>
+                    </div>
+                    <div class="node-meta">35m</div>
+                  </div>
+                </div>
+                <div class="phase-row solo">
+                  <div class="node t-quiz">
+                    <div class="node-num">8</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Quiz · Checkpoint</span>
+                        <span class="node-title">What stuck so far?</span>
+                      </div>
+                      <div class="node-sub">10 quick Qs across phase 1–2. Anything you miss comes back later.</div>
+                    </div>
+                    <div class="node-meta">10m</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Phase 3: Toward your project -->
+              <div class="phase">
+                <div class="phase-head"><em>Phase 3</em> Toward your project <span class="phase-tag">3 sessions · ~2h</span></div>
+                <div class="phase-row">
+                  <div class="node t-learn">
+                    <div class="node-num">9</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">I²C — read a sensor</span>
+                      </div>
+                      <div class="node-sub">Aimed at your temp sensor</div>
+                      <div class="node-byo">your ESP32 datasheet — I²C controller</div>
+                    </div>
+                    <div class="node-meta">35m</div>
+                  </div>
+                  <div class="node t-practice">
+                    <div class="node-num">10</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Drill</span>
+                        <span class="node-title">Timers &amp; PWM</span>
+                      </div>
+                      <div class="node-sub">Sample rates, duty cycle</div>
+                    </div>
+                    <div class="node-meta">30m</div>
+                  </div>
+                </div>
+                <div class="phase-row solo">
+                  <div class="node t-project">
+                    <div class="node-num">11</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Build · Milestone</span>
+                        <span class="node-title">Temperature logger v1</span>
+                      </div>
+                      <div class="node-sub">Read sensor over I²C, stream values via UART</div>
+                    </div>
+                    <div class="node-meta">60m</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Phase 4: Stretch -->
+              <div class="phase">
+                <div class="phase-head"><em>Phase 4</em> Stretch · optional <span class="phase-tag">2 sessions · 2h</span></div>
+                <div class="phase-row">
+                  <div class="node t-learn">
+                    <div class="node-num">12</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Learn</span>
+                        <span class="node-title">FreeRTOS basics</span>
+                      </div>
+                      <div class="node-sub">Tasks &amp; queues</div>
+                    </div>
+                    <div class="node-meta">45m</div>
+                  </div>
+                  <div class="node t-project">
+                    <div class="node-num">13</div>
+                    <div class="node-text">
+                      <div class="node-title-row">
+                        <span class="node-type">Build · Final</span>
+                        <span class="node-title">Logger v2 — Wi-Fi + RTOS</span>
+                      </div>
+                      <div class="node-sub">Your portfolio piece</div>
+                    </div>
+                    <div class="node-meta">75m</div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- Toolkit footer — capabilities the agent has access to -->
+              <div class="toolkit">
+                <div class="toolkit-head"><em>Each session can pull from</em> · auto-selected per session</div>
+                <div class="toolkit-grid">
+                  <div class="tool active">
+                    <div class="tool-ic">📦</div>
+                    <div class="tool-text">
+                      <div class="tool-name">Your uploads</div>
+                      <div class="tool-sub">ESP32 datasheet · 2 sessions</div>
+                    </div>
+                    <div class="tool-status">in use</div>
+                  </div>
+                  <div class="tool">
+                    <div class="tool-ic">📚</div>
+                    <div class="tool-text">
+                      <div class="tool-name">Curated content</div>
+                      <div class="tool-sub">Vetted lessons &amp; explainers</div>
+                    </div>
+                  </div>
+                  <div class="tool">
+                    <div class="tool-ic">💪</div>
+                    <div class="tool-text">
+                      <div class="tool-name">Drill bank</div>
+                      <div class="tool-sub">Targeted hands-on problems</div>
+                    </div>
+                  </div>
+                  <div class="tool">
+                    <div class="tool-ic">❓</div>
+                    <div class="tool-text">
+                      <div class="tool-name">Quiz engine</div>
+                      <div class="tool-sub">Spaced + adaptive</div>
+                    </div>
+                  </div>
+                  <div class="tool">
+                    <div class="tool-ic">🎤</div>
+                    <div class="tool-text">
+                      <div class="tool-name">Mock simulator</div>
+                      <div class="tool-sub">Available if you add a mock</div>
+                    </div>
+                  </div>
+                  <div class="tool">
+                    <div class="tool-ic">🏗️</div>
+                    <div class="tool-text">
+                      <div class="tool-name">Project templates</div>
+                      <div class="tool-sub">Starter scaffolds &amp; checks</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+            </div>
+          </div>
+
+          <!-- Refinement prompt -->
+          <div class="row bot">
+            <div class="av">E</div>
+            <div class="bubble">Tap any node to swap or change its type. Or just say <em style="color:rgba(96,165,250,.95);font-style:normal">"add a mock at the end"</em>, <em style="color:rgba(96,165,250,.95);font-style:normal">"shorter please"</em>, <em style="color:rgba(96,165,250,.95);font-style:normal">"more drills"</em> — I'll regenerate.</div>
+          </div>
+
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Sticky actions -->
+    <div class="actions">
+      <div class="actions-left" id="actions-msg">
+        <strong>13 sessions · ~8h</strong> · 3 milestones · ready when you are
+      </div>
+      <button class="btn" onclick="alert('Would save to My Paths')">Save</button>
+      <button class="btn btn-primary" onclick="alert('Would launch session 1: C for embedded')">Start session 1 →</button>
+    </div>
+
+  </div>
+</div>
+
+
+<script>
+// State
+const state = {
+  step: 1,
+  answers: {
+    1: 'Python / JS background',
+    2: 'Side project',
+    3: 'Build small projects',
+    4: 'Knows: pointers, structs'
+  },
+  done: { 1: false, 2: false, 3: false, 4: false }
+};
+const totalSteps = 4;
+
+function updateStatus() {
+  const completed = Object.values(state.done).filter(Boolean).length;
+  const el = document.getElementById('step-status');
+  if (completed === totalSteps) {
+    el.textContent = 'path ready · 13 sessions';
+  } else {
+    el.textContent = `step ${state.step} of ${totalSteps}`;
+  }
+}
+
+function pickCard(btn) {
+  const step = parseInt(btn.dataset.step);
+  const label = btn.dataset.label;
+  // Clear siblings
+  document.querySelectorAll(`#opts-${step} .card`).forEach(c => c.classList.remove('selected'));
+  btn.classList.add('selected');
+  // Update answer
+  state.answers[step] = label;
+  // Hide options, show user bubble
+  setTimeout(() => {
+    document.getElementById(`opts-${step}`).style.display = 'none';
+    const ans = document.getElementById(`ans-${step}`);
+    ans.style.display = 'flex';
+    ans.querySelector('.bubble').textContent = label;
+    state.done[step] = true;
+    advance(step);
+  }, 250);
+}
+
+function toggleChip(btn) {
+  btn.classList.toggle('selected');
+}
+function pickNone(btn) {
+  document.querySelectorAll('#opts-4 .chip').forEach(c => c.classList.remove('selected'));
+  btn.classList.add('selected');
+}
+function finishPrereqs() {
+  const known = [];
+  document.querySelectorAll('#opts-4 .chip.selected').forEach(c => {
+    if (!c.classList.contains('none')) known.push(c.textContent.trim());
+  });
+  const label = known.length ? `Knows: ${known.join(', ')}` : 'Starting fresh';
+  state.answers[4] = label;
+  setTimeout(() => {
+    document.getElementById('opts-4').style.display = 'none';
+    const ans = document.getElementById('ans-4');
+    ans.style.display = 'flex';
+    ans.querySelector('.bubble').textContent = label;
+    state.done[4] = true;
+    advance(4);
+  }, 200);
+}
+
+function advance(fromStep) {
+  if (fromStep < totalSteps) {
+    state.step = fromStep + 1;
+    const next = document.getElementById(`step-${fromStep + 1}-block`);
+    if (next) next.classList.remove('pending');
+  } else {
+    // After step 4 → show generating + track
+    state.step = 5;
+    document.getElementById('step-5-block').classList.remove('pending');
+    setTimeout(() => {
+      document.getElementById('track-block').classList.remove('pending');
+      const typing = document.querySelector('#step-5-block .typing');
+      if (typing) typing.parentElement.style.display = 'none';
+    }, 1100);
+  }
+  updateStatus();
+  scrollDown();
+}
+
+function reopenStep(step) {
+  // Show options again, hide answer
+  const opts = document.getElementById(`opts-${step}`);
+  const ans = document.getElementById(`ans-${step}`);
+  opts.style.display = step === 4 ? 'flex' : 'grid';
+  if (step === 4) opts.style.display = 'flex';
+  ans.style.display = 'none';
+  state.done[step] = false;
+  updateStatus();
+  setTimeout(() => opts.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50);
+}
+
+function scrollDown() {
+  setTimeout(() => {
+    document.querySelector('.overlay').scrollTo({
+      top: document.querySelector('.shell').scrollHeight,
+      behavior: 'smooth'
+    });
+  }, 100);
+}
+
+// Demo init: show fully filled out by default for review
+window.addEventListener('DOMContentLoaded', () => {
+  // Step 1 already has selected card visible — collapse it
+  collapseStep(1, state.answers[1]);
+  // Show step 2-4 collapsed
+  for (let i = 2; i <= 4; i++) {
+    document.getElementById(`step-${i}-block`).classList.remove('pending');
+    collapseStep(i, state.answers[i]);
+  }
+  // Show track
+  document.getElementById('step-5-block').classList.remove('pending');
+  document.getElementById('track-block').classList.remove('pending');
+  // Hide typing
+  const typingRow = document.querySelector('#step-5-block > .row.bot');
+  if (typingRow) typingRow.style.display = 'none';
+  state.done = { 1: true, 2: true, 3: true, 4: true };
+  updateStatus();
+});
+
+function collapseStep(step, label) {
+  document.getElementById(`opts-${step}`).style.display = 'none';
+  const ans = document.getElementById(`ans-${step}`);
+  ans.style.display = 'flex';
+  ans.querySelector('.bubble').textContent = label;
+}
+</script>
+
+</body>
+</html>

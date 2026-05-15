@@ -12187,7 +12187,8 @@ async function _fetchVideoFromCollection(collectionId, fallbackResourceId) {
   }
 }
 
-async function _startOnDemandSession(intentText) {
+async function _startOnDemandSession(intentText, opts) {
+  opts = opts || {};
   const user = AuthManager.getUser();
   if (!user) return Router.navigate('/login');
   if (!intentText.trim()) return;
@@ -12213,8 +12214,14 @@ async function _startOnDemandSession(intentText) {
       const bp = await classifyRes.json();
       console.log('[Classify] Intent:', intentText.slice(0, 50), '→', bp.mode, bp.ui_layout, 'scope:', bp.scope);
 
-      // Path hint: if scope is broad/medium, show the path suggestion
-      if (bp.scope && bp.scope !== 'narrow' && (bp.scope_confidence || 0) >= 0.6
+      // Path hint: if scope is broad/medium, show the path suggestion.
+      // Skip when opts.skipScopeHint is true — that's the "Just one
+      // session" button explicitly opting out of the path flow. Without
+      // this guard, that button would just re-classify the intent (still
+      // broad), re-render the same hint, and never actually start the
+      // session. The user would be stuck in a loop.
+      if (!opts.skipScopeHint
+          && bp.scope && bp.scope !== 'narrow' && (bp.scope_confidence || 0) >= 0.6
           && typeof PathUI !== 'undefined') {
         _hideTransitionLoader();
         const sendBtn = document.getElementById('euler-send-btn');

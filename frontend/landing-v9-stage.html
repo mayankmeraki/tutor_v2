@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Euler — Live</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&family=Lexend:wght@300;400;500;600;700;800&family=Caveat:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+/* ════════════════════════════════════════════════════
+   landing-v9-stage — fold-as-stage
+   ════════════════════════════════════════════════════
+   Total cycle: 32s · 4 scenes × 8s each
+   - 0-8s    Scene 1  Math · Chain rule
+   - 8-16s   Scene 2  Biology · From your PDF
+   - 16-24s  Scene 3  CS · DSA code + tests
+   - 24-32s  Scene 4  Mock interview · System design
+   All scene visibilities driven by single 32s keyframes.
+   No JS for the stage.
+*/
+  :root {
+    --bg: #0a0d0b;
+    --surface: #11141a;
+    --surface-2: #161a20;
+    --border: rgba(255,255,255,0.08);
+    --text: #e7e7e5;
+    --text-mute: #9b9b97;
+    --text-dim: #6a6a66;
+    --accent: #34d399;
+    --accent-2: #a78bfa;
+    --amber: #fbbf24;
+    --coral: #f87171;
+    --blue: #60a5fa;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html, body { height:100%; }
+  body {
+    background:
+      radial-gradient(ellipse 1100px 540px at 50% -10%, rgba(52,211,153,0.07), transparent 70%),
+      radial-gradient(ellipse 800px 400px at 92% 90%, rgba(167,139,250,0.04), transparent 70%),
+      var(--bg);
+    color: var(--text);
+    font-family: 'Inter', -apple-system, sans-serif;
+    overflow: hidden;
+    height: 100vh;
+  }
+
+  /* ═══ Layout ═══ */
+  #v9 { display:flex; flex-direction:column; height:100vh; }
+
+  /* Slim nav */
+  nav.v9-nav {
+    height: 52px; display:flex; align-items:center;
+    justify-content:space-between; padding:0 24px;
+    background: rgba(10,13,11,0.72); backdrop-filter: blur(14px);
+    border-bottom: 1px solid var(--border); flex-shrink:0;
+  }
+  .v9-logo {
+    font-family:'Lexend',sans-serif; font-weight:800; font-size:19px;
+    letter-spacing:-0.3px; color:#fff; text-decoration:none;
+  }
+  .v9-logo em { font-style:normal; color:var(--accent); }
+  .v9-logo sup { font-size:8px; color:rgba(255,255,255,0.25);
+    margin-left:3px; letter-spacing:0.5px; vertical-align:super; }
+  .v9-nav-r { display:flex; align-items:center; gap:8px; }
+  .v9-nav-r .ghost {
+    background:none; border:none; color:var(--text-mute);
+    font-family:inherit; font-size:13px; font-weight:500; cursor:pointer;
+    padding:7px 14px; border-radius:8px; transition:all 0.15s;
+  }
+  .v9-nav-r .ghost:hover { color:#fff; background:rgba(255,255,255,0.04); }
+  .v9-nav-r .primary {
+    background:var(--accent); color:#0a0d0b; border:none; cursor:pointer;
+    font-family:inherit; font-size:13px; font-weight:600;
+    padding:7px 16px; border-radius:8px; transition:all 0.15s;
+  }
+  .v9-nav-r .primary:hover { background:#2dd4a0; transform:translateY(-1px); }
+
+  /* Main area: stage on top, your-turn below */
+  main.v9-main {
+    flex:1; display:flex; flex-direction:column; align-items:center;
+    padding: 18px 20px 14px; gap:16px; max-width:980px;
+    margin:0 auto; width:100%; min-height:0;
+  }
+
+  /* ═══ THE STAGE ═══ */
+  .v9-stage {
+    width:100%; max-width:880px;
+    background:#0c0f0d;
+    border:1px solid rgba(255,255,255,0.08);
+    border-radius:16px;
+    overflow:hidden;
+    box-shadow:
+      0 24px 80px rgba(0,0,0,0.5),
+      0 0 0 1px rgba(52,211,153,0.04),
+      inset 0 1px 0 rgba(255,255,255,0.03);
+    display:flex; flex-direction:column;
+    flex: 1 1 auto;
+    min-height: 320px;
+    max-height: 60vh;
+  }
+
+  .v9-stage-bar {
+    display:flex; align-items:center; gap:8px;
+    padding:9px 14px; border-bottom:1px solid rgba(255,255,255,0.05);
+    background:rgba(255,255,255,0.012); flex-shrink:0;
+  }
+  .v9-stage-bar .traffic { display:flex; gap:5px; }
+  .v9-stage-bar .traffic span {
+    width:9px; height:9px; border-radius:50%;
+  }
+  .v9-stage-bar .traffic .r { background:#ff5f56; }
+  .v9-stage-bar .traffic .y { background:#ffbd2e; }
+  .v9-stage-bar .traffic .g { background:#27c93f; }
+  .v9-stage-bar .live-pill {
+    margin-left:6px; display:flex; align-items:center; gap:6px;
+    padding:3px 10px; border-radius:30px;
+    background:rgba(52,211,153,0.10);
+    border:1px solid rgba(52,211,153,0.25);
+    font-size:10.5px; color:var(--accent);
+    font-family:'JetBrains Mono', monospace; letter-spacing:0.4px;
+  }
+  .v9-stage-bar .live-pill .dot {
+    width:5px; height:5px; border-radius:50%;
+    background:var(--accent); animation:livePulse 1.6s infinite;
+  }
+  @keyframes livePulse { 50% { opacity:0.35; } }
+
+  /* Scene chip — what's currently being taught */
+  .v9-stage-bar .now {
+    margin-left:auto; font-family:'JetBrains Mono', monospace;
+    font-size:10.5px; color:var(--text-mute); letter-spacing:0.3px;
+  }
+
+  /* Cycle dots indicator */
+  .v9-stage-bar .cycle {
+    display:flex; gap:5px; margin-left:14px;
+  }
+  .v9-stage-bar .cycle span {
+    width:5px; height:5px; border-radius:50%;
+    background:rgba(255,255,255,0.10); transition:all 0.2s;
+  }
+  .v9-stage-bar .cycle span.c1 { animation: dot1 32s infinite; }
+  .v9-stage-bar .cycle span.c2 { animation: dot2 32s infinite; }
+  .v9-stage-bar .cycle span.c3 { animation: dot3 32s infinite; }
+  .v9-stage-bar .cycle span.c4 { animation: dot4 32s infinite; }
+  @keyframes dot1 { 0%,25% { background:var(--accent); width:14px; } 26%,100% { background:rgba(255,255,255,0.10); width:5px; } }
+  @keyframes dot2 { 0%,24% { background:rgba(255,255,255,0.10); width:5px; } 25%,50% { background:var(--accent-2); width:14px; } 51%,100% { background:rgba(255,255,255,0.10); width:5px; } }
+  @keyframes dot3 { 0%,49% { background:rgba(255,255,255,0.10); width:5px; } 50%,75% { background:var(--amber); width:14px; } 76%,100% { background:rgba(255,255,255,0.10); width:5px; } }
+  @keyframes dot4 { 0%,74% { background:rgba(255,255,255,0.10); width:5px; } 75%,100% { background:var(--coral); width:14px; } }
+
+  /* Stage body — holds 4 absolute-positioned scenes */
+  .v9-stage-body {
+    position:relative; flex:1; min-height:0;
+    background:
+      radial-gradient(ellipse 600px 240px at 50% 20%, rgba(255,255,255,0.012), transparent 70%);
+  }
+  .v9-scene {
+    position:absolute; inset:0;
+    padding:30px 36px;
+    display:flex; flex-direction:column; gap:10px;
+    opacity:0;
+  }
+  .v9-scene.s1 { animation: showS1 32s infinite; }
+  .v9-scene.s2 { animation: showS2 32s infinite; }
+  .v9-scene.s3 { animation: showS3 32s infinite; }
+  .v9-scene.s4 { animation: showS4 32s infinite; }
+  @keyframes showS1 { 0%,1% { opacity:0; } 3%,22% { opacity:1; } 25%,100% { opacity:0; } }
+  @keyframes showS2 { 0%,25% { opacity:0; } 28%,47% { opacity:1; } 50%,100% { opacity:0; } }
+  @keyframes showS3 { 0%,50% { opacity:0; } 53%,72% { opacity:1; } 75%,100% { opacity:0; } }
+  @keyframes showS4 { 0%,75% { opacity:0; } 78%,97% { opacity:1; } 100% { opacity:0; } }
+
+  /* Stage footer — voice + caption */
+  .v9-stage-foot {
+    display:flex; align-items:center; gap:12px;
+    padding:10px 16px; border-top:1px solid rgba(255,255,255,0.05);
+    background:rgba(255,255,255,0.012); flex-shrink:0;
+  }
+  .v9-vbars { display:flex; align-items:center; gap:2.5px; }
+  .v9-vbars span {
+    display:block; width:2.5px; background:var(--accent);
+    border-radius:2px; animation: vbar 1.2s infinite ease-in-out;
+  }
+  .v9-vbars span:nth-child(1) { height:7px; animation-delay:0s; }
+  .v9-vbars span:nth-child(2) { height:14px; animation-delay:0.1s; }
+  .v9-vbars span:nth-child(3) { height:9px; animation-delay:0.2s; }
+  .v9-vbars span:nth-child(4) { height:16px; animation-delay:0.3s; }
+  .v9-vbars span:nth-child(5) { height:11px; animation-delay:0.4s; }
+  @keyframes vbar { 0%,100% { transform:scaleY(0.4); } 50% { transform:scaleY(1); } }
+  .v9-stage-foot .caption {
+    font-size:11.5px; color:var(--text-mute);
+    font-family:'JetBrains Mono', monospace; letter-spacing:0.2px;
+    flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .v9-stage-foot .caption b { color:#fff; font-weight:500; }
+
+  /* Caption text per scene — also cycles */
+  .v9-stage-foot .caption .c { display:none; }
+  .v9-stage-foot .caption .c.c1 { animation: capS1 32s infinite; }
+  .v9-stage-foot .caption .c.c2 { animation: capS2 32s infinite; }
+  .v9-stage-foot .caption .c.c3 { animation: capS3 32s infinite; }
+  .v9-stage-foot .caption .c.c4 { animation: capS4 32s infinite; }
+  @keyframes capS1 { 0%,1% { display:none; } 2%,24% { display:inline; } 25%,100% { display:none; } }
+  @keyframes capS2 { 0%,25% { display:none; } 26%,49% { display:inline; } 50%,100% { display:none; } }
+  @keyframes capS3 { 0%,50% { display:none; } 51%,74% { display:inline; } 75%,100% { display:none; } }
+  @keyframes capS4 { 0%,75% { display:none; } 76%,99% { display:inline; } 100% { display:none; } }
+
+  /* ═══ SCENE 1 — MATH — Chain rule ═══ */
+  .s1 .topic-chip {
+    display:inline-block; align-self:flex-start;
+    padding:3px 10px; border-radius:6px;
+    background:rgba(52,211,153,0.10); color:var(--accent);
+    font-size:10.5px; font-weight:600;
+    font-family:'JetBrains Mono', monospace; letter-spacing:0.3px;
+    text-transform:uppercase;
+    animation: appear 32s infinite;
+  }
+  @keyframes appear { 0%,3% { opacity:0; transform:translateY(-4px); } 5%,22% { opacity:1; transform:none; } 25%,100% { opacity:0; } }
+
+  .s1 .title {
+    font-family:'Caveat', cursive; font-weight:600;
+    font-size:34px; color:#fff; margin-top:6px;
+    animation: chalkIn1 32s infinite;
+  }
+  @keyframes chalkIn1 { 0%,5% { opacity:0; transform:translateX(-6px); } 8%,22% { opacity:1; transform:none; } 25%,100% { opacity:0; } }
+
+  .s1 .eq {
+    font-family:'JetBrains Mono', monospace;
+    font-size:22px; color:var(--accent); margin-top:6px;
+    animation: chalkIn2 32s infinite;
+  }
+  @keyframes chalkIn2 { 0%,9% { opacity:0; transform:translateY(4px); } 12%,22% { opacity:1; transform:none; } 25%,100% { opacity:0; } }
+
+  .s1 svg.wave {
+    width:65%; max-width:380px; height:46px; margin-top:6px;
+    animation: chalkIn3 32s infinite;
+  }
+  @keyframes chalkIn3 { 0%,13% { opacity:0; } 16%,22% { opacity:1; } 25%,100% { opacity:0; } }
+  .s1 svg.wave path {
+    stroke-dasharray:400; stroke-dashoffset:400;
+    animation: drawPath 32s infinite;
+  }
+  @keyframes drawPath { 0%,13% { stroke-dashoffset:400; } 18%,22% { stroke-dashoffset:0; } 25%,100% { stroke-dashoffset:400; } }
+
+  .s1 .question {
+    font-family:'Caveat', cursive; font-weight:500;
+    color:var(--amber); font-size:18px; margin-top:auto;
+    animation: chalkIn4 32s infinite;
+  }
+  @keyframes chalkIn4 { 0%,17% { opacity:0; } 20%,22% { opacity:1; } 25%,100% { opacity:0; } }
+
+  /* ═══ SCENE 2 — BIO from PDF ═══ */
+  .s2 .pdf-chip {
+    display:inline-flex; align-items:center; gap:8px; align-self:flex-start;
+    padding:5px 11px; border-radius:8px;
+    background:rgba(167,139,250,0.08);
+    border:1px solid rgba(167,139,250,0.25);
+    font-size:11px; color:#cabdff;
+    animation: chalkIn5 32s infinite;
+  }
+  @keyframes chalkIn5 { 0%,28% { opacity:0; transform:translateY(-4px); } 31%,47% { opacity:1; transform:none; } 50%,100% { opacity:0; } }
+  .s2 .pdf-chip svg { color:var(--accent-2); }
+  .s2 .pdf-chip .src-dot { width:6px; height:6px; border-radius:50%; background:var(--accent-2); animation:livePulse 1.6s infinite; }
+
+  .s2 .title {
+    font-family:'Caveat', cursive; font-weight:600;
+    font-size:30px; color:#fff;
+    animation: chalkIn6 32s infinite;
+  }
+  @keyframes chalkIn6 { 0%,30% { opacity:0; transform:translateX(-6px); } 33%,47% { opacity:1; transform:none; } 50%,100% { opacity:0; } }
+
+  .s2 .pipeline {
+    display:flex; align-items:center; gap:8px; margin-top:8px;
+    animation: chalkIn7 32s infinite;
+  }
+  @keyframes chalkIn7 { 0%,33% { opacity:0; } 36%,47% { opacity:1; } 50%,100% { opacity:0; } }
+  .s2 .pipeline .step {
+    padding:8px 14px; border-radius:7px;
+    border:1px solid rgba(255,255,255,0.08);
+    background:rgba(255,255,255,0.025);
+    font-family:'JetBrains Mono', monospace; font-size:13px;
+    color:#fff;
+  }
+  .s2 .pipeline .step.dna { color:#a78bfa; border-color:rgba(167,139,250,0.30); background:rgba(167,139,250,0.08); }
+  .s2 .pipeline .step.rna { color:var(--blue);  border-color:rgba(96,165,250,0.30); background:rgba(96,165,250,0.08); }
+  .s2 .pipeline .step.pro { color:var(--accent); border-color:rgba(52,211,153,0.30); background:rgba(52,211,153,0.08); }
+  .s2 .pipeline .arr {
+    color:var(--text-dim); font-family:'JetBrains Mono', monospace;
+  }
+  .s2 .pipeline .arr.a1 { animation:arrA1 32s infinite; }
+  .s2 .pipeline .arr.a2 { animation:arrA2 32s infinite; }
+  @keyframes arrA1 { 0%,36% { opacity:0; transform:translateX(-6px); } 38%,47% { opacity:1; transform:none; } 50%,100% { opacity:0; } }
+  @keyframes arrA2 { 0%,40% { opacity:0; transform:translateX(-6px); } 42%,47% { opacity:1; transform:none; } 50%,100% { opacity:0; } }
+
+  .s2 .annot {
+    font-family:'Caveat', cursive; color:var(--text-mute);
+    font-size:16px; margin-top:auto; font-style:italic;
+    animation: chalkIn8 32s infinite;
+  }
+  @keyframes chalkIn8 { 0%,42% { opacity:0; } 45%,47% { opacity:1; } 50%,100% { opacity:0; } }
+
+  /* ═══ SCENE 3 — DSA · Two Sum ═══ */
+  .s3 .topic-chip {
+    display:inline-flex; align-items:center; gap:8px; align-self:flex-start;
+    padding:4px 10px; border-radius:6px;
+    background:rgba(251,191,36,0.10); color:var(--amber);
+    font-size:10.5px; font-weight:600;
+    font-family:'JetBrains Mono', monospace; letter-spacing:0.3px;
+    text-transform:uppercase;
+    animation: chalkIn5b 32s infinite;
+  }
+  @keyframes chalkIn5b { 0%,53% { opacity:0; transform:translateY(-4px); } 55%,72% { opacity:1; transform:none; } 75%,100% { opacity:0; } }
+  .s3 .topic-chip .badge {
+    padding:1px 6px; border-radius:3px;
+    background:rgba(251,191,36,0.15); font-size:9.5px;
+  }
+
+  .s3 .editor {
+    background:rgba(0,0,0,0.30);
+    border:1px solid rgba(255,255,255,0.06); border-radius:9px;
+    padding:14px 16px; font-family:'JetBrains Mono', monospace;
+    font-size:13px; line-height:1.65;
+    animation: chalkIn6b 32s infinite;
+  }
+  @keyframes chalkIn6b { 0%,55% { opacity:0; transform:translateY(4px); } 58%,72% { opacity:1; transform:none; } 75%,100% { opacity:0; } }
+  .s3 .editor .ln { display:block; color:#9b9b97; }
+  .s3 .editor .ln .kw { color:var(--coral); }
+  .s3 .editor .ln .fn { color:var(--blue); }
+  .s3 .editor .ln .num { color:var(--accent); }
+  .s3 .editor .ln .com { color:var(--text-dim); font-style:italic; }
+  .s3 .editor .ln.added {
+    background:rgba(52,211,153,0.06);
+    margin:0 -8px; padding:0 8px;
+    border-left:2px solid var(--accent);
+  }
+
+  .s3 .tests {
+    display:flex; gap:8px; flex-wrap:wrap; margin-top:8px;
+  }
+  .s3 .tests .pill {
+    padding:4px 10px; border-radius:5px;
+    background:rgba(52,211,153,0.10); color:var(--accent);
+    font-family:'JetBrains Mono', monospace; font-size:11px;
+    border:1px solid rgba(52,211,153,0.25); opacity:0;
+  }
+  .s3 .tests .pill:nth-child(1) { animation: testIn 32s infinite; animation-delay:-19.5s; }
+  .s3 .tests .pill:nth-child(2) { animation: testIn 32s infinite; animation-delay:-19.0s; }
+  .s3 .tests .pill:nth-child(3) { animation: testIn 32s infinite; animation-delay:-18.5s; }
+  .s3 .tests .pill:nth-child(4) { animation: testIn 32s infinite; animation-delay:-18.0s; }
+  @keyframes testIn { 0%,62% { opacity:0; } 65%,72% { opacity:1; } 75%,100% { opacity:0; } }
+
+  .s3 .complexity {
+    font-family:'Caveat', cursive; color:var(--accent); font-size:18px;
+    margin-top:auto;
+    animation: chalkIn7b 32s infinite;
+  }
+  @keyframes chalkIn7b { 0%,68% { opacity:0; } 71%,72% { opacity:1; } 75%,100% { opacity:0; } }
+
+  /* ═══ SCENE 4 — Mock interview · TinyURL ═══ */
+  .s4 .header-row {
+    display:flex; align-items:center; gap:10px;
+    animation: chalkIn5c 32s infinite;
+  }
+  @keyframes chalkIn5c { 0%,78% { opacity:0; transform:translateY(-4px); } 80%,97% { opacity:1; transform:none; } 100% { opacity:0; } }
+  .s4 .mock-chip {
+    padding:4px 10px; border-radius:6px;
+    background:rgba(248,113,113,0.10); color:var(--coral);
+    border:1px solid rgba(248,113,113,0.25);
+    font-size:10.5px; font-weight:600;
+    font-family:'JetBrains Mono', monospace; letter-spacing:0.3px;
+    text-transform:uppercase;
+  }
+  .s4 .timer {
+    font-family:'JetBrains Mono', monospace;
+    font-size:18px; font-weight:700; color:#fff;
+    background:rgba(248,113,113,0.05);
+    border:1px solid rgba(248,113,113,0.20);
+    padding:3px 11px; border-radius:6px; letter-spacing:0.04em;
+  }
+  .s4 .phase {
+    margin-left:auto;
+    font-family:'JetBrains Mono', monospace; font-size:11px;
+    color:var(--text-mute);
+  }
+  .s4 .phase b { color:var(--coral); }
+
+  .s4 .title {
+    font-family:'Caveat', cursive; font-weight:600;
+    font-size:30px; color:#fff; margin-top:4px;
+    animation: chalkIn6c 32s infinite;
+  }
+  @keyframes chalkIn6c { 0%,82% { opacity:0; transform:translateX(-6px); } 84%,97% { opacity:1; transform:none; } 100% { opacity:0; } }
+
+  .s4 .canvas {
+    margin-top:auto;
+    animation: chalkIn7c 32s infinite;
+  }
+  @keyframes chalkIn7c { 0%,84% { opacity:0; } 86%,97% { opacity:1; } 100% { opacity:0; } }
+  .s4 .canvas svg { width:100%; max-width:480px; height:90px; }
+  .s4 .canvas svg .node {
+    fill:rgba(96,165,250,0.10); stroke:var(--blue); stroke-width:1.4;
+  }
+  .s4 .canvas svg .node-cache { fill:rgba(251,191,36,0.10); stroke:var(--amber); }
+  .s4 .canvas svg .node-db { fill:rgba(167,139,250,0.10); stroke:var(--accent-2); }
+  .s4 .canvas svg .label {
+    fill:#fff; font-family:'JetBrains Mono', monospace; font-size:8px;
+    text-anchor:middle; }
+  .s4 .canvas svg .arrow {
+    stroke:var(--text-mute); stroke-width:1.2; fill:none;
+    stroke-dasharray:60; stroke-dashoffset:60;
+  }
+  .s4 .canvas svg .arrow.a1 { animation:arrowDraw 32s infinite; animation-delay:-29s; }
+  .s4 .canvas svg .arrow.a2 { animation:arrowDraw 32s infinite; animation-delay:-28.5s; }
+  .s4 .canvas svg .arrow.a3 { animation:arrowDraw 32s infinite; animation-delay:-28s; }
+  .s4 .canvas svg .arrow.a4 { animation:arrowDraw 32s infinite; animation-delay:-27.5s; }
+  @keyframes arrowDraw { 0%,87% { stroke-dashoffset:60; } 90%,97% { stroke-dashoffset:0; } 100% { stroke-dashoffset:60; } }
+
+  /* ═══ YOUR TURN — input zone ═══ */
+  .v9-turn { width:100%; max-width:680px; flex-shrink:0; }
+  .v9-turn-label {
+    text-align:center; font-size:13px; color:var(--text-mute);
+    margin-bottom:10px;
+  }
+  .v9-turn-label b {
+    color:#fff; font-weight:600;
+    font-family:'Lexend', sans-serif; letter-spacing:-0.01em;
+  }
+  .v9-turn-label .arr { display:inline-block; color:var(--accent); margin:0 4px; animation:downArr 1.6s infinite; }
+  @keyframes downArr { 0%,100% { transform:translateY(0); } 50% { transform:translateY(3px); } }
+
+  .v9-actions {
+    display:grid; grid-template-columns:repeat(4, 1fr); gap:8px;
+    margin-bottom:10px;
+  }
+  @media (max-width:640px) { .v9-actions { grid-template-columns:1fr 1fr; } }
+
+  .v9-act {
+    display:flex; align-items:center; gap:8px;
+    padding:9px 12px; border-radius:9px;
+    background:rgba(255,255,255,0.022);
+    border:1px solid rgba(255,255,255,0.06);
+    font-family:inherit; cursor:pointer; transition:all 0.15s;
+    text-align:left; color:var(--text);
+  }
+  .v9-act:hover {
+    border-color:rgba(var(--_c),0.4);
+    background:rgba(var(--_c),0.05);
+    transform:translateY(-1px);
+  }
+  .v9-act .ico {
+    width:24px; height:24px; border-radius:6px;
+    background:rgba(var(--_c),0.12); color:rgb(var(--_c));
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .v9-act .lbl {
+    font-size:12px; font-weight:600; color:#fff;
+    letter-spacing:-0.005em;
+  }
+  .v9-act .hint {
+    display:block; font-size:10px; color:var(--text-mute);
+    font-weight:400; margin-top:1px;
+  }
+
+  /* The hero input bar */
+  .v9-bar {
+    display:flex; align-items:center; gap:0;
+    background:#161513; border:1.5px solid rgba(52,211,153,0.30);
+    border-radius:13px; padding:6px;
+    transition:all 0.2s;
+  }
+  .v9-bar:focus-within {
+    border-color:var(--accent);
+    box-shadow:0 0 0 5px rgba(52,211,153,0.10);
+  }
+  .v9-bar input {
+    flex:1; background:transparent; border:none; outline:none;
+    color:#fff; font-family:inherit; font-size:15px;
+    padding:11px 12px;
+  }
+  .v9-bar input::placeholder { color:var(--text-dim); }
+  .v9-bar button {
+    background:var(--accent); color:#0a0d0b; border:none;
+    border-radius:9px; padding:10px 18px;
+    font-family:inherit; font-size:13px; font-weight:600;
+    cursor:pointer; display:flex; align-items:center; gap:6px;
+    transition:all 0.15s;
+  }
+  .v9-bar button:hover { background:#2dd4a0; transform:translateY(-1px); }
+
+  /* Subject chips below */
+  .v9-subjects {
+    display:flex; flex-wrap:wrap; justify-content:center; gap:5px;
+    margin-top:10px;
+  }
+  .v9-subjects button {
+    padding:4px 11px; border-radius:14px;
+    background:rgba(255,255,255,0.022);
+    border:1px solid rgba(255,255,255,0.06);
+    font-size:11px; color:var(--text-mute);
+    font-family:inherit; cursor:pointer; transition:all 0.15s;
+  }
+  .v9-subjects button:hover {
+    border-color:var(--accent); color:#fff;
+    background:rgba(52,211,153,0.05);
+  }
+
+  /* Tightening for shorter screens */
+  @media (max-height: 760px) {
+    .v9-stage { max-height: 56vh; min-height: 280px; }
+    .v9-scene { padding:22px 28px; gap:8px; }
+    .s1 .title, .s2 .title, .s4 .title { font-size:26px; }
+    .s1 .eq { font-size:18px; }
+    .v9-turn-label { margin-bottom:8px; font-size:12.5px; }
+    .v9-actions { margin-bottom:8px; }
+    .v9-act { padding:8px 10px; }
+    .v9-act .lbl { font-size:11.5px; }
+    .v9-act .hint { font-size:9.5px; }
+  }
+  @media (max-height: 680px) {
+    nav.v9-nav { height:46px; }
+    main.v9-main { padding:10px 16px 8px; gap:10px; }
+    .v9-stage { min-height:240px; max-height:50vh; }
+    .v9-scene { padding:18px 22px; }
+    .v9-bar input { font-size:14px; padding:9px 10px; }
+    .v9-subjects { display:none; }
+  }
+
+  /* Login modal */
+  #login-overlay {
+    display:none; position:fixed; inset:0; z-index:9998;
+    background:rgba(5,7,12,0.75); backdrop-filter:blur(10px);
+    align-items:center; justify-content:center; padding:20px;
+  }
+  #login-overlay.show { display:flex; }
+  #login-overlay .box {
+    background:linear-gradient(180deg,rgba(22,25,37,0.98),rgba(13,17,23,0.98));
+    border:1px solid rgba(255,255,255,0.08); border-radius:18px;
+    padding:36px 32px 28px; width:100%; max-width:380px;
+    text-align:center; position:relative;
+  }
+  #login-overlay .x {
+    position:absolute; top:12px; right:14px; background:none; border:none;
+    color:rgba(255,255,255,0.35); font-size:22px; cursor:pointer; padding:4px;
+  }
+  #login-overlay .e-logo {
+    display:inline-flex; align-items:center; justify-content:center;
+    width:44px; height:44px; border-radius:12px;
+    background:linear-gradient(135deg,rgba(52,211,153,0.22),rgba(167,139,250,0.14));
+    font-family:'Lexend',sans-serif; font-weight:800; font-size:22px;
+    color:var(--accent); margin-bottom:14px;
+  }
+  #login-overlay h2 {
+    font-family:'Lexend',sans-serif; font-size:20px; font-weight:700;
+    margin-bottom:6px; color:#fff;
+  }
+  #login-overlay p {
+    font-size:12.5px; color:rgba(255,255,255,0.55);
+    margin-bottom:20px; line-height:1.5;
+  }
+  #login-overlay .gbtn {
+    display:inline-flex; align-items:center; gap:10px;
+    padding:10px 20px; background:#fff; color:#0a0b10;
+    border:none; border-radius:999px; font-size:13px; font-weight:500;
+    cursor:pointer;
+  }
+  #login-overlay .gbtn .gdot {
+    width:16px; height:16px; border-radius:50%;
+    background:conic-gradient(from 0deg,#ea4335,#fbbc04,#34a853,#4285f4,#ea4335);
+  }
+</style>
+</head>
+<body>
+
+<div id="v9">
+
+  <!-- ═══ NAV ═══ -->
+  <nav class="v9-nav">
+    <a href="#" class="v9-logo"><em>E</em>uler<sup>beta</sup></a>
+    <div class="v9-nav-r">
+      <button class="ghost" onclick="show()">Sign in</button>
+      <button class="primary" onclick="show()">Try free</button>
+    </div>
+  </nav>
+
+  <main class="v9-main">
+
+    <!-- ═══ THE STAGE ═══ -->
+    <div class="v9-stage">
+
+      <div class="v9-stage-bar">
+        <div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+        <div class="live-pill"><span class="dot"></span> LIVE</div>
+        <div class="cycle"><span class="c1"></span><span class="c2"></span><span class="c3"></span><span class="c4"></span></div>
+        <div class="now">Euler · auto-cycling demo</div>
+      </div>
+
+      <div class="v9-stage-body">
+
+        <!-- ─── Scene 1: Math ─── -->
+        <div class="v9-scene s1">
+          <span class="topic-chip">Math · Chain rule</span>
+          <div class="title">Chain Rule</div>
+          <div class="eq">d/dx[ sin(x²) ] = cos(x²) · 2x</div>
+          <svg class="wave" viewBox="0 0 380 46">
+            <path d="M5 23 Q30 4 55 23 Q80 42 105 23 Q130 4 155 23 Q180 42 205 23 Q230 4 255 23 Q280 42 305 23 Q330 4 355 23 Q368 30 375 23"
+                  stroke="#34d399" stroke-width="1.8" fill="none"/>
+          </svg>
+          <div class="question">— now try: derivative of sin(cos(x)) ?</div>
+        </div>
+
+        <!-- ─── Scene 2: BYO Bio from PDF ─── -->
+        <div class="v9-scene s2">
+          <span class="pdf-chip">
+            <span class="src-dot"></span>
+            <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+            Reading from <b style="color:#fff">Bio_HW3.pdf</b> · page 4
+          </span>
+          <div class="title">Q3 — DNA → mRNA → Protein</div>
+          <div class="pipeline">
+            <span class="step dna">DNA</span>
+            <span class="arr a1">— transcribe →</span>
+            <span class="step rna">mRNA</span>
+            <span class="arr a2">— translate →</span>
+            <span class="step pro">Protein</span>
+          </div>
+          <div class="annot">— transcription happens in the nucleus, translation at the ribosome</div>
+        </div>
+
+        <!-- ─── Scene 3: DSA · Two Sum ─── -->
+        <div class="v9-scene s3">
+          <span class="topic-chip">CS · Pushed code <span class="badge">push_code</span> · two_sum.py</span>
+          <div class="editor">
+            <span class="ln"><span class="com"># Tutor: "Try a hash map — one pass, O(n)."</span></span>
+            <span class="ln"><span class="kw">def</span> <span class="fn">two_sum</span>(nums, target):</span>
+            <span class="ln added">  seen = {}</span>
+            <span class="ln added">  <span class="kw">for</span> i, x <span class="kw">in</span> <span class="fn">enumerate</span>(nums):</span>
+            <span class="ln added">    <span class="kw">if</span> target - x <span class="kw">in</span> seen:</span>
+            <span class="ln added">      <span class="kw">return</span> [seen[target-x], i]</span>
+            <span class="ln added">    seen[x] = i</span>
+          </div>
+          <div class="tests">
+            <span class="pill">[2,7,11,15], 9 → [0,1] ✓</span>
+            <span class="pill">[3,2,4], 6 → [1,2] ✓</span>
+            <span class="pill">[3,3], 6 → [0,1] ✓</span>
+            <span class="pill">[1], 5 → [] ✓</span>
+          </div>
+          <div class="complexity">— O(n) one pass with hash map · 4/4 tests passed</div>
+        </div>
+
+        <!-- ─── Scene 4: Mock interview · TinyURL ─── -->
+        <div class="v9-scene s4">
+          <div class="header-row">
+            <span class="mock-chip">Mock · Google · Sys Design</span>
+            <span class="timer">38:24</span>
+            <span class="phase">Phase <b>3 / 6</b> · capacity estimation</span>
+          </div>
+          <div class="title">Design TinyURL</div>
+          <div class="canvas">
+            <svg viewBox="0 0 480 90">
+              <rect class="node" x="10"  y="34" width="60" height="22" rx="5"/>
+              <text class="label" x="40" y="48">Client</text>
+
+              <rect class="node" x="100" y="14" width="60" height="22" rx="5"/>
+              <text class="label" x="130" y="28">CDN</text>
+
+              <rect class="node" x="100" y="54" width="60" height="22" rx="5"/>
+              <text class="label" x="130" y="68">API GW</text>
+
+              <rect class="node" x="200" y="34" width="80" height="22" rx="5"/>
+              <text class="label" x="240" y="48">App tier</text>
+
+              <rect class="node node-cache" x="320" y="14" width="60" height="22" rx="5"/>
+              <text class="label" x="350" y="28">Cache</text>
+
+              <rect class="node node-db" x="320" y="54" width="60" height="22" rx="5"/>
+              <text class="label" x="350" y="68">Postgres</text>
+
+              <path class="arrow a1" d="M70 45 L100 25"/>
+              <path class="arrow a2" d="M70 45 L100 65"/>
+              <path class="arrow a3" d="M280 45 L320 25"/>
+              <path class="arrow a4" d="M280 45 L320 65"/>
+            </svg>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="v9-stage-foot">
+        <div class="v9-vbars"><span></span><span></span><span></span><span></span><span></span></div>
+        <div class="caption">
+          <span class="c c1">Euler is teaching · <b>"...so when you differentiate sin(x²), the inner x² gives you the 2x."</b></span>
+          <span class="c c2">Euler is reading from your PDF · <b>"...transcription happens here, before translation kicks in."</b></span>
+          <span class="c c3">Euler pushed code · <b>"running tests against your editor — 4 of 4 passing."</b></span>
+          <span class="c c4">Mock interview · <b>"good clarification. now estimate the read-to-write ratio out loud."</b></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- ═══ YOUR TURN ═══ -->
+    <section class="v9-turn">
+      <div class="v9-turn-label"><b>Your turn</b> <span class="arr">↓</span> Type, upload, paste, or talk.</div>
+
+      <!-- Action chips — labeled, not invisible icons -->
+      <div class="v9-actions">
+        <button class="v9-act" style="--_c:167,139,250" onclick="document.getElementById('v9-file').click()">
+          <span class="ico">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+          </span>
+          <span><span class="lbl">Upload PDF</span><span class="hint">homework · slides · notes</span></span>
+        </button>
+        <input id="v9-file" type="file" multiple accept=".pdf,.docx,image/*" style="display:none" onchange="show()">
+
+        <button class="v9-act" style="--_c:96,165,250" onclick="ytPaste()">
+          <span class="ico">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="23 7 16 12 23 17 23 7"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+          </span>
+          <span><span class="lbl">Paste video</span><span class="hint">YouTube link</span></span>
+        </button>
+
+        <button class="v9-act" style="--_c:251,146,60" onclick="show()">
+          <span class="ico">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v8m0 0a4 4 0 0 1 4 4v6m-4-10a4 4 0 0 0-4 4v6m12 0H4"/></svg>
+          </span>
+          <span><span class="lbl">Speak to it</span><span class="hint">hold the mic</span></span>
+        </button>
+
+        <button class="v9-act" style="--_c:52,211,153" onclick="show()">
+          <span class="ico">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+          </span>
+          <span><span class="lbl">My folders</span><span class="hint">saved books · courses</span></span>
+        </button>
+      </div>
+
+      <!-- Primary input bar -->
+      <form class="v9-bar" onsubmit="event.preventDefault();show()">
+        <input id="v9-input" type="text" placeholder='try "teach me eigenvectors" or "explain Q3 in this PDF"' autocomplete="off">
+        <button type="submit">
+          Take over
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </form>
+
+      <!-- Subject chips -->
+      <div class="v9-subjects">
+        <button onclick="prefill('teach me the chain rule with examples')">🧮 Math</button>
+        <button onclick="prefill('explain Schrödinger equation')">⚛️ Physics</button>
+        <button onclick="prefill('walk me through SN1 vs SN2')">🧪 Chemistry</button>
+        <button onclick="prefill('how does DNA transcription work')">🧬 Biology</button>
+        <button onclick="prefill('explain transformers in ML')">💻 CS &amp; ML</button>
+        <button onclick="prefill('mock interview me — Google · DSA · 45 min')">🎯 Mock interview</button>
+        <button onclick="prefill('AP Bio in 3 weeks — focus on genetics')">📚 Exam prep</button>
+      </div>
+    </section>
+
+  </main>
+</div>
+
+<!-- Login modal (stub) -->
+<div id="login-overlay" onclick="if(event.target===this)hide()">
+  <div class="box">
+    <button class="x" onclick="hide()">&times;</button>
+    <div class="e-logo">E</div>
+    <h2>Welcome to Euler</h2>
+    <p>Sign in to take over the session.<br>We'll create your account automatically.</p>
+    <button class="gbtn" onclick="alert('Mockup — real Google flow opens here')">
+      <span class="gdot"></span> Sign in with Google
+    </button>
+  </div>
+</div>
+
+<script>
+  function show() {
+    document.getElementById('login-overlay').classList.add('show');
+    document.body.style.overflow = 'hidden';
+  }
+  function hide() {
+    document.getElementById('login-overlay').classList.remove('show');
+    document.body.style.overflow = '';
+  }
+  function prefill(t) {
+    var el = document.getElementById('v9-input');
+    if (el) { el.value = t; el.focus(); }
+  }
+  function ytPaste() {
+    var el = document.getElementById('v9-input');
+    if (el) { el.value = 'https://youtube.com/watch?v='; el.focus(); }
+  }
+  document.addEventListener('keydown', e => { if (e.key === 'Escape') hide(); });
+</script>
+</body>
+</html>
